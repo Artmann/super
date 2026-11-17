@@ -17,13 +17,6 @@ internal static class DayCycle
     /// <summary>The time of day when the game starts: 0 is midnight, 0.5 noon.</summary>
     public const float Start = 0.975f;
 
-    /// <summary>
-    /// How often the sky's colours change, in seconds. A gradient sky is lit from a baked
-    /// copy, and changing its colours bakes it again, which waits for the graphics card, so
-    /// they step rather than glide.
-    /// </summary>
-    public const float SkyStep = 0.5f;
-
     private static readonly Vector3 NightZenith = new(0.004f, 0.006f, 0.016f);
     private static readonly Vector3 NightHorizon = new(0.012f, 0.016f, 0.032f);
     private static readonly Vector3 TwilightZenith = new(0.05f, 0.065f, 0.15f);
@@ -73,11 +66,9 @@ internal static class DayCycle
             view.Sun(moon, new Vector3(0.16f, 0.21f, 0.36f) * up, shadows: true);
         }
 
-        // The sky's colours step every half second, so its baked lighting isn't redone each frame.
-        float stepped = MathF.Floor(seconds / SkyStep) * SkyStep;
-        float skyElevation = Elevation(stepped);
-        var (zenith, horizon) = SkyColors(skyElevation);
-        float day = Smooth(-0.1f, 0.2f, skyElevation);
+        // The sky's colours follow the sun every frame; its lighting is rebuilt on the GPU without a wait.
+        var (zenith, horizon) = SkyColors(elevation);
+        float day = Smooth(-0.1f, 0.2f, elevation);
         view.Sky(new SkySettings
         {
             Zenith = zenith,

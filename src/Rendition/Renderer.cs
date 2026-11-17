@@ -209,6 +209,9 @@ public sealed unsafe class Renderer : IDisposable
     // decides it through the view, so baking it again leaves the version alone.
     private SkySun _bakedSky;
 
+    /// <summary>The sky or the environment's description changed and its cubes aren't redrawn yet.</summary>
+    private bool _environmentPending;
+
     private readonly DescriptorPool _descriptorPool;
     private readonly DescriptorPool _lightingPool;
     private readonly DescriptorSetLayout _frameSetLayout;
@@ -686,6 +689,7 @@ public sealed unsafe class Renderer : IDisposable
             Horizon = new Vector3(0.4f),
             Floor = new Vector3(0.2f),
         });
+        FlushEnvironment();
         _skySh = new SkySh(_context, _environment.Sky, _environment.Sampler);
         foreach (ref var frame in _frames.AsSpan())
         {
@@ -1238,13 +1242,46 @@ public sealed unsafe class Renderer : IDisposable
         return CreateDetailedMesh(vertices, indices, parts, [material], simplify)[0];
     }
 
-    /// <summary>Replaces what surfaces reflect. Waits for the GPU, so call this while loading.</summary>
+    /// <summary>
+    /// Replaces what surfaces reflect. Nothing waits: the next frame redraws the environment before anything reads it,
+    /// so it can change every frame.
+    /// </summary>
     public void SetEnvironment(in EnvironmentDescription environment)
     {
-        _api.DeviceWaitIdle(_context.Device).Check();
-        _environment.Bake(environment, _bakedSky);
+        _environment.SetDescription(environment);
+        _environmentPending = true;
         _environmentVersion++;
         _environmentContent = HashEnvironment(environment);
+    }
+
+    /// <summary>
+    /// Records the frame's share of the environment's redraw: after a change of sky or description, its sharp levels
+    /// and a slice of the rough reflections, and after that, while the sky holds still, the slices left. A change
+    /// pending at the first frame draws every level, so a sky a game sets before it, and a screenshot of it, show no
+    /// default.
+    /// </summary>
+    private void RecordEnvironment(CommandBuffer cmd)
+    {
+        if (_environmentPending && _framesSubmitted == 0)
+        {
+            _environment.Record(cmd, _bakedSky);
+        }
+        else
+        {
+            _environment.RecordFrame(cmd, _bakedSky, _environmentPending);
+        }
+
+        _environmentPending = false;
+    }
+
+    /// <summary>Redraws the whole of a changed environment now and waits, for the paths that draw outside a frame.</summary>
+    private void FlushEnvironment()
+    {
+        if (_environmentPending || _environment.Unfinished)
+        {
+            _context.SubmitAndWait(cmd => _environment.Record(cmd, _bakedSky));
+            _environmentPending = false;
+        }
     }
 
     /// <summary>
@@ -2078,6 +2115,7 @@ public sealed unsafe class Renderer : IDisposable
         DropBackgroundBakes();
         _uploads.Flush();
         BakeSky(view);
+        FlushEnvironment();
         PrepareBaking();
         using var job = SpaceJob(view, draws, settings, space, probeSettings, started);
         return RunJob(job);
@@ -2781,6 +2819,7 @@ public sealed unsafe class Renderer : IDisposable
         DropBackgroundBakes();
         _uploads.Flush();
         BakeSky(view);
+        FlushEnvironment();
         PrepareBaking(probes: false);
         using var job = ChunkJob(view, draws, chunk, settings, resolved, started);
         return RunJob(job);
@@ -2953,8 +2992,9 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Bakes the environment again with the view's clear sky when it or its sun has changed. A
-    /// gradient sky gives the same empty <see cref="SkySun"/> whatever the sun does, so that never bakes.
+    /// Marks the environment for a redraw with the view's clear sky when it or its sun has changed. The next frame
+    /// records it, or <see cref="FlushEnvironment"/> draws it now. A gradient sky gives the same empty
+    /// <see cref="SkySun"/> whatever the sun does, so that never redraws.
     /// </summary>
     private void BakeSky(in FrameView view)
     {
@@ -2965,9 +3005,8 @@ public sealed unsafe class Renderer : IDisposable
             return;
         }
 
-        _api.DeviceWaitIdle(_context.Device).Check();
-        _environment.Rebake(sky);
         _bakedSky = sky;
+        _environmentPending = true;
         SkyRebakes++;
     }
 
@@ -2979,6 +3018,9 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>The sun's disc the last frame drawn from the camera wrote, leaving out probe faces, for tests.</summary>
     internal Vector4 LastSunDisc { get; private set; }
+
+    /// <summary>The flat soft light and reflection the last frame's uniforms gave, for tests.</summary>
+    internal (Vector3 Irradiance, Vector3 Reflection) LastFlat { get; private set; }
 
     /// <summary>
     /// Hands a texture's bytes to the next frame's command buffer rather than waiting for
@@ -3525,6 +3567,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.DeviceWaitIdle(_context.Device).Check();
         _uploads.Flush();
         BakeSky(view);
+        FlushEnvironment();
 
         // The passes are bound to the screen's targets, so small ones stand in for a while. Each set
         // keeps what its own images hold, so the screen's history and held picture survive this.
@@ -4080,6 +4123,11 @@ public sealed unsafe class Renderer : IDisposable
         {
             _gpuTimer.Begin(cmd, _frameIndex);
         }
+
+        // A changed sky, redrawn before the frame's passes read it. It waits on the GPU for earlier reads itself, so the
+        // bake slice above traces last frame's sky, a frame behind, which the timer leaves out of the "Sky" pass.
+        RecordEnvironment(cmd);
+        _gpuTimer.Mark(cmd);
 
         // Worked out here, just before the frame is recorded, so a frame that is never drawn doesn't move the clock.
         _exposureStep = _exposureClock.Next(
@@ -5174,8 +5222,10 @@ public sealed unsafe class Renderer : IDisposable
 
         uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
         uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);
-        uniforms->FlatIrradiance = new Vector4(_environment.Flat.Irradiance, 0f);
-        uniforms->FlatReflection = new Vector4(_environment.Flat.Reflection, 0f);
+        var flat = _environment.Flat;
+        uniforms->FlatIrradiance = new Vector4(flat.Irradiance, 0f);
+        uniforms->FlatReflection = new Vector4(flat.Reflection, 0f);
+        LastFlat = flat;
 
         // Probes leave the sun's disc out: their rough levels would scatter it into specks, and
         // the sun's own light already gives surfaces its highlight. The sky is the one BakeSky worked out from the

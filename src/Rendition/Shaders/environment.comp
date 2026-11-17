@@ -2,10 +2,10 @@
 #extension GL_GOOGLE_include_directive : require
 #include "sky.glsl"
 
-// Bakes one level of the studio environment. Every texel integrates the studio's
-// light as a surface of a given roughness would see it, so the lighting pass only
-// has to look up a blurred reflection instead of tracing many rays per pixel.
-// With a turbidity set, a clear sky takes the place of the ceiling and horizon.
+// Draws one level of the studio environment straight from its description: the bands, or a
+// clear sky in place of the ceiling and horizon when a turbidity is set, the panels and the
+// sun's disc. The rough reflections and the soft light are filtered from these levels by
+// environment_filter.comp. See "Environment lighting" in docs/design.md.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -29,26 +29,20 @@ layout(std140, set = 0, binding = 0) uniform Environment {
 
 layout(rgba16f, set = 0, binding = 1) uniform writeonly image2DArray target;
 
-// Must match BakeConstants in Vulkan/EnvironmentMap.cs.
-layout(push_constant) uniform Bake {
-    int irradiance; // 1: blur over the whole hemisphere, for diffuse light
-    float roughness;
-    int sky;        // 1: leave the panels out, as the irradiance does, for light probes
-} bake;
+// Must match DrawConstants in Vulkan/EnvironmentMap.cs.
+layout(push_constant) uniform Draw {
+    int panels; // 1: show the panels; the light probes' sky leaves them out, since direct lights give their light
+    int disc;   // 1: show the sun's disc; only the sharp reflection does, since the direct light gives the rest
+} draw;
 
-const float PI = 3.14159265359;
-const uint SAMPLES = 1024;
-
-// Set once in main, so each of a texel's samples doesn't work it out again.
+// Set once in main.
 SkyState clearSky;
 
 // A clear sky above the horizon and the floor below it, fading from the sky's own horizon.
 vec3 skyAndFloor(vec3 direction) {
     if (direction.y >= 0.0) {
         vec3 color = skyRadiance(clearSky, direction);
-
-        // The direct light already gives surfaces the sun, so only the sharp reflection shows its disc.
-        if (bake.irradiance == 0 && bake.sky == 0 && bake.roughness == 0.0) {
+        if (draw.disc == 1) {
             color += sunDiscRadiance(direction, normalize(environment.skySun.xyz), environment.sunDisc);
         }
 
@@ -70,8 +64,7 @@ vec3 studio(vec3 direction) {
             : mix(environment.horizon.rgb, environment.floorColor.rgb, sqrt(-direction.y));
     }
 
-    // Direct lights already provide the panels' diffuse light. Only reflections show them.
-    int panelCount = bake.irradiance == 1 || bake.sky == 1 ? 0 : environment.panelCount;
+    int panelCount = draw.panels == 1 ? environment.panelCount : 0;
     for (int i = 0; i < panelCount; i++) {
         float facing = dot(direction, environment.panels[i].direction.xyz);
         if (facing <= 0.0) {
@@ -102,11 +95,6 @@ vec3 cubeDirection(uint face, vec2 uv) {
     }
 }
 
-vec2 hammersley(uint i) {
-    uint bits = bitfieldReverse(i);
-    return vec2(float(i) / float(SAMPLES), float(bits) * 2.3283064365386963e-10);
-}
-
 void main() {
     ivec3 size = imageSize(target);
     ivec3 texel = ivec3(gl_GlobalInvocationID);
@@ -121,42 +109,5 @@ void main() {
         clearSky = skyState(environment.skySun.xyz, environment.skySun.w);
     }
 
-    if (bake.irradiance == 0 && bake.roughness == 0.0) {
-        imageStore(target, texel, vec4(studio(n), 1.0));
-        return;
-    }
-
-    vec3 tangent = normalize(cross(abs(n.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), n));
-    vec3 bitangent = cross(n, tangent);
-    float alpha = bake.roughness * bake.roughness;
-
-    vec3 sum = vec3(0.0);
-    float totalWeight = 0.0;
-    for (uint i = 0; i < SAMPLES; i++) {
-        vec2 xi = hammersley(i);
-        float phi = 2.0 * PI * xi.x;
-        vec3 sampleDirection;
-        float weight;
-
-        if (bake.irradiance == 1) {
-            float r = sqrt(xi.y);
-            vec3 l = vec3(r * cos(phi), r * sin(phi), sqrt(1.0 - xi.y));
-            sampleDirection = tangent * l.x + bitangent * l.y + n * l.z;
-            weight = 1.0;
-        } else {
-            float cosTheta = sqrt((1.0 - xi.y) / (1.0 + (alpha * alpha - 1.0) * xi.y));
-            float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
-            vec3 h = vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
-            vec3 halfway = tangent * h.x + bitangent * h.y + n * h.z;
-            sampleDirection = reflect(-n, halfway);
-            weight = max(dot(n, sampleDirection), 0.0);
-        }
-
-        if (weight > 0.0) {
-            sum += studio(sampleDirection) * weight;
-            totalWeight += weight;
-        }
-    }
-
-    imageStore(target, texel, vec4(sum / totalWeight, 1.0));
+    imageStore(target, texel, vec4(studio(n), 1.0));
 }

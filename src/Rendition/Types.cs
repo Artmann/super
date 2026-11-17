@@ -642,7 +642,8 @@ public ref struct EnvironmentDescription
 /// environment's ceiling and horizon. Its sun is the light that casts the shadows, or else the
 /// first, and it shows that light as a disc <see cref="ShadowSettings.LightAngle"/> across. The
 /// environment's floor still shows below the horizon. Changing it, or that sun, while it is on
-/// bakes the environment again, which waits for the GPU. See "Sky" in docs/rendering.md.
+/// redraws the environment's lighting in the next frame, without waiting, so it can change every
+/// frame. See "Sky" in docs/rendering.md.
 /// </summary>
 public struct AnalyticSky
 {

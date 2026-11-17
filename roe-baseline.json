@@ -1427,7 +1427,7 @@
       "kind": "long-method",
       "name": "Hamlet.DayCycle.Light",
       "file": "examples/Hamlet/DayCycle.cs",
-      "metric": 46
+      "metric": 44
     },
     {
       "kind": "long-method",
@@ -1913,13 +1913,13 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Render",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 284
+      "metric": 289
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 158
+      "metric": 159
     },
     {
       "kind": "long-method",
@@ -1961,7 +1961,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 161
+      "metric": 163
     },
     {
       "kind": "long-method",
@@ -1992,18 +1992,6 @@
       "name": "Rendition.TextureData.WidenRoughness",
       "file": "src/Rendition/TextureData.cs",
       "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.EnvironmentMap.CreateCube",
-      "file": "src/Rendition/Vulkan/EnvironmentMap.cs",
-      "metric": 43
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.EnvironmentMap.EnvironmentMap",
-      "file": "src/Rendition/Vulkan/EnvironmentMap.cs",
-      "metric": 44
     },
     {
       "kind": "long-method",
@@ -3437,13 +3425,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5871
+      "metric": 5921
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1813
+      "metric": 1814
     },
     {
       "kind": "large-file",
@@ -3629,19 +3617,13 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 390
+      "metric": 394
     },
     {
       "kind": "large-type",
       "name": "Rendition.TextureData",
       "file": "src/Rendition/TextureData.cs",
       "metric": 40
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Vulkan.EnvironmentMap",
-      "file": "src/Rendition/Vulkan/EnvironmentMap.cs",
-      "metric": 24
     },
     {
       "kind": "large-type",
@@ -4057,7 +4039,11 @@
         "Rendition.Vulkan.CaptureCube",
         "Rendition.Vulkan.CubeCentres",
         "Rendition.Vulkan.CubeLevel",
+        "Rendition.Vulkan.CubeShader<TConstants>",
+        "Rendition.Vulkan.EnvironmentCube",
+        "Rendition.Vulkan.EnvironmentFlat",
         "Rendition.Vulkan.EnvironmentMap",
+        "Rendition.Vulkan.EnvironmentPrefilter",
         "Rendition.Vulkan.ExposureMeter",
         "Rendition.Vulkan.FogVolumeBuffers",
         "Rendition.Vulkan.Fsr",

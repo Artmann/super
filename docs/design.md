@@ -1392,8 +1392,10 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
 - `EnvironmentLight` (bit 21, `OFF_ENVIRONMENT_LIGHT`): every read of the sky's irradiance and
   reflection cubes outside the probes goes through `skyIrradiance` and `skyReflection` in
   `common.glsl`, which return `frame.flatIrradiance` and `frame.flatReflection`. Those are the
-  mean of each cube's six face centres at its coarsest mip, which `CubeCentres` reads back
-  once per bake, so the switch costs no lookups at all. Working it out per pixel took six and
+  mean of each cube's six face centres at its coarsest mip, which `CubeCentres` copies into a
+  host-visible buffer at the end of each update, in the same command buffer, so reading them
+  waits for nothing and the switch costs no lookups at all. After an update recorded in a
+  frame, they are the last finished update's. Working it out per pixel took six and
   made the lighting pass slower with the switch off than on. `probe_trace.comp` and
   `probe_fold.comp` still see the real sky, so the bounce keeps its colour.
 - `Emissive` (bit 22, `OFF_EMISSIVE`): `writeSurface()` zeroes `surface.emissive` after the surface
@@ -1450,11 +1452,54 @@ Super's `Graphics.MultiscatterSpecular`.
 ## Environment lighting
 
 `Renderer.SetEnvironment` describes the surroundings as colour bands plus up to
-eight glowing panels, and a compute shader bakes that into two cube maps. One holds
+eight glowing panels, and `EnvironmentMap` turns that into two cube maps. One holds
 a blurred reflection per roughness step and the other the soft light on matte
 surfaces. Lighting then needs a single lookup per pixel. It's generated rather than
 loaded from a photo, so a game can describe its own space and the softboxes can
-line up with the lights. Baking waits for the GPU, so it belongs in loading.
+line up with the lights.
+
+`EnvironmentMap.Record` writes the whole update into a command buffer, with barriers on
+both sides, so it can go in a frame without waiting for the GPU. `EnvironmentPrefilter`
+records the draws and filters, each through a `CubeShader`. `environment.comp` draws
+three levels analytically: a private 256² source cube (bands or clear sky, with panels,
+without the sun's disc), mip 0 of the reflection cube (with the disc), and the 64² `Sky`
+cube (no panels, no disc). The source and sky cubes get their mips by linear blits.
+`environment_filter.comp` then filters the rest from those mip chains by filtered
+importance sampling (Colbert and Křivánek): each sample reads its source at
+`lod = max(0.5 · log2(Ωs / Ωp), 0)`, where `Ωs = 1 / (N · pdf)` is the sample's share of the
+sphere and `Ωp = 4π / (6 · size²)` a source texel's, so a few samples read pre-blurred
+texels instead of many reading sharp ones. The paper adds 1 to the lod; here that blurred the
+rough mips past a 4096-sample reference and pulled the floor up into the lobe, so the bias
+is 0. Reflection mips 1 to 5 use GGX with V = N at roughness `mip / 5`, `pdf = D / 4`, from
+32 samples at mip 1 doubling each level to 512 at mip 5, since the rougher lobes cover more
+of the sphere and the smaller mips cost the same in all. The irradiance cube takes 256
+cosine-weighted samples of the sky cube, `pdf = cos θ / π`. In Hamlet's frame on High, on an RTX
+4060 Ti, the whole update takes about 1 ms of GPU time: the source, sharp and sky cubes with the
+irradiance about 0.25 ms, mip 1 0.31 ms, mips 2 to 4 0.26 ms together and mip 5 0.21 ms.
+
+That is twice the half millisecond a frame can spare, so a frame doesn't redraw it all.
+`RecordFrame` after a change draws the sharp part, everything but the rough reflections, and
+the first of three slices of them, mip 1, then mips 2 to 4, then mip 5, which even out the
+cost (`RoughSlices` keeps the turn); each later `RecordFrame` draws the next slice from the
+source cube the change drew. A sky that
+changes every frame keeps the slices turning, so each rough mip is at most three frames
+old, and a frame costs about 0.5 ms. In Hamlet's sunset the lag doesn't show: the scene below
+the sky changes by under one level of brightness from one frame to the next.
+
+`Bake` is `SetDescription` plus `Record`, every level at once, in a submit that waits, for
+tests. The renderer keeps the description and the clear sky, marks the environment pending
+when either changes, and records `RecordFrame` in the next frame's command buffer, right
+after the GPU timer starts, as the "Sky" pass. While the sky then holds still, each frame
+records the next slice until all three are done. A change still pending at the very first frame
+records every level at once instead, so a sky a game sets before it, and a screenshot of it, never show the default
+studio in the rough reflections. The bake slice and chunk copies recorded
+before it in that frame still read the previous sky, a frame behind. The paths that draw
+outside a frame (a blocking bake, a reflection probe capture, the constructor) call
+`FlushEnvironment`, which records the whole update in its own submit and waits when
+anything is pending or slices are left. `Flat` follows a frame or two behind, since it
+reads what the GPU last finished, and its reflection half reads mip 5, so it can trail the
+last slice. `Sky` is a view of the sky cube's first mip only, so captures and `SkySh` see
+one level as before.
 
 Panels appear only in reflections. The direct lights already provide their diffuse
 light, and baking it too would count that light twice and overexpose the scene. A third,
@@ -1471,8 +1516,8 @@ from the camera, so a tall tree fades no sooner than the ground it stands on.
 The direction used to look up the cube is still taken from the camera.
 
 Super keeps one set of bands, from water first, then the sky, then the plain studio, and
-bakes them again only when they change, so a steady sky costs nothing per frame but a
-sky animated every frame would rebake every frame.
+sets them again only when they change, so a steady sky costs nothing per frame and a sky
+animated every frame costs the update's half millisecond each frame, with no wait.
 
 ### The clear sky
 
@@ -1505,9 +1550,9 @@ overflows at the horizon, and a sun straight below the horizon takes a level dir
 
 The frame uniforms carry `skySun` (towards the sun, and the turbidity) and `sunDisc`
 (its radiance, and the cosine of its radius). The renderer compares `SkyModel.Sun` with
-what it last baked each frame and, on a change, waits for the GPU and runs
-`EnvironmentMap.Rebake` with the same bands, so moving the sun under a clear sky rebakes
-every frame. That doesn't bump the environment version: the lighting hashes that decide
+what it last baked each frame and, on a change, marks the environment pending so the
+frame records the update with the same bands, so moving the sun under a clear sky
+updates it every frame without waiting. That doesn't bump the environment version: the lighting hashes that decide
 when probes recapture already cover the turbidity, the lights and `LightAngle`. The uniforms
 take `skySun` and `sunDisc` from that baked `SkySun`, not from the view being drawn, so a
 frame drawn again without a baked sun keeps the sky's sun (see "Each frame's bakes").
@@ -3697,8 +3742,9 @@ Uploads ride the next frame. `CreateMesh`, `CreateDrawItem`, `CreateTexture` and
 `UploadQueue`. The next `Render` records every queued copy, with its layout
 transitions, at the start of its command buffer, so a resource made before a
 `Render` is drawable in that same frame. The staging buffer is retired through the
-destroy queue below. `CreateSurfaceShader`, `SetEnvironment`, `SetOverlayAtlas` and
-probe capture still wait, and say so: they're for loading screens.
+destroy queue below. `SetEnvironment` rides the next frame too (see "Environment
+lighting"). `CreateSurfaceShader`, `SetOverlayAtlas` and probe capture still wait, and say
+so: they're for loading screens.
 
 Destroying returns at once. The resource is added to the destroy slot of the frame
 most recently submitted, and released when a later `Render` has waited on that
