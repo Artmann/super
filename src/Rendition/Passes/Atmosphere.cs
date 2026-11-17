@@ -140,7 +140,7 @@ internal static class Atmosphere
         return (new Vector4(perMetre, scattering / 1000f), new Vector4(sunlight, 1f));
     }
 
-    private static float SmoothStep(float from, float to, float value)
+    internal static float SmoothStep(float from, float to, float value)
     {
         // An edge of no width, a point sun's, is a step; dividing by it would give NaN right on the edge.
         if (to <= from)

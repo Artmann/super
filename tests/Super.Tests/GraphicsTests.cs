@@ -336,6 +336,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.FogVolumes), RenderEffects.FogVolumes)]
     [InlineData(nameof(Graphics.ScreenBounce), RenderEffects.ScreenBounce)]
     [InlineData(nameof(Graphics.AerialPerspective), RenderEffects.AerialPerspective)]
+    [InlineData(nameof(Graphics.Stars), RenderEffects.Stars)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -376,6 +377,7 @@ public class GraphicsTests
         Assert.True(graphics.LocalLights);
         Assert.True(graphics.Haze);
         Assert.True(graphics.AerialPerspective);
+        Assert.True(graphics.Stars);
         Assert.True(graphics.Underwater);
         Assert.False(graphics.Vsync);
 

@@ -239,4 +239,125 @@ public class SkyModelTests
 
         Assert.Equal(shows, SkyModel.AirShows(view, off, capturingProbe));
     }
+
+    private static Vector3 Elevated(float degrees)
+    {
+        float radians = degrees * MathF.PI / 180f;
+        return new Vector3(MathF.Cos(radians), MathF.Sin(radians), 0f);
+    }
+
+    private static FrameView Night(Vector3 moon, bool hideStars = false) =>
+        new() { Sky = new AnalyticSky { Turbidity = 2.5f, Moon = moon, HideStars = hideStars, StarRotation = 1.25f } };
+
+    [Fact]
+    public void Stars_fade_in_as_the_sun_goes_from_2_to_12_degrees_below_the_horizon()
+    {
+        static float Stars(float sunDegrees) =>
+            SkyModel.Night(Night(Vector3.Zero), Elevated(sunDegrees), RenderEffects.None, false).Stars.X;
+
+        Assert.Equal(0f, Stars(10f));
+        Assert.Equal(0f, Stars(-1.5f));
+        float full = Stars(-12.5f);
+        Assert.True(full > 0f, "The stars should show with the sun 12.5 degrees down.");
+        Assert.Equal(full, Stars(-40f));
+        // Halfway between 2 and 12 degrees down, 0.035 and 0.21 radians, they are at half their brightness.
+        Assert.Equal(full / 2f, Stars(-7.02f), 1e-3f);
+        Assert.Equal(1.25f, SkyModel.Night(Night(Vector3.Zero), Elevated(-40f), RenderEffects.None, false).Stars.Y);
+    }
+
+    [Theory]
+    [InlineData(true, RenderEffects.None)]
+    [InlineData(false, RenderEffects.Stars)]
+    public void Stars_are_left_out_by_HideStars_and_by_the_Stars_switch(bool hideStars, RenderEffects off)
+    {
+        var view = Night(Vector3.Zero, hideStars);
+
+        Assert.Equal(0f, SkyModel.Night(view, Elevated(-40f), off, false).Stars.X);
+    }
+
+    [Fact]
+    public void A_gradient_sky_and_a_probe_capture_have_no_moon_or_stars()
+    {
+        var clear = Night(Elevated(60f));
+        var gradient = clear;
+        gradient.Sky.Turbidity = 0f;
+
+        Assert.Equal(default, SkyModel.Night(gradient, Elevated(-40f), RenderEffects.None, false));
+        Assert.Equal(default, SkyModel.Night(clear, Elevated(-40f), RenderEffects.None, true));
+        Assert.NotEqual(default, SkyModel.Night(clear, Elevated(-40f), RenderEffects.None, false));
+    }
+
+    [Fact]
+    public void The_moon_points_where_it_is_reddens_low_and_is_gone_below_the_horizon()
+    {
+        var sun = Elevated(-40f);
+
+        var (high, highLight, _) = SkyModel.Night(Night(new Vector3(0f, 2f, 2f)), sun, RenderEffects.None, false);
+        var (_, lowLight, _) = SkyModel.Night(Night(Elevated(3f)), sun, RenderEffects.None, false);
+        var (_, setLight, _) = SkyModel.Night(Night(Elevated(-5f)), sun, RenderEffects.None, false);
+        var (none, noLight, _) = SkyModel.Night(Night(Vector3.Zero), sun, RenderEffects.None, false);
+
+        Assert.True(Vector4.Distance(new Vector4(0f, MathF.Sqrt(0.5f), MathF.Sqrt(0.5f), 1f), high) < 1e-6f, $"The moon is at {high}.");
+        Assert.True(highLight.X > 0.1f, $"The high moon is {highLight}.");
+        Assert.True(lowLight.X / lowLight.Z > 1.5f * highLight.X / highLight.Z, $"The low moon is {lowLight}, the high one {highLight}.");
+        Assert.Equal(Vector4.Zero, setLight);
+        Assert.Equal(Vector4.Zero, none);
+        Assert.Equal(Vector4.Zero, noLight);
+    }
+
+    [Fact]
+    public void The_sky_follows_the_sun_and_not_the_moons_light_even_when_that_casts_the_shadows()
+    {
+        var moon = Elevated(40f);
+        var sun = -moon;
+        var lights = new[]
+        {
+            new DirectionalLight { Direction = moon * 3f, Radiance = new Vector3(0.2f), CastsShadow = true },
+            new DirectionalLight { Direction = sun, Radiance = new Vector3(5f) },
+        };
+        var view = new FrameView { Lights = lights, Sky = new AnalyticSky { Turbidity = 2.5f, Moon = moon } };
+
+        Assert.True(Vector3.Distance(sun, SkyModel.Sun(view).Direction) < 1e-6f, $"The sky's sun points {SkyModel.Sun(view).Direction}.");
+
+        // With only the moon's light there is nothing else to follow.
+        var alone = view with { Lights = lights.AsSpan(0, 1).ToArray() };
+        Assert.True(Vector3.Distance(moon, SkyModel.Sun(alone).Direction) < 1e-6f, $"The sky's sun points {SkyModel.Sun(alone).Direction}.");
+    }
+
+    [Fact]
+    public void The_moon_and_stars_reach_the_frame()
+    {
+        var view = new View();
+        view.Sky(new SkySettings { Turbidity = 2.5f, Moon = new Vector3(0f, 1f, 1f), HideStars = true, StarRotation = 0.5f });
+
+        var sky = SceneRenderer.FrameSky(view, RenderEffects.None);
+
+        Assert.Equal(new Vector3(0f, 1f, 1f), sky.Moon);
+        Assert.True(sky.HideStars);
+        Assert.Equal(0.5f, sky.StarRotation);
+    }
+
+    [Theory]
+    [InlineData(float.NaN, 0f, "<NaN, 1, 0> and 0")]
+    [InlineData(0f, float.PositiveInfinity, "<0, 1, 0> and Infinity")]
+    public void A_moon_or_star_rotation_that_is_not_a_number_is_refused(float moonX, float rotation, string shown)
+    {
+        var original = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
+        try
+        {
+            var view = new View();
+
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() =>
+                view.Sky(new SkySettings { Turbidity = 2.5f, Moon = new Vector3(moonX, 1f, 0f), StarRotation = rotation }));
+
+            Assert.Equal("settings", error.ParamName);
+            Assert.StartsWith("The moon's direction and the stars' rotation must be numbers, but they are " + shown + ".", error.Message);
+            Assert.Null(view.SkySettings);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
 }

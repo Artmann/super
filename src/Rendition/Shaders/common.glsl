@@ -59,6 +59,9 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 outlineFade;        // x, y: the distances in metres over which outlines fade out
     vec4 airExtinction;      // rgb: how much the physical sky's air dims per metre; w: the aerosol's scattering per metre
     vec4 airSun;             // rgb: the sunlight reaching that air; w: 1 when it fades distant surfaces
+    vec4 moon;               // xyz: towards the moon; w: 1 when the physical sky shows it
+    vec4 moonRadiance;       // rgb: how bright the moon's lit face is, after the air it comes through
+    vec4 stars;              // x: how bright the stars are, 0 for none; y: how far they have turned about the zenith, in radians
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;

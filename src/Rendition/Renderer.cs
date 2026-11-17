@@ -5248,6 +5248,7 @@ public sealed unsafe class Renderer : IDisposable
         // The physical sky's air between the eye and far surfaces; see SkyModel.AirShows for where it shows.
         (uniforms->AirExtinction, uniforms->AirSun) = Atmosphere.Air(
             sky.Turbidity, sky.Direction, view.EnvironmentIntensity, SkyModel.AirShows(view, _off, capturingProbe));
+        (uniforms->Moon, uniforms->MoonRadiance, uniforms->Stars) = SkyModel.Night(view, sky.Direction, _off, capturingProbe);
 
         // Moving points two texels of the first cascade off their surface stops them
         // shadowing themselves. The lighting pass works this out per cascade itself.

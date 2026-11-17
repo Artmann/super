@@ -562,6 +562,16 @@ public sealed class View
                     $"The sky's turbidity must be 0 for the gradient sky, or from {Super.SkySettings.MinTurbidity} to {Super.SkySettings.MaxTurbidity} for a clear one, but it is {turbidity}."));
         }
 
+        if (!(float.IsFinite(settings.Moon.X) && float.IsFinite(settings.Moon.Y) && float.IsFinite(settings.Moon.Z))
+            || !float.IsFinite(settings.StarRotation))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"The moon's direction and the stars' rotation must be numbers, but they are {settings.Moon} and {settings.StarRotation}."));
+        }
+
         RefuseBadFog(settings.Fog, nameof(settings));
         SkySettings = settings;
     }
