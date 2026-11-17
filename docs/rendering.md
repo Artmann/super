@@ -1231,7 +1231,8 @@ glow, eight stops or so under noon, and never to black.
 
 Far surfaces fade into the air, bluer and paler with distance, as they would on a clear
 day: about a sixth of the way by a kilometre at turbidity 3. A view with its own haze,
-`HazeStart` and `HazeEnd`, gets that instead. `Graphics.AerialPerspective` turns the fade
+`HazeStart` and `HazeEnd`, gets that instead, and with `Graphics.Haze` off it gets neither.
+Reflections leave the fade out, as they leave out haze. `Graphics.AerialPerspective` turns the fade
 off for every view; it costs almost nothing, so it stays on even in `Graphics.Fastest()`.
 
 The disc shows in the background and in sharp reflections from the sky, but not in the

@@ -223,4 +223,20 @@ public class SkyModelTests
         Assert.True(SkyModel.MaxDiscRadiance < 65504f);
         Assert.Equal(default, SkyModel.Sun(gradient));
     }
+
+    // The air fades far surfaces only where nothing else does: a view's own haze takes over, with Graphics.Haze off
+    // too, and a probe's capture leaves out both, so a reflection matches what a probe sees.
+    [Theory]
+    [InlineData(0f, 0f, RenderEffects.None, false, true)]
+    [InlineData(45f, 150f, RenderEffects.None, false, false)]
+    [InlineData(45f, 150f, RenderEffects.Haze, false, false)]
+    [InlineData(0f, 0f, RenderEffects.AerialPerspective, false, false)]
+    [InlineData(0f, 0f, RenderEffects.None, true, false)]
+    public void Air_shows_only_without_haze_switch_off_or_capture(
+        float fadeStart, float fadeEnd, RenderEffects off, bool capturingProbe, bool shows)
+    {
+        var view = new FrameView { BackgroundFadeStart = fadeStart, BackgroundFadeEnd = fadeEnd };
+
+        Assert.Equal(shows, SkyModel.AirShows(view, off, capturingProbe));
+    }
 }

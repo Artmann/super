@@ -83,6 +83,15 @@ internal static class SkyModel
         return view with { Lights = lights };
     }
 
+    /// <summary>
+    /// Whether the physical sky's air fades far surfaces: not with Graphics.AerialPerspective off, not in a probe's
+    /// capture, which leaves out the haze too, and not in a view with a haze of its own, which takes over even while
+    /// Graphics.Haze hides it.
+    /// </summary>
+    public static bool AirShows(in FrameView view, RenderEffects off, bool capturingProbe) =>
+        !off.HasFlag(RenderEffects.AerialPerspective) && !capturingProbe
+        && !(view.BackgroundFadeEnd > view.BackgroundFadeStart);
+
     private static float Turbidity(in FrameView view) => Math.Clamp(view.Sky.Turbidity, MinTurbidity, MaxTurbidity);
 
     /// <summary>The light that casts the shadows, among those the frame takes, or else the first.</summary>

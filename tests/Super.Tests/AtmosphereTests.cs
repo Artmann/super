@@ -84,6 +84,28 @@ public class AtmosphereTests
         Assert.True(tint.X < justAbove, $"Half set {tint.X}, risen {justAbove}.");
     }
 
+    // A point sun has no radius to fade over, so it goes out at the horizon at once. Exactly on the horizon it is
+    // still a number, never NaN, which would blacken every pixel it lights.
+    [Fact]
+    public void A_point_sun_exactly_on_the_horizon_gives_a_number()
+    {
+        float dip = MathF.Acos(Atmosphere.PlanetRadius / (Atmosphere.PlanetRadius + Atmosphere.ViewHeight));
+        var onHorizon = Vector3.Zero;
+        for (float y = MathF.Sin(-dip) - 1e-6f; y < MathF.Sin(-dip) + 1e-6f; y = MathF.BitIncrement(y))
+        {
+            var direction = Vector3.Normalize(new Vector3(MathF.Sqrt(1f - y * y), y, 0f));
+            if (MathF.Asin(direction.Y) == -dip)
+            {
+                onHorizon = direction;
+                break;
+            }
+        }
+
+        Assert.NotEqual(Vector3.Zero, onHorizon);
+        var tint = Atmosphere.SunTint(onHorizon, 3f, 0f);
+        Assert.True(float.IsFinite(tint.X) && float.IsFinite(tint.Y) && float.IsFinite(tint.Z), $"The tint is {tint}.");
+    }
+
     [Fact]
     public void The_ground_is_lit_fully_at_sixty_degrees_and_barely_at_night()
     {

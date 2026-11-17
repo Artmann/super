@@ -1557,9 +1557,10 @@ air of one density, the ground's, all the way: the surface times exp(−σd), pl
 light and the sky's average, `flatIrradiance` times the environment intensity, scattered
 towards the eye times (1 − exp(−σd))/σ. The frame uniforms carry it as `airExtinction`
 (per metre, and the aerosol's scattering) and `airSun` (the sunlight reaching the air
-from `Atmosphere.Air`, and w = 1 when the fade is on). It is off under a view's own haze,
-which takes precedence, with `RenderEffects.AerialPerspective` off, and under the
-gradient sky. The lighting pass, glass and particles apply it, after the height fog.
+from `Atmosphere.Air`, and w = 1 when the fade is on). `SkyModel.AirShows` turns it
+off under a view's own haze, which takes precedence even while `RenderEffects.Haze` hides
+it, with `RenderEffects.AerialPerspective` off, and in probe captures, which leave out
+the haze too; the gradient sky has no air. The lighting pass, glass and particles apply it, after the height fog.
 
 The disc is `LightAngle` across, which is a diameter, and as bright as the light's
 radiance spread over its solid angle, 4π sin²(r/2) for radius r, held at

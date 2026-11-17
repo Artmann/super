@@ -3419,7 +3419,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5936
+      "metric": 5933
     },
     {
       "kind": "large-file",
@@ -3611,7 +3611,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 397
+      "metric": 396
     },
     {
       "kind": "large-type",
@@ -3982,6 +3982,7 @@
         "Rendition.FogVolumeBatch",
         "Rendition.FrameView",
         "Rendition.IBakeStore",
+        "Rendition.LastFrame",
         "Rendition.LightBakeFile",
         "Rendition.LightmapLayout",
         "Rendition.Material",

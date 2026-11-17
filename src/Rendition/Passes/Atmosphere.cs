@@ -142,6 +142,12 @@ internal static class Atmosphere
 
     private static float SmoothStep(float from, float to, float value)
     {
+        // An edge of no width, a point sun's, is a step; dividing by it would give NaN right on the edge.
+        if (to <= from)
+        {
+            return value < from ? 0f : 1f;
+        }
+
         float t = Math.Clamp((value - from) / (to - from), 0f, 1f);
         return t * t * (3f - 2f * t);
     }

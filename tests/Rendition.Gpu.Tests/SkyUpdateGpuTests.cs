@@ -110,7 +110,7 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
                 gpu.RenderOneFrame();
             }
 
-            AssertClose(colour, gpu.Renderer.LastFlat.Irradiance, 2e-3f);
+            AssertClose(colour, gpu.Renderer.Last.Flat.Irradiance, 2e-3f);
         }
         finally
         {
@@ -137,7 +137,7 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
                 gpu.RenderOneFrame();
             }
 
-            AssertClose(colour, gpu.Renderer.LastFlat.Reflection, 2e-3f);
+            AssertClose(colour, gpu.Renderer.Last.Flat.Reflection, 2e-3f);
         }
         finally
         {
@@ -162,7 +162,7 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
 
         // The next frame reads back what the first one left in the roughest level.
         fresh.RenderOneFrame();
-        AssertClose(colour, fresh.Renderer.LastFlat.Reflection, 2e-3f);
+        AssertClose(colour, fresh.Renderer.Last.Flat.Reflection, 2e-3f);
         Assert.Equal(errors, fresh.ValidationErrors);
     }
 

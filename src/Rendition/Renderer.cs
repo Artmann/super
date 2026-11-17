@@ -3024,11 +3024,8 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>Projects the sky cube to L1 now and reads it back, coefficient by coefficient, for tests.</summary>
     internal Vector4[] ProjectSky() => _skySh.Project();
 
-    /// <summary>The sun's disc the last frame drawn from the camera wrote, leaving out probe faces, for tests.</summary>
-    internal Vector4 LastSunDisc { get; private set; }
-
-    /// <summary>The flat soft light and reflection the last frame's uniforms gave, for tests.</summary>
-    internal (Vector3 Irradiance, Vector3 Reflection) LastFlat { get; private set; }
+    /// <summary>What the last frame's uniforms gave, for tests.</summary>
+    internal LastFrame Last { get; } = new();
 
     /// <summary>
     /// Hands a texture's bytes to the next frame's command buffer rather than waiting for
@@ -3996,11 +3993,11 @@ public sealed unsafe class Renderer : IDisposable
             UpdateBackgroundBake(view, draws);
             if (relit)
             {
-                // A fresh bake has taken some lights over, so the frame is drawn without them.
+                // A fresh bake has taken some lights over, so the frame is drawn without them, its sun tinted already.
                 _drawingWithoutBakedLights = true;
                 try
                 {
-                    Render(withoutBakedLights, draws);
+                    RenderTinted(withoutBakedLights, draws);
                 }
                 finally
                 {
@@ -5234,7 +5231,7 @@ public sealed unsafe class Renderer : IDisposable
         var flat = _environment.Flat;
         uniforms->FlatIrradiance = new Vector4(flat.Irradiance, 0f);
         uniforms->FlatReflection = new Vector4(flat.Reflection, 0f);
-        LastFlat = flat;
+        Last.Flat = flat;
 
         // Probes leave the sun's disc out: their rough levels would scatter it into specks, and
         // the sun's own light already gives surfaces its highlight. The sky is the one BakeSky worked out from the
@@ -5245,12 +5242,12 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->SunDisc = disc;
         if (!capturingProbe)
         {
-            LastSunDisc = disc;
+            Last.FromCamera(disc, view.Lights);
         }
 
-        // The physical sky's air between the eye and far surfaces, for scenes without a haze of their own.
+        // The physical sky's air between the eye and far surfaces; see SkyModel.AirShows for where it shows.
         (uniforms->AirExtinction, uniforms->AirSun) = Atmosphere.Air(
-            sky.Turbidity, sky.Direction, view.EnvironmentIntensity, !_off.HasFlag(RenderEffects.AerialPerspective));
+            sky.Turbidity, sky.Direction, view.EnvironmentIntensity, SkyModel.AirShows(view, _off, capturingProbe));
 
         // Moving points two texels of the first cascade off their surface stops them
         // shadowing themselves. The lighting pass works this out per cascade itself.
