@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/Artmann/super/compare/v1.3.0...v1.3.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **taa:** weigh each frame's sample by how near the pixel's middle it fell ([#125](https://github.com/Artmann/super/issues/125)) ([7126cb7](https://github.com/Artmann/super/commit/7126cb7ce15bbaf13fec8d2a9a8f9d83cf299ba7))
+
 ## [1.3.0](https://github.com/Artmann/super/compare/v1.2.1...v1.3.0) (2026-11-17)
 
 
