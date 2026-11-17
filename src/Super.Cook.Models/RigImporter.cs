@@ -250,6 +250,13 @@ internal sealed unsafe class RigImporter
             for (uint w = 0; w < bone->MNumWeights; w++)
             {
                 var weight = bone->MWeights[w];
+                // Assimp gives every joint of the skin that a mesh doesn't use a zero weight on its first vertex,
+                // and a file can hold zero weights of its own; neither moves the vertex.
+                if (weight.MWeight <= 0f)
+                {
+                    continue;
+                }
+
                 (influences[weight.MVertexId] ??= []).Add((joint, weight.MWeight));
             }
         }
