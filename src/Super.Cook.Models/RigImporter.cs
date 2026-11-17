@@ -242,18 +242,7 @@ internal sealed unsafe class RigImporter
             return;
         }
 
-        var influences = new List<(int Joint, float Weight)>[vertices.Length];
-        for (uint b = 0; b < mesh->MNumBones; b++)
-        {
-            var bone = mesh->MBones[b];
-            int joint = _jointOf[bone->MName.AsString];
-            for (uint w = 0; w < bone->MNumWeights; w++)
-            {
-                var weight = bone->MWeights[w];
-                (influences[weight.MVertexId] ??= []).Add((joint, weight.MWeight));
-            }
-        }
-
+        var influences = SkinInfluences.Of(mesh, vertices.Length, _jointOf);
         int dropped = 0;
         for (int v = 0; v < vertices.Length; v++)
         {

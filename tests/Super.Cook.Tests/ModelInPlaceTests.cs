@@ -82,12 +82,12 @@ public sealed class ModelInPlaceTests : IDisposable
     /// <summary>A rig with hips one metre up under the turned armature, and a triangle skinned to them.</summary>
     private static void WriteRig(string folder)
     {
-        var gltf = new Gltf();
-        int position = gltf.Accessor(Floats([0f, 0f, 0f, 0.5f, 0f, 0f, 0f, 0.5f, 0f]), 5126, 3, "VEC3");
-        int joints = gltf.Accessor(Shorts([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), 5123, 3, "VEC4");
-        int weights = gltf.Accessor(Floats([1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f]), 5126, 3, "VEC4");
+        var gltf = new GltfBuilder();
+        int position = gltf.Accessor(GltfBuilder.Floats([0f, 0f, 0f, 0.5f, 0f, 0f, 0f, 0.5f, 0f]), 5126, 3, "VEC3");
+        int joints = gltf.Accessor(GltfBuilder.Shorts([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), 5123, 3, "VEC4");
+        int weights = gltf.Accessor(GltfBuilder.Floats([1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f]), 5126, 3, "VEC4");
         // The hips' bind in the scene: one metre up.
-        int inverseBind = gltf.Accessor(Floats([1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, -1f, 0f, 1f]), 5126, 1, "MAT4");
+        int inverseBind = gltf.Accessor(GltfBuilder.Floats([1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, -1f, 0f, 1f]), 5126, 1, "MAT4");
         gltf.Write(Path.Combine(folder, "rig.gltf"), new JsonObject
         {
             ["nodes"] = new JsonArray
@@ -113,9 +113,9 @@ public sealed class ModelInPlaceTests : IDisposable
     /// <summary>A clip of the same rig whose hips walk two metres along the armature's x and one along its y, and rise half a metre.</summary>
     private static void WriteWalk(string folder)
     {
-        var gltf = new Gltf();
-        int times = gltf.Accessor(Floats([0f, 1f]), 5126, 2, "SCALAR", min: [0f], max: [1f]);
-        int moves = gltf.Accessor(Floats([0f, 0f, 1f, 2f, 1f, 1.5f]), 5126, 2, "VEC3");
+        var gltf = new GltfBuilder();
+        int times = gltf.Accessor(GltfBuilder.Floats([0f, 1f]), 5126, 2, "SCALAR", min: [0f], max: [1f]);
+        int moves = gltf.Accessor(GltfBuilder.Floats([0f, 0f, 1f, 2f, 1f, 1.5f]), 5126, 2, "VEC3");
         gltf.Write(Path.Combine(folder, "walk.gltf"), new JsonObject
         {
             ["nodes"] = new JsonArray
@@ -131,51 +131,4 @@ public sealed class ModelInPlaceTests : IDisposable
             }),
         });
     }
-
-    private sealed class Gltf
-    {
-        private readonly List<byte> _buffer = [];
-        private readonly JsonArray _views = [];
-        private readonly JsonArray _accessors = [];
-
-        public int Accessor(byte[] data, int componentType, int count, string type, float[]? min = null, float[]? max = null)
-        {
-            _views.Add(new JsonObject { ["buffer"] = 0, ["byteOffset"] = _buffer.Count, ["byteLength"] = data.Length });
-            _buffer.AddRange(data);
-            var accessor = new JsonObject
-            {
-                ["bufferView"] = _views.Count - 1,
-                ["componentType"] = componentType,
-                ["count"] = count,
-                ["type"] = type,
-            };
-            if (min is not null && max is not null)
-            {
-                accessor["min"] = new JsonArray(min.Select(v => (JsonNode)v).ToArray());
-                accessor["max"] = new JsonArray(max.Select(v => (JsonNode)v).ToArray());
-            }
-
-            _accessors.Add(accessor);
-            return _accessors.Count - 1;
-        }
-
-        public void Write(string path, JsonObject parts)
-        {
-            parts["asset"] = new JsonObject { ["version"] = "2.0" };
-            parts["scene"] = 0;
-            parts["scenes"] = new JsonArray(new JsonObject { ["nodes"] = new JsonArray(0) });
-            parts["buffers"] = new JsonArray(new JsonObject
-            {
-                ["byteLength"] = _buffer.Count,
-                ["uri"] = "data:application/octet-stream;base64," + Convert.ToBase64String(_buffer.ToArray()),
-            });
-            parts["bufferViews"] = _views;
-            parts["accessors"] = _accessors;
-            File.WriteAllText(path, parts.ToJsonString());
-        }
-    }
-
-    private static byte[] Floats(float[] values) => values.SelectMany(BitConverter.GetBytes).ToArray();
-
-    private static byte[] Shorts(ushort[] values) => values.SelectMany(BitConverter.GetBytes).ToArray();
 }
