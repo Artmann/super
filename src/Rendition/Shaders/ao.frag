@@ -280,6 +280,8 @@ void main() {
 
     visibility = mix(1.0, visibility, strength);
     visibility *= 1.0 - OVERHEAD_STRENGTH * overheadOcclusion(world, worldNormal, noise * 2.0 * PI);
-    outOcclusion = vec4(octahedralEncode(bentNormal) * 0.5 + 0.5, visibility, 1.0);
+    // Alpha is how settled the occlusion is, which ao_blur.frag reads: nothing yet, until ao_temporal.frag has
+    // gathered frames of it.
+    outOcclusion = vec4(octahedralEncode(bentNormal) * 0.5 + 0.5, visibility, 0.0);
     outBounce = vec4(bounce / float(SLICES) * bounceStrength, 1.0);
 }

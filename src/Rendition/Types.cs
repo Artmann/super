@@ -1517,11 +1517,18 @@ public enum RenderEffects : long
     /// </summary>
     Stars = 1L << 40,
 
+    /// <summary>
+    /// The average of the ambient occlusion and the screen bounce over the last frames, which smooths their grain
+    /// without blurring them. Without it each frame's occlusion is blurred wide instead. It needs
+    /// <see cref="AmbientOcclusion"/>.
+    /// </summary>
+    OcclusionHistory = 1L << 41,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
         | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
-        | ScreenBounce | AerialPerspective | Stars,
+        | ScreenBounce | AerialPerspective | Stars | OcclusionHistory,
 }
 
 /// <summary>

@@ -1,4 +1,5 @@
 using System.Numerics;
+using Xunit.Abstractions;
 
 namespace Rendition.Gpu.Tests;
 
@@ -8,8 +9,11 @@ namespace Rendition.Gpu.Tests;
 [Collection(GpuCollection.Name)]
 [Trait("Speed", "Slow")]
 [Trait("Needs", "GPU")]
-public sealed class AmbientOcclusionGpuTests(GpuFixture gpu)
+public sealed class AmbientOcclusionGpuTests(GpuFixture gpu, ITestOutputHelper output)
 {
+    // Twice the frames the history averages, so it has filled.
+    private const int SettledFrames = 16;
+
     // The corner is 0.5 metres off the camera's aim and 4 metres away, which puts it on line 166 of 256. Four lines
     // nearer the middle is five centimetres of wall beside it.
     private const int BesideTheCorner = 162;
@@ -149,6 +153,129 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    // Each frame looks in new directions, so a pixel by the corner changes from one frame to the next by its grain.
+    // Averaged over the frames before, it changes much less. Measured at half resolution, where the blur is as wide
+    // with the history as without, so the history is all that differs. The picture's dither changes every frame too,
+    // so what the wall changes by with no occlusion at all is taken off both.
+    [Fact]
+    public void With_history_the_corner_changes_less_from_frame_to_frame()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        try
+        {
+            DrawItem[] room = Room(quad, upright: false);
+
+            float dither = ChangeBetweenFrames(room, RenderEffects.AmbientOcclusion);
+            float steady = ChangeBetweenFrames(room, RenderEffects.None) - dither;
+            float grainy = ChangeBetweenFrames(room, RenderEffects.OcclusionHistory) - dither;
+            string changes = $"From one frame to the next the occlusion by the corner changes by {steady} with history and {grainy} without, "
+                + $"over the {dither} the dither changes by.";
+            output.WriteLine(changes);
+
+            Assert.True(grainy > 0.2f, changes);
+            Assert.True(steady < grainy * 0.3f, changes);
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(quad.Mesh);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    // The history only averages, so the corner must come out as dark as the mean of many frames without it.
+    [Theory]
+    [InlineData(OcclusionResolution.Half)]
+    [InlineData(OcclusionResolution.Full)]
+    public void With_history_the_corner_is_as_dark_as_without(OcclusionResolution resolution)
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        try
+        {
+            DrawItem[] room = Room(quad, upright: false);
+
+            // With the bounce, whose light the history averages too. It reads the last frame's picture, so the frames
+            // without history also follow one another.
+            float unoccluded = LineBrightness(Capture(room, RenderEffects.AmbientOcclusion, resolution, bounce: true), BesideTheCorner);
+            Capture(room, RenderEffects.OcclusionHistory, resolution, SettledFrames, bounce: true);
+            float without = 0f;
+            for (int frame = 0; frame < SettledFrames; frame++)
+            {
+                byte[] pixels = Capture(room, RenderEffects.OcclusionHistory, resolution, carryOn: true, bounce: true);
+                without += LineBrightness(pixels, BesideTheCorner) / SettledFrames;
+            }
+
+            float with = LineBrightness(Capture(room, RenderEffects.None, resolution, SettledFrames, bounce: true), BesideTheCorner);
+            output.WriteLine($"By the corner the wall reads {with} with history, {without} without and {unoccluded} unoccluded.");
+
+            // Less than a single frame darkens it, since the floor's bounced light has had frames to build up.
+            Assert.True(without < unoccluded - 2f, $"By the corner the wall reads {without} with occlusion and {unoccluded} without.");
+            Assert.True(MathF.Abs(with - without) < (unoccluded - without) * 0.1f,
+                $"By the corner the wall reads {with} with history, {without} without and {unoccluded} unoccluded.");
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(quad.Mesh);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    // A panel hangs a metre in front of the corner for long enough to fill the history, and is then taken away. The
+    // wall it hid has no history of its own, and must not take the panel's, which was hardly shaded: the first frame
+    // without the panel must show the corner as dark as it is when the panel never hung there.
+    [Fact]
+    public void A_wall_uncovered_this_frame_does_not_keep_the_occlusion_of_what_covered_it()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        try
+        {
+            DrawItem[] room = Room(quad, upright: false);
+            var panel = quad with { Transform = Matrix4x4.CreateScale(4f) * Matrix4x4.CreateTranslation(0f, 0f, 0f) };
+
+            float never = LineBrightness(Capture(room, RenderEffects.None, OcclusionResolution.Half, SettledFrames), BesideTheCorner);
+            float unoccluded = LineBrightness(Capture(room, RenderEffects.AmbientOcclusion, OcclusionResolution.Half), BesideTheCorner);
+            Capture([.. room, panel], RenderEffects.None, OcclusionResolution.Half, SettledFrames);
+            float uncovered = LineBrightness(Capture(room, RenderEffects.None, OcclusionResolution.Half, carryOn: true), BesideTheCorner);
+            output.WriteLine($"By the corner the wall reads {uncovered} just uncovered, {never} never covered and {unoccluded} unoccluded.");
+
+            Assert.True(never < unoccluded - 2f, $"By the corner the wall reads {never} with occlusion and {unoccluded} without.");
+            Assert.True(MathF.Abs(uncovered - never) < (unoccluded - never) * 0.2f,
+                $"By the corner the wall reads {uncovered} just uncovered, {never} never covered and {unoccluded} unoccluded.");
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(quad.Mesh);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    // How much the pixels of the lines above the corner change between two frames drawn one after the other, on
+    // average, once the history has had frames enough to fill. The lines stop short of the corner on line 166: at half
+    // resolution a block of four pixels that lies across it is traced for the wall one frame and the floor the next,
+    // so what it shows changes with the frame whatever the history holds.
+    private float ChangeBetweenFrames(DrawItem[] room, RenderEffects off)
+    {
+        byte[] first = Capture(room, off, OcclusionResolution.Half, SettledFrames);
+        byte[] second = Capture(room, off, OcclusionResolution.Half, carryOn: true);
+        float change = 0f;
+        int pixels = 0;
+        for (int line = 150; line <= 161; line++)
+        {
+            for (int along = 64; along < 192; along++)
+            {
+                change += MathF.Abs(Brightness(first, along, line, upright: false) - Brightness(second, along, line, upright: false));
+                pixels++;
+            }
+        }
+
+        return change / pixels;
+    }
+
     // The mean of a column over the six lines above the corner, which is on line 166.
     private static float AboveTheCorner(byte[] pixels, int column)
     {
@@ -161,16 +288,34 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu)
         return sum / 6f;
     }
 
-    private byte[] Capture(DrawItem[] draws, RenderEffects off, OcclusionResolution resolution)
+    // Draws the frames asked for and returns the last. More than one gives the occlusion's history time to fill.
+    // The history starts empty unless it is to carry on from the frames drawn before.
+    // The bounce is left out unless asked for: its light comes from the last frame's picture, whatever that showed.
+    private byte[] Capture(
+        DrawItem[] draws, RenderEffects off, OcclusionResolution resolution, int frames = 1, bool carryOn = false, bool bounce = false)
     {
         var view = gpu.View(DebugView.None);
         // No anti-aliasing, so one frame is the whole picture, and no light probes, which shade a corner themselves.
-        view.Off = off | RenderEffects.AntiAliasing | RenderEffects.LightProbes;
+        off |= RenderEffects.AntiAliasing | RenderEffects.LightProbes | (bounce ? RenderEffects.None : RenderEffects.ScreenBounce);
+        view.Off = off;
         // Lit by the environment alone, which is the light occlusion takes away.
         view.EnvironmentIntensity = 1f;
         gpu.Renderer.OcclusionResolution = resolution;
         try
         {
+            if (!carryOn)
+            {
+                // A frame without occlusion drops its history, so no test reads what the one before it left.
+                view.Off |= RenderEffects.AmbientOcclusion;
+                gpu.Renderer.Capture(view, draws, out _, out _);
+                view.Off = off;
+            }
+
+            for (int frame = 1; frame < frames; frame++)
+            {
+                gpu.Renderer.Render(view, draws);
+            }
+
             return gpu.Renderer.Capture(view, draws, out _, out _);
         }
         finally

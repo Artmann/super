@@ -1006,7 +1006,8 @@ DecalPass     decal boxes      -> colour, normal and roughness laid over the G-b
 GBufferPass   no-decal draws   -> the same targets, loaded: skinned draws and NoDecals materials, only when decals and they are both in the frame
 AoPass        fullscreen       -> GTAO from depth and normals: bent normal (view space, octahedral) and visibility, RGBA8;
                                   and the screen bounce from last frame's history, B10G11R11
-AoBlurPass    fullscreen x 2   -> both with the grain averaged away, across and then down
+AoSteadyPass  fullscreen       -> both averaged with their own history of the last frames, then copied to that history
+AoBlurPass    fullscreen x 2   -> both with what grain is left blurred away along the surface, across and then down
 LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes), subsurface diffuse apart
 SssBlurPass   fullscreen x 2   -> subsurface diffuse spread across, then down and added to HDR colour
 TransparentPass  glass and particles -> blended over HDR colour together, back to front;
@@ -3444,28 +3445,87 @@ radius. The visible arc between the horizons is integrated against the cosine of
 projected normal, which gives the share of the soft light that reaches the point. The same
 arcs give the bent normal, the average direction the point still sees the sky in. The
 pass writes both to an RGBA8 target: the bent normal in view space, octahedral, in x and
-y, and the visibility in z. `ao_blur.frag` averages them without crossing depth edges.
-It decodes each tap's bent normal and sums the directions, since averaging the octahedral
-form itself gives a wrong direction where it folds, and averages the visibility as it is.
-The blur runs twice, 7 pixels across into `GBuffer.AoAcross` and then 7 down into
-`AoBlurred`, with the step pushed as a constant. That reads 14 pixels where the square it
-replaced read 49, and took the blur from about 0.4 to 0.12 ms at 1080p. A pixel with
-nothing drawn in it is written as fully visible without reading any taps.
+y, and the visibility in z. Two slices a pixel leave grain, which is taken away in two
+steps: an average over time, and then a narrow blur.
+
+`ao_temporal.frag` (`_aoSteadyPass`) averages the occlusion and the bounce over the last
+frames. It writes `GBuffer.AoSteady` and
+`BounceSteady`, both RGBA16F at `AoExtent`, which are copied to `AoHistory` and
+`BounceHistory` for the next frame to read. The occlusion's alpha counts the frames in
+the average as a share of `MAX_FRAMES`, 8, and the bounce's alpha holds the depth of the
+pixel it was traced for. Each pixel finds where its surface was last frame as `taa.frag`
+does: by the camera's reprojection, or by the motion vector where that differs from the
+camera's own motion, and with the anti-aliasing shift taken out so a still camera reads
+its own texel exactly. It reads the four history texels round that spot and keeps each
+only if the depth stored with it puts it within a tolerance of the surface, measured along
+the view by `gapBehind` in `screen_trace.glsl`, which works for both projections. The
+tolerance is 5% of the occlusion's radius plus twice what the surface's distance changes
+by from one occlusion pixel to the next. That slope is the smaller of the changes to
+either side, so a pixel on an object's edge measures the object and not the drop behind
+it, and it is capped at 2% of the distance, so something a pixel thin doesn't accept the
+wall behind it. A pixel with no texel left starts over with a count of 1. Otherwise the
+new frame goes in with a share of one over the count, which grows to 8 and stays there.
+The remembered visibility is first clamped to what the nine pixels round it traced this
+frame, give or take 0.1, so the floor a figure walked off lets go of its shade. The
+history is never thrown out for disagreeing with the frame, since two rays say too little:
+a first version did that, and it started over on plain grain. The bent normal is averaged
+as a direction and the bounce as it is, with no clamp.
+
+The pass runs for a frame only, with the frame's `MotionHistory`. A probe's faces are
+drawn once each, so theirs go straight to the blur. `GBuffer.OcclusionHistoryReady` is
+false on new targets, after a frame with the occlusion or `RenderEffects.OcclusionHistory`
+(bit 41, read on the CPU alone) off, and after a resize or a change of render scale or
+`OcclusionResolution`, which all rebuild the targets, and the pass is then pushed
+`historyValid` as 0. Last frame's view-projection and the motion vectors are kept up
+while either this history or the picture's is ready, so the average works with
+anti-aliasing off. The motion vectors are drawn with the G-buffer, before the occlusion.
+
+`ao_blur.frag` then blurs along the surface. A tap counts by how near it lies to the plane
+through the pixel, along the pixel's G-buffer normal (`PLANE_TOLERANCE`, 5% of the
+radius, plus `PLANE_SLOPE` for each metre between the two, which forgives a normal map's
+tilt and a curve), and by how alike the two normals are (`NORMAL_POWER`). The depth
+comparison it replaced couldn't tell a stair's tread from its riser once the stair was
+small on screen, which is what smeared the shade across small models. It decodes each
+tap's bent normal and sums the directions, since averaging the octahedral form itself gives
+a wrong direction where it folds, and averages the visibility as it is. The blur runs
+twice, across into `GBuffer.AoAcross` and then down into `AoBlurred`, with the step pushed
+as a constant, and carries the frame count through in alpha. It reaches 3 pixels each way
+while the count is below a quarter of `MAX_FRAMES`, as it does with the history off, 2
+below three quarters and 1 after that. A pixel with nothing drawn in it is written as fully
+visible without reading any taps.
+
+In the Crypt at 1600 by 900 on an RTX 4060 Ti, the average and the blur together take
+0.19 ms at `OcclusionResolution.Half` where the blur alone took 0.11, and about 1.2 ms at
+`Full` where it took 0.32. The four extra targets are RGBA16F at `AoExtent`.
+
+The history is checked by depth alone. After a cut to another scene, surfaces that happen
+to lie where the old ones did keep the old occlusion for up to 8 frames, held near the new
+by the clamp. The bent normal is stored in view space with no previous view to turn it by,
+so it trails by a few frames while the camera turns fast. The bounce has no clamp, so a
+light that goes out leaves its bounce for about 8 frames.
 
 At `OcclusionResolution.Half`, the default, the three occlusion targets are
 `GBuffer.AoExtent`, half the scene's size each way, rounded up, and the pass works the
 way the [traced reflections](#reflections) do at half resolution: each texel works out
 the occlusion of one pixel of a 2 × 2 block, the one `tracedPixel` in `screen_trace.glsl`
 picks from the frame number, with that pixel's own depth and normal. The pass is pushed
-the scale, 1 or 2, and so is the blur, which takes the frame's set to know the frame
-number and compares the depths of the pixels its taps were worked out for. At half
-resolution the blur reads 3 texels across instead of 7, since each is two pixels wide
-and the lighting spreads them once more: 7 there took a fifth of the darkness out of a
-corner. `screenOcclusionAt` in `lighting.frag` reads its own texel at `Full`, which it
+the scale, 1 or 2, and so are the average and the blur, which take the frame's set to
+know the frame number and read the depth and normal of the pixels their texels were
+worked out for. At half resolution the blur always reads 3 texels across, since each is
+two pixels wide and the lighting spreads them once more: 7 there took a fifth of the
+darkness out of a corner. Its two neighbours fall to half weight as the history fills.
+`screenOcclusionAt` in `lighting.frag` reads its own texel at `Full`, which it
 tells by comparing the target's size with the depth buffer's. At `Half` it blends the
 four texels round the pixel by how near each one's worked-out pixel is and how close its
 depth is (`OCCLUSION_DEPTH_FALLOFF`), summing the bent normals as directions as the blur
-does, so occlusion doesn't spill across the edge of something in front. In the Courtyard
+does, so occlusion doesn't spill across the edge of something in front. A texel averaged
+over four frames or more has been worked out for every pixel of its block, so it belongs
+to the block's middle and not to this frame's pixel: `screenOcclusionAt` reads the frame
+count from the texture's alpha and slides where it takes the texels to sit from the one
+to the other. Without that the shade of a crease moved by a pixel every frame. A block
+that lies across the edge of something in front is traced for one surface in one frame
+and the other in the next, and the depth check starts its history over each time, so it
+keeps one frame's grain. In the Courtyard
 at 1080p the occlusion pass went from 1.79 to about 0.5 ms, and at 4K in the Forest from
 5.4 to 1.6 ms. A change of `Renderer.OcclusionResolution` rebuilds the targets as a
 change of render scale does.
@@ -3515,8 +3575,8 @@ The occlusion's 8 steps cover its own radius; when the bounce's radius looks wid
 screen, 4 more steps go on from one to the other, and they only gather light. Surfaces
 fade out over the last 40% of the bounce's radius. The pass writes the light, already
 times the strength, to a second target, `GBuffer.Bounce`, B10G11R11 at `AoExtent`. The
-blur takes it through the same two steps with the same depth weights, into
-`BounceAcross` and `BounceBlurred`, and `screenOcclusionAt` blends it with the
+average and the blur take it through the same steps with the occlusion's weights, into
+`BounceSteady`, `BounceAcross` and `BounceBlurred`, and `screenOcclusionAt` blends it with the
 occlusion's weights. Lighting adds `bounce * baseColor * (1 - metallic)` to the soft
 light, scaled down by the bake weight, since a lightmap holds its own bounce, and not on
 toon or water pixels.

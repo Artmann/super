@@ -335,6 +335,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Underwater), RenderEffects.Underwater)]
     [InlineData(nameof(Graphics.FogVolumes), RenderEffects.FogVolumes)]
     [InlineData(nameof(Graphics.ScreenBounce), RenderEffects.ScreenBounce)]
+    [InlineData(nameof(Graphics.OcclusionHistory), RenderEffects.OcclusionHistory)]
     [InlineData(nameof(Graphics.AerialPerspective), RenderEffects.AerialPerspective)]
     [InlineData(nameof(Graphics.Stars), RenderEffects.Stars)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
@@ -359,7 +360,7 @@ public class GraphicsTests
             | RenderEffects.AutoExposure | RenderEffects.DepthOfField | RenderEffects.Decals | RenderEffects.VolumetricFog
             | RenderEffects.Puddles | RenderEffects.Wind | RenderEffects.HeightMaps | RenderEffects.Vignette
             | RenderEffects.Grain | RenderEffects.Sharpening | RenderEffects.Subsurface | RenderEffects.FogVolumes
-            | RenderEffects.ScreenBounce,
+            | RenderEffects.ScreenBounce | RenderEffects.OcclusionHistory,
             graphics.Off);
         Assert.True(graphics.Materials);
         Assert.True(graphics.BakedLighting);
