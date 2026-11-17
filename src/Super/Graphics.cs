@@ -213,6 +213,13 @@ public sealed class Graphics
     public bool Underwater { get; set; } = true;
 
     /// <summary>
+    /// The fog volumes placed with <c>view.FogVolume</c>, such as mist in a room or a lamp's beam. Off, only the scene's
+    /// own fog fills the volumetric fog. They need <see cref="VolumetricFog"/>, and cost a little more for each volume
+    /// on screen.
+    /// </summary>
+    public bool FogVolumes { get; set; } = true;
+
+    /// <summary>
     /// Metering the picture for <see cref="PostSettings.AutoExposure"/>, so the brightness follows what the
     /// camera sees, as an eye does. Off, the fixed <see cref="PostSettings.Exposure"/> sets it, as for a view
     /// that never asked. It costs a pass over the frame, so <see cref="Fastest"/> turns it off.
@@ -250,6 +257,33 @@ public sealed class Graphics
     /// <see cref="Fastest"/> turns it off.
     /// </summary>
     public bool VolumetricFog { get; set; } = true;
+
+    /// <summary>
+    /// Scene pixels across one cell of the volumetric fog's grid, each way, from 4 to 32. Smaller cells show finer
+    /// shafts and sharper edges on fog volumes, and cost about four times as much each time the size halves. The
+    /// size is after <see cref="RenderScale"/>. At 8, the default, the grid takes about 35 MB at 1600 by 900, and
+    /// 16 cuts that to a quarter.
+    /// </summary>
+    public int VolumetricFogCellSize
+    {
+        get;
+        set => field = value is >= 4 and <= 32
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "A volumetric fog cell can be from 4 to 32 pixels across.");
+    } = 8;
+
+    /// <summary>
+    /// How many slices the volumetric fog's grid has in depth, from 16 to 128, out to
+    /// <see cref="Rendition.FogSettings.VolumetricDistance"/>. More slices keep shafts and fog volumes sharp further
+    /// out, and the cost grows with the count. <see cref="GraphicsQuality.Ultra"/> uses 128; the rest 64.
+    /// </summary>
+    public int VolumetricFogSlices
+    {
+        get;
+        set => field = value is >= 16 and <= 128
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "The volumetric fog can have from 16 to 128 slices.");
+    } = 64;
 
     /// <summary>
     /// Every surface's own colour, textures, normal maps and shine. Off, everything is the same light grey,
@@ -431,6 +465,7 @@ public sealed class Graphics
             MeshDetail = 1.5f,
             ReflectionResolution = ReflectionResolution.Full,
             OcclusionResolution = OcclusionResolution.Full,
+            VolumetricFogSlices = 128,
         },
         _ => throw new ArgumentOutOfRangeException(nameof(quality), quality, "Graphics quality can be Low, Medium, High or Ultra."),
     };
@@ -496,6 +531,8 @@ public sealed class Graphics
         ProbeQuality = profile.ProbeQuality;
         ReflectionResolution = profile.ReflectionResolution;
         OcclusionResolution = profile.OcclusionResolution;
+        VolumetricFogCellSize = profile.VolumetricFogCellSize;
+        VolumetricFogSlices = profile.VolumetricFogSlices;
         BakeOnArrival = profile.BakeOnArrival;
         BakeBudget = profile.BakeBudget;
         ApplySwitches(profile);
@@ -516,6 +553,7 @@ public sealed class Graphics
         Fog = profile.Fog;
         Haze = profile.Haze;
         Underwater = profile.Underwater;
+        FogVolumes = profile.FogVolumes;
         AutoExposure = profile.AutoExposure;
         DepthOfField = profile.DepthOfField;
         Decals = profile.Decals;
@@ -601,6 +639,7 @@ public sealed class Graphics
         Grain = false,
         Sharpening = false,
         Subsurface = false,
+        FogVolumes = false,
     };
 
     /// <summary>The effects the renderer leaves out.</summary>
@@ -660,5 +699,6 @@ public sealed class Graphics
         (graphics => graphics.LocalLights, RenderEffects.LocalLights),
         (graphics => graphics.Haze, RenderEffects.Haze),
         (graphics => graphics.Underwater, RenderEffects.Underwater),
+        (graphics => graphics.FogVolumes, RenderEffects.FogVolumes),
     ];
 }

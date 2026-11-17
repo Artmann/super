@@ -390,6 +390,26 @@ public sealed unsafe class Renderer : IDisposable
             : throw new ArgumentOutOfRangeException(nameof(value), value, $"The sun can draw from 1 to {ShadowPass.MaxCascades} cascades.");
     } = ShadowPass.MaxCascades;
 
+    /// <summary>
+    /// Scene pixels across one cell of the volumetric fog's grid, each way, from 4 to 32; 8 unless set. Smaller
+    /// cells are sharper and cost more. A change remakes the grid, with no history, before the next frame.
+    /// </summary>
+    public int VolumetricFogCellSize
+    {
+        get;
+        set => field = VolumetricFog.CheckCellPixels(value);
+    } = VolumetricFog.CellPixels;
+
+    /// <summary>
+    /// Slices in the volumetric fog's grid, from the camera out to <see cref="FogSettings.VolumetricDistance"/>,
+    /// from 16 to 128; 64 unless set. A change remakes the grid, with no history, before the next frame.
+    /// </summary>
+    public int VolumetricFogSlices
+    {
+        get;
+        set => field = VolumetricFog.CheckSlices(value);
+    } = VolumetricFog.Slices;
+
     /// <summary>The smallest <see cref="MeshDetailScale"/>: models switch to their simpler versions at twice the distance.</summary>
     public const float MinMeshDetail = 0.5f;
 
@@ -670,7 +690,7 @@ public sealed unsafe class Renderer : IDisposable
         foreach (ref var frame in _frames.AsSpan())
         {
             var skyShInfo = new DescriptorBufferInfo(_skySh.Handle, 0, SkySh.Size);
-            var skyShWrite = StorageWrite(frame.Set, 12, &skyShInfo);
+            var skyShWrite = Descriptors.BufferWrite(frame.Set, 12, &skyShInfo);
             _api.UpdateDescriptorSets(_context.Device, 1, &skyShWrite, 0, null);
         }
 
@@ -3886,21 +3906,7 @@ public sealed unsafe class Renderer : IDisposable
         _off = Exposure.ShaderOff(view.Post, viewOff & RenderEffects.All);
         _windReach = new WindReach(Wind.Strength(view.Wind, _off), _resources.SwayOf);
         _fadeRules = new FadeRules(view.CameraPosition, !_off.HasFlag(RenderEffects.Fades), _resources.FadeOf);
-        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, _off, false, Underwater(view)).X > 0f)
-        {
-            // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
-            _api.DeviceWaitIdle(_context.Device).Check();
-            _volumetricFog.SetSize((int)_gBuffer.Extent.Width, (int)_gBuffer.Extent.Height);
-            WriteTargetDescriptors();
-        }
-        else if (_volumetricFog.HasTargets && (_off & (RenderEffects.Fog | RenderEffects.VolumetricFog)) != 0)
-        {
-            // Switched off, the volumes are freed, and made again with no history if it's switched back on.
-            // Frames in flight still read them. Flipping the switch is rare.
-            _api.DeviceWaitIdle(_context.Device).Check();
-            _volumetricFog.Release();
-            WriteTargetDescriptors();
-        }
+        KeepVolumetricTargets(view);
 
         _depthOfField = DepthOfFieldConstants.For(view.Post, _off, (int)_gBuffer.Extent.Width);
         bool antiAliased = !_off.HasFlag(RenderEffects.AntiAliasing);
@@ -5096,22 +5102,9 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->Occlusion = Occlusion.Pack(view.Occlusion);
         (uniforms->Outline, uniforms->OutlineFade) = Outlines.Pack(view.Outlines, _gBuffer.Extent.Width / (float)Math.Max(view.Width, 1), capturingProbe);
         uniforms->Fog = Fog.Pack(view.Fog, _off, capturingProbe, underwater: Underwater(view));
-        var volumetric = VolumetricFog.Pack(view.Fog, _off, capturingProbe, underwater: Underwater(view));
-        if (!_volumetricFog.HasTargets)
-        {
-            volumetric = Vector4.Zero;
-        }
-
-        volumetric.W = historyValid && _volumetricFog.HistoryReady ? 1f : 0f;
-        uniforms->Volumetric = volumetric;
+        WriteVolumetric(uniforms, view, capturingProbe, historyValid);
         uniforms->Puddles = Puddles.Pack(view.Puddles, _off);
         uniforms->Wind = Wind.Pack(view.Wind, _off);
-        _volumetricDrawn = volumetric.X > 0f;
-        if (!capturingProbe && !_volumetricDrawn)
-        {
-            // A frame without the fog leaves nothing for the next to carry on from.
-            _volumetricFog.Skip();
-        }
 
         uniforms->ProbeCount = 0;
         if (!capturingProbe)
@@ -5256,9 +5249,94 @@ public sealed unsafe class Renderer : IDisposable
     private ReadOnlySpan<LocalLight> DrawnLocalLights(in FrameView view) =>
         _off.HasFlag(RenderEffects.LocalLights) ? [] : view.LocalLights;
 
+    /// <summary>
+    /// Fills the volumetric fog's part of the frame block and writes the fog volumes it draws, and decides whether
+    /// this frame draws the fog at all.
+    /// </summary>
+    private void WriteVolumetric(FrameUniforms* uniforms, in FrameView view, bool capturingProbe, bool historyValid)
+    {
+        var fogVolumes = FogVolumesOf(view);
+        var volumetric = VolumetricFog.Pack(view.Fog, fogVolumes.Length, _off, capturingProbe, UnderwaterReach(view));
+        if (!_volumetricFog.HasTargets)
+        {
+            volumetric = Vector4.Zero;
+        }
+
+        volumetric.W = historyValid && _volumetricFog.HistoryReady ? 1f : 0f;
+        uniforms->Volumetric = volumetric;
+        _volumetricDrawn = volumetric.X > 0f;
+        uniforms->VolumetricGrid = new Vector4(VolumetricFogSlices, VolumetricFogCellSize, _volumetricDrawn ? fogVolumes.Length : 0, 0f);
+        if (_volumetricDrawn)
+        {
+            _volumetricFog.WriteFogVolumes(fogVolumes);
+        }
+        else if (!capturingProbe)
+        {
+            // A frame without the fog leaves nothing for the next to carry on from.
+            _volumetricFog.Skip();
+        }
+    }
+
+    /// <summary>
+    /// The view's fog volumes, or none when they're switched off. Throws for too many, or for one that can't be
+    /// drawn, as <see cref="FogVolumeBatch.Check"/> says.
+    /// </summary>
+    private ReadOnlySpan<FogVolumeDraw> FogVolumesOf(in FrameView view)
+    {
+        var volumes = _off.HasFlag(RenderEffects.FogVolumes) ? [] : view.FogVolumes;
+        if (volumes.Length > FogVolumeBatch.MaxVolumes)
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
+                $"A frame can draw at most {FogVolumeBatch.MaxVolumes} fog volumes, but it was given {volumes.Length}."), nameof(view));
+        }
+
+        foreach (ref readonly var volume in volumes)
+        {
+            FogVolumeBatch.Check(volume.Shape, volume.Transform, volume.Settings);
+        }
+
+        return volumes;
+    }
+
+    /// <summary>
+    /// Makes the volumetric fog's volumes the first time a frame draws it, frees them while it's switched off, and
+    /// remakes them when the cell size or slice count changes. Each waits for the GPU, which is rare.
+    /// </summary>
+    private void KeepVolumetricTargets(in FrameView view)
+    {
+        int width = (int)_gBuffer.Extent.Width;
+        int height = (int)_gBuffer.Extent.Height;
+        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, FogVolumesOf(view).Length, _off, false, UnderwaterReach(view)).X > 0f)
+        {
+            // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _volumetricFog.SetSize(width, height, VolumetricFogCellSize, VolumetricFogSlices);
+            WriteTargetDescriptors();
+        }
+        else if (_volumetricFog.HasTargets && VolumetricFog.CanFreeTargets(_off, UnderwaterReach(view)))
+        {
+            // Switched off, the volumes are freed, and made again with no history if it's switched back on.
+            // Frames in flight still read them. Flipping the switch is rare.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _volumetricFog.Release();
+            WriteTargetDescriptors();
+        }
+        else if (_volumetricFog.HasTargets
+            && _volumetricFog.Size != VolumetricFog.GridSize(width, height, VolumetricFogCellSize, VolumetricFogSlices))
+        {
+            // A new cell size or slice count remakes the grid, with no history. Frames in flight still read the old one.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _volumetricFog.SetSize(width, height, VolumetricFogCellSize, VolumetricFogSlices);
+            WriteTargetDescriptors();
+        }
+    }
+
     /// <summary>Whether the camera is under the view's water, which it never is while <see cref="RenderEffects.Underwater"/> is off.</summary>
     private bool Underwater(in FrameView view) =>
         view.Water.Absorption != Vector3.Zero && !_off.HasFlag(RenderEffects.Underwater);
+
+    /// <summary>How far the volumetric fog reaches under water, the shafts' distance, or null above water.</summary>
+    private float? UnderwaterReach(in FrameView view) => Underwater(view) ? view.Water.ShaftDistance : null;
 
     /// <summary>
     /// Picks the point and spot lights the view needs and their shadow tiles, and writes
@@ -5409,7 +5487,7 @@ public sealed unsafe class Renderer : IDisposable
         _depthOfFieldPass.SetTargets(DisplaySource, _gBuffer.Depth.View, _gBuffer.Extent);
         if (_volumetricFog.HasTargets)
         {
-            _volumetricFog.SetSize((int)_gBuffer.Extent.Width, (int)_gBuffer.Extent.Height);
+            _volumetricFog.SetSize((int)_gBuffer.Extent.Width, (int)_gBuffer.Extent.Height, VolumetricFogCellSize, VolumetricFogSlices);
         }
 
         WriteTargetDescriptors();
@@ -5512,10 +5590,10 @@ public sealed unsafe class Renderer : IDisposable
                 DescriptorType = DescriptorType.StorageBuffer,
                 PBufferInfo = &bonesInfo,
             },
-            StorageWrite(frame.Set, 3, &lightsInfo),
-            StorageWrite(frame.Set, 4, &tilesInfo),
-            StorageWrite(frame.Set, 5, &clustersInfo),
-            StorageWrite(frame.Set, 11, &chunksInfo),
+            Descriptors.BufferWrite(frame.Set, 3, &lightsInfo),
+            Descriptors.BufferWrite(frame.Set, 4, &tilesInfo),
+            Descriptors.BufferWrite(frame.Set, 5, &clustersInfo),
+            Descriptors.BufferWrite(frame.Set, 11, &chunksInfo),
         };
         _api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
 
@@ -5536,16 +5614,6 @@ public sealed unsafe class Renderer : IDisposable
             WriteInstanceDescriptor(frame);
         }
     }
-
-    private static WriteDescriptorSet StorageWrite(DescriptorSet set, uint binding, DescriptorBufferInfo* info) => new()
-    {
-        SType = StructureType.WriteDescriptorSet,
-        DstSet = set,
-        DstBinding = binding,
-        DescriptorCount = 1,
-        DescriptorType = DescriptorType.StorageBuffer,
-        PBufferInfo = info,
-    };
 
     /// <summary>The shadow atlas, read once with a depth comparison and once as plain depth.</summary>
     private void WriteAtlasDescriptors(in Frame frame)
@@ -5599,9 +5667,9 @@ public sealed unsafe class Renderer : IDisposable
         var lightmapInfo = new DescriptorBufferInfo(frame.Instances.LightmapHandle, 0, frame.Instances.LightmapSize);
         var writes = stackalloc WriteDescriptorSet[]
         {
-            StorageWrite(frame.Set, 2, &info),
-            StorageWrite(frame.Set, 9, &previousInfo),
-            StorageWrite(frame.Set, 10, &lightmapInfo),
+            Descriptors.BufferWrite(frame.Set, 2, &info),
+            Descriptors.BufferWrite(frame.Set, 9, &previousInfo),
+            Descriptors.BufferWrite(frame.Set, 10, &lightmapInfo),
         };
         _api.UpdateDescriptorSets(_context.Device, 3, writes, 0, null);
     }
@@ -5755,7 +5823,9 @@ public sealed unsafe class Renderer : IDisposable
 
         _volumetricFog.SetSources(
             new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal));
+            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
+            new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
+            new(_linearSampler, _lightProbes.DepthView, ImageLayout.General));
         foreach (ref var frame in _frames.AsSpan())
         {
             WriteVolumetricDescriptor(frame);

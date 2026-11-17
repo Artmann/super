@@ -1,11 +1,11 @@
 // Being underwater: water swallows light with distance, red first, and the rippling
 // surface focuses sunlight into moving nets of light (caustics) and hazy shafts.
-// Needs common.glsl and sampling.glsl.
+// Needs common.glsl.
 
 #include "water_absorption.glsl"
+#include "volumetric.glsl"
 
 const float NOTHING_DRAWN_DISTANCE = 1000.0;
-const int SHAFT_STEPS = 8;
 
 // The shafts are a blurred, larger version of the pattern on the floor.
 const float SHAFT_PATTERN_SCALE = 0.3;
@@ -57,32 +57,25 @@ vec3 waterColor(vec3 direction) {
     return color;
 }
 
-// Sums the shafts of light the view passes through on its way to a point.
-vec3 lightShafts(vec3 direction, float metres) {
-    if (frame.waterDeep.a <= 0.0 || frame.lightCount == 0) {
-        return vec3(0.0);
-    }
-
-    vec3 l = frame.lights[0].direction.xyz;
-    float stepLength = min(metres, frame.waterLight.z) / float(SHAFT_STEPS);
-    float noise = frameNoise(gl_FragCoord.xy, frame.frameNumber);
-    vec3 sum = vec3(0.0);
-    for (int i = 0; i < SHAFT_STEPS; i++) {
-        float travelled = (float(i) + noise) * stepLength;
-        vec3 point = frame.cameraPosition.xyz + direction * travelled;
-        float pattern = causticAt(point, l, frame.waterLight.y * SHAFT_PATTERN_SCALE);
-        sum += pattern * waterAbsorbed(travelled + metresToSurface(point, l));
-    }
-
-    float towardsSun = 0.5 + 0.5 * dot(direction, l);
-    return sum * stepLength * frame.waterDeep.a * towardsSun * frame.waterShallow.rgb;
-}
-
-// What the camera sees of something, past all the water in front of it.
+#ifndef VOLUMETRIC_WRITER
+// What the camera sees of something, past all the water in front of it. Near the camera the
+// volumetric fog holds the water's own light, the shafts and any fog volumes, summed through
+// the water (see volumetric_inject.comp); past its reach, or with it off, the water's colour
+// fills in, in closed form. Needs volumetric.glsl.
 vec3 throughWater(vec3 color, vec3 position) {
     vec3 ray = position - frame.cameraPosition.xyz;
     float metres = length(ray);
     vec3 direction = ray / metres;
     vec3 kept = waterAbsorbed(metres);
-    return color * kept + waterColor(direction) * (1.0 - kept) + lightShafts(direction, metres);
+    if (frame.volumetric.x <= 0.0) {
+        return color * kept + waterColor(direction) * (1.0 - kept);
+    }
+
+    // The volume's light and fog in front of the point, then the water past its reach, which
+    // starts as much dimmed as the volume leaves it.
+    float depth = volumetricViewDepth(position);
+    vec4 near = volumetricLookup(volumetricScreenUv(position), depth);
+    vec3 keptAtReach = waterAbsorbed(metres * min(1.0, frame.volumetric.x / max(depth, 1e-6)));
+    return near.rgb + near.a * (color * kept + waterColor(direction) * (keptAtReach - kept));
 }
+#endif

@@ -239,7 +239,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.Render",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 44
+      "metric": 40
     },
     {
       "kind": "high-complexity",
@@ -269,7 +269,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 44
+      "metric": 39
     },
     {
       "kind": "high-complexity",
@@ -929,7 +929,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.Render",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 42
+      "metric": 38
     },
     {
       "kind": "high-cognitive-complexity",
@@ -953,7 +953,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 48
+      "metric": 43
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1332,12 +1332,6 @@
       "name": "Courtyard.CourtyardGame.Draw",
       "file": "examples/Courtyard/CourtyardGame.cs",
       "metric": 98
-    },
-    {
-      "kind": "long-method",
-      "name": "Crypt.CryptGame.Draw",
-      "file": "examples/Crypt/CryptGame.cs",
-      "metric": 41
     },
     {
       "kind": "long-method",
@@ -1919,7 +1913,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Render",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 298
+      "metric": 284
     },
     {
       "kind": "long-method",
@@ -1961,13 +1955,13 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 93
+      "metric": 95
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 174
+      "metric": 161
     },
     {
       "kind": "long-method",
@@ -2705,7 +2699,7 @@
       "kind": "long-method",
       "name": "Super.SceneRenderer.CreateFrame",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 56
+      "metric": 57
     },
     {
       "kind": "long-method",
@@ -3443,13 +3437,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5787
+      "metric": 5857
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1770
+      "metric": 1785
     },
     {
       "kind": "large-file",
@@ -3479,19 +3473,19 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/GameWindow.cs",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 820
+      "metric": 822
     },
     {
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1202
+      "metric": 1222
     },
     {
       "kind": "large-file",
       "name": "src/Super/View.cs",
       "file": "src/Super/View.cs",
-      "metric": 1122
+      "metric": 1155
     },
     {
       "kind": "large-type",
@@ -3503,7 +3497,7 @@
       "kind": "large-type",
       "name": "Crypt.CryptGame",
       "file": "examples/Crypt/CryptGame.cs",
-      "metric": 40
+      "metric": 41
     },
     {
       "kind": "large-type",
@@ -3563,7 +3557,7 @@
       "kind": "large-type",
       "name": "Rendition.FrameView",
       "file": "src/Rendition/Types.cs",
-      "metric": 35
+      "metric": 36
     },
     {
       "kind": "large-type",
@@ -3599,7 +3593,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.FrameUniforms",
       "file": "src/Rendition/Passes/FrameUniforms.cs",
-      "metric": 60
+      "metric": 61
     },
     {
       "kind": "large-type",
@@ -3635,7 +3629,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 385
+      "metric": 390
     },
     {
       "kind": "large-type",
@@ -3695,7 +3689,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.VolumetricFogVolume",
       "file": "src/Rendition/Vulkan/VolumetricFogVolume.cs",
-      "metric": 28
+      "metric": 30
     },
     {
       "kind": "large-type",
@@ -3833,7 +3827,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 61
+      "metric": 64
     },
     {
       "kind": "large-type",
@@ -3887,7 +3881,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 109
+      "metric": 111
     },
     {
       "kind": "large-type",
@@ -3959,7 +3953,7 @@
       "kind": "large-type",
       "name": "Super.View",
       "file": "src/Super/View.cs",
-      "metric": 74
+      "metric": 78
     },
     {
       "kind": "large-type",
@@ -4009,6 +4003,7 @@
         "Rendition.DrawSelection",
         "Rendition.FadeRules",
         "Rendition.FilterRun",
+        "Rendition.FogVolumeBatch",
         "Rendition.FrameView",
         "Rendition.IBakeStore",
         "Rendition.LightBakeFile",
@@ -4024,6 +4019,7 @@
         "Rendition.Passes.DepthOfFieldPass",
         "Rendition.Passes.Exposure",
         "Rendition.Passes.Fog",
+        "Rendition.Passes.FogVolumePack",
         "Rendition.Passes.FrameUniforms",
         "Rendition.Passes.FsrPass",
         "Rendition.Passes.FullscreenPass",
@@ -4062,6 +4058,7 @@
         "Rendition.Vulkan.CubeLevel",
         "Rendition.Vulkan.EnvironmentMap",
         "Rendition.Vulkan.ExposureMeter",
+        "Rendition.Vulkan.FogVolumeBuffers",
         "Rendition.Vulkan.Fsr",
         "Rendition.Vulkan.FsrInputs",
         "Rendition.Vulkan.GpuLightmapRect",

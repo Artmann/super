@@ -917,7 +917,10 @@ public struct UnderwaterSettings
     /// <summary>Brightness of the hazy shafts of light.</summary>
     public float ShaftStrength;
 
-    /// <summary>How far from the camera shafts are drawn, in metres.</summary>
+    /// <summary>
+    /// How far from the camera, in metres, the water is drawn in the volumetric fog with its shafts and any fog
+    /// volumes. Past it the water's colour fills in. Shafts need <c>Graphics.VolumetricFog</c>.
+    /// </summary>
     public float ShaftDistance;
 }
 
@@ -1216,6 +1219,12 @@ public ref struct FrameView
     /// </summary>
     public ReadOnlySpan<DecalDraw> Decals;
 
+    /// <summary>
+    /// Shapes filled with fog of their own, such as mist in a room or a lamp's beam, drawn into the volumetric fog.
+    /// At most <see cref="FogVolumeBatch.MaxVolumes"/>. Empty while <see cref="RenderEffects.VolumetricFog"/> is off.
+    /// </summary>
+    public ReadOnlySpan<FogVolumeDraw> FogVolumes;
+
     /// <summary>A fade, dissolve or wipe between two pictures, or none.</summary>
     public ScreenTransition Transition;
 
@@ -1428,10 +1437,16 @@ public enum RenderEffects : long
     /// </summary>
     Fades = 1L << 36,
 
-    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
+    /// <summary>
+    /// Fog volumes, the shapes of fog a view places with <c>View.FogVolume</c>. Without it only the scene's own fog
+    /// fills the volumetric fog. It needs <see cref="VolumetricFog"/>.
+    /// </summary>
+    FogVolumes = 1L << 37,
+
+    All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
-        | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades,
+        | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes,
 }
 
 /// <summary>

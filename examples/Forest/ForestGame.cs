@@ -79,8 +79,9 @@ public sealed class Builder
 }
 
 /// <summary>
-/// A builder hammering at a cabin in a rainy, windy forest, with music. Space clicks, 1 to 4 cycle the channel
-/// volumes, P pauses the world's sounds, and the camera circles the cabin so the hammering pans across the speakers.
+/// A builder hammering at a cabin in a rainy, misty forest at sunrise, with music. Space clicks, 1 to 4 cycle the channel
+/// volumes, P pauses the world's sounds, V switches the volumetric fog, and the camera circles the cabin so the
+/// hammering pans across the speakers.
 /// </summary>
 public sealed class ForestGame(
     World world,
@@ -90,7 +91,8 @@ public sealed class ForestGame(
     GameRandom random,
     Input input,
     States<Place> place,
-    States<Pause> pause) : IGame
+    States<Pause> pause,
+    Graphics graphics) : IGame
 {
     private const int TreeCount = 45;
     private const float OrbitRadiansPerSecond = 0.2f;
@@ -112,7 +114,7 @@ public sealed class ForestGame(
     public Builder Builder { get; } = new();
 
     /// <summary>The camera circling the cabin. Tests turn it to hear the hammering pan.</summary>
-    public OrbitCamera Camera { get; } = new() { Distance = 16f, Pitch = 0.5f, MinDistance = 6f, MaxDistance = 40f, WideAs = 16f / 9f };
+    public OrbitCamera Camera { get; } = new() { Distance = 16f, Pitch = 0.22f, MinDistance = 6f, MaxDistance = 40f, WideAs = 16f / 9f };
 
     /// <summary>How fast the camera circles on its own, in radians a second. Dragging with the mouse turns it as well.</summary>
     public float OrbitSpeed { get; set; } = OrbitRadiansPerSecond;
@@ -126,7 +128,7 @@ public sealed class ForestGame(
             return new VStack(HorizontalAlignment.Leading, Spacing: 4f)
             {
                 new Text(volumes),
-                new Text(pause.Is(Pause.Paused) ? "Paused (P)" : "P pauses, Space clicks"),
+                new Text(pause.Is(Pause.Paused) ? "Paused (P)" : "P pauses, Space clicks, V volumetric fog"),
             }
             .Padding(16f)
             .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);
@@ -167,14 +169,12 @@ public sealed class ForestGame(
             audio.Play(_accept);
         }
 
-        for (int i = 0; i < VolumeKeys.Length; i++)
+        if (input.Pressed(Key.V))
         {
-            if (input.Pressed(VolumeKeys[i].Key))
-            {
-                _levelOf[i] = (_levelOf[i] + 1) % Levels.Length;
-                audio.Volume(VolumeKeys[i].Channel, Levels[_levelOf[i]]);
-            }
+            graphics.VolumetricFog = !graphics.VolumetricFog;
         }
+
+        CycleVolumes();
 
         if (Builder.Advance(tick.DeltaSeconds))
         {
@@ -196,8 +196,32 @@ public sealed class ForestGame(
     public void Draw(View view)
     {
         view.Camera(Camera.At(view.Blend));
-        view.Sun(new Vector3(0.4f, 1f, 0.3f), new Vector3(1.5f));
+        // Just after sunrise. The sun is low behind the trees across the clearing from where the camera starts, so
+        // their trunks and crowns cut its light into shafts through the morning mist as it comes towards the camera.
+        view.Sun(new Vector3(0.39f, 0.3f, -0.92f), new Vector3(3f, 2.5f, 1.9f));
+        view.Sky(new SkySettings
+        {
+            Brightness = 1f,
+            Turbidity = 3f,
+            // Mist lying low in the clearing, thinning by e every 3.3 m up, so the treetops stand clear of it.
+            Fog = new FogSettings(Density: 0.02f, Height: 0f, Falloff: 0.3f, SunScatter: 0.6f),
+        });
+        // The first map covers the clearing and the second the trees round it, which cast the shafts.
+        view.Shadows(14f, 3);
         view.Models(world);
+    }
+
+    /// <summary>1 to 4 step their channel's volume through full, half and off.</summary>
+    private void CycleVolumes()
+    {
+        for (int i = 0; i < VolumeKeys.Length; i++)
+        {
+            if (input.Pressed(VolumeKeys[i].Key))
+            {
+                _levelOf[i] = (_levelOf[i] + 1) % Levels.Length;
+                audio.Volume(VolumeKeys[i].Channel, Levels[_levelOf[i]]);
+            }
+        }
     }
 
     /// <summary>The hammering is a sound on the builder, there for as long as the builder is working.</summary>

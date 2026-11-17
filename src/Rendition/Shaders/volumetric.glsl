@@ -1,5 +1,5 @@
 // Volumetric fog: the fog near the camera, worked out in a grid of cells that follows the
-// view, one cell for every 8 by 8 pixels and VOLUMETRIC_SLICES slices deep, out to
+// view, one cell for every frame.volumetricGrid.y pixels each way and frame.volumetricGrid.x slices deep, out to
 // frame.volumetric.x metres of view depth. volumetric_inject.comp lights each cell and
 // volumetric_integrate.comp sums each column front to back; the lookup here reads the sum.
 // Needs common.glsl. The slices and sums must match Passes/VolumetricFog.cs, which the tests check.
@@ -7,20 +7,19 @@
 #ifndef VOLUMETRIC_GLSL
 #define VOLUMETRIC_GLSL
 
-const int VOLUMETRIC_SLICES = 64;
 const float VOLUMETRIC_HISTORY = 0.9; // Of each cell's light, the share from last frame's, reprojected.
 
 // The view depth of slice boundary i: frame.volumetric.y at 0 and frame.volumetric.x at
-// VOLUMETRIC_SLICES, each slice the same ratio deeper than the last.
+// frame.volumetricGrid.x, each slice the same ratio deeper than the last.
 float volumetricSliceDepth(float slice) {
     float near = frame.volumetric.y;
-    return near * pow(frame.volumetric.x / near, slice / float(VOLUMETRIC_SLICES));
+    return near * pow(frame.volumetric.x / near, slice / frame.volumetricGrid.x);
 }
 
 // The slice boundary, with a fraction, at a view depth.
 float volumetricSliceOf(float depth) {
     float near = frame.volumetric.y;
-    return log(depth / near) / log(frame.volumetric.x / near) * float(VOLUMETRIC_SLICES);
+    return log(depth / near) / log(frame.volumetric.x / near) * frame.volumetricGrid.x;
 }
 
 // Where cell i starts, as view depth: cell 0 starts at the camera and ends at boundary 1,
@@ -76,11 +75,11 @@ layout(set = 0, binding = 8) uniform sampler3D volumetricFogTexture;
 vec4 volumetricLookup(vec2 uv, float depth) {
     float cell = volumetricCellOf(clamp(depth, 0.0, frame.volumetric.x));
     if (cell < 1.0) {
-        vec4 first = textureLod(volumetricFogTexture, vec3(uv, 0.5 / float(VOLUMETRIC_SLICES)), 0.0);
+        vec4 first = textureLod(volumetricFogTexture, vec3(uv, 0.5 / frame.volumetricGrid.x), 0.0);
         return mix(vec4(0.0, 0.0, 0.0, 1.0), first, cell);
     }
 
-    return textureLod(volumetricFogTexture, vec3(uv, (cell - 0.5) / float(VOLUMETRIC_SLICES)), 0.0);
+    return textureLod(volumetricFogTexture, vec3(uv, (cell - 0.5) / frame.volumetricGrid.x), 0.0);
 }
 #endif
 

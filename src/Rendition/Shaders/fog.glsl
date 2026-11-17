@@ -70,9 +70,10 @@ vec3 fogLight(vec3 position, float kept, samplerCube sky) {
 // light leaving position that gets through in a. Seen there is then its own light times a,
 // plus rgb. With no volume it is the plain fog. Within the volume's reach the volume, lit by
 // the sun's shadows and the point and spot lights, replaces it; past that the plain fog
-// carries on from where the volume ends, seen through it.
+// carries on from where the volume ends, seen through it. Under water the volume holds the
+// water's light, which water.glsl's throughWater() reads, and the plain fog is clear.
 vec4 fogInFront(vec3 position, samplerCube sky) {
-    if (frame.volumetric.x <= 0.0) {
+    if (frame.volumetric.x <= 0.0 || frame.waterAbsorption.a > 0.5) {
         float kept = fogTransmittance(position);
         return vec4(fogLight(position, kept, sky), kept);
     }

@@ -91,6 +91,8 @@ public sealed class View
     private readonly List<DecalRequest> _decals = [];
     private readonly List<BakedChunk> _bakedChunks = [];
     private readonly HashSet<int> _decalKeys = [];
+    private readonly List<FogVolumeDraw> _fogVolumes = [];
+    private readonly HashSet<int> _fogVolumeKeys = [];
     private readonly ViewMemory _memory = new();
     private long _frame;
     private long _tick;
@@ -142,6 +144,9 @@ public sealed class View
 
     /// <summary>The decals placed so far this frame, in the order they are drawn.</summary>
     public ReadOnlySpan<DecalRequest> DrawnDecals => CollectionsMarshal.AsSpan(_decals);
+
+    /// <summary>The fog volumes placed so far this frame, in the order they were placed.</summary>
+    public ReadOnlySpan<FogVolumeDraw> DrawnFogVolumes => CollectionsMarshal.AsSpan(_fogVolumes);
 
     /// <summary>How far the display is between the last tick and the next, from 0 to 1.</summary>
     public float Blend { get; private set; }
@@ -991,6 +996,32 @@ public sealed class View
         _decals.Add(new DecalRequest(key, box, material, weights));
     }
 
+    /// <summary>
+    /// Fills a shape with fog of its own for this frame, such as mist pooled in a room, steam over a pool or the
+    /// haze in a lamp's beam, lit by the sun and the lights like the scene's fog. The shape is the unit
+    /// <paramref name="shape"/> moved by <paramref name="transform"/>, and <paramref name="settings"/> says how thick
+    /// and what colour it is. It shows only while the volumetric fog is on. The key names the volume, and each one can
+    /// be placed once a frame. At most <see cref="FogVolumeBatch.MaxVolumes"/> fit. See docs/views.md.
+    /// </summary>
+    public void FogVolume(int key, FogShape shape, Matrix4x4 transform, in FogVolumeSettings settings)
+    {
+        if (_fogVolumes.Count == FogVolumeBatch.MaxVolumes)
+        {
+            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                $"At most {FogVolumeBatch.MaxVolumes} fog volumes fit in a frame."));
+        }
+
+        if (_fogVolumeKeys.Contains(key))
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
+                $"Fog volume {key} was already placed this frame. Give each fog volume its own key."), nameof(key));
+        }
+
+        FogVolumeBatch.Check(shape, transform, settings);
+        _fogVolumeKeys.Add(key);
+        _fogVolumes.Add(new FogVolumeDraw(shape, transform, settings));
+    }
+
     private static string Format(Vector3 value) => value.ToString(null, CultureInfo.InvariantCulture);
 
     /// <summary>How wide the sun looks, in radians, unless <see cref="Shadows"/> says otherwise.</summary>
@@ -1113,6 +1144,8 @@ public sealed class View
         _reflectionProbes.Clear();
         _decals.Clear();
         _decalKeys.Clear();
+        _fogVolumes.Clear();
+        _fogVolumeKeys.Clear();
 
         // The hold stays, since changing it is what tells the renderer to keep a picture.
         Transition = new ScreenTransition { Hold = Transition.Hold };

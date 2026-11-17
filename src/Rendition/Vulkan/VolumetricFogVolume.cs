@@ -10,11 +10,20 @@ namespace Rendition.Vulkan;
 /// glass and particle passes look up. All three volumes stay in the general layout. They are
 /// made the first time a frame draws the fog, at the scene's size, so a game without it spends
 /// no memory on them, and freed by <see cref="Release"/> when the fog is switched off. Without
-/// them <see cref="Result"/> is a single texel that lets everything through. See "Volumetric fog" in docs/design.md.
+/// them <see cref="Result"/> is a single texel that lets everything through. The inject pass also reads the frame's
+/// fog volumes from a small buffer per descriptor set. See "Volumetric fog" in docs/design.md.
 /// </summary>
 internal sealed unsafe class VolumetricFogVolume : IDisposable
 {
     private const Format VolumeFormat = Format.R16G16B16A16Sfloat;
+
+    // How many cells across and down each invocation of the inject pass lights. Must match BLOCK in
+    // volumetric_inject.comp.
+    private const int InjectBlock = 2;
+
+    // Where probes.glsl reads the live light probes' atlases, in every set that includes it.
+    private const uint ProbeIrradianceBinding = 11;
+    private const uint ProbeDepthBinding = 12;
 
     private sealed class Volume(Image image, GpuAllocation memory, ImageView view)
     {
@@ -28,6 +37,7 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet[] _sets = new DescriptorSet[2];
+    private readonly FogVolumeBuffers _volumes;
     private readonly PipelineLayout _pipelineLayout;
     private readonly LivePipeline _inject;
     private readonly LivePipeline _integrate;
@@ -35,6 +45,9 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     private Volume[]? _injected;
     private Volume? _integrated;
     private (int X, int Y, int Z) _size;
+
+    /// <summary>The cells across, down and deep of the volumes made last; meaningless without <see cref="HasTargets"/>.</summary>
+    public (int X, int Y, int Z) Size => _size;
 
     // Which of the two injected volumes this frame writes; the other holds last frame's.
     private int _current;
@@ -61,12 +74,17 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
             new(2, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
             new(3, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
             new(4, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
+            new(FogVolumeBuffers.Binding, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
+            new(ProbeIrradianceBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
+            new(ProbeDepthBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
         ]);
         _pool = context.CreateDescriptorPool(
             2,
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 6),
-            new DescriptorPoolSize(DescriptorType.StorageImage, 4));
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 10),
+            new DescriptorPoolSize(DescriptorType.StorageImage, 4),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, 2));
         context.AllocateSets(_pool, _setLayout, _sets);
+        _volumes = new FogVolumeBuffers(context, _sets);
 
         _pipelineLayout = context.CreatePipelineLayout([frameSetLayout, _setLayout]);
         _inject = PipelineFactory.CreateCompute(context, "volumetric_inject.comp", _pipelineLayout);
@@ -77,30 +95,36 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     }
 
     /// <summary>
-    /// Points the inject pass at the sun's shadow cascades and the sky the fog takes its colour
-    /// from. Only while no frame in flight uses them.
+    /// Points the inject pass at the sun's shadow cascades, the sky the fog takes its colour
+    /// from where no light probe can tell, and the live light probes' two atlases, which the
+    /// shader's probes.glsl reads at bindings 11 and 12. Only while no frame in flight uses them.
     /// </summary>
-    public void SetSources(in DescriptorImageInfo sunShadow, in DescriptorImageInfo sky)
+    public void SetSources(
+        in DescriptorImageInfo sunShadow, in DescriptorImageInfo sky,
+        in DescriptorImageInfo probeIrradiance, in DescriptorImageInfo probeDepth)
     {
-        var shadowInfo = sunShadow;
-        var skyInfo = sky;
-        var writes = stackalloc WriteDescriptorSet[4];
+        var infos = stackalloc DescriptorImageInfo[] { sunShadow, sky, probeIrradiance, probeDepth };
+        uint* bindings = stackalloc uint[] { 0, 1, ProbeIrradianceBinding, ProbeDepthBinding };
+        var writes = stackalloc WriteDescriptorSet[8];
         for (int i = 0; i < 2; i++)
         {
-            writes[2 * i] = ImageWrite(_sets[i], 0, DescriptorType.CombinedImageSampler, &shadowInfo);
-            writes[2 * i + 1] = ImageWrite(_sets[i], 1, DescriptorType.CombinedImageSampler, &skyInfo);
+            for (int s = 0; s < 4; s++)
+            {
+                writes[4 * i + s] = Descriptors.ImageWrite(_sets[i], bindings[s], DescriptorType.CombinedImageSampler, &infos[s]);
+            }
         }
 
-        _context.Api.UpdateDescriptorSets(_context.Device, 4, writes, 0, null);
+        _context.Api.UpdateDescriptorSets(_context.Device, 8, writes, 0, null);
     }
 
     /// <summary>
-    /// Makes the volumes for a scene of this many pixels, after render scale, replacing any
+    /// Makes the volumes for a scene of this many pixels, after render scale, cut into cells this many
+    /// pixels across and this many slices deep, replacing any
     /// there were, and starts the history again. Only while no frame in flight uses them.
     /// </summary>
-    public void SetSize(int sceneWidth, int sceneHeight)
+    public void SetSize(int sceneWidth, int sceneHeight, int cellPixels, int slices)
     {
-        var size = VolumetricFog.GridSize(sceneWidth, sceneHeight);
+        var size = VolumetricFog.GridSize(sceneWidth, sceneHeight, cellPixels, slices);
         if (HasTargets && size == _size)
         {
             return;
@@ -122,13 +146,19 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         {
             history[i] = new DescriptorImageInfo(_sampler, _injected[1 - i].View, ImageLayout.General);
             written[i] = new DescriptorImageInfo(default, _injected[i].View, ImageLayout.General);
-            writes[3 * i] = ImageWrite(_sets[i], 2, DescriptorType.CombinedImageSampler, &history[i]);
-            writes[3 * i + 1] = ImageWrite(_sets[i], 3, DescriptorType.StorageImage, &written[i]);
-            writes[3 * i + 2] = ImageWrite(_sets[i], 4, DescriptorType.StorageImage, &summed);
+            writes[3 * i] = Descriptors.ImageWrite(_sets[i], 2, DescriptorType.CombinedImageSampler, &history[i]);
+            writes[3 * i + 1] = Descriptors.ImageWrite(_sets[i], 3, DescriptorType.StorageImage, &written[i]);
+            writes[3 * i + 2] = Descriptors.ImageWrite(_sets[i], 4, DescriptorType.StorageImage, &summed);
         }
 
         _context.Api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
     }
+
+    /// <summary>
+    /// Writes the fog volumes the next <see cref="Record"/> draws, at most <see cref="FogVolumeBatch.MaxVolumes"/>.
+    /// The shaders read as many as the frame block's volumetricGrid.z says.
+    /// </summary>
+    public void WriteFogVolumes(ReadOnlySpan<FogVolumeDraw> fogVolumes) => _volumes.Write(_current, fogVolumes);
 
     /// <summary>A frame that doesn't draw the fog leaves nothing for the next to reproject.</summary>
     public void Skip() => HistoryReady = false;
@@ -168,9 +198,12 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         var sets = stackalloc DescriptorSet[] { frameSet, _sets[_current] };
         uint groupsX = (uint)(_size.X + 7) / 8;
         uint groupsY = (uint)(_size.Y + 7) / 8;
+
+        // Each of the inject pass's invocations lights a block of InjectBlock by InjectBlock cells.
+        const int injectGroup = 8 * InjectBlock;
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _inject);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 2, sets, 0, null);
-        api.CmdDispatch(cmd, groupsX, groupsY, (uint)_size.Z);
+        api.CmdDispatch(cmd, (uint)(_size.X + injectGroup - 1) / injectGroup, (uint)(_size.Y + injectGroup - 1) / injectGroup, (uint)_size.Z);
 
         Barrier(cmd,
             PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
@@ -192,6 +225,7 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         var api = _context.Api;
         DestroyTargets();
         Destroy(_empty);
+        _volumes.Dispose();
         _inject.Destroy();
         _integrate.Destroy();
         api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
@@ -222,16 +256,6 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         api.DestroyImage(_context.Device, volume.Image, null);
         _context.Memory.Free(volume.Memory);
     }
-
-    private static WriteDescriptorSet ImageWrite(DescriptorSet set, uint binding, DescriptorType type, DescriptorImageInfo* info) => new()
-    {
-        SType = StructureType.WriteDescriptorSet,
-        DstSet = set,
-        DstBinding = binding,
-        DescriptorCount = 1,
-        DescriptorType = type,
-        PImageInfo = info,
-    };
 
     private void Barrier(
         CommandBuffer cmd, PipelineStageFlags2 sourceStage, AccessFlags2 sourceAccess, PipelineStageFlags2 destinationStage, AccessFlags2 destinationAccess)

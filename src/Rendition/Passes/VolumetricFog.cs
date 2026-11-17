@@ -3,40 +3,84 @@ using System.Numerics;
 namespace Rendition.Passes;
 
 /// <summary>
-/// The volumetric fog's grid size and the fog settings the shaders get. The grid has
-/// one cell for every 8 by 8 pixels of the scene and <see cref="Slices"/> slices in depth, split
-/// exponentially so the near cells are thin and the far ones deep.
+/// The volumetric fog's grid size and the fog settings the shaders get. The grid has one cell
+/// for every <see cref="Renderer.VolumetricFogCellSize"/> by that many pixels of the scene and
+/// <see cref="Renderer.VolumetricFogSlices"/> slices in depth, split exponentially so the near
+/// cells are thin and the far ones deep.
 /// </summary>
 internal static class VolumetricFog
 {
-    /// <summary>Scene pixels across one cell, each way.</summary>
+    /// <summary>Scene pixels across one cell, each way, unless a game picks another.</summary>
     public const int CellPixels = 8;
 
-    /// <summary>Cells in depth, from the camera out to <see cref="FogSettings.VolumetricDistance"/>.</summary>
+    /// <summary>The fewest scene pixels across a cell.</summary>
+    public const int MinCellPixels = 4;
+
+    /// <summary>The most scene pixels across a cell.</summary>
+    public const int MaxCellPixels = 32;
+
+    /// <summary>Cells in depth, from the camera out to <see cref="FogSettings.VolumetricDistance"/>, unless a game picks another.</summary>
     public const int Slices = 64;
+
+    /// <summary>The fewest slices in depth.</summary>
+    public const int MinSlices = 16;
+
+    /// <summary>The most slices in depth.</summary>
+    public const int MaxSlices = 128;
 
     /// <summary>Where the first slice ends at most, in metres; it ends sooner in a volume under twice this deep.</summary>
     public const float FirstSlice = 1f;
 
     /// <summary>The cells across, down and deep for a scene of this many pixels, after render scale.</summary>
-    public static (int X, int Y, int Z) GridSize(int sceneWidth, int sceneHeight) =>
-        ((sceneWidth + CellPixels - 1) / CellPixels, (sceneHeight + CellPixels - 1) / CellPixels, Slices);
+    public static (int X, int Y, int Z) GridSize(int sceneWidth, int sceneHeight, int cellPixels = CellPixels, int slices = Slices) =>
+        ((sceneWidth + cellPixels - 1) / cellPixels, (sceneHeight + cellPixels - 1) / cellPixels, slices);
+
+    /// <summary>Throws unless a cell this many pixels across fits the grid.</summary>
+    public static int CheckCellPixels(int value) => value is >= MinCellPixels and <= MaxCellPixels
+        ? value
+        : throw new ArgumentOutOfRangeException(nameof(value), value, $"A volumetric fog cell can be from {MinCellPixels} to {MaxCellPixels} pixels across.");
+
+    /// <summary>Throws unless the grid can have this many slices.</summary>
+    public static int CheckSlices(int value) => value is >= MinSlices and <= MaxSlices
+        ? value
+        : throw new ArgumentOutOfRangeException(nameof(value), value, $"The volumetric fog can have from {MinSlices} to {MaxSlices} slices.");
 
     /// <summary>
     /// What the frame block gets: x the distance the volume reaches, y where its first slice ends,
     /// z the anisotropy, w left for the renderer to say whether last frame's volume can be used.
-    /// All zero, which draws the plain fog, with either fog switch off, no fog, a volumetric
-    /// distance of 0, while a probe is captured or under water.
+    /// All zero, which draws the plain fog, with the volumetric switch off, a volumetric distance
+    /// of 0, while a probe is captured, and above water when there's nothing to draw: no
+    /// scene fog (or its switch off) and no fog volumes (or their switch off). Under water,
+    /// <paramref name="underwaterReach"/> is the shafts' distance and the volume reaches that far
+    /// with or without fog, as the water fills it; a reach of 0 draws the water in closed form.
     /// </summary>
-    public static Vector4 Pack(in FogSettings settings, RenderEffects off, bool capturingProbe, bool underwater)
+    public static Vector4 Pack(in FogSettings settings, int fogVolumes, RenderEffects off, bool capturingProbe, float? underwaterReach)
     {
-        if (capturingProbe || underwater || (off & (RenderEffects.Fog | RenderEffects.VolumetricFog)) != 0
-            || !(settings.Density > 0f) || !(settings.VolumetricDistance > 0f))
+        if (capturingProbe || (off & RenderEffects.VolumetricFog) != 0)
         {
             return Vector4.Zero;
         }
 
-        float distance = settings.VolumetricDistance;
+        // Under water the water itself fills the volume, out to the shafts' distance.
+        float distance = underwaterReach ?? settings.VolumetricDistance;
+        if (!(distance > 0f) || (underwaterReach == null && !HasFog(settings, fogVolumes, off)))
+        {
+            return Vector4.Zero;
+        }
+
         return new Vector4(distance, MathF.Min(FirstSlice, distance * 0.5f), settings.Anisotropy, 0f);
     }
+
+    /// <summary>
+    /// Whether the switches leave the grid nothing to draw, so its volumes can be freed: the volumetric fog is off, or
+    /// both the fog and the fog volumes are off above water. Under water the water fills the grid without either.
+    /// </summary>
+    public static bool CanFreeTargets(RenderEffects off, float? underwaterReach) =>
+        (off & RenderEffects.VolumetricFog) != 0
+        || (underwaterReach == null && (off & (RenderEffects.Fog | RenderEffects.FogVolumes)) == (RenderEffects.Fog | RenderEffects.FogVolumes));
+
+    /// <summary>Whether the grid has any fog to draw: the scene's own, or fog volumes.</summary>
+    public static bool HasFog(in FogSettings settings, int fogVolumes, RenderEffects off) =>
+        ((off & RenderEffects.Fog) == 0 && settings.Density > 0f)
+        || ((off & RenderEffects.FogVolumes) == 0 && fogVolumes > 0);
 }

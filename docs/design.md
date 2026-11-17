@@ -996,6 +996,11 @@ rendering. Game-facing features belong in Super, which has the audio (see
 ShadowPass    scene geometry   -> depth from the key light (1024, 2048 or 4096 square, up to 4 cascades)
               scene geometry   -> point and spot light shadows, tiles of one 4096 x 4096 atlas
 cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters
+volumetric_inject.comp compute -> with volumetric fog, each froxel's extinction and in-scattered light from the height fog,
+                                  the fog volumes' buffer, the probe atlases or the sky, the shadow maps and the
+                                  clusters (under water, the water and its shafts), blended with last frame's
+volumetric_integrate.comp compute -> the same summed front to back along each column, which the lighting pass,
+                                  glass and particles read as the fog in front of each pixel
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, motion, baked light, shadow mask, depth
 DecalPass     decal boxes      -> colour, normal and roughness laid over the G-buffer, reading a copy of its normals
 GBufferPass   no-decal draws   -> the same targets, loaded: skinned draws and NoDecals materials, only when decals and they are both in the frame
@@ -1545,50 +1550,127 @@ With the volumetric fog on, the sky does get the volume's light, so this only sh
 
 Near the camera the height fog is worked out in a froxel grid instead of in closed form.
 `Passes/VolumetricFog.cs` holds the grid's size and what the frame uniforms get, and
-`Vulkan/VolumetricFogVolume.cs` the GPU side. The grid has one cell per 8×8 scene pixels
-(after render scale, rounded up) and 64 slices. Slice boundary i lies at view depth
-`n·(f/n)^(i/64)`, where f is `VolumetricDistance` and n, where the exponential split
+`Vulkan/VolumetricFogVolume.cs` the GPU side. The grid has one cell per c×c scene pixels
+(after render scale, rounded up) and S slices, where c is `Renderer.VolumetricFogCellSize`
+(4 to 32, 8 by default) and S is `Renderer.VolumetricFogSlices` (16 to 128, 64 by default).
+Slice boundary i lies at view depth `n·(f/n)^(i/S)`, where f is `VolumetricDistance` and n, where the exponential split
 starts, is the smaller of 1 m and f/2. Cell 0 runs from the camera to boundary 1 and every
 other cell from its boundary to the next. So the first cell is one deep block, 0 to about
-1.06 m at the default reach of 48, and past it the slices are thin and grow with distance:
+1.06 m at the default reach of 48 and 64 slices, and past it the slices are thin and grow with distance:
 about 6 cm just past 1 m and about 2.8 m at 48 m. Fog within a metre of the eye is too thin
 to show any detail, and the first cell's light is faded in linearly from the camera (see
 `fogInFront()` below), so it is one cell rather than several. The frame uniforms carry `volumetric` (reach, n, anisotropy, and 1 when last frame's
-volume can be used), right after `curve`. `VolumetricFog.Pack` zeroes it, which makes every
-shader take the plain path untouched, with `RenderEffects.Fog` or `RenderEffects.VolumetricFog`
-off, a density or distance of 0, under water and while a probe is captured.
+volume can be used), right after `curve`, and then `volumetricGrid` (S, c, the number of
+fog volumes). The shaders read S from there; the cell size reaches them only through the images' size. `VolumetricFog.Pack` zeroes it, which makes every
+shader take the plain path untouched, with `RenderEffects.VolumetricFog` off, a distance of 0,
+while a probe is captured, and when there is nothing to draw: neither a scene
+fog with density (and `RenderEffects.Fog` on) nor a fog volume (and `RenderEffects.FogVolumes` on).
+Under water (see "Under water" below) the reach is `UnderwaterSettings.ShaftDistance` instead
+of `VolumetricDistance`, and the volume is drawn with or without fog, since it holds the water.
 
 Three rgba16f 3D images, about 35 MB at 1600×900, stay in the general layout for good. They
-are made the first time a frame draws the fog, at the scene's size, and remade with it.
-Turning `RenderEffects.Fog` or `RenderEffects.VolumetricFog` off frees them after a device
-wait, and turning it on again makes them anew with no history. Without them binding 8 of
+are made the first time a frame draws the fog, at the scene's size, and remade with it, or,
+after a device wait, when the cell size or slice count changes, which drops the history.
+Turning `RenderEffects.VolumetricFog` off, or both `RenderEffects.Fog` and
+`RenderEffects.FogVolumes`, frees them after a device wait, and turning one on again makes
+them anew with no history. Without them binding 8 of
 the frame set holds a 1×1×1 texel of (0, 0, 0, 1), which lets everything through. Two passes run after the shadow maps and the cluster lists, before
 the lighting pass, and the shadow maps' barriers list the compute stage among their readers.
 `GpuTimer` reports the two together as "Volumetric fog", and the light lists before them as
-"Light clusters". At 1600×900 they take about 0.16 ms in the Courtyard and 0.3 ms in the
-Crypt, whose many lights make the inject pass work harder.
+"Light clusters". At 1600×900 they take about 0.16 ms in the Courtyard. In the Crypt at
+1920×1080, with its floor mist and live probes, they take about 1.3 ms, of which about 0.5 ms
+is the probe light (0.8 ms with `RenderEffects.LightProbes` off), because its many lights make
+the inject pass work harder. The cost grows with the cell count, so a larger `Graphics.VolumetricFogCellSize`
+or fewer `VolumetricFogSlices` is the first thing to try when the fog is slow, and with the number of
+fog volumes, as each cell sums every one.
 
 `volumetric_inject.comp` writes one of two injected volumes and samples the other as
 history. For each cell it finds the view ray through the cell's centre from
 `inverseViewProjection` (two points unprojected, so a parallel view works too) and picks
 a depth inside the cell from a 3-bit reversed counter of `frameNumber`, the base-2 van der
 Corput sequence of 8, so a fixed frame number gives the same points. It stores the
-density `fogDensity()` in alpha and, in rgb, the light scattered towards the camera:
-the sky light `fogSkyLight()` (the plain fog's colour without its sun glow), plus each sun's
+extinction σ in alpha, per metre, and in rgb the light scattered towards the camera per
+metre, σ_s·L. σ is the height fog's `fogDensity()` plus each fog volume's density there
+(see "Fog volumes" below), and σ_s is the same sum with each volume's density times its
+colour, so height fog scatters what it stops and a coloured volume stops every colour but
+scatters only its own. When σ is 0 the cell skips the lights. L is
+the ambient `fogAmbient()`, plus each sun's
 radiance times one tap of its shadow cascade times the Henyey-Greenstein phase of the angle
 between the view ray and the sun, plus each point and spot light from the cell's cluster
 times `localLightReaching()`, one tap of its shadow tile (`localShadowInAir`), its
 `Volumetric` strength (`fade.z` in `light_data.glsl`) and the phase. The sun's shadow in air
-fades out with distance as the surfaces' does. Then the cell's world point is projected
+fades out with distance as the surfaces' does. `fogAmbient()` is `probeAirLight()` from
+`probes.glsl`, the probe sum with its `air` flag set: each probe's irradiance is the mean of
+facing up and facing down, which is E/π, so it reads the radiance of an even sky, and the air
+scatters the same every way, so no 1/π is needed. Air has no surface, so the flag also drops
+the sum's facing weight and its push along the normal, which halves the atlas reads. The soft
+light changes little across a few cells, since the probes are a metre or more apart, so each
+invocation of the inject pass lights a block of 2×2 cells (`BLOCK`, matched by `InjectBlock` in
+`VolumetricFogVolume`, which dispatches groups of 16×16 cells) and finds the ambient once for
+them, on the block's middle ray at the first cell's depth that has air to light. Together these
+took the probe light in the Crypt from about 2.9 ms to about 0.5 ms at 1920×1080.
+It reads the probe atlases at set 1 bindings 11 and 12 (`PROBE_ATLAS_SET 1`), when the
+frame has a probe volume or cascades. Where no probe answers, it falls back to the
+sky light `fogSkyLight()` (the plain fog's colour without its sun glow). The probe
+counts are zero while a probe is captured, so the fallback covers that too, though the
+fog is off then anyway. Cells that straddle a wall take light from probes on both sides,
+so fog touching a closed room's wall leaks a cell's width of the outside light. Then the cell's world point is projected
 with `previousViewProjection`; if it lands on screen and inside last frame's slices, the
 history at that spot is blended in at 90%. Off screen, outside the slices, or on the
 first frame after the fog was skipped, the new value stands alone.
 
 `volumetric_integrate.comp` walks each column front to back. A cell's length in metres
 is its depth span times the length of the ray's per-unit-depth step, its transmittance
-`exp(-σ·L)`, and it adds `kept·(1 - T)·rgb`, the plain fog's rule of colour times what is
-hidden. Texel i of the result holds the light in front of, and the transmittance to, the
-far side of cell i.
+`exp(-σ·L)`, and it adds `kept·rgb·(1 - T)/σ`, the cell's scattered light summed through
+its own depth, or `kept·rgb·L` when σ is below 1e-6. For height fog, where rgb is σ times
+the light, that is the plain fog's rule of colour times what is hidden. Texel i of the
+result holds the light in front of, and the transmittance to, the far side of cell i.
+
+#### Under water
+
+Under water the volume holds the water near the camera, and the shafts of light that
+`water.glsl` used to march per pixel are cells of it, so the sun's shadow cuts them. The
+height fog's uniforms are zeroed under water, so σ is only the fog volumes'. Inject adds
+`waterInScatter()` to every cell's rgb whatever σ is: the water's own light,
+`waterAbsorption·waterColor(towards)`, which summed through the water gives the closed
+form's tint, and with `ShaftStrength` above 0 and a light, the shafts, `ShaftStrength` times
+the caustic pattern at `SHAFT_PATTERN_SCALE` traced up to the surface, one tap of the sun's
+shadow in air, `0.5 + 0.5·dot(towards, l)` and `waterAbsorbed()` over the way down, in
+the shallow colour. Integrate keeps a transmittance per channel for its running light,
+with σ plus the water's absorption, since the water stops red, green and blue apart, but
+stores in a only the fog volumes' share, `exp(-Σσ·L)`, as readers work the water's own share
+out from the distance.
+
+`throughWater()` reads the volume at the point and returns
+`near.rgb + near.a·(color·kept + waterColor·(keptAtReach - kept))`, where kept is
+`waterAbsorbed()` over the whole distance and keptAtReach over the part of it inside the
+reach, so past the reach the closed form's tint carries on from where the volume ends. Inside
+it keptAtReach equals kept and only the volume's light is added. With the volume off it is
+the closed form as before, with no shafts. `fogInFront()` takes the plain path under water,
+which is clear, so glass and particles keep their old look; particles still leave out the
+shafts, which would be added once per puff. With `ShaftStrength` at 0, the Reef's water
+matches the closed form to within one level of 255 in every part of the frame.
+
+#### Fog volumes
+
+`view.FogVolume` keeps up to 64 `FogVolumeDraw`s a frame in `FrameView.FogVolumes`, and
+`FogVolumePack` packs them into 128-byte std430 `GpuFogVolume`s: the inverse transform, the
+colour and density, the shape, edge fade, noise and 1/noise size, the wind with the radius
+of a sphere round the centre that holds the shape (√3/2 times the longest axis), and the
+centre. Set 1 of the fog passes holds them at binding 5, in one host-visible buffer per
+descriptor set. The set a frame binds alternates with each frame that draws the fog, so the
+frame that last read a buffer is at least two fog frames back and its fence has been waited
+on before the renderer writes it again. `volumetricGrid.z` is the count.
+
+`fog_volumes.glsl`'s `fogVolumeDensity()` skips a volume whose bounding sphere doesn't hold
+the point, moves the point into the unit shape and finds how far in it is, 0 on the surface
+and 1 at the middle: `1 - 2·max|p|` for the box, `1 - 2·|p|` for the ellipsoid, the smaller
+of `1 - 2·|p.xz|` and `1 - 2·|p.y|` for the cylinder, and for the cone the radius
+`0.5·(0.5 - y)` in place of 0.5. Outside is below 0. The density rises linearly over the
+edge fade, and with noise it is multiplied by `mix(1, n, noise)`, where n is three octaves of
+gradient noise at `(p - centre - wind·time)/noiseSize`, in world metres, pushed apart with
+`smoothstep(0.25, 0.75)`. `FogVolumePack.Density()` is the same in C# without the noise, for
+the tests.
 
 `fog.glsl`'s `fogInFront()` replaces the old transmittance and fog light in
 `lighting.frag`, `transparent.frag` and `particle.frag`. With no volume it is the plain fog
@@ -4929,10 +5011,14 @@ change does too.
   the rasterized capture then lights through walls (above). The capture's near plane is 1 mm;
   at 5 cm the room's outer probes, which sit 5 cm from the walls, floor and ceiling, saw through
   them into the black sky, and the rasterized readings were 10 to 15% lower.
-- Volumetric fog is a froxel grid of one cell per 8×8 scene pixels, so light bleeds a
+- Volumetric fog is a froxel grid of one cell per 8×8 scene pixels by default
+  (`VolumetricFogCellSize`, 4 to 32, and `VolumetricFogSlices`, 16 to 128), so light bleeds a
   cell across silhouettes, a shaft narrower than a cell blurs, and its history smears a
-  moving light or a fast camera for a few frames. Past `VolumetricDistance` the fog is the
-  plain height fog again.
+  moving light or a fast camera for a few frames. Past `VolumetricDistance` (under water,
+  `ShaftDistance`) the fog is the plain height fog again, and fog volumes are cut off there.
+  The soft light in the fog comes from the live probes where they reach and the sky where they
+  don't, with no blend between, and it is found once for each 2×2 cells. Baked probes don't
+  light the fog.
 - Decals that overlap don't stack their normals and roughness, only their colours, and a
   decal can't make a surface metal or make it glow. See [Decals](#decals).
 - Puddles have one flat level per view. Water doesn't run, rise in one hollow and not

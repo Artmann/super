@@ -42,7 +42,7 @@ public sealed class BakedSpaceTests
         }
 
         var content = new Content(files);
-        var game = new CryptGame(content);
+        var game = new CryptGame(content, new Input(), new Graphics());
         game.Load();
         var view = new View();
         view.Begin(0f);

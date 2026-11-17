@@ -9,9 +9,9 @@ namespace Crypt;
 /// hung from the vault lights a treasure chest, and an altar of candelabras stands before a
 /// statue, with clusters of candles on the floor round it: well over a hundred lights in all.
 /// The flames are particles that glow, and a cold shaft from a grate high up gives the
-/// fire something to stand against.
+/// fire something to stand against. A cold mist lies over the floor, and V switches it off.
 /// </summary>
-public sealed class CryptGame(Content content) : IGame
+public sealed class CryptGame(Content content, Input input, Graphics graphics) : IGame
 {
     private const int FloorKey = 1;
     private const int WallKey = 10;
@@ -22,6 +22,7 @@ public sealed class CryptGame(Content content) : IGame
     private const int ChestKey = 320;
     public const int LanternKey = 330;
     private const int GrateKey = 340;
+    private const int MistKey = 350;
     private const int BarrelKey = 400;
     private const int CandelabraKey = 500;
     private const int AltarFlameKey = 600;
@@ -194,7 +195,14 @@ public sealed class CryptGame(Content content) : IGame
         _candles.Add((foot, height, width));
     }
 
-    public void Update(GameTime time) => _seconds = time.Tick / (float)time.TicksPerSecond;
+    public void Update(GameTime time)
+    {
+        _seconds = time.Tick / (float)time.TicksPerSecond;
+        if (input.Pressed(Key.V))
+        {
+            graphics.FogVolumes = !graphics.FogVolumes;
+        }
+    }
 
     public void Draw(View view)
     {
@@ -233,10 +241,29 @@ public sealed class CryptGame(Content content) : IGame
         DrawAltar(view);
         DrawCandles(view);
         DrawChestAndLantern(view);
+        DrawColdAir(view);
+    }
 
-        // A cold shaft from a grate high in the left wall, the only light that isn't fire.
+    /// <summary>
+    /// What isn't fire: a cold shaft from a grate high in the left wall, and a cold mist over the whole floor, in a
+    /// box 0.8 m deep with soft edges, in patches drifting slowly towards the door, so the torches and candles glow
+    /// in it. V switches the mist off.
+    /// </summary>
+    private static void DrawColdAir(View view)
+    {
         var grate = new Vector3(-HallWidth / 2f + 0.35f, 4.3f, -1.2f);
         view.SpotLight(GrateKey, grate, Vector3.Normalize(new Vector3(2.95f, -4.3f, 0.2f)), new Vector3(14f, 22f, 40f), range: 9f, innerAngle: 0.12f, outerAngle: 0.3f);
+
+        var mist = new FogVolumeSettings(0.3f)
+        {
+            EdgeFade = 0.5f,
+            Noise = 0.6f,
+            NoiseSize = 1.5f,
+            Wind = new Vector3(0.05f, 0f, 0.12f),
+        };
+        view.FogVolume(MistKey, FogShape.Box,
+            Matrix4x4.CreateScale(HallWidth, 0.8f, HallFront - HallBack) * Matrix4x4.CreateTranslation(0f, 0.2f, (HallFront + HallBack) / 2f),
+            mist);
     }
 
     private void DrawHall(View view)

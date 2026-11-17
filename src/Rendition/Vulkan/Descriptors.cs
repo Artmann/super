@@ -101,6 +101,29 @@ internal static unsafe class Descriptors
         }
     }
 
+    /// <summary>A write of one image descriptor, such as a sampled texture or a storage image, into a set's binding.</summary>
+    public static WriteDescriptorSet ImageWrite(DescriptorSet set, uint binding, DescriptorType type, DescriptorImageInfo* info) => new()
+    {
+        SType = StructureType.WriteDescriptorSet,
+        DstSet = set,
+        DstBinding = binding,
+        DescriptorCount = 1,
+        DescriptorType = type,
+        PImageInfo = info,
+    };
+
+    /// <summary>A write of one buffer descriptor into a set's binding, a storage buffer unless told otherwise.</summary>
+    public static WriteDescriptorSet BufferWrite(
+        DescriptorSet set, uint binding, DescriptorBufferInfo* info, DescriptorType type = DescriptorType.StorageBuffer) => new()
+    {
+        SType = StructureType.WriteDescriptorSet,
+        DstSet = set,
+        DstBinding = binding,
+        DescriptorCount = 1,
+        DescriptorType = type,
+        PBufferInfo = info,
+    };
+
     /// <summary>Makes a pipeline layout over these set layouts, with a push constant range when one is given.</summary>
     public static PipelineLayout CreatePipelineLayout(
         this VulkanContext context, ReadOnlySpan<DescriptorSetLayout> setLayouts, PushConstantRange? pushRange = null)

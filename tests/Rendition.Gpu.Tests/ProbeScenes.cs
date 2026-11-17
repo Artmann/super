@@ -191,6 +191,14 @@ internal static class ProbeScenes
     public static ProbeScene SolidBox(GpuFixture gpu) => Box(gpu, facingIn: false);
 
     /// <summary>
+    /// The closed box with walls of albedo 0.02, nearly black however they are lit, so what fog in it adds to the
+    /// picture is the fog's own light. Its background is as bright as its sky, since fog takes its sky light from the
+    /// background where the view shows no environment.
+    /// </summary>
+    public static ProbeScene DarkClosedBox(GpuFixture gpu) =>
+        Box(gpu, facingIn: true, albedo: 0.02f) with { Background = new Vector3(4f) };
+
+    /// <summary>
     /// A white room 3.1 m wide and high, from -1.55 to 1.55 across and -0.05 to 3.05 up, with its faces facing in.
     /// The wall at +z starts 1 m up, which leaves an opening below it. One point light at (0, 2, 0); the sky is black.
     /// </summary>
@@ -266,10 +274,10 @@ internal static class ProbeScenes
         return new ProbeScene(draws, [], Vector3.Zero);
     }
 
-    private static ProbeScene Box(GpuFixture gpu, bool facingIn)
+    private static ProbeScene Box(GpuFixture gpu, bool facingIn, float albedo = 0.8f)
     {
         var quad = Quad(gpu);
-        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f });
+        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(albedo, albedo, albedo, 1f), Roughness = 1f });
 
         const float half = 1.1f;
         const float size = 2f * half;

@@ -8,11 +8,16 @@
 #include "local_shadows.glsl"
 #include "sky.glsl"
 #include "fog.glsl"
+#include "fog_volumes.glsl"
+#define PROBE_ATLAS_SET 1
+#include "probes.glsl"
+#include "water.glsl"
 
 // Lights each cell of the volumetric fog: how much light its air takes per metre, from the
-// height fog, and the light it sends towards the camera, from the sky, each sun through its
-// shadow and each point and spot light through its shadow where it has one. The point the
-// cell is lit at moves through its depth over 8 frames, and 90% of the result is last
+// height fog and the fog volumes, and the light it sends towards the camera per metre, from
+// the light probes or the sky, each sun through its shadow and each point and spot light
+// through its shadow where it has one. The point the cell is lit at moves through its depth
+// over 8 frames, and 90% of the result is last
 // frame's, found where the cell was then, so the slices blur into a smooth whole.
 // See "Volumetric fog" in docs/design.md.
 
@@ -58,23 +63,26 @@ bool parallelProjection(mat4 m) {
     return abs(m[0][3]) + abs(m[1][3]) + abs(m[2][3]) < 1e-6;
 }
 
-void main() {
-    ivec3 size = imageSize(injected);
-    ivec3 cell = ivec3(gl_GlobalInvocationID);
-    if (any(greaterThanEqual(cell, size))) {
-        return;
+// The soft light round a point in the air: where the live light probes can tell, the mean of
+// what they hold facing up and facing down, which is the light from all round, as the air
+// scatters it the same every way. The probes give irradiance over pi, so under an even sky
+// each half reads the sky's radiance. Where they can't tell, the sky the height fog takes.
+vec3 fogAmbient(vec3 position, vec3 towards) {
+    if (frame.lightProbeCounts.w > 0.5 || frame.probeCascadeCounts.w > 0.5) {
+        vec3 light = probeAirLight(position, -towards);
+        if (light.x >= 0.0) {
+            return light;
+        }
     }
 
-    vec2 uv = (vec2(cell.xy) + 0.5) / vec2(size.xy);
-    vec3 origin;
-    vec3 along;
-    volumetricRay(uv, origin, along);
-    float depth = mix(volumetricCellStart(cell.z), volumetricCellStart(cell.z + 1), depthJitter(frame.frameNumber));
-    vec3 position = origin + along * depth;
-    vec3 towards = normalize(along);
-    float g = frame.volumetric.z;
+    return fogSkyLight(skyTexture, towards);
+}
 
-    vec3 light = fogSkyLight(skyTexture, towards);
+// The light that reaches a point in the air and is turned towards the camera, per unit of
+// scattering: the soft light round it, ambient, then each sun through its shadow and each point
+// and spot light through its shadow where it has one.
+vec3 lightInAir(vec3 ambient, vec3 position, vec2 uv, float depth, vec3 towards, float g) {
+    vec3 light = ambient;
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
         float shadow = frame.lights[i].direction.w > 0.5 ? sunShadowInAir(position) : 1.0;
@@ -103,7 +111,76 @@ void main() {
         }
     }
 
-    vec4 value = vec4(light, fogDensity(position));
+    return light;
+}
+
+// Under water, the light the water itself sends towards the camera per metre. Its colour that
+// way times what it stops per metre, which summed through the water is the closed form's tint,
+// and the shafts: the caustics' light coming down through the water, where the sun's shadow
+// lets it through, brightest looking towards the sun.
+vec3 waterInScatter(vec3 position, vec3 towards) {
+    vec3 light = frame.waterAbsorption.rgb * waterColor(towards);
+    if (frame.waterDeep.a <= 0.0 || frame.lightCount == 0) {
+        return light;
+    }
+
+    vec3 l = frame.lights[0].direction.xyz;
+    float pattern = causticAt(position, l, frame.waterLight.y * SHAFT_PATTERN_SCALE);
+    float shadow = frame.lights[0].direction.w > 0.5 ? sunShadowInAir(position) : 1.0;
+    float towardsSun = 0.5 + 0.5 * dot(towards, l);
+    vec3 down = waterAbsorbed(metresToSurface(position, l));
+    return light + frame.waterDeep.a * pattern * shadow * towardsSun * down * frame.waterShallow.rgb;
+}
+
+// The soft light is the same across a few cells, since the probes are a metre or more apart, so
+// each invocation lights a block of BLOCK by BLOCK cells and finds it once for them all, at the
+// block's middle and their depth, the first time one of them has air to light.
+const int BLOCK = 2;
+
+// Lights one cell and keeps a share of its last frame. ambient holds the block's soft light once
+// found is true.
+void injectCell(ivec3 cell, ivec3 size, vec2 blockUv, inout bool found, inout vec3 ambient) {
+    vec2 uv = (vec2(cell.xy) + 0.5) / vec2(size.xy);
+    vec3 origin;
+    vec3 along;
+    volumetricRay(uv, origin, along);
+    float depth = mix(volumetricCellStart(cell.z), volumetricCellStart(cell.z + 1), depthJitter(frame.frameNumber));
+    vec3 position = origin + along * depth;
+    vec3 towards = normalize(along);
+    float g = frame.volumetric.z;
+
+    // How much of the light the air stops per metre in a, and the light it scatters towards
+    // the camera per metre in rgb, from the height fog and every fog volume here. Under water
+    // the height fog is clear, the water adds its own light, and volumetric_integrate.comp
+    // adds what the water stops, which is red, green and blue apart.
+    float heightDensity = fogDensity(position);
+    float extinction = heightDensity;
+    vec3 scattering = vec3(heightDensity);
+    int volumeCount = int(frame.volumetricGrid.z + 0.5);
+    for (int i = 0; i < volumeCount; i++) {
+        float density = fogVolumeDensity(fogVolumes[i], position, frame.time);
+        extinction += density;
+        scattering += density * fogVolumes[i].colorDensity.rgb;
+    }
+
+    vec3 sent = vec3(0.0);
+    if (extinction > 0.0) {
+        if (!found) {
+            vec3 blockOrigin;
+            vec3 blockAlong;
+            volumetricRay(blockUv, blockOrigin, blockAlong);
+            ambient = fogAmbient(blockOrigin + blockAlong * depth, normalize(blockAlong));
+            found = true;
+        }
+
+        sent = scattering * lightInAir(ambient, position, uv, depth, towards, g);
+    }
+
+    if (isUnderwater()) {
+        sent += waterInScatter(position, towards);
+    }
+
+    vec4 value = vec4(sent, extinction);
 
     // Last frame's light for the same air, where it was in last frame's volume. Air that was
     // off screen or outside the volume then has none, and takes this frame's.
@@ -114,13 +191,31 @@ void main() {
             float previousDepth = parallelProjection(frame.previousViewProjection) ? depth : clip.w;
             float previousCell = volumetricCellOf(previousDepth);
             bool inside = all(greaterThanEqual(previousUv, vec2(0.0))) && all(lessThanEqual(previousUv, vec2(1.0)))
-                && previousDepth >= 0.0 && previousCell <= float(VOLUMETRIC_SLICES);
+                && previousDepth >= 0.0 && previousCell <= frame.volumetricGrid.x;
             if (inside) {
-                vec4 before = textureLod(history, vec3(previousUv, previousCell / float(VOLUMETRIC_SLICES)), 0.0);
+                vec4 before = textureLod(history, vec3(previousUv, previousCell / frame.volumetricGrid.x), 0.0);
                 value = mix(value, before, VOLUMETRIC_HISTORY);
             }
         }
     }
 
     imageStore(injected, cell, value);
+}
+
+void main() {
+    ivec3 size = imageSize(injected);
+    ivec3 corner = ivec3(ivec2(gl_GlobalInvocationID.xy) * BLOCK, int(gl_GlobalInvocationID.z));
+    if (any(greaterThanEqual(corner, size))) {
+        return;
+    }
+
+    ivec2 last = min(corner.xy + BLOCK, size.xy);
+    vec2 blockUv = (vec2(corner.xy + last) * 0.5) / vec2(size.xy);
+    bool found = false;
+    vec3 ambient = vec3(0.0);
+    for (int y = corner.y; y < last.y; y++) {
+        for (int x = corner.x; x < last.x; x++) {
+            injectCell(ivec3(x, y, corner.z), size, blockUv, found, ambient);
+        }
+    }
 }
