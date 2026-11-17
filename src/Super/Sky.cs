@@ -54,11 +54,14 @@ public struct SkySettings
     public FogSettings Fog;
 
     /// <summary>
-    /// How hazy the air is, which turns on a real clear sky worked out from the sun: from 1.7, a
-    /// crisp mountain sky, through 2 to 3 for a clear day, to 10, a milky summer haze. It
-    /// brightens towards the sun, deepens overhead, and shows the sun's disc, as wide as
-    /// <c>View.Shadows</c>' sunSize. Zenith and Horizon are then not used; Ground still colours
-    /// what's below the horizon. Zero, the default, keeps the gradient.
+    /// How hazy the air is, which turns on a physical sky lit by the sun: from 1.7, a crisp
+    /// mountain sky, through 2 to 3 for a clear day, to 10, a milky summer haze. It glows
+    /// round the sun, deepens overhead, reddens at sunset, fades to a faint glow at night, and
+    /// shows the sun's disc, as wide as <c>View.Shadows</c>' sunSize. The sun's own light turns
+    /// warm and dim as it sinks, and far surfaces fade into the air unless the view has a haze
+    /// of its own (<see cref="Graphics.AerialPerspective"/>). Zenith and Horizon are then not
+    /// used; Ground still colours what's below the horizon, lit by the sun and the sky. Zero,
+    /// the default, keeps the gradient.
     /// </summary>
     public float Turbidity;
 

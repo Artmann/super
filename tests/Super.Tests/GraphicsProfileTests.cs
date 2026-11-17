@@ -57,6 +57,7 @@ public class GraphicsProfileTests
         Particles = false,
         LocalLights = false,
         Haze = false,
+        AerialPerspective = false,
         Underwater = false,
         FogVolumes = false,
         ScreenBounce = false,

@@ -7,54 +7,6 @@ namespace Super.Tests;
 
 public class SkyModelTests
 {
-    [Fact]
-    public void Zenith_luminance_for_turbidity_2_with_the_sun_60_degrees_up_matches_preetham()
-    {
-        // Preetham, Shirley and Smits 1999, appendix: Yz = (4.0453 T - 4.9710) tan(chi) - 0.2155 T + 2.4192,
-        // with chi = (4/9 - T/120)(pi - 2 thetaS), in kcd/m2.
-        // T = 2 and the sun 60 degrees up, so thetaS = 30 degrees = pi/6.
-        //   chi = (0.444444 - 0.016667)(3.141593 - 1.047198) = 0.427778 * 2.094395 = 0.895936
-        //   tan(0.895936) = 1.249693
-        //   Yz = (8.0906 - 4.9710) * 1.249693 - 0.4310 + 2.4192 = 3.1196 * 1.249693 + 1.9882 = 5.8867
-        var zenith = SkyModel.Zenith(2f, MathF.PI / 6f);
-
-        Assert.Equal(5.8867f, zenith.X, 5.8867f * 0.01f);
-    }
-
-    [Fact]
-    public void A_clearer_sky_is_bluer_at_the_zenith()
-    {
-        float sunZenithAngle = MathF.PI / 6f;
-
-        var clear = SkyModel.Zenith(2f, sunZenithAngle);
-        var hazy = SkyModel.Zenith(6f, sunZenithAngle);
-
-        // Chromaticity y, the green-blue axis, is lower for a bluer sky: about 0.256 against 0.276.
-        Assert.True(clear.Z < hazy.Z, $"y at turbidity 2 is {clear.Z}, at 6 it is {hazy.Z}.");
-
-        // The paper's y matrix at T = 2, with thetaS = 0.523599, thetaS^2 = 0.274156, thetaS^3 = 0.143548:
-        //   T^2 row: 0.00275 * 0.143548 - 0.00610 * 0.274156 + 0.00317 * 0.523599 = 0.000382
-        //   T row: -0.04214 * 0.143548 + 0.08970 * 0.274156 - 0.04153 * 0.523599 + 0.00516 = 0.001958
-        //   1 row: 0.15346 * 0.143548 - 0.26756 * 0.274156 + 0.06670 * 0.523599 + 0.26688 = 0.250480
-        //   y = 4 * 0.000382 + 2 * 0.001958 + 0.250480 = 0.255924
-        Assert.Equal(0.255924f, clear.Z, 1e-4f);
-    }
-
-    [Fact]
-    public void Perez_coefficients_follow_the_papers_table()
-    {
-        // The appendix's luminance row at T = 3: A = 0.1787 * 3 - 1.4630 = -0.9269,
-        // B = -0.3554 * 3 + 0.4275 = -0.6387, C = -0.0227 * 3 + 5.3251 = 5.2570,
-        // D = 0.1206 * 3 - 2.5771 = -2.2153, E = -0.0670 * 3 + 0.3703 = 0.1693.
-        var (a, b, c, d, e) = SkyModel.Perez(3f);
-
-        Assert.Equal(-0.9269f, a.X, 1e-4f);
-        Assert.Equal(-0.6387f, b.X, 1e-4f);
-        Assert.Equal(5.2570f, c.X, 1e-4f);
-        Assert.Equal(-2.2153f, d.X, 1e-4f);
-        Assert.Equal(0.1693f, e.X, 1e-4f);
-    }
-
     [Theory]
     [InlineData(1.5f)]
     [InlineData(10.5f)]
@@ -200,6 +152,48 @@ public class SkyModelTests
         Assert.Equal(MathF.Cos(0.01f), sun.DiscCosine, 1e-6f);
     }
 
+    [Fact]
+    public void A_low_sun_is_tinted_warmer_and_dimmer_and_its_disc_follows_while_other_lights_stay()
+    {
+        float low = 3f * MathF.PI / 180f;
+        var lamp = new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(1f) };
+        var lights = new[]
+        {
+            lamp,
+            new DirectionalLight { Direction = new Vector3(MathF.Cos(low), MathF.Sin(low), 0f), Radiance = new Vector3(4f), CastsShadow = true },
+        };
+        var view = new FrameView { Lights = lights, Sky = new AnalyticSky { Turbidity = 3f } };
+        view.Shadows.LightAngle = 0.01f;
+        var buffer = Array.Empty<DirectionalLight>();
+
+        var tinted = SkyModel.Tinted(view, ref buffer);
+
+        var sun = tinted.Lights[1];
+        Assert.True(sun.Radiance.Y < 2f, $"The low sun is {sun.Radiance}.");
+        Assert.True(sun.Radiance.X > 2f * sun.Radiance.Z, $"The low sun is {sun.Radiance}.");
+        Assert.Equal(lamp.Radiance, tinted.Lights[0].Radiance);
+        Assert.Equal(new Vector3(4f), lights[1].Radiance);
+        Assert.Equal(sun.Radiance.X / sun.Radiance.Z,
+            SkyModel.Sun(tinted).DiscRadiance.X / SkyModel.Sun(tinted).DiscRadiance.Z, 1e-3f);
+    }
+
+    [Fact]
+    public void A_sun_60_degrees_up_keeps_its_colour_and_a_gradient_sky_tints_nothing()
+    {
+        float up = MathF.PI / 3f;
+        var lights = new[]
+        {
+            new DirectionalLight { Direction = new Vector3(MathF.Cos(up), MathF.Sin(up), 0f), Radiance = new Vector3(3f, 2f, 1f) },
+        };
+        var buffer = Array.Empty<DirectionalLight>();
+
+        var clear = SkyModel.Tinted(new FrameView { Lights = lights, Sky = new AnalyticSky { Turbidity = 3f } }, ref buffer);
+        var gradient = SkyModel.Tinted(new FrameView { Lights = lights }, ref buffer);
+
+        Assert.True(Vector3.Distance(new Vector3(3f, 2f, 1f), clear.Lights[0].Radiance) < 1e-4f, $"The sun is {clear.Lights[0].Radiance}.");
+        Assert.True(gradient.Lights == lights.AsSpan(), "A gradient sky should keep the view's own lights.");
+    }
+
     [Theory]
     [InlineData(0.5f, 1.7f)]
     [InlineData(1.2f, 1.7f)]
@@ -228,5 +222,21 @@ public class SkyModelTests
         Assert.Equal(SkyModel.MaxDiscRadiance, SkyModel.Sun(tiny).DiscRadiance.X);
         Assert.True(SkyModel.MaxDiscRadiance < 65504f);
         Assert.Equal(default, SkyModel.Sun(gradient));
+    }
+
+    // The air fades far surfaces only where nothing else does: a view's own haze takes over, with Graphics.Haze off
+    // too, and a probe's capture leaves out both, so a reflection matches what a probe sees.
+    [Theory]
+    [InlineData(0f, 0f, RenderEffects.None, false, true)]
+    [InlineData(45f, 150f, RenderEffects.None, false, false)]
+    [InlineData(45f, 150f, RenderEffects.Haze, false, false)]
+    [InlineData(0f, 0f, RenderEffects.AerialPerspective, false, false)]
+    [InlineData(0f, 0f, RenderEffects.None, true, false)]
+    public void Air_shows_only_without_haze_switch_off_or_capture(
+        float fadeStart, float fadeEnd, RenderEffects off, bool capturingProbe, bool shows)
+    {
+        var view = new FrameView { BackgroundFadeStart = fadeStart, BackgroundFadeEnd = fadeEnd };
+
+        Assert.Equal(shows, SkyModel.AirShows(view, off, capturingProbe));
     }
 }

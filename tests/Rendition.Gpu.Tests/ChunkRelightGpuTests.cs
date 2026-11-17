@@ -97,8 +97,10 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
         try
         {
             // What L1 costs: a space bake traces the whole sky, a chunk keeps only its first two bands. This clear sky is
-            // bright at the horizon, which L1 smears over the zenith, so the chunk's open floor reads too bright. Measured
-            // at 8.03 steps of 255 on average; an even sky gives about 1. See "Chunk transfer" in docs/design.md.
+            // bright at the horizon, which L1 smears over the zenith, so the chunk's open floor reads too bright and the
+            // wall's shade on it half as strong: 124 against the space's 105. Measured at 18.97 steps of 255 on average
+            // under the physical sky, whose hazy horizon is brighter against its zenith than the Preetham sky's was
+            // (8.03); an even sky gives about 1. See "Chunk transfer" in docs/design.md.
             var (sun, sky) = SkyOverWall(Matrix4x4.Identity);
             var settings = new BakeSettings(Density, BakeQuality.Preview);
             DrawItem[] draws = [Draw(quad, Floor, gpu.Matte, 1), Draw(quad, WestWall, dark, 2)];
@@ -115,7 +117,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
 
             AssertShaded(space, "space");
             float error = MeanDifference(chunk, space);
-            Assert.True(error <= 9f, $"The chunk's floor is {error:F2} steps from the space's on average, more than 9.");
+            Assert.True(error <= 21f, $"The chunk's floor is {error:F2} steps from the space's on average, more than 21.");
         }
         finally
         {

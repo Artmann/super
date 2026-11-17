@@ -59,8 +59,6 @@ internal sealed unsafe class ProbeVolume : IDisposable
         public int Slot;
         public float MaxDistance;
         public float EnvironmentIntensity;
-        public float Unused;
-        public System.Numerics.Vector4 SkySun;
     }
 
     /// <summary>Must match the Blend block in Shaders/probe_blend.comp.</summary>
@@ -263,11 +261,11 @@ internal sealed unsafe class ProbeVolume : IDisposable
     /// Folds the six faces of one slot of <see cref="FacesImage"/> into the same staging slot.
     /// <paramref name="spacing"/> is the probe's cascade's: further than two spacings a probe lights
     /// nothing, so distances stop there. Where it saw nothing it sees the sky: the environment times
-    /// <paramref name="environmentIntensity"/>, with the clear sky of <paramref name="skySun"/>, whether or
+    /// <paramref name="environmentIntensity"/>, whether or
     /// not the view shows the environment there, so a probe in the open reads as no probe does.
     /// </summary>
     public void RecordFold(
-        CommandBuffer cmd, int slot, float spacing, float environmentIntensity, System.Numerics.Vector4 skySun)
+        CommandBuffer cmd, int slot, float spacing, float environmentIntensity)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(slot);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, Math.Min(StagingSlots, FaceSlots));
@@ -279,7 +277,6 @@ internal sealed unsafe class ProbeVolume : IDisposable
             Slot = slot,
             MaxDistance = spacing * 2f,
             EnvironmentIntensity = environmentIntensity,
-            SkySun = skySun,
         };
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _foldPipeline!);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);

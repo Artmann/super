@@ -237,7 +237,7 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Rendition.Renderer.Render",
+      "name": "Rendition.Renderer.RenderTinted",
       "file": "src/Rendition/Renderer.cs",
       "metric": 40
     },
@@ -927,7 +927,7 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.Render",
+      "name": "Rendition.Renderer.RenderTinted",
       "file": "src/Rendition/Renderer.cs",
       "metric": 38
     },
@@ -1751,7 +1751,7 @@
       "kind": "long-method",
       "name": "Rendition.Passes.ParticlePass.ParticlePass",
       "file": "src/Rendition/Passes/ParticlePass.cs",
-      "metric": 48
+      "metric": 47
     },
     {
       "kind": "long-method",
@@ -1781,7 +1781,7 @@
       "kind": "long-method",
       "name": "Rendition.Passes.ProbeTracePass.Record",
       "file": "src/Rendition/Passes/ProbeTracePass.cs",
-      "metric": 42
+      "metric": 41
     },
     {
       "kind": "long-method",
@@ -1818,12 +1818,6 @@
       "name": "Rendition.Passes.TransparentPass.Record",
       "file": "src/Rendition/Passes/TransparentPass.cs",
       "metric": 66
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.TransparentPass.TransparentPass",
-      "file": "src/Rendition/Passes/TransparentPass.cs",
-      "metric": 41
     },
     {
       "kind": "long-method",
@@ -1889,7 +1883,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.PlanProbes",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 138
+      "metric": 136
     },
     {
       "kind": "long-method",
@@ -1911,7 +1905,7 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Renderer.Render",
+      "name": "Rendition.Renderer.RenderTinted",
       "file": "src/Rendition/Renderer.cs",
       "metric": 289
     },
@@ -1955,13 +1949,13 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 98
+      "metric": 100
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 163
+      "metric": 167
     },
     {
       "kind": "long-method",
@@ -3023,7 +3017,7 @@
       "kind": "too-many-parameters",
       "name": "Rendition.Passes.ProbeTracePass.Record",
       "file": "src/Rendition/Passes/ProbeTracePass.cs",
-      "metric": 11
+      "metric": 10
     },
     {
       "kind": "too-many-parameters",
@@ -3425,13 +3419,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5921
+      "metric": 5933
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1814
+      "metric": 1824
     },
     {
       "kind": "large-file",
@@ -3581,7 +3575,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.FrameUniforms",
       "file": "src/Rendition/Passes/FrameUniforms.cs",
-      "metric": 61
+      "metric": 63
     },
     {
       "kind": "large-type",
@@ -3617,7 +3611,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 394
+      "metric": 396
     },
     {
       "kind": "large-type",
@@ -3809,7 +3803,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 65
+      "metric": 66
     },
     {
       "kind": "large-type",
@@ -3988,6 +3982,7 @@
         "Rendition.FogVolumeBatch",
         "Rendition.FrameView",
         "Rendition.IBakeStore",
+        "Rendition.LastFrame",
         "Rendition.LightBakeFile",
         "Rendition.LightmapLayout",
         "Rendition.Material",
@@ -4036,6 +4031,7 @@
         "Rendition.RenderEffects",
         "Rendition.Renderer",
         "Rendition.ShL1",
+        "Rendition.TextureData",
         "Rendition.Vulkan.CaptureCube",
         "Rendition.Vulkan.CubeCentres",
         "Rendition.Vulkan.CubeLevel",
@@ -4044,6 +4040,7 @@
         "Rendition.Vulkan.EnvironmentFlat",
         "Rendition.Vulkan.EnvironmentMap",
         "Rendition.Vulkan.EnvironmentPrefilter",
+        "Rendition.Vulkan.EnvironmentUniforms",
         "Rendition.Vulkan.ExposureMeter",
         "Rendition.Vulkan.FogVolumeBuffers",
         "Rendition.Vulkan.Fsr",
@@ -4057,6 +4054,7 @@
         "Rendition.Vulkan.ReflectionProbes",
         "Rendition.Vulkan.RenderTarget",
         "Rendition.Vulkan.ResourceTable",
+        "Rendition.Vulkan.SkyAtmosphere",
         "Rendition.Vulkan.Swapchain",
         "Rendition.Vulkan.TraceScene",
         "Rendition.Vulkan.UploadQueue",

@@ -50,7 +50,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
             Assert.Equal([0], gpu.Renderer.LastBakeFrame!.DroppedSuns);
             // The sky changed once, to this sun, and stayed: the frame without the sun didn't bake a sunless sky.
             Assert.Equal(1, gpu.Renderer.SkyRebakes - rebakes);
-            var disc = gpu.Renderer.LastSunDisc;
+            var disc = gpu.Renderer.Last.SunDisc;
             Assert.True(disc.X + disc.Y + disc.Z > 0f, $"The sun's disc is dark: {disc}.");
         }
         finally
@@ -60,6 +60,101 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    // The physical sky tints the sun once. The frame drawn again without a baked local light keeps that one tint,
+    // as bright and as warm as a frame with nothing baked.
+    [Fact]
+    public void Frame_without_a_baked_local_light_tints_the_sun_once()
+    {
+        var (vertices, indices) = TestMeshes.Cube();
+        var cube = gpu.Renderer.CreateDrawItem(vertices, indices, gpu.Matte) with { BakeId = BakeIds.Of(1, 0) };
+        var view = gpu.View(DebugView.None);
+        view.Sky = new AnalyticSky { Turbidity = 3.5f };
+        view.Lights = new DirectionalLight[]
+        {
+            new()
+            {
+                Direction = Vector3.Normalize(new Vector3(0.9f, 0.25f, 0.3f)),
+                Radiance = new Vector3(3f),
+                CastsShadow = true,
+            },
+        };
+        view.LocalLights = new LocalLight[]
+        {
+            new LocalLight
+            {
+                Mode = LightMode.Baked, Key = 1601, Position = new Vector3(0f, 1f, 0f), Radiance = new Vector3(2f),
+                Range = 10f, Radius = 0.1f,
+            },
+        };
+        view.Shadows = new ShadowSettings { Radius = 4f, LightAngle = 0.1f };
+        view.BakedSpace = Room;
+
+        try
+        {
+            gpu.Renderer.Render(view, [cube]);
+            var once = gpu.Renderer.Last.Light(0).Radiance;
+
+            gpu.Renderer.Bakes = new EveryBakeFresh();
+            for (int i = 0; i < 3; i++)
+            {
+                view.Time = i * 2f;
+                gpu.Renderer.Render(view, [cube]);
+            }
+
+            Assert.Equal([0], gpu.Renderer.LastBakeFrame!.DroppedLocalLights);
+            var drawn = gpu.Renderer.Last.Light(0).Radiance;
+            Assert.True(Vector3.Distance(once, drawn) < 1e-4f, $"The sun was {once} with nothing baked but {drawn} without the baked light.");
+        }
+        finally
+        {
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.DestroyMesh(cube.Mesh);
+        }
+    }
+
+    // A frame drawn again without its baked sun leaves the other lights as they were: the air tints the sun, and a
+    // fill that is left is not taken for it.
+    [Fact]
+    public void Fill_left_after_the_baked_sun_is_dropped_keeps_its_colour()
+    {
+        var (vertices, indices) = TestMeshes.Cube();
+        var cube = gpu.Renderer.CreateDrawItem(vertices, indices, gpu.Matte) with { BakeId = BakeIds.Of(1, 0) };
+        var fill = new Vector3(0.4f, 0.3f, 0.2f);
+        var view = gpu.View(DebugView.None);
+        view.Sky = new AnalyticSky { Turbidity = 3.5f };
+        view.Lights = new DirectionalLight[]
+        {
+            new()
+            {
+                Mode = LightMode.Baked,
+                Direction = Vector3.Normalize(new Vector3(0.9f, 0.25f, 0.3f)),
+                Radiance = new Vector3(3f),
+                CastsShadow = true,
+            },
+            new() { Direction = Vector3.Normalize(new Vector3(-0.6f, 0.6f, -0.4f)), Radiance = fill },
+        };
+        view.Shadows = new ShadowSettings { Radius = 4f, LightAngle = 0.1f };
+        view.BakedSpace = Room;
+
+        gpu.Renderer.Bakes = new EveryBakeFresh();
+        try
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                view.Time = i * 2f;
+                gpu.Renderer.Render(view, [cube]);
+            }
+
+            Assert.Equal([0], gpu.Renderer.LastBakeFrame!.DroppedSuns);
+            Assert.Equal(fill, gpu.Renderer.Last.Light(0).Radiance);
+        }
+        finally
+        {
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.DestroyMesh(cube.Mesh);
+        }
     }
 
     private sealed class EveryBakeFresh : IBakeStore

@@ -7,8 +7,9 @@ using Silk.NET.Vulkan;
 namespace Rendition.Vulkan;
 
 /// <summary>
-/// The Environment block Shaders/environment.comp draws the cubes from: the studio's bands and panels, kept on the CPU
-/// until <see cref="Write"/> puts them, with a clear sky, in the GPU's buffer.
+/// What Shaders/environment.comp draws the cubes from: the Environment block, with the studio's bands and panels kept
+/// on the CPU until <see cref="Write"/> puts them, with a clear sky, in the GPU's buffer; and the physical sky's
+/// tables, which the same write records.
 /// </summary>
 internal sealed unsafe class EnvironmentUniforms : IDisposable
 {
@@ -51,16 +52,21 @@ internal sealed unsafe class EnvironmentUniforms : IDisposable
     }
 
     private readonly VulkanContext _context;
+    private readonly SkyAtmosphere _atmosphere;
     private GpuEnvironment _description;
 
-    public EnvironmentUniforms(VulkanContext context)
+    public EnvironmentUniforms(VulkanContext context, Sampler sampler)
     {
         _context = context;
+        _atmosphere = new SkyAtmosphere(context, sampler);
         Buffer = new GpuBuffer(context, (ulong)sizeof(GpuEnvironment),
             BufferUsageFlags.UniformBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
     }
 
     public GpuBuffer Buffer { get; }
+
+    /// <summary>The physical sky's sky-view table, ready to sample after a <see cref="Write"/>.</summary>
+    public ImageView SkyView => _atmosphere.SkyView;
 
     /// <summary>Keeps the bands and panels for the next <see cref="Write"/>. Nothing reaches the GPU yet.</summary>
     public void Set(in EnvironmentDescription description)
@@ -89,13 +95,14 @@ internal sealed unsafe class EnvironmentUniforms : IDisposable
 
     /// <summary>
     /// Records the copy of the kept description and this clear sky into the buffer, after earlier frames have read it,
-    /// and makes compute shaders wait for it.
+    /// and the physical sky's tables for it, and makes compute shaders wait for both.
     /// </summary>
     public void Write(CommandBuffer cmd, in SkySun sky)
     {
         var api = _context.Api;
         _description.SkySun = new Vector4(sky.Direction, sky.Turbidity);
         _description.SunDisc = new Vector4(sky.DiscRadiance, sky.DiscCosine);
+        _description.Floor.W = sky.Turbidity > 0f ? Atmosphere.GroundLight(sky.Direction, sky.Turbidity) : 1f;
 
         api.MemoryBarrier(cmd, (PipelineStageFlags2.AllCommandsBit, AccessFlags2.TransferWriteBit),
             (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit));
@@ -103,7 +110,12 @@ internal sealed unsafe class EnvironmentUniforms : IDisposable
         api.CmdUpdateBuffer(cmd, Buffer.Handle, 0, (ulong)sizeof(GpuEnvironment), &description);
         api.MemoryBarrier(cmd, (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit),
             (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.UniformReadBit));
+        _atmosphere.Record(cmd, sky);
     }
 
-    public void Dispose() => Buffer.Dispose();
+    public void Dispose()
+    {
+        _atmosphere.Dispose();
+        Buffer.Dispose();
+    }
 }

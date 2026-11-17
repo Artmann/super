@@ -638,19 +638,22 @@ public ref struct EnvironmentDescription
 }
 
 /// <summary>
-/// A real clear sky, worked out from the sun (Preetham, Shirley and Smits 1999), in place of the
-/// environment's ceiling and horizon. Its sun is the light that casts the shadows, or else the
-/// first, and it shows that light as a disc <see cref="ShadowSettings.LightAngle"/> across. The
-/// environment's floor still shows below the horizon. Changing it, or that sun, while it is on
-/// redraws the environment's lighting in the next frame, without waiting, so it can change every
-/// frame. See "Sky" in docs/rendering.md.
+/// A physical clear sky, the light of the sun scattered by the air (after Hillaire 2020), in place
+/// of the environment's ceiling and horizon. Its sun is the light that casts the shadows, or else
+/// the first, and it shows that light as a disc <see cref="ShadowSettings.LightAngle"/> across. The
+/// sky follows the sun all day: blue at noon, orange and red at sunset, deep blue after dusk. The
+/// sun's light itself turns warm and dim as it sinks, and far surfaces fade into the air (see
+/// <see cref="RenderEffects.AerialPerspective"/>). The environment's floor still shows below the
+/// horizon, lit by the sun and sky. Changing it, or that sun, while it is on redraws the
+/// environment's lighting in the next frame, without waiting, so it can change every frame. See
+/// "The sky" in docs/rendering.md.
 /// </summary>
 public struct AnalyticSky
 {
     /// <summary>
     /// How hazy the air is, from 1.7 (very clear) to 10 (milky). 0 keeps the environment's bands. Rendition
-    /// doesn't refuse other values, but draws anything above 0 held to 1.7 to 10: below about 1.2 the
-    /// model breaks down at the horizon. Super's SkySettings refuses them.
+    /// doesn't refuse other values, but draws anything above 0 held to 1.7 to 10. Super's SkySettings
+    /// refuses them.
     /// </summary>
     public float Turbidity;
 }
@@ -1471,11 +1474,18 @@ public enum RenderEffects : long
     /// </summary>
     ScreenBounce = 1L << 38,
 
+    /// <summary>
+    /// The physical sky's air between the eye and what it sees, from <see cref="AnalyticSky.Turbidity"/>: far hills turn
+    /// blue and pale, and towards a low sun they glow warm. Without it they keep their colours however far they are.
+    /// A view that sets its own haze, with <see cref="FrameView.BackgroundFadeEnd"/>, gets that haze instead.
+    /// </summary>
+    AerialPerspective = 1L << 39,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
         | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
-        | ScreenBounce,
+        | ScreenBounce | AerialPerspective,
 }
 
 /// <summary>

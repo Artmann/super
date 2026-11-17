@@ -87,6 +87,7 @@ next frame follows, so it can back an options menu.
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
 | `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
 | `Haze` | Distant things keep their colours instead of fading into the sky between `SkySettings.HazeStart` and `HazeEnd`. The sky's own colour stays |
+| `AerialPerspective` | Under a [physical sky](#the-sky), far surfaces keep their colours instead of fading into the air with distance. A view with its own haze gets that either way. It costs almost nothing |
 | `Underwater` | `view.Water` is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
 | `VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps, and under water no shafts of light. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
 | `FogVolumes` | The [fog volumes](views.md#fog-volumes) a view places are left out, and only the scene's own fog fills the volumetric fog. They show only while `VolumetricFog` is on too. `Graphics.Fastest()` turns it off |
@@ -786,8 +787,8 @@ open side and the bounce from its own sunlit walls, with no bake per copy and no
 sky changes. The frame after the sky or a sun changes, every copy shows it. Its own `Baked` and
 `Mixed` lights are added on top. The sun's direct light and shadows stay live, while its bounce
 follows every `Mixed` and `Baked` sun, moving ones included. The sky's light is kept to its
-broad shape, so a sky much brighter at the horizon than overhead lights an open floor a little
-too brightly, about 8 steps in 255 against a space baked under that sky. Each copy draws only its
+broad shape, so a sky much brighter at the horizon than overhead lights an open floor
+too brightly, about 19 steps in 255 under a clear sky at turbidity 3, against a space baked under that sky. Each copy draws only its
 own bake, so a pending copy is lit live even while another copy of the same chunk with another
 bake is resident. Reflection captures don't draw chunk bakes: they light a chunk's surfaces live,
 but without the chunk's `Baked` lights, which a fresh chunk takes out of the frame, so a chunk
@@ -1195,10 +1196,10 @@ looking down is the dark ground below the horizon.
 
 ![The Courtyard sky as a gradient, then as a clear sky, then the clear sky round the sun's disc](media/clear-sky.webp)
 
-`Turbidity` swaps the gradient for a clear sky worked out from the sun, after Preetham,
-Shirley and Smits (1999). It is brighter and whiter towards the sun, a deeper blue
-straight up and away from it, and paler at the horizon, and the sun itself shows as a
-disc:
+`Turbidity` swaps the gradient for a physical sky: the light of the sun scattered by the
+air of a planet like Earth, after Hillaire (2020). It is a deeper blue straight up and
+paler at the horizon, it glows round the sun, it turns orange and pink as the sun sets,
+and the sun itself shows as a disc:
 
 ```csharp
 view.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(7.2f, 6.7f, 5.8f));
@@ -1210,15 +1211,35 @@ view.Sky(new SkySettings
 });
 ```
 
-Turbidity is how hazy the air is, from 1.7 to 10; 2 to 3 is a clear day. Zero, the
-default, keeps the gradient, and is the way to turn the clear sky off: there is no
-switch for it in `Graphics`. Any other value throws. The sky follows the sun that casts
-the shadows, or the first sun when none does. Its disc is as wide as `sunSize` in
-`view.Shadows` and as bright as the sun's colour spread over it, so a smaller sun is a
-brighter disc, held under what the screen can store. `Zenith` and `Horizon` are not used;
-`Ground` still colours what is below the horizon, and `Brightness` still scales the
-whole sky, disc included. A sun below the horizon is treated as on it, so this is a
-daytime sky.
+Turbidity is how hazy the air is, from 1.7 to 10; 2 to 3 is a clear day, and a hazier
+sky is whiter and its sunsets redder. Zero, the default, keeps the gradient, and is the
+way to turn the physical sky off: there is no switch for it in `Graphics`. Any other
+value throws. The sky follows the sun that casts the shadows, or the first sun when none
+does. Its disc is as wide as `sunSize` in `view.Shadows` and as bright as the sun's
+colour spread over it, so a smaller sun is a brighter disc, held under what the screen
+can store. `Zenith` and `Horizon` are not used; `Ground` still colours what is below the
+horizon, lit by the sun and the sky, so it darkens at dusk, and `Brightness` still
+scales the whole sky, disc included.
+
+A scene that already set a turbidity gets the physical sky with no change. The
+[Forest example](../examples/Forest)'s sunrise mist now takes the warm glow round the
+low sun, and the hard white glare the old sky put on the grass is softer:
+
+![Forest just after sunrise: before with the Preetham sky, after with the physical sky](media/physical-sky-forest.webp)
+
+The sun's light comes through the air too. Set its colour as it looks with the sun 60°
+up: higher, it is a little brighter; lower, it is warmer and dimmer, orange near the
+horizon, and once it has set it gives no light at all. Only the sun the sky follows is
+tinted; other lights keep their colour. After sunset the sky fades to a faint deep blue
+glow, eight stops or so under noon, and never to black.
+
+![Courtyard with the sun just above the horizon: before, the old sky turns white round it; after, the physical sky glows orange and the sunlight is warm](media/physical-sky-sunset.webp)
+
+Far surfaces fade into the air, bluer and paler with distance, as they would on a clear
+day: about a sixth of the way by a kilometre at turbidity 3. A view with its own haze,
+`HazeStart` and `HazeEnd`, gets that instead, and with `Graphics.Haze` off it gets neither.
+Reflections leave the fade out, as they leave out haze. `Graphics.AerialPerspective` turns the fade
+off for every view; it costs almost nothing, so it stays on even in `Graphics.Fastest()`.
 
 The disc shows in the background and in sharp reflections from the sky, but not in the
 soft light, in rough reflections or in what [probes](#bounced-light) capture: the sun's
@@ -1235,8 +1256,12 @@ of its sunset:
 ![Hamlet's sky brightness over a sunset: before, a sawtooth that jumps every half second; after, a smooth curve](media/sky-fast-updates.webp)
 
 [Water](#water), when set, takes over the
-sky. The [Archer example](../examples/Archer) uses a golden-hour sky, and the
-[Courtyard example](../examples/Courtyard) a clear one.
+sky. The [Archer example](../examples/Archer) has its sun 14 degrees up for golden hour,
+with a white sun the air turns gold, and the [Courtyard example](../examples/Courtyard)
+a clear one. Moving Archer from its gradient sky kept its brightness and lost
+the blue cast the gradient's zenith gave the shade:
+
+![Archer at the end of its film: before with the gradient sky, after with the physical sky](media/physical-sky-archer.webp)
 
 ### Fog
 

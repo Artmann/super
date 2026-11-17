@@ -668,7 +668,7 @@ internal sealed unsafe class BakeJob : IDisposable
         volume.BeginFolds(cmd);
         for (int slot = 0; slot < _inGroup; slot++)
         {
-            volume.RecordFold(cmd, slot, _area.Probes!.Value.Spacing, _area.SkyIntensity, Vector4.Zero);
+            volume.RecordFold(cmd, slot, _area.Probes!.Value.Spacing, _area.SkyIntensity);
         }
 
         volume.RecordStagingReadBack(cmd, _foldBuffer!, _inGroup);

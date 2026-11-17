@@ -30,7 +30,7 @@ public sealed class EnvironmentPrefilterGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         using var environment = new EnvironmentMap(gpu.Context);
-        environment.Bake(new EnvironmentDescription { Ceiling = Ceiling, Horizon = Horizon, Floor = Floor }, default);
+        environment.Bake(gpu.Context, new EnvironmentDescription { Ceiling = Ceiling, Horizon = Horizon, Floor = Floor }, default);
 
         float roughness = mip / (float)(ReflectionMips - 1);
         foreach (var (face, direction) in new[] { (PositiveX, Vector3.UnitX), (PositiveY, Vector3.UnitY), (NegativeY, -Vector3.UnitY) })
@@ -51,7 +51,7 @@ public sealed class EnvironmentPrefilterGpuTests(GpuFixture gpu)
         var panelRadiance = new Vector3(40f);
         var grey = new Vector3(0.2f);
         using var environment = new EnvironmentMap(gpu.Context);
-        environment.Bake(new EnvironmentDescription
+        environment.Bake(gpu.Context, new EnvironmentDescription
         {
             Ceiling = grey,
             Horizon = grey,
@@ -124,7 +124,7 @@ public sealed class EnvironmentPrefilterGpuTests(GpuFixture gpu)
         var before = new Vector3(0.9f, 0.2f, 0.1f);
         var after = new Vector3(0.1f, 0.4f, 0.8f);
         using var environment = new EnvironmentMap(gpu.Context);
-        environment.Bake(Even(before), default);
+        environment.Bake(gpu.Context, Even(before), default);
 
         environment.SetDescription(Even(after));
         gpu.Context.SubmitAndWait(cmd => environment.RecordFrame(cmd, default, changed: true));

@@ -50,7 +50,6 @@ layout(std430, set = TRACE_GEOMETRY_SET, binding = 2) readonly buffer TracedProb
 
 // Must match TraceConstants in Passes/ProbeTracePass.cs.
 layout(push_constant) uniform Trace {
-    vec4 skySun;                // the frame's skySun: xyz towards the clear sky's sun, w its turbidity, 0 for the environment's bands
     uint frame;                 // the probe scheduler's frame, which seeds the rays' rotation
     float environmentIntensity; // the frame's, as lighting.frag scales the environment by
 } trace;
@@ -168,7 +167,7 @@ vec3 sphericalFibonacci(int i, int n) {
 // What the probe sees where a ray hits nothing: the environment, without the sun's disc, even when the view shows a
 // plain background there, as in probe_fold.comp.
 vec3 skyRadianceAlong(vec3 direction) {
-    return skyBehind(sky, direction, trace.skySun) * trace.environmentIntensity;
+    return skyBehind(sky, direction) * trace.environmentIntensity;
 }
 
 void main() {
