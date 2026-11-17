@@ -1427,7 +1427,7 @@
       "kind": "long-method",
       "name": "Hamlet.DayCycle.Light",
       "file": "examples/Hamlet/DayCycle.cs",
-      "metric": 44
+      "metric": 41
     },
     {
       "kind": "long-method",
@@ -1955,7 +1955,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 167
+      "metric": 168
     },
     {
       "kind": "long-method",
@@ -3419,13 +3419,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5933
+      "metric": 5934
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1824
+      "metric": 1843
     },
     {
       "kind": "large-file",
@@ -3461,13 +3461,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1223
+      "metric": 1229
     },
     {
       "kind": "large-file",
       "name": "src/Super/View.cs",
       "file": "src/Super/View.cs",
-      "metric": 1178
+      "metric": 1188
     },
     {
       "kind": "large-type",
@@ -3575,7 +3575,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.FrameUniforms",
       "file": "src/Rendition/Passes/FrameUniforms.cs",
-      "metric": 63
+      "metric": 66
     },
     {
       "kind": "large-type",
@@ -3803,7 +3803,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 66
+      "metric": 69
     },
     {
       "kind": "large-type",

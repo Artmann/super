@@ -88,6 +88,7 @@ next frame follows, so it can back an options menu.
 | `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
 | `Haze` | Distant things keep their colours instead of fading into the sky between `SkySettings.HazeStart` and `HazeEnd`. The sky's own colour stays |
 | `AerialPerspective` | Under a [physical sky](#the-sky), far surfaces keep their colours instead of fading into the air with distance. A view with its own haze gets that either way. It costs almost nothing |
+| `Stars` | A [physical sky](#night) at night has no stars. The moon stays. They cost a little per sky pixel, so they stay on even in `Graphics.Fastest()` |
 | `Underwater` | `view.Water` is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
 | `VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps, and under water no shafts of light. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
 | `FogVolumes` | The [fog volumes](views.md#fog-volumes) a view places are left out, and only the scene's own fog fills the volumetric fog. They show only while `VolumetricFog` is on too. `Graphics.Fastest()` turns it off |
@@ -1262,6 +1263,51 @@ a clear one. Moving Archer from its gradient sky kept its brightness and lost
 the blue cast the gradient's zenith gave the shade:
 
 ![Archer at the end of its film: before with the gradient sky, after with the physical sky](media/physical-sky-archer.webp)
+
+### Night
+
+Once the sun is down, a physical sky shows stars. They fade in as the sun goes from 2° to
+12° below the horizon and thin out low down, where the light comes through more air.
+`StarRotation` turns them about the straight-up point, in radians, so a day cycle can turn
+them once a day. `HideStars` leaves them out, for a cloudy night, and `Graphics.Stars` turns
+them off for every view.
+
+`Moon` puts the moon in the sky, as a direction from the ground towards it. It is lit by
+the sun, so it is full opposite the sun and a crescent beside it, and like the sun it turns
+warmer and dimmer low down and is gone below the horizon. It is drawn twice the real moon's
+size so it reads on screen. The sky draws the moon but gives no light for it: add a dim,
+bluish `view.Sun` aimed the same way for moonlight and shadows. The sky still follows the
+real sun, whichever light casts the shadows, and skips a light aimed at the moon; with only
+the moon's light, it follows that.
+
+```csharp
+var moon = -sun;   // opposite the sun, so always full
+view.Sun(sun, new Vector3(5.2f, 4.9f, 4.4f), shadows: sun.Y > 0f);
+if (sun.Y <= 0f)
+{
+    view.Sun(moon, new Vector3(0.16f, 0.21f, 0.36f), shadows: true);
+}
+
+view.Sky(new SkySettings
+{
+    Turbidity = 2.5f,
+    Moon = moon,
+    StarRotation = MathF.Tau * timeOfDay,   // 0 to 1 over a day
+});
+```
+
+A moon or rotation that is not a number throws. The moon and the stars show only in the
+background, not in reflections or in what [probes](#bounced-light) capture, and not under a
+gradient sky. The night sky itself is near black, so open the exposure up a few stops at
+night. The [Hamlet example](../examples/Hamlet) does that, and has moved from its gradient
+to the physical sky. At twilight the old gradient was a flat blue; the physical sky glows
+pink above the sunset:
+
+![Hamlet at twilight: before with the gradient sky, after with the physical sky](media/hamlet-twilight.webp)
+
+Looking up from Hamlet at night, at the moon and the stars:
+
+![The moon and stars over Hamlet](media/night-sky.webp)
 
 ### Fog
 

@@ -656,6 +656,19 @@ public struct AnalyticSky
     /// refuses them.
     /// </summary>
     public float Turbidity;
+
+    /// <summary>
+    /// Towards the moon, which the sky shows as a disc, lit on the side facing the sun; zero for no moon. Its light is
+    /// a light of the game's own, aimed this way: the sky never follows that light as its sun, even when it casts the
+    /// shadows. See "Night" in docs/rendering.md.
+    /// </summary>
+    public Vector3 Moon;
+
+    /// <summary>Leaves the stars out of the night sky, as for an overcast night.</summary>
+    public bool HideStars;
+
+    /// <summary>How far the stars have turned about the zenith, in radians, for a night sky that turns with time.</summary>
+    public float StarRotation;
 }
 
 /// <summary>
@@ -1481,11 +1494,17 @@ public enum RenderEffects : long
     /// </summary>
     AerialPerspective = 1L << 39,
 
+    /// <summary>
+    /// The stars in the physical sky at night, from <see cref="AnalyticSky.HideStars"/>. They show in the background
+    /// only, fading in as the sky darkens after sunset. Without them the night sky is its plain glow and the moon.
+    /// </summary>
+    Stars = 1L << 40,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
         | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
-        | ScreenBounce | AerialPerspective,
+        | ScreenBounce | AerialPerspective | Stars,
 }
 
 /// <summary>

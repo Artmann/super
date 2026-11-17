@@ -1539,7 +1539,9 @@ units, where a sun light of about 8 is the real 100 klux; it gives a turbidity-3
 the sun 60° up the average brightness the Preetham sky it replaced had, so the examples'
 exposures held. `Passes/Atmosphere.cs` holds the transmittance and the aerosol in C#, so
 tests can check them against hand-worked values, and `Passes/SkyModel.cs` picks the sun:
-the shadow-casting light among the frame's first `MaxLights`, else the first.
+the shadow-casting light among the frame's first `MaxLights`, else the first, skipping a
+light aimed at `AnalyticSky.Moon` (a dot product above 0.99999, under a quarter of a
+degree off) and falling back to the first light when every light is, so a game's moonlight casting the night's shadows doesn't move the sky.
 
 `SkyModel.Tinted` multiplies that sun's radiance by `Atmosphere.SunTint`, its
 transmittance through the air divided by the transmittance at 60° up, faded out over the
@@ -1586,6 +1588,24 @@ updates it every frame without waiting. That doesn't bump the environment versio
 when probes recapture already cover the turbidity, the lights and `LightAngle`. The uniforms
 take `skySun` and `sunDisc` from that baked `SkySun`, not from the view being drawn, so a
 frame drawn again without a baked sun keeps the sky's sun (see "Each frame's bakes").
+
+The moon and the stars are drawn only in the background, per pixel in `lighting.frag`'s
+nothing-drawn branch next to the disc, and never baked into the environment's cubes, so
+they cost nothing in reflections or probes and changing them rebuilds nothing.
+`SkyModel.Night` fills three frame uniforms after `airSun`: `moon` (towards it, and w = 1
+when there is one), `moonRadiance` (`SkyModel.MoonRadiance` times `Atmosphere.SunTint` for
+the moon's direction, so it reddens low and goes out below the horizon like the sun) and
+`stars` (x the brightest star's peak, `SkyModel.StarBrightness` faded in by a smoothstep
+on the sun's elevation from −`StarsAppear` to −`StarsFull`, and y the rotation). All
+three are zero under a gradient sky and in probe captures; `HideStars` and
+`RenderEffects.Stars` zero only x. `moonDisc()` in `sky.glsl` treats the moon as a ball
+of radius `MOON_RADIUS`, which must match `SkyModel.MoonAngularRadius`, lit by `skySun`
+with a little earthshine and three soft dark seas fixed to its face. `starLight()` turns
+the direction about y, cuts the sky into a 120-per-unit grid of cells, and a hashed 4% of
+cells hold one star kept off the cell's edges; each is a Gaussian at least 0.7 pixels
+wide whose peak drops as it widens, so its total light, and so its look, holds as the
+view zooms or moves. The pixel's width comes from the direction one pixel over, since
+`fwidth` is undefined in a branch only some pixels take.
 
 ### Height fog
 

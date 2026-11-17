@@ -6,7 +6,7 @@ namespace Hamlet;
 
 /// <summary>
 /// A day in two minutes. The sun rises in the east, crosses the south and sets in the west,
-/// and the moon takes over at night from the other side. The sky's colours follow the sun.
+/// and the moon takes over at night from the other side, under a physical sky with stars.
 /// Everything here is worked out from the time alone, so any tick gives the same light.
 /// </summary>
 internal static class DayCycle
@@ -16,15 +16,6 @@ internal static class DayCycle
 
     /// <summary>The time of day when the game starts: 0 is midnight, 0.5 noon.</summary>
     public const float Start = 0.975f;
-
-    private static readonly Vector3 NightZenith = new(0.004f, 0.006f, 0.016f);
-    private static readonly Vector3 NightHorizon = new(0.012f, 0.016f, 0.032f);
-    private static readonly Vector3 TwilightZenith = new(0.05f, 0.065f, 0.15f);
-    private static readonly Vector3 TwilightHorizon = new(0.45f, 0.24f, 0.13f);
-    private static readonly Vector3 LowZenith = new(0.16f, 0.24f, 0.5f);
-    private static readonly Vector3 LowHorizon = new(0.95f, 0.55f, 0.3f);
-    private static readonly Vector3 DayZenith = new(0.18f, 0.36f, 0.85f);
-    private static readonly Vector3 DayHorizon = new(0.62f, 0.75f, 0.9f);
 
     /// <summary>The time of day at a moment, from 0 at midnight round to 1.</summary>
     public static float TimeOfDay(float seconds)
@@ -52,37 +43,34 @@ internal static class DayCycle
     {
         var sun = SunDirection(seconds);
         float elevation = MathF.Asin(sun.Y);
-        if (elevation > 0f)
+        // The sun is always there, white: the sky's air reddens and dims it as it sinks and puts it out below the
+        // horizon. It casts the shadows by day and the moon by night.
+        view.Sun(sun, new Vector3(5.2f, 4.9f, 4.4f), shadows: elevation > 0f);
+        // The moon is opposite the sun, and rises as the sun sinks.
+        var moon = -sun;
+        if (elevation <= 0f)
         {
-            float high = Smooth(0f, 0.45f, elevation);
-            var color = Vector3.Lerp(new Vector3(3.6f, 1.5f, 0.6f), new Vector3(5.2f, 4.9f, 4.4f), high);
-            view.Sun(sun, color * Smooth(0f, 0.05f, elevation), shadows: true);
-        }
-        else
-        {
-            // The moon is opposite the sun, and rises as the sun sinks.
-            var moon = new Vector3(-sun.X, -sun.Y, -sun.Z);
             float up = Smooth(0f, 0.08f, -elevation);
             view.Sun(moon, new Vector3(0.16f, 0.21f, 0.36f) * up, shadows: true);
         }
 
-        // The sky's colours follow the sun every frame; its lighting is rebuilt on the GPU without a wait.
-        var (zenith, horizon) = SkyColors(elevation);
+        // A physical sky follows the sun every frame, with the moon and the stars, which turn once a day; its
+        // lighting is rebuilt on the GPU without a wait.
         float day = Smooth(-0.1f, 0.2f, elevation);
         view.Sky(new SkySettings
         {
-            Zenith = zenith,
-            Horizon = horizon,
+            Turbidity = 2.5f,
+            Moon = moon,
+            StarRotation = MathF.Tau * TimeOfDay(seconds),
             Ground = Vector3.Lerp(new Vector3(0.006f, 0.007f, 0.01f), new Vector3(0.16f, 0.15f, 0.12f), day),
             Brightness = 1f,
-            HazeStart = 110f,
-            HazeEnd = 420f,
             Fog = new FogSettings(0.0018f, 0f, 0.08f, 0.35f),
         });
 
-        // Night is far darker than day; the camera opens up to see by lamplight and moonlight.
+        // Night is far darker than day; the camera opens up to see by lamplight and moonlight. The air dims the light
+        // well before sunset, so it starts opening while the sun is still a little way up.
         // By day it stops down a little, so sunlight stands out from the sky's light in the shade.
-        float night = 1f - Smooth(-0.12f, 0.1f, elevation);
+        float night = 1f - Smooth(-0.1f, 0.25f, elevation);
         view.Finish(new PostSettings
         {
             Exposure = float.Lerp(-0.6f, 3.4f, night) + indoors,
@@ -92,30 +80,6 @@ internal static class DayCycle
             Bloom = float.Lerp(0f, 0.08f, night),
             Temperature = float.Lerp(0.04f, -0.12f, night),
         });
-    }
-
-    /// <summary>The sky straight up and round the horizon when the sun is at this height.</summary>
-    private static (Vector3 Zenith, Vector3 Horizon) SkyColors(float elevation)
-    {
-        if (elevation < -0.2f)
-        {
-            return (NightZenith, NightHorizon);
-        }
-
-        if (elevation < -0.04f)
-        {
-            float t = Smooth(-0.2f, -0.04f, elevation);
-            return (Vector3.Lerp(NightZenith, TwilightZenith, t), Vector3.Lerp(NightHorizon, TwilightHorizon, t));
-        }
-
-        if (elevation < 0.08f)
-        {
-            float t = Smooth(-0.04f, 0.08f, elevation);
-            return (Vector3.Lerp(TwilightZenith, LowZenith, t), Vector3.Lerp(TwilightHorizon, LowHorizon, t));
-        }
-
-        float u = Smooth(0.08f, 0.4f, elevation);
-        return (Vector3.Lerp(LowZenith, DayZenith, u), Vector3.Lerp(LowHorizon, DayHorizon, u));
     }
 
     public static float Smooth(float from, float to, float value)

@@ -574,6 +574,17 @@ void main() {
             vec3 background = textureLod(backgroundTexture, direction, 0.0).rgb;
             if (frame.skySun.w > 0.0 && direction.y >= 0.0) {
                 background += sunDiscRadiance(direction, frame.skySun.xyz, frame.sunDisc);
+                // The moon and the stars are drawn the same way, as sharp as the screen; the moon hides the
+                // stars behind it.
+                // The pixel's width in radians, from the direction one pixel across: fwidth is undefined in
+                // this branch, which only some pixels take.
+                vec4 beside = frame.inverseViewProjection * vec4((inUv + vec2(1.0 / frame.screen.x, 0.0)) * 2.0 - 1.0, 1.0, 1.0);
+                float pixel = length(normalize(beside.xyz / beside.w - frame.cameraPosition.xyz) - direction);
+                vec4 moon = frame.moon.w > 0.5
+                    ? moonDisc(direction, frame.moon.xyz, frame.moonRadiance.rgb, frame.skySun.xyz, pixel)
+                    : vec4(0.0);
+                vec3 stars = starLight(direction, frame.stars.x, frame.stars.y, pixel);
+                background += moon.rgb * moon.a + stars * (1.0 - moon.a);
             }
 
             outColor = vec4(fogOverSky(background * frame.backgroundRadiance.a, inUv), 1.0);

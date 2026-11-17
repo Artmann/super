@@ -222,6 +222,13 @@ public sealed class Graphics
     public bool AerialPerspective { get; set; } = true;
 
     /// <summary>
+    /// The stars in a physical sky at night (<see cref="SkySettings.Turbidity"/>), fading in as the sky darkens after
+    /// sunset. Off, the night sky is its plain glow and the moon. They are drawn per pixel of the sky only, which
+    /// costs almost nothing.
+    /// </summary>
+    public bool Stars { get; set; } = true;
+
+    /// <summary>
     /// The water set with <c>view.Water</c>. Off, the view is drawn as if the camera weren't under water: no absorption,
     /// no caustics and no light shafts, and the sky shows.
     /// </summary>
@@ -557,6 +564,13 @@ public sealed class Graphics
     /// <summary>Takes the on and off of every effect from <paramref name="profile"/>.</summary>
     private void ApplySwitches(Graphics profile)
     {
+        ApplyLightSwitches(profile);
+        ApplyPictureSwitches(profile);
+    }
+
+    /// <summary>Takes the switches for light, shadows and the air from <paramref name="profile"/>.</summary>
+    private void ApplyLightSwitches(Graphics profile)
+    {
         ContactShadows = profile.ContactShadows;
         LightProbes = profile.LightProbes;
         LightShadows = profile.LightShadows;
@@ -565,26 +579,33 @@ public sealed class Graphics
         ScreenBounce = profile.ScreenBounce;
         MultiscatterSpecular = profile.MultiscatterSpecular;
         Reflections = profile.Reflections;
-        AntiAliasing = profile.AntiAliasing;
-        Bloom = profile.Bloom;
+        EnvironmentLight = profile.EnvironmentLight;
+        BakedLighting = profile.BakedLighting;
         Fog = profile.Fog;
         Haze = profile.Haze;
         AerialPerspective = profile.AerialPerspective;
+        Stars = profile.Stars;
         Underwater = profile.Underwater;
         FogVolumes = profile.FogVolumes;
+        VolumetricFog = profile.VolumetricFog;
+    }
+
+    /// <summary>Takes the switches for surfaces, drawing and the finished picture from <paramref name="profile"/>.</summary>
+    private void ApplyPictureSwitches(Graphics profile)
+    {
+        AntiAliasing = profile.AntiAliasing;
+        Bloom = profile.Bloom;
         AutoExposure = profile.AutoExposure;
         DepthOfField = profile.DepthOfField;
         Decals = profile.Decals;
         Particles = profile.Particles;
         Subsurface = profile.Subsurface;
-        VolumetricFog = profile.VolumetricFog;
         Materials = profile.Materials;
         WearAndDirt = profile.WearAndDirt;
         Puddles = profile.Puddles;
         Wind = profile.Wind;
         HeightMaps = profile.HeightMaps;
         Specular = profile.Specular;
-        EnvironmentLight = profile.EnvironmentLight;
         Emissive = profile.Emissive;
         Vignette = profile.Vignette;
         Grain = profile.Grain;
@@ -594,7 +615,6 @@ public sealed class Graphics
         SimplerModels = profile.SimplerModels;
         DepthFirst = profile.DepthFirst;
         Fades = profile.Fades;
-        BakedLighting = profile.BakedLighting;
     }
 
     /// <summary>
@@ -719,6 +739,7 @@ public sealed class Graphics
         (graphics => graphics.LocalLights, RenderEffects.LocalLights),
         (graphics => graphics.Haze, RenderEffects.Haze),
         (graphics => graphics.AerialPerspective, RenderEffects.AerialPerspective),
+        (graphics => graphics.Stars, RenderEffects.Stars),
         (graphics => graphics.Underwater, RenderEffects.Underwater),
         (graphics => graphics.FogVolumes, RenderEffects.FogVolumes),
     ];

@@ -65,6 +65,25 @@ public struct SkySettings
     /// </summary>
     public float Turbidity;
 
+    /// <summary>
+    /// Towards the moon, which a physical sky shows as a disc lit on the side facing the sun, so it waxes and wanes
+    /// as the two move apart. Zero, the default, is no moon. The moon's light is yours to add with <c>View.Sun</c>,
+    /// aimed the same way; it may cast the shadows, and the sky still follows the sun, not it.
+    /// </summary>
+    public Vector3 Moon;
+
+    /// <summary>
+    /// Leaves the stars out of a physical sky's night, as for an overcast one. They fade in as the sky darkens after
+    /// sunset; <see cref="Graphics.Stars"/> turns them off everywhere.
+    /// </summary>
+    public bool HideStars;
+
+    /// <summary>
+    /// How far the stars have turned about the zenith, in radians. Leave it at zero for a still sky, or move it with
+    /// the time for one that turns through the night.
+    /// </summary>
+    public float StarRotation;
+
     /// <summary>The clearest and the haziest a clear sky can be.</summary>
     public const float MinTurbidity = 1.7f;
 

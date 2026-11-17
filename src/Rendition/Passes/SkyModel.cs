@@ -21,6 +21,24 @@ internal static class SkyModel
     /// </summary>
     public const float MaxDiscRadiance = 30000f;
 
+    /// <summary>
+    /// How bright the moon's lit face is, in the sky's units, a third of a noon sky's zenith: a pale disc by day and,
+    /// with the camera opened up for the night, a bright one.
+    /// </summary>
+    public static readonly Vector3 MoonRadiance = new(0.2f, 0.2f, 0.19f);
+
+    /// <summary>The moon's angular radius in radians, twice the real moon's so it reads on screen. Must match MOON_RADIUS in sky.glsl.</summary>
+    public const float MoonAngularRadius = 0.009f;
+
+    /// <summary>How bright the brightest stars are, in the sky's units, when the sky is fully dark.</summary>
+    public const float StarBrightness = 0.4f;
+
+    /// <summary>How far below the horizon the sun is, in radians, when the first stars show: two degrees.</summary>
+    public const float StarsAppear = 0.035f;
+
+    /// <summary>How far below the horizon the sun is when every star shows: twelve degrees, the end of nautical twilight.</summary>
+    public const float StarsFull = 0.21f;
+
     /// <summary>The clearest air the sky is drawn with, as the scene's settings allow it.</summary>
     public const float MinTurbidity = 1.7f;
 
@@ -46,7 +64,7 @@ internal static class SkyModel
             return new SkySun(turbidity, Vector3.UnitY, Vector3.Zero, 1f);
         }
 
-        ref readonly var light = ref view.Lights[SunIndex(view.Lights)];
+        ref readonly var light = ref view.Lights[SunIndex(view.Lights, view.Sky.Moon)];
         float radius = view.Shadows.LightAngle * 0.5f;
         // 2 pi (1 - cos r), written with the half-angle sine so a small sun keeps its precision.
         float halfSine = MathF.Sin(radius * 0.5f);
@@ -77,7 +95,7 @@ internal static class SkyModel
 
         var lights = buffer.AsSpan(0, view.Lights.Length);
         view.Lights.CopyTo(lights);
-        ref var sun = ref lights[SunIndex(lights)];
+        ref var sun = ref lights[SunIndex(lights, view.Sky.Moon)];
         var direction = Vector3.Normalize(sun.Direction);
         sun.Radiance *= Atmosphere.SunTint(direction, Turbidity(view), view.Shadows.LightAngle * 0.5f);
         return view with { Lights = lights };
@@ -94,17 +112,69 @@ internal static class SkyModel
 
     private static float Turbidity(in FrameView view) => Math.Clamp(view.Sky.Turbidity, MinTurbidity, MaxTurbidity);
 
-    /// <summary>The light that casts the shadows, among those the frame takes, or else the first.</summary>
-    private static int SunIndex(ReadOnlySpan<DirectionalLight> lights)
+    /// <summary>
+    /// The light that casts the shadows, among those the frame takes, or else the first, leaving out the moon's: a light
+    /// aimed at <paramref name="moon"/>. With only the moon's light the sky follows that, having nothing else.
+    /// </summary>
+    private static int SunIndex(ReadOnlySpan<DirectionalLight> lights, Vector3 moon)
     {
-        for (int i = 0; i < Math.Min(lights.Length, FrameUniforms.MaxLights); i++)
+        int count = Math.Min(lights.Length, FrameUniforms.MaxLights);
+        int first = -1;
+        for (int i = 0; i < count; i++)
         {
+            if (IsMoon(lights[i].Direction, moon))
+            {
+                continue;
+            }
+
             if (lights[i].CastsShadow)
             {
                 return i;
             }
+
+            if (first < 0)
+            {
+                first = i;
+            }
         }
 
-        return 0;
+        return Math.Max(first, 0);
+    }
+
+    // The moon's light points where the moon is, give or take what normalising loses.
+    private static bool IsMoon(Vector3 direction, Vector3 moon) =>
+        moon != Vector3.Zero && direction != Vector3.Zero
+        && Vector3.Dot(Vector3.Normalize(direction), Vector3.Normalize(moon)) > 0.99999f;
+
+    /// <summary>
+    /// The moon and the stars for the frame's uniforms: the moon's direction, w 1 when it shows; its lit face's
+    /// radiance, dimmed by the air as the sun is, so it reddens low and sinks behind the horizon; and the stars, x how
+    /// bright and y how far they have turned. A gradient sky has neither. The stars fade in as the sun goes from
+    /// <see cref="StarsAppear"/> to <see cref="StarsFull"/> below the horizon, and are left out with
+    /// <see cref="RenderEffects.Stars"/> off, with <see cref="AnalyticSky.HideStars"/> and in probe captures, which
+    /// leave out the discs too.
+    /// </summary>
+    public static (Vector4 Moon, Vector4 MoonRadiance, Vector4 Stars) Night(
+        in FrameView view, Vector3 sun, RenderEffects off, bool capturingProbe)
+    {
+        if (!(view.Sky.Turbidity > 0f) || capturingProbe)
+        {
+            return default;
+        }
+
+        float turbidity = Turbidity(view);
+        var moon = Vector4.Zero;
+        var moonRadiance = Vector4.Zero;
+        if (view.Sky.Moon != Vector3.Zero)
+        {
+            var towards = Vector3.Normalize(view.Sky.Moon);
+            moon = new Vector4(towards, 1f);
+            moonRadiance = new Vector4(MoonRadiance * Atmosphere.SunTint(towards, turbidity, MoonAngularRadius), 0f);
+        }
+
+        float dark = 1f - Atmosphere.SmoothStep(-StarsFull, -StarsAppear, MathF.Asin(Math.Clamp(sun.Y, -1f, 1f)));
+        bool stars = !view.Sky.HideStars && !off.HasFlag(RenderEffects.Stars);
+        var starry = new Vector4(stars ? StarBrightness * dark : 0f, view.Sky.StarRotation, 0f, 0f);
+        return (moon, moonRadiance, starry);
     }
 }

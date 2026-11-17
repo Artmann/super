@@ -122,7 +122,13 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>The view's clear sky, or none under water, which takes over the sky.</summary>
     internal static AnalyticSky FrameSky(View view, RenderEffects off) =>
         !Submerged(view, off) && view.SkySettings is { } sky
-            ? new AnalyticSky { Turbidity = sky.Turbidity }
+            ? new AnalyticSky
+            {
+                Turbidity = sky.Turbidity,
+                Moon = sky.Moon,
+                HideStars = sky.HideStars,
+                StarRotation = sky.StarRotation,
+            }
             : default;
 
     /// <summary>Whether the view is under its water, which it never is while <see cref="RenderEffects.Underwater"/> is off.</summary>
