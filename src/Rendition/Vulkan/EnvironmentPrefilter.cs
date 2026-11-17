@@ -51,9 +51,11 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
     }
 
     private readonly EnvironmentCube _source;
-    private readonly EnvironmentCube _reflections;
-    private readonly EnvironmentCube _irradiance;
-    private readonly EnvironmentCube _sky;
+    private readonly (EnvironmentCube Reflections, EnvironmentCube Irradiance, EnvironmentCube Sky) _targets;
+    private readonly Sampler _sampler;
+
+    /// <summary>What the draws read as the photographed sky while none is set: one black texel a face.</summary>
+    private readonly GpuTexture _noImage;
     private readonly CubeShader<DrawConstants> _draw;
     private readonly CubeShader<FilterConstants> _filter;
     private readonly (DescriptorSet Source, DescriptorSet Reflections, DescriptorSet Sky) _drawSets;
@@ -67,24 +69,31 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
     public EnvironmentPrefilter(VulkanContext context, EnvironmentUniforms uniforms, Sampler sampler,
         (EnvironmentCube Reflections, EnvironmentCube Irradiance, EnvironmentCube Sky) targets)
     {
-        (_reflections, _irradiance, _sky) = targets;
+        _targets = targets;
         _source = new EnvironmentCube(context, SourceSize, SourceMips);
+
+        _sampler = sampler;
+        var black = new TextureData
+        {
+            Width = 1, Height = 1, Kind = TextureKind.Linear, Format = TextureFormat.Rgba16f, Mips = [new byte[8]],
+        };
+        _noImage = GpuTexture.Cube(context, [black, black, black, black, black, black]);
 
         _draw = new CubeShader<DrawConstants>(context, "environment.comp", DescriptorType.UniformBuffer, 3);
         _drawSets = (
-            _draw.CreateSet(uniforms.Buffer, _source.Storage(0), sampler, uniforms.SkyView),
-            _draw.CreateSet(uniforms.Buffer, _reflections.Storage(0), sampler, uniforms.SkyView),
-            _draw.CreateSet(uniforms.Buffer, _sky.Storage(0), sampler, uniforms.SkyView));
+            _draw.CreateSet(uniforms.Buffer, _source.Storage(0), sampler, uniforms.SkyView, _noImage.View),
+            _draw.CreateSet(uniforms.Buffer, _targets.Reflections.Storage(0), sampler, uniforms.SkyView, _noImage.View),
+            _draw.CreateSet(uniforms.Buffer, _targets.Sky.Storage(0), sampler, uniforms.SkyView, _noImage.View));
 
         _filter = new CubeShader<FilterConstants>(context, "environment_filter.comp",
-            DescriptorType.CombinedImageSampler, _reflections.MipCount);
-        _filterReflections = new DescriptorSet[_reflections.MipCount];
+            DescriptorType.CombinedImageSampler, _targets.Reflections.MipCount);
+        _filterReflections = new DescriptorSet[_targets.Reflections.MipCount];
         for (int mip = 1; mip < _filterReflections.Length; mip++)
         {
-            _filterReflections[mip] = _filter.CreateSet(sampler, _source.Sampled, _reflections.Storage(mip));
+            _filterReflections[mip] = _filter.CreateSet(sampler, _source.Sampled, _targets.Reflections.Storage(mip));
         }
 
-        _filterIrradiance = _filter.CreateSet(sampler, _sky.Sampled, _irradiance.Storage(0));
+        _filterIrradiance = _filter.CreateSet(sampler, _targets.Sky.Sampled, _targets.Irradiance.Storage(0));
     }
 
     /// <summary>True while a rough reflection level still shows an earlier sky than the sharp ones.</summary>
@@ -92,6 +101,18 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
 
     /// <summary>The sharp environment with its panels but without the sun's disc, every mip.</summary>
     public ImageView Background => _source.Sampled;
+
+    /// <summary>
+    /// Points the draws at a photographed sky's cube, or at none. It rewrites their descriptor sets, so the GPU must
+    /// have finished every draw recorded before.
+    /// </summary>
+    public void SetImage(GpuTexture? image)
+    {
+        var view = image?.View ?? _noImage.View;
+        _draw.SetCube(_drawSets.Source, _sampler, view);
+        _draw.SetCube(_drawSets.Reflections, _sampler, view);
+        _draw.SetCube(_drawSets.Sky, _sampler, view);
+    }
 
     /// <summary>
     /// Records the draws and filters, leaving every level of the three cubes ready for any shader to sample. The
@@ -129,35 +150,35 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
         _draw.Record(cmd, _drawSets.Source, _source.Level(0), new DrawConstants { Panels = 1 });
         _source.BuildMips(cmd);
 
-        _draw.Record(cmd, _drawSets.Reflections, _reflections.Level(0), new DrawConstants { Panels = 1, Disc = 1 });
-        _reflections.Ready(cmd, 0);
+        _draw.Record(cmd, _drawSets.Reflections, _targets.Reflections.Level(0), new DrawConstants { Panels = 1, Disc = 1 });
+        _targets.Reflections.Ready(cmd, 0);
 
-        _draw.Record(cmd, _drawSets.Sky, _sky.Level(0), default);
-        _sky.BuildMips(cmd);
-        _filter.Record(cmd, _filterIrradiance, _irradiance.Level(0), new FilterConstants
+        _draw.Record(cmd, _drawSets.Sky, _targets.Sky.Level(0), default);
+        _targets.Sky.BuildMips(cmd);
+        _filter.Record(cmd, _filterIrradiance, _targets.Irradiance.Level(0), new FilterConstants
         {
             Irradiance = 1,
-            TexelAngle = TexelAngle(_sky.Size),
+            TexelAngle = TexelAngle(_targets.Sky.Size),
             LodBias = LodBias,
             Samples = IrradianceSamples,
         });
-        _irradiance.Ready(cmd, 0);
+        _targets.Irradiance.Ready(cmd, 0);
     }
 
     /// <summary>Records these rough reflection levels, filtered from the source cube.</summary>
     private void RecordRough(CommandBuffer cmd, IEnumerable<int> mips)
     {
-        int roughest = (int)_reflections.MipCount - 1;
+        int roughest = (int)_targets.Reflections.MipCount - 1;
         foreach (int mip in mips)
         {
-            _filter.Record(cmd, _filterReflections[mip], _reflections.Level(mip), new FilterConstants
+            _filter.Record(cmd, _filterReflections[mip], _targets.Reflections.Level(mip), new FilterConstants
             {
                 Roughness = mip / (float)roughest,
                 TexelAngle = TexelAngle(SourceSize),
                 LodBias = LodBias,
                 Samples = ReflectionSamples << (mip - 1),
             });
-            _reflections.Ready(cmd, mip);
+            _targets.Reflections.Ready(cmd, mip);
         }
     }
 
@@ -165,6 +186,7 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
     {
         _filter.Dispose();
         _draw.Dispose();
+        _noImage.Dispose();
         _source.Dispose();
     }
 

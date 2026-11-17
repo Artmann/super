@@ -44,6 +44,9 @@ internal sealed unsafe class EnvironmentUniforms : IDisposable
         /// <summary>rgb: how bright the sun's disc is; a: the cosine of its angular radius.</summary>
         public Vector4 SunDisc;
 
+        /// <summary>x: 1 to draw the photographed sky; y, z: the cosine and sine of its rotation; w: its scale.</summary>
+        public Vector4 Image;
+
         public int PanelCount;
         private readonly int _padding0;
         private readonly int _padding1;
@@ -102,6 +105,9 @@ internal sealed unsafe class EnvironmentUniforms : IDisposable
         var api = _context.Api;
         _description.SkySun = new Vector4(sky.Direction, sky.Turbidity);
         _description.SunDisc = new Vector4(sky.DiscRadiance, sky.DiscCosine);
+        _description.Image = sky.Image is null
+            ? Vector4.Zero
+            : new Vector4(1f, MathF.Cos(sky.Rotation), MathF.Sin(sky.Rotation), sky.Scale);
         _description.Floor.W = sky.Turbidity > 0f ? Atmosphere.GroundLight(sky.Direction, sky.Turbidity) : 1f;
 
         api.MemoryBarrier(cmd, (PipelineStageFlags2.AllCommandsBit, AccessFlags2.TransferWriteBit),

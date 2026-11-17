@@ -38,6 +38,7 @@ internal sealed class SceneRenderer : IDisposable
     private Bands _bakedBands;
     private int _uploadedAtlas;
     private Content? _content;
+    private Func<SkyImage, SkyImageHandle>? _skyOf;
     private IContentFiles? _files;
     private int _filesReloads;
     private readonly ReflectionProbeSchedule _reflectionProbes = new();
@@ -119,8 +120,11 @@ internal sealed class SceneRenderer : IDisposable
         return Studio;
     }
 
-    /// <summary>The view's clear sky, or none under water, which takes over the sky.</summary>
-    internal static AnalyticSky FrameSky(View view, RenderEffects off) =>
+    /// <summary>
+    /// The view's clear sky, or none under water, which takes over the sky. <paramref name="image"/> gives the
+    /// renderer's handle for a photographed sky.
+    /// </summary>
+    internal static AnalyticSky FrameSky(View view, RenderEffects off, Func<SkyImage, SkyImageHandle>? image = null) =>
         !Submerged(view, off) && view.SkySettings is { } sky
             ? new AnalyticSky
             {
@@ -128,6 +132,9 @@ internal sealed class SceneRenderer : IDisposable
                 Moon = sky.Moon,
                 HideStars = sky.HideStars,
                 StarRotation = sky.StarRotation,
+                Image = sky.Image is { } photographed && image is not null ? image(photographed) : null,
+                Rotation = sky.Rotation,
+                Exposure = sky.Exposure,
             }
             : default;
 
@@ -476,6 +483,13 @@ internal sealed class SceneRenderer : IDisposable
         return CookedTexture.Read(item.Files.Read(item.Name!), item.Name!).ToTextureData();
     }
 
+    /// <summary>Reads a photographed sky's faces. Runs on the background thread.</summary>
+    private static SkyImageData LoadSky(SkyItem item)
+    {
+        using var stream = item.Files.Open(item.Name);
+        return SkyImageData.Read(stream, item.Name);
+    }
+
     /// <summary>
     /// Reads an interface image and builds its mips. Runs on the background thread. A compressed
     /// one is decoded first, because an image's mips weigh each pixel by its alpha, so a clear
@@ -684,6 +698,7 @@ internal sealed class SceneRenderer : IDisposable
         ShaderItem shader => new PreparedShader(shader.Name, LoadShader(shader.Name)),
         TextureItem texture => LoadTexture(texture),
         TextureArrayItem array => Array.ConvertAll(array.Layers, LoadTexture),
+        SkyItem sky => LoadSky(sky),
         GameImage image => LoadImage(image),
         GeneratedMesh mesh => new PreparedMesh(
             mesh,
@@ -699,6 +714,7 @@ internal sealed class SceneRenderer : IDisposable
         PreparedShader shader => new LoadedShader(_renderer.CreateSurfaceShader(shader.Spirv, shader.Name + ".frag")),
         TextureData texture => new LoadedTexture(_renderer.CreateTexture(texture)),
         TextureData[] layers => new LoadedTextureArray(_renderer.CreateTextureArray(layers)),
+        SkyImageData sky => new LoadedSky(_renderer.CreateSkyImage(sky)),
         PreparedMesh(var mesh, var owned) => UploadMesh(mesh, owned, content),
         UnloadedItem => Unloaded.Instance,
         _ => throw new InvalidOperationException($"Content can't upload a {prepared.GetType().Name}."),
@@ -1176,7 +1192,7 @@ internal sealed class SceneRenderer : IDisposable
             BakedSpace = view.BakedSpace,
             BakedChunks = view.PlacedBakedChunks,
             EnvironmentIntensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,
-            Sky = FrameSky(view, Off),
+            Sky = FrameSky(view, Off, _skyOf ??= photographed => Require<LoadedSky>(photographed.Index, _content!).Handle),
             BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),
             ShowEnvironment = sky is not null,
             BackgroundFadeStart = sky?.HazeStart ?? 0f,
@@ -1219,6 +1235,8 @@ internal sealed class SceneRenderer : IDisposable
     private sealed record LoadedTexture(TextureHandle Handle) : Loaded;
 
     private sealed record LoadedTextureArray(TextureArrayHandle Handle) : Loaded;
+
+    private sealed record LoadedSky(SkyImageHandle Handle) : Loaded;
 
     /// <summary>Stands where an item used to be, so using it again fails clearly.</summary>
     private sealed record Unloaded : Loaded

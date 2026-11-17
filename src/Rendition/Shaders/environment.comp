@@ -5,7 +5,7 @@
 
 // Draws one level of the studio environment straight from its description: the bands, or the
 // physical sky from its sky-view table in place of the ceiling and horizon when a turbidity is
-// set, the panels and the sun's disc. The rough reflections and the soft light are filtered from these levels by
+// set, or a photographed sky's cube in place of both, the panels and the sun's disc. The rough reflections and the soft light are filtered from these levels by
 // environment_filter.comp. See "Environment lighting" in docs/design.md.
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -24,6 +24,7 @@ layout(std140, set = 0, binding = 0) uniform Environment {
     vec4 floorColor; // rgb; a: how much of it the sun and sky light under the physical sky, 1 at noon
     vec4 skySun;  // xyz: towards the sun; w: turbidity, 0 for the bands
     vec4 sunDisc; // rgb: how bright the sun's disc is; a: the cosine of its angular radius
+    vec4 image;   // x: 1 to draw the photographed sky; y, z: the cosine and sine of its rotation; w: its scale
     int panelCount;
     Panel panels[8];
 } environment;
@@ -32,6 +33,10 @@ layout(rgba16f, set = 0, binding = 1) uniform writeonly image2DArray target;
 
 // The physical sky round the sun; see atmosphere_skyview.comp.
 layout(set = 0, binding = 2) uniform sampler2D skyView;
+
+// The photographed sky, cooked without its sun, 256 texels a face with every mip; one black texel while none is set.
+layout(set = 0, binding = 3) uniform samplerCube skyImage;
+const float SKY_IMAGE_SIZE = 256.0;
 
 // Must match DrawConstants in Vulkan/EnvironmentPrefilter.cs.
 layout(push_constant) uniform Draw {
@@ -58,9 +63,25 @@ vec3 skyAndFloor(vec3 direction) {
     return mix(physicalSky(skyView, level, sun), ground, sqrt(-direction.y));
 }
 
-vec3 studio(vec3 direction) {
+// The photographed sky, turned about the up axis, read at the mip whose texels are about as wide as the target's, and
+// its sun's disc where it was photographed.
+vec3 photographed(vec3 direction, float targetSize) {
+    float c = environment.image.y, s = environment.image.z;
+    vec3 turned = vec3(direction.x * c - direction.z * s, direction.y, direction.x * s + direction.z * c);
+    float lod = max(log2(SKY_IMAGE_SIZE / targetSize), 0.0);
+    vec3 color = textureLod(skyImage, turned, lod).rgb * environment.image.w;
+    if (draw.disc == 1) {
+        color += sunDiscRadiance(direction, environment.skySun.xyz, environment.sunDisc);
+    }
+
+    return color;
+}
+
+vec3 studio(vec3 direction, float targetSize) {
     vec3 color;
-    if (environment.skySun.w > 0.0) {
+    if (environment.image.x > 0.5) {
+        color = photographed(direction, targetSize);
+    } else if (environment.skySun.w > 0.0) {
         color = skyAndFloor(direction);
     } else {
         color = direction.y >= 0.0
@@ -108,5 +129,5 @@ void main() {
 
     vec2 uv = (vec2(texel.xy) + 0.5) / vec2(size.xy) * 2.0 - 1.0;
     vec3 n = normalize(cubeDirection(uint(texel.z), uv));
-    imageStore(target, texel, vec4(studio(n), 1.0));
+    imageStore(target, texel, vec4(studio(n, float(size.x)), 1.0));
 }

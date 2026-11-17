@@ -232,8 +232,11 @@ but the file then grows to 15.4 MB. `--bake-check` prints `fresh` and exits 0.
 
 `--lineup` shows the graphs one by one instead: a row for each, with a sphere, a cube and
 a flat tile 1 m across. Each shape takes its surface from `content.Surface` with no
-`uvPerMetre`, so it tiles at the graph's own `Width`. A low sun from the right lets the
-bumps in the normal maps catch the light.
+`uvPerMetre`, so it tiles at the graph's own `Width`. The sky is a photograph, Poly Haven's
+[Meadow 2](https://polyhaven.com/a/meadow_2) by Sergej Majboroda, turned so its sun, about
+27° up, comes from the right and the bumps in the normal maps catch the light. The metal
+shows its blue sky and green grass; see
+[a photographed sky](../../docs/rendering.md#a-photographed-sky).
 
 ![The lineup: bricks, flagstones and dirt on the left, wood, leather and rusty metal on the right, each on a sphere, a cube and a 1 m tile](../../docs/media/material-lineup.webp)
 
@@ -304,6 +307,7 @@ stain quads are gone: `WallStains` lays the damp, the drip and the rust as decal
 | `content/materials/stain.material.cs` | Small stains for decals that fade out well inside the image, every kind faded to nothing over the band from 15 % to 5 % of the image in from each edge so the decal's box never cuts one off in a line, picked by `Kind`: a ring of dirt round something's foot, round or `Square`, a cushion of moss, a patch of wet ground and one muddy boot print with its tread |
 | `content/materials/stain-square.material.json`, `stain-moss.material.json`, `stain-water.material.json`, `stain-boot.material.json` | Variants of the stain: the square ring under the crates, the moss, the wet ground and the boot print |
 | `LineupGame.cs` | The lineup |
+| `content/skies/meadow_2.hdr` | The lineup's sky, [Meadow 2](https://polyhaven.com/a/meadow_2) by Sergej Majboroda from Poly Haven, 2k, under [CC0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | `LeavesGame.cs` | The leaves |
 | `art/cards.py` | Writes `content/models/cards.glb`, the leaves' cards, in plain Python with no Blender: each graph whole on the wall, ivy leaves 6 to 12 cm, grass tufts of one-column blade cards, dead leaves on the ground and a triangular cobweb card. Its UVs are in metres like the courtyard's |
 | `content/models/cards.glb.cook.json` | The cards' rules: the courtyard's own rules for its `graph_*` names, and `swatch_*` rules that show each graph whole, cut out but not lit as foliage |

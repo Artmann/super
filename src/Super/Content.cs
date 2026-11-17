@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Rendition;
@@ -25,6 +26,9 @@ internal sealed record TextureItem(string? Name, GeneratedTexture? Generated, IC
 
 /// <summary>A texture array the game named, from textures named before it.</summary>
 internal sealed record TextureArrayItem(TextureItem[] Layers);
+
+/// <summary>A photographed sky the game named, read from its cooked file.</summary>
+internal sealed record SkyItem(string Name, IContentFiles Files);
 
 /// <summary>Stands where an unloaded item was, so its data can be collected while its index stays taken.</summary>
 internal sealed record UnloadedItem
@@ -60,6 +64,7 @@ public sealed class Content
     private readonly Dictionary<string, AmbienceRef> _ambienceRefs = [];
     private readonly Dictionary<string, ShaderRef> _shaders = [];
     private readonly Dictionary<string, TextureRef> _textures = [];
+    private readonly Dictionary<string, SkyImage> _skies = [];
     private readonly Dictionary<string, Surface> _surfaces = [];
     private readonly Dictionary<(Type Type, string Folder), ICatalog> _catalogs = [];
     private readonly List<ContentReference> _waiting = [];
@@ -392,6 +397,34 @@ public sealed class Content
         }
 
         return ambience;
+    }
+
+    /// <summary>
+    /// Names a photographed sky by its name, such as <c>skies/meadow.hdr</c>, for <see cref="SkySettings.Image"/>. Its
+    /// sun's direction is read here, on the calling thread; the rest loads with the other content. Naming it again
+    /// gives the same one. A name that isn't a cooked sky stops here with a <see cref="ContentException"/> naming it.
+    /// </summary>
+    public SkyImage Sky(string name)
+    {
+        if (!_skies.TryGetValue(name, out var sky))
+        {
+            ContentNames.Require(_files, name, ContentKind.Data);
+            Vector3 sun;
+            try
+            {
+                using var stream = _files.Open(name);
+                sun = SkyImageData.ReadSunDirection(stream, name);
+            }
+            catch (Exception problem) when (problem is IOException or UnauthorizedAccessException or KeyNotFoundException)
+            {
+                throw new ContentException([$"Could not read the sky {name}: {problem.Message}"]);
+            }
+
+            sky = new SkyImage(Add(new SkyItem(name, _files)).Index, name, sun);
+            _skies.Add(name, sky);
+        }
+
+        return sky;
     }
 
     internal SoundClip Clip(SoundRef sound) => _clips[sound.Index];

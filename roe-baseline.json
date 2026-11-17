@@ -705,6 +705,12 @@
     },
     {
       "kind": "high-complexity",
+      "name": "Super.SceneRenderer.PrepareItem",
+      "file": "src/Super/Rendering/SceneRenderer.cs",
+      "metric": 11
+    },
+    {
+      "kind": "high-complexity",
       "name": "Super.Shapes.ShapeBuilder.LayOutLightmap",
       "file": "src/Super/Shapes.cs",
       "metric": 13
@@ -738,6 +744,12 @@
       "name": "Super.View.ReflectionProbe",
       "file": "src/Super/View.cs",
       "metric": 13
+    },
+    {
+      "kind": "high-complexity",
+      "name": "Super.View.Sky",
+      "file": "src/Super/View.cs",
+      "metric": 12
     },
     {
       "kind": "high-complexity",
@@ -1859,7 +1871,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Dispose",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 86
+      "metric": 91
     },
     {
       "kind": "long-method",
@@ -1996,6 +2008,12 @@
     {
       "kind": "long-method",
       "name": "Rendition.Vulkan.GpuTexture.CreateStaging",
+      "file": "src/Rendition/Vulkan/GpuTexture.cs",
+      "metric": 41
+    },
+    {
+      "kind": "long-method",
+      "name": "Rendition.Vulkan.GpuTexture.GpuTexture/9",
       "file": "src/Rendition/Vulkan/GpuTexture.cs",
       "metric": 41
     },
@@ -2763,6 +2781,12 @@
     },
     {
       "kind": "long-method",
+      "name": "Super.View.Sky",
+      "file": "src/Super/View.cs",
+      "metric": 45
+    },
+    {
+      "kind": "long-method",
       "name": "Super.Voice.Begin",
       "file": "src/Super/Audio/Voice.cs",
       "metric": 81
@@ -3129,7 +3153,7 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.Vulkan.GpuTexture.GpuTexture/8",
+      "name": "Rendition.Vulkan.GpuTexture.GpuTexture/9",
       "file": "src/Rendition/Vulkan/GpuTexture.cs",
       "metric": 6
     },
@@ -3419,13 +3443,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5934
+      "metric": 6005
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1843
+      "metric": 1860
     },
     {
       "kind": "large-file",
@@ -3449,7 +3473,7 @@
       "kind": "large-file",
       "name": "src/Super/Content.cs",
       "file": "src/Super/Content.cs",
-      "metric": 983
+      "metric": 1016
     },
     {
       "kind": "large-file",
@@ -3461,13 +3485,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1229
+      "metric": 1247
     },
     {
       "kind": "large-file",
       "name": "src/Super/View.cs",
       "file": "src/Super/View.cs",
-      "metric": 1188
+      "metric": 1200
     },
     {
       "kind": "large-type",
@@ -3611,7 +3635,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 396
+      "metric": 399
     },
     {
       "kind": "large-type",
@@ -3624,6 +3648,12 @@
       "name": "Rendition.Vulkan.Fsr.UpscaleDispatchDescription",
       "file": "src/Rendition/Vulkan/Fsr.cs",
       "metric": 23
+    },
+    {
+      "kind": "large-type",
+      "name": "Rendition.Vulkan.GpuTexture",
+      "file": "src/Rendition/Vulkan/GpuTexture.cs",
+      "metric": 21
     },
     {
       "kind": "large-type",
@@ -3719,7 +3749,7 @@
       "kind": "large-type",
       "name": "Super.Content",
       "file": "src/Super/Content.cs",
-      "metric": 86
+      "metric": 88
     },
     {
       "kind": "large-type",
@@ -3857,7 +3887,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 111
+      "metric": 113
     },
     {
       "kind": "large-type",
@@ -4031,6 +4061,7 @@
         "Rendition.RenderEffects",
         "Rendition.Renderer",
         "Rendition.ShL1",
+        "Rendition.SkyImageData",
         "Rendition.TextureData",
         "Rendition.Vulkan.CaptureCube",
         "Rendition.Vulkan.CubeCentres",

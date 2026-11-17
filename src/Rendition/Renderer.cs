@@ -208,6 +208,9 @@ public sealed unsafe class Renderer : IDisposable
     // decides it through the view, so baking it again leaves the version alone.
     private SkySun _bakedSky;
 
+    // The photographed skies made with CreateSkyImage, by handle, each with its sun and a hash of what it holds.
+    private readonly List<(GpuTexture Cube, SkyImageSun Sun, ulong Content)> _skyImages = [];
+
     // The view's lights with the sun coloured by the physical sky's air; see SkyModel.Tinted.
     private DirectionalLight[] _tintedLights = [];
 
@@ -1295,6 +1298,9 @@ public sealed unsafe class Renderer : IDisposable
     public ulong EnvironmentHash => BakeInputHash.Hasher()
         .Add(_environmentContent)
         .Add(_bakedSky.Turbidity)
+        .Add(_bakedSky.Image is { } image ? _skyImages[image.Index].Content : 0UL)
+        .Add(_bakedSky.Rotation)
+        .Add(_bakedSky.Scale)
         .Add(_environmentIntensity)
         .Finish();
 
@@ -3007,15 +3013,69 @@ public sealed unsafe class Renderer : IDisposable
     private void BakeSky(in FrameView view)
     {
         _environmentIntensity = view.EnvironmentIntensity;
-        var sky = SkyModel.Sun(view);
+        var sky = view.Sky.Image is { } image
+            ? SkyModel.Photographed(image, SkyImage(image).Sun, view.Sky.Rotation, view.Sky.Exposure)
+            : SkyModel.Sun(view);
         if (sky == _bakedSky)
         {
             return;
         }
 
+        if (sky.Image != _bakedSky.Image)
+        {
+            // The redraws read the image through descriptor sets that recorded frames may still use.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _environment.SetImage(sky.Image is { } next ? _skyImages[next.Index].Cube : null);
+        }
+
         _bakedSky = sky;
         _environmentPending = true;
         SkyRebakes++;
+    }
+
+    private (GpuTexture Cube, SkyImageSun Sun, ulong Content) SkyImage(SkyImageHandle image)
+    {
+        if (image.Index < 0 || image.Index >= _skyImages.Count)
+        {
+            throw new ArgumentException($"Sky image {image.Index} was not made by this renderer.", nameof(image));
+        }
+
+        return _skyImages[image.Index];
+    }
+
+    /// <summary>
+    /// Uploads a photographed sky, cooked from an equirectangular .hdr, for <see cref="AnalyticSky.Image"/>. It waits
+    /// for the upload and stays until the renderer is disposed. See "A photographed sky" in docs/rendering.md.
+    /// </summary>
+    public SkyImageHandle CreateSkyImage(SkyImageData data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (data.Faces.Length != 6)
+        {
+            throw new ArgumentException($"A sky image needs 6 faces, not {data.Faces.Length}.", nameof(data));
+        }
+
+        var first = data.Faces[0];
+        var content = new System.IO.Hashing.XxHash64();
+        foreach (var face in data.Faces)
+        {
+            if (face.Width != first.Width || face.Height != first.Width || face.Format != TextureFormat.Rgba16f
+                || face.Mips.Length != first.Mips.Length)
+            {
+                throw new ArgumentException(
+                    $"Every face of a sky image must be square Rgba16f, {first.Width} wide with {first.Mips.Length} mips.",
+                    nameof(data));
+            }
+
+            foreach (var mip in face.Mips)
+            {
+                content.Append(mip);
+            }
+        }
+
+        var sun = new SkyImageSun(data.SunDirection, data.SunRadiance, data.SunCosine);
+        _skyImages.Add((GpuTexture.Cube(_context, data.Faces), sun, content.GetCurrentHashAsUInt64()));
+        return new SkyImageHandle(_skyImages.Count - 1);
     }
 
     /// <summary>How many times <see cref="BakeSky"/> has baked the environment again, for tests.</summary>
@@ -3189,6 +3249,9 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(environmentVersion);
         hash.Add(view.EnvironmentIntensity);
         hash.Add(view.Sky.Turbidity);
+        hash.Add(view.Sky.Image);
+        hash.Add(view.Sky.Rotation);
+        hash.Add(view.Sky.Exposure);
         hash.Add(view.BackgroundRadiance);
         hash.Add(view.ShowEnvironment);
         hash.Add(view.Shadows.Radius > 0f);
@@ -3228,6 +3291,9 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(environmentVersion);
         hash.Add(view.EnvironmentIntensity);
         hash.Add(view.Sky.Turbidity);
+        hash.Add(view.Sky.Image);
+        hash.Add(view.Sky.Rotation);
+        hash.Add(view.Sky.Exposure);
         hash.Add(view.Shadows.Radius > 0f);
         // Under water the probes see the sun through it, so switching the water off lights them again.
         hash.Add(off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.LightShadows | RenderEffects.Emissive
@@ -4440,6 +4506,11 @@ public sealed unsafe class Renderer : IDisposable
         _reflectionProbeTargets?.Dispose();
         _skySh.Dispose();
         _environment.Dispose();
+        foreach (var image in _skyImages)
+        {
+            image.Cube.Dispose();
+        }
+
         _resources.Dispose();
 
         foreach (var mesh in _meshes)

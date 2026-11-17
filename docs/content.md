@@ -241,6 +241,7 @@ Every file is an asset, chosen by its extension:
 | `.png` `.jpg` `.jpeg` `.tga` | texture | Block-compressed with every mip: BC7, sRGB unless set linear, or BC5 for a normal map. With `compressTextures` off, RGBA pixels whose mips are made when it loads |
 | `.wav` `.ogg` `.mp3` | sound | The file itself, once it decodes |
 | `.glb` `.gltf` `.fbx` `.obj` | model | `.rmodel`, through `Super.Cook.Models` |
+| `.hdr` | data | A photographed sky: a half-float cube 256 pixels a face with every mip, without its sun, whose direction and brightness it keeps; see [a photographed sky](rendering.md#a-photographed-sky) |
 | `.lightbake` | baked lighting | The same file with its pages block-compressed: BC6H irradiance, BC7 direction and mask; see [cooking a bake](#cooking-a-bake) |
 | `.material.cs` | material | A [material graph](materials.md), compiled and run into `#color`, `#normal`, `#surface` and `#height` textures and a `#material` data part |
 

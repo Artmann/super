@@ -569,11 +569,14 @@ void main() {
             vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
             vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
 
-            // The sun's disc is drawn for each pixel, so it is as sharp as the screen. It sinks
-            // behind the horizon with the sun.
+            // The sun's disc is drawn for each pixel, so it is as sharp as the screen. The physical sky's sinks
+            // behind the horizon with the sun; a photographed sky's stays where it was photographed. The bands have none.
             vec3 background = textureLod(backgroundTexture, direction, 0.0).rgb;
-            if (frame.skySun.w > 0.0 && direction.y >= 0.0) {
+            if (frame.skySun.w == 0.0 || direction.y >= 0.0) {
                 background += sunDiscRadiance(direction, frame.skySun.xyz, frame.sunDisc);
+            }
+
+            if (frame.skySun.w > 0.0 && direction.y >= 0.0) {
                 // The moon and the stars are drawn the same way, as sharp as the screen; the moon hides the
                 // stars behind it.
                 // The pixel's width in radians, from the direction one pixel across: fwidth is undefined in

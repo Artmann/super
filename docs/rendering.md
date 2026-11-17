@@ -1309,6 +1309,44 @@ Looking up from Hamlet at night, at the moon and the stars:
 
 ![The moon and stars over Hamlet](media/night-sky.webp)
 
+### A photographed sky
+
+A photographed sky, an HDRI, puts a real place round the scene. Put an equirectangular
+Radiance `.hdr` in the content folder, load it once with `content.Sky`, and set it as the
+sky's `Image`. It shows behind the scene and lights it like any other sky: its soft light
+fills the shadows, the reflections show it, and the probes and bakes see it.
+
+```csharp
+SkyImage meadow = content.Sky("skies/meadow.hdr");   // in Load
+
+view.Sun(meadow.SunDirectionAt(0.6f), new Vector3(4f));
+view.Sky(new SkySettings { Image = meadow, Rotation = 0.6f, Exposure = -0.5f });
+```
+
+`Rotation` turns the picture about the straight-up point, in radians, counterclockwise seen
+from above. The middle of the picture faces -Z before it is turned. `Exposure` brightens or
+darkens it in stops, from -20 to 20, on top of `Brightness`; a rotation that is not a
+number, or an exposure outside that range, throws.
+
+The cooker finds the sun in the picture: the brightest spot, if it is much brighter than the
+rest of the sky. It takes the sun out of the picture and keeps its light as a small disc of
+the same brightness, which shows behind the scene and in the sharpest reflections. The sky
+gives no light for it, just as for the physical sky's sun: aim a `view.Sun` at
+`SunDirection`, or at `SunDirectionAt(rotation)` once the picture is turned, so its shadows
+fall the way the picture's do. `HasSun` is false for an overcast picture with no sun in it.
+
+The picture takes the place of the gradient and of the physical sky: with an `Image` set,
+`Turbidity`, the moon and the stars are not used. Each face of the cooked cube is 256 pixels
+across, so a 2k picture is plenty. Changing to another picture waits for the GPU to finish,
+so load and set them up front rather than every frame; changing `Rotation` or `Exposure` is
+as cheap as changing the sun.
+
+The lineup in the [Courtyard example](../examples/Courtyard#the-lineup) stands under Poly
+Haven's Meadow 2, turned so its sun comes from the right. The metal now shows the blue sky
+above and the green meadow below:
+
+![The rusty metal in the lineup: before under the gradient sky, after under the Meadow 2 HDRI](media/hdri-sky-lineup.webp)
+
 ### Fog
 
 Fog is air you can see: it thickens towards the ground, so the far side of a yard sits

@@ -7,7 +7,15 @@ namespace Rendition.Passes;
 /// <param name="Direction">Towards the sun.</param>
 /// <param name="DiscRadiance">How bright the sun's disc is, so that over the disc it adds up to the light's colour.</param>
 /// <param name="DiscCosine">The cosine of the disc's angular radius.</param>
-internal readonly record struct SkySun(float Turbidity, Vector3 Direction, Vector3 DiscRadiance, float DiscCosine);
+/// <param name="Image">The photographed sky drawn in place of the others, or none.</param>
+/// <param name="Rotation">How far <paramref name="Image"/> is turned about the up axis, in radians.</param>
+/// <param name="Scale">What <paramref name="Image"/> is multiplied by: two to the power of its exposure.</param>
+internal readonly record struct SkySun(
+    float Turbidity, Vector3 Direction, Vector3 DiscRadiance, float DiscCosine,
+    SkyImageHandle? Image = null, float Rotation = 0f, float Scale = 0f);
+
+/// <summary>The sun a cooked sky image holds, as it was photographed; see <see cref="SkyImageData"/>.</summary>
+internal readonly record struct SkyImageSun(Vector3 Direction, Vector3 Radiance, float Cosine);
 
 /// <summary>
 /// The view's physical sky and its sun. The sky itself is drawn on the GPU from the tables in
@@ -53,7 +61,7 @@ internal static class SkyModel
     /// </summary>
     public static SkySun Sun(in FrameView view)
     {
-        if (!(view.Sky.Turbidity > 0f))
+        if (!Physical(view))
         {
             return default;
         }
@@ -83,7 +91,7 @@ internal static class SkyModel
     /// </summary>
     public static FrameView Tinted(in FrameView view, ref DirectionalLight[] buffer)
     {
-        if (!(view.Sky.Turbidity > 0f) || view.Lights.IsEmpty)
+        if (!Physical(view) || view.Lights.IsEmpty)
         {
             return view;
         }
@@ -111,6 +119,22 @@ internal static class SkyModel
         && !(view.BackgroundFadeEnd > view.BackgroundFadeStart);
 
     private static float Turbidity(in FrameView view) => Math.Clamp(view.Sky.Turbidity, MinTurbidity, MaxTurbidity);
+
+    /// <summary>Whether the view draws the physical sky: a turbidity is set and no photographed sky takes over.</summary>
+    private static bool Physical(in FrameView view) => view.Sky.Turbidity > 0f && view.Sky.Image is null;
+
+    /// <summary>
+    /// A photographed sky and its sun, turned by <paramref name="rotation"/> about the up axis and brightened by
+    /// <paramref name="exposure"/> stops. A sky without a sun has no disc. The disc is held to
+    /// <see cref="MaxDiscRadiance"/>, as a physical sky's is.
+    /// </summary>
+    public static SkySun Photographed(SkyImageHandle image, in SkyImageSun sun, float rotation, float exposure)
+    {
+        float scale = MathF.Pow(2f, exposure);
+        var direction = Vector3.Transform(sun.Direction, Quaternion.CreateFromAxisAngle(Vector3.UnitY, rotation));
+        var radiance = Vector3.Min(sun.Radiance * scale, new Vector3(MaxDiscRadiance));
+        return new SkySun(0f, direction, radiance, sun.Cosine, image, rotation, scale);
+    }
 
     /// <summary>
     /// The light that casts the shadows, among those the frame takes, or else the first, leaving out the moon's: a light
@@ -157,7 +181,7 @@ internal static class SkyModel
     public static (Vector4 Moon, Vector4 MoonRadiance, Vector4 Stars) Night(
         in FrameView view, Vector3 sun, RenderEffects off, bool capturingProbe)
     {
-        if (!(view.Sky.Turbidity > 0f) || capturingProbe)
+        if (!Physical(view) || capturingProbe)
         {
             return default;
         }
