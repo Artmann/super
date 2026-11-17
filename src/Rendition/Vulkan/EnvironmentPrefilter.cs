@@ -56,26 +56,25 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
     private readonly EnvironmentCube _sky;
     private readonly CubeShader<DrawConstants> _draw;
     private readonly CubeShader<FilterConstants> _filter;
-    private readonly DescriptorSet _drawSource;
-    private readonly DescriptorSet _drawReflections;
-    private readonly DescriptorSet _drawSky;
+    private readonly (DescriptorSet Source, DescriptorSet Reflections, DescriptorSet Sky) _drawSets;
 
     /// <summary>One set per reflection mip; the first, drawn rather than filtered, has none.</summary>
     private readonly DescriptorSet[] _filterReflections;
     private readonly DescriptorSet _filterIrradiance;
     private readonly RoughSlices _slices = new();
 
-    /// <param name="uniforms">The Environment block environment.comp reads.</param>
-    public EnvironmentPrefilter(VulkanContext context, GpuBuffer uniforms, Sampler sampler,
+    /// <param name="uniforms">The Environment block and the physical sky's sky-view table, which environment.comp reads.</param>
+    public EnvironmentPrefilter(VulkanContext context, EnvironmentUniforms uniforms, Sampler sampler,
         (EnvironmentCube Reflections, EnvironmentCube Irradiance, EnvironmentCube Sky) targets)
     {
         (_reflections, _irradiance, _sky) = targets;
         _source = new EnvironmentCube(context, SourceSize, SourceMips);
 
         _draw = new CubeShader<DrawConstants>(context, "environment.comp", DescriptorType.UniformBuffer, 3);
-        _drawSource = _draw.CreateSet(uniforms, _source.Storage(0));
-        _drawReflections = _draw.CreateSet(uniforms, _reflections.Storage(0));
-        _drawSky = _draw.CreateSet(uniforms, _sky.Storage(0));
+        _drawSets = (
+            _draw.CreateSet(uniforms.Buffer, _source.Storage(0), sampler, uniforms.SkyView),
+            _draw.CreateSet(uniforms.Buffer, _reflections.Storage(0), sampler, uniforms.SkyView),
+            _draw.CreateSet(uniforms.Buffer, _sky.Storage(0), sampler, uniforms.SkyView));
 
         _filter = new CubeShader<FilterConstants>(context, "environment_filter.comp",
             DescriptorType.CombinedImageSampler, _reflections.MipCount);
@@ -90,6 +89,9 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
 
     /// <summary>True while a rough reflection level still shows an earlier sky than the sharp ones.</summary>
     public bool Unfinished => _slices.Unfinished;
+
+    /// <summary>The sharp environment with its panels but without the sun's disc, every mip.</summary>
+    public ImageView Background => _source.Sampled;
 
     /// <summary>
     /// Records the draws and filters, leaving every level of the three cubes ready for any shader to sample. The
@@ -124,13 +126,13 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
     /// <summary>Records the source cube, the reflections' sharpest level, the sky and the soft light.</summary>
     private void RecordSharp(CommandBuffer cmd)
     {
-        _draw.Record(cmd, _drawSource, _source.Level(0), new DrawConstants { Panels = 1 });
+        _draw.Record(cmd, _drawSets.Source, _source.Level(0), new DrawConstants { Panels = 1 });
         _source.BuildMips(cmd);
 
-        _draw.Record(cmd, _drawReflections, _reflections.Level(0), new DrawConstants { Panels = 1, Disc = 1 });
+        _draw.Record(cmd, _drawSets.Reflections, _reflections.Level(0), new DrawConstants { Panels = 1, Disc = 1 });
         _reflections.Ready(cmd, 0);
 
-        _draw.Record(cmd, _drawSky, _sky.Level(0), default);
+        _draw.Record(cmd, _drawSets.Sky, _sky.Level(0), default);
         _sky.BuildMips(cmd);
         _filter.Record(cmd, _filterIrradiance, _irradiance.Level(0), new FilterConstants
         {

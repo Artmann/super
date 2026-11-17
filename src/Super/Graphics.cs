@@ -215,6 +215,13 @@ public sealed class Graphics
     public bool Haze { get; set; } = true;
 
     /// <summary>
+    /// The physical sky's air between the eye and far surfaces, from <see cref="SkySettings.Turbidity"/>: far hills
+    /// turn blue and pale, and glow warm towards a low sun. Off, they keep their colours however far they are. A scene
+    /// that sets its own haze gets that instead. It costs almost nothing.
+    /// </summary>
+    public bool AerialPerspective { get; set; } = true;
+
+    /// <summary>
     /// The water set with <c>view.Water</c>. Off, the view is drawn as if the camera weren't under water: no absorption,
     /// no caustics and no light shafts, and the sky shows.
     /// </summary>
@@ -562,6 +569,7 @@ public sealed class Graphics
         Bloom = profile.Bloom;
         Fog = profile.Fog;
         Haze = profile.Haze;
+        AerialPerspective = profile.AerialPerspective;
         Underwater = profile.Underwater;
         FogVolumes = profile.FogVolumes;
         AutoExposure = profile.AutoExposure;
@@ -710,6 +718,7 @@ public sealed class Graphics
         (graphics => graphics.Particles, RenderEffects.Particles),
         (graphics => graphics.LocalLights, RenderEffects.LocalLights),
         (graphics => graphics.Haze, RenderEffects.Haze),
+        (graphics => graphics.AerialPerspective, RenderEffects.AerialPerspective),
         (graphics => graphics.Underwater, RenderEffects.Underwater),
         (graphics => graphics.FogVolumes, RenderEffects.FogVolumes),
     ];

@@ -42,7 +42,13 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     public ImageView Sky { get; }
 
     /// <summary>
-    /// What Graphics.EnvironmentLight off gives every side; see <see cref="EnvironmentFlat"/>. After <see cref="Bake"/>
+    /// What shows behind the scene and what fog and haze melt into: the sharp environment with its panels but without
+    /// the sun's disc, which would show through as a hot spot. Its sharpest mip is what shaders read.
+    /// </summary>
+    public ImageView Background => _prefilter.Background;
+
+    /// <summary>
+    /// What Graphics.EnvironmentLight off gives every side; see <see cref="EnvironmentFlat"/>. After a <see cref="Record"/> that was waited for
     /// it is exact; after a recorded update it is the last one the GPU has finished, and its reflection half can trail
     /// the last slice of the rough reflections.
     /// </summary>
@@ -58,7 +64,6 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         _irradiance = new EnvironmentCube(context, IrradianceSize, 1);
         _sky = new EnvironmentCube(context, SkySize, SkyMips);
         Sky = _sky.CreateView(1);
-        _uniforms = new EnvironmentUniforms(context);
         _flat = new EnvironmentFlat(context, _irradiance.Level(0), _reflections.Level(ReflectionMips - 1));
 
         var samplerInfo = new SamplerCreateInfo
@@ -73,19 +78,12 @@ internal sealed unsafe class EnvironmentMap : IDisposable
             MaxLod = Vk.LodClampNone,
         };
         context.Api.CreateSampler(context.Device, &samplerInfo, null, out Sampler).Check();
-        _prefilter = new EnvironmentPrefilter(context, _uniforms.Buffer, Sampler, (_reflections, _irradiance, _sky));
+        _uniforms = new EnvironmentUniforms(context, Sampler);
+        _prefilter = new EnvironmentPrefilter(context, _uniforms, Sampler, (_reflections, _irradiance, _sky));
     }
 
     /// <summary>The cube level a test reads back.</summary>
     internal CubeLevel ReflectionLevel(int mip) => _reflections.Level(mip);
-
-    /// <summary>Renders the studio, or a clear sky over its floor, into the cube maps, and waits for it.</summary>
-    public void Bake(in EnvironmentDescription description, in SkySun sky)
-    {
-        SetDescription(description);
-        var copy = sky;
-        _context.SubmitAndWait(cmd => Record(cmd, copy));
-    }
 
     /// <summary>Keeps the bands and panels for the next record. Nothing is drawn yet.</summary>
     public void SetDescription(in EnvironmentDescription description) => _uniforms.Set(description);
@@ -129,9 +127,9 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     public void Dispose()
     {
         _prefilter.Dispose();
+        _uniforms.Dispose();
         _context.Api.DestroySampler(_context.Device, Sampler, null);
         _flat.Dispose();
-        _uniforms.Dispose();
         _context.Api.DestroyImageView(_context.Device, Sky, null);
         _sky.Dispose();
         _irradiance.Dispose();

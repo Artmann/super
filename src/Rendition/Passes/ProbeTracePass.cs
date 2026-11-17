@@ -38,11 +38,8 @@ internal sealed unsafe class ProbeTracePass : IDisposable
     [StructLayout(LayoutKind.Sequential)]
     private struct TraceConstants
     {
-        public Vector4 SkySun;
         public uint Frame;
         public float EnvironmentIntensity;
-        public uint Unused0;
-        public uint Unused1;
     }
 
     private readonly VulkanContext _context;
@@ -140,7 +137,7 @@ internal sealed unsafe class ProbeTracePass : IDisposable
     /// <paramref name="tracing"/> built the scene earlier in <paramref name="cmd"/>; the frame in flight's set and buffer
     /// are rewritten, so only call it once that frame's last use is done. The caller makes the staging slots safe to
     /// write first (<see cref="ProbeVolume.BeginFolds"/>) and blends them after. A ray that hits nothing sees the
-    /// environment times <paramref name="environmentIntensity"/>, with the clear sky of <paramref name="skySun"/>.
+    /// environment times <paramref name="environmentIntensity"/>.
     /// </summary>
     public void Record(
         CommandBuffer cmd,
@@ -152,8 +149,7 @@ internal sealed unsafe class ProbeTracePass : IDisposable
         ReadOnlySpan<Vector3> positions,
         ReadOnlySpan<float> spacings,
         uint frame,
-        float environmentIntensity,
-        Vector4 skySun)
+        float environmentIntensity)
     {
         ArgumentNullException.ThrowIfNull(batch);
         if (batch.Count == 0)
@@ -186,7 +182,6 @@ internal sealed unsafe class ProbeTracePass : IDisposable
         var api = _context.Api;
         var constants = new TraceConstants
         {
-            SkySun = skySun,
             Frame = frame,
             EnvironmentIntensity = environmentIntensity,
         };

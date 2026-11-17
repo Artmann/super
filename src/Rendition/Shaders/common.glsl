@@ -57,6 +57,8 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 flatReflection;     // rgb: the reflection cube's average at its roughest level, its reflections with it off
     vec4 outline;            // rgb: the outlines' colour; w: their thickness in scene pixels, 0 for none
     vec4 outlineFade;        // x, y: the distances in metres over which outlines fade out
+    vec4 airExtinction;      // rgb: how much the physical sky's air dims per metre; w: the aerosol's scattering per metre
+    vec4 airSun;             // rgb: the sunlight reaching that air; w: 1 when it fades distant surfaces
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;

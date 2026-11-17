@@ -1,0 +1,87 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "atmosphere.glsl"
+
+// The multiple-scattering table, after Hillaire 2020: for each height and sun angle, the light
+// scattered twice or more, per unit of sun, taken as the second order times the sum of a
+// geometric series of further orders. Redrawn only when the turbidity changes.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba16f, set = 0, binding = 0) uniform writeonly image2D target;
+layout(set = 0, binding = 1) uniform sampler2D transmittance;
+
+// Must match AirConstants in Vulkan/SkyAtmosphere.cs.
+layout(push_constant) uniform Air {
+    vec4 sun;
+    vec4 aerosol;
+} air;
+
+const int SQRT_DIRECTIONS = 8;
+const int STEPS = 20;
+
+void main() {
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    if (texel.x >= MULTISCATTER_SIZE.x || texel.y >= MULTISCATTER_SIZE.y) {
+        return;
+    }
+
+    vec2 x = vec2(texel) / vec2(MULTISCATTER_SIZE - 1);
+    float sunCosine = x.x * 2.0 - 1.0;
+    float r = PLANET_RADIUS + max(x.y, 0.001) * (ATMOSPHERE_RADIUS - PLANET_RADIUS);
+    vec3 sun = vec3(sqrt(max(1.0 - sunCosine * sunCosine, 0.0)), sunCosine, 0.0);
+    vec3 origin = vec3(0.0, r, 0.0);
+    Aerosol aerosol = Aerosol(air.aerosol.x, air.aerosol.y);
+
+    vec3 secondOrder = vec3(0.0);
+    vec3 asOne = vec3(0.0);
+    for (int i = 0; i < SQRT_DIRECTIONS; i++) {
+        for (int j = 0; j < SQRT_DIRECTIONS; j++) {
+            // Spread evenly over the sphere.
+            float u = (float(i) + 0.5) / float(SQRT_DIRECTIONS);
+            float v = (float(j) + 0.5) / float(SQRT_DIRECTIONS);
+            float cosTheta = 1.0 - 2.0 * v;
+            float sinTheta = sqrt(max(1.0 - cosTheta * cosTheta, 0.0));
+            float phi = 2.0 * ATMOSPHERE_PI * u;
+            vec3 direction = vec3(sinTheta * cos(phi), cosTheta, sinTheta * sin(phi));
+
+            bool ground = hitsGround(r, cosTheta);
+            float distance = ground
+                ? distanceToSphere(r, cosTheta, PLANET_RADIUS)
+                : distanceToSphere(r, cosTheta, ATMOSPHERE_RADIUS);
+            float step = max(distance, 0.0) / float(STEPS);
+
+            vec3 throughput = vec3(1.0);
+            vec3 light = vec3(0.0);
+            vec3 once = vec3(0.0);
+            for (int s = 0; s < STEPS; s++) {
+                vec3 position = origin + direction * ((float(s) + 0.5) * step);
+                float height = length(position);
+                Medium medium = mediumAt(height, aerosol);
+                vec3 toSun = transmittanceTo(transmittance, height, dot(sun, position / height));
+                vec3 through = exp(-medium.extinction * step);
+                vec3 extinction = max(medium.extinction, vec3(1e-9));
+
+                vec3 scattered = medium.scattering * toSun / (4.0 * ATMOSPHERE_PI);
+                light += throughput * (scattered - scattered * through) / extinction;
+                once += throughput * (medium.scattering - medium.scattering * through) / extinction;
+                throughput *= through;
+            }
+
+            if (ground) {
+                vec3 position = origin + direction * distance;
+                vec3 up = normalize(position);
+                vec3 toSun = transmittanceTo(transmittance, PLANET_RADIUS, dot(sun, up));
+                light += throughput * toSun * max(dot(up, sun), 0.0) * GROUND_ALBEDO / ATMOSPHERE_PI;
+            }
+
+            secondOrder += light;
+            asOne += once;
+        }
+    }
+
+    float count = float(SQRT_DIRECTIONS * SQRT_DIRECTIONS);
+    secondOrder /= count;
+    asOne /= count;
+    imageStore(target, texel, vec4(secondOrder / (1.0 - min(asOne, vec3(0.99))), 1.0));
+}

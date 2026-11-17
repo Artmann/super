@@ -1521,16 +1521,45 @@ animated every frame costs the update's half millisecond each frame, with no wai
 
 ### The clear sky
 
-`FrameView.Sky.Turbidity` above zero swaps the bands above the horizon for the Preetham,
-Shirley and Smits (1999) clear sky, in `Shaders/sky.glsl`. Its zenith luminance and
-chromaticity and the Perez distribution give luminance Y and chromaticity x and y in each
-direction, which turn into linear sRGB through XYZ. The paper's luminance is in kcd/m²;
-`SKY_UNITS_PER_KILOCANDELA` (0.08) puts it in the renderer's units, where a sun of about 8
-is the real 100 klux, so a turbidity of 2.5 with the sun 30° up gives about 0.35 straight
-up, close to the gradient skies the examples used. `Passes/SkyModel.cs` holds the same
-formulas in C#, so tests can check them against hand-worked values, and picks the sun:
-the shadow-casting light, else the first. Below the horizon the bake fades from the sky
-at the horizon into the floor band, so `Ground` still shows there.
+`FrameView.Sky.Turbidity` above zero swaps the bands above the horizon for a physical sky
+after Hillaire, "A Scalable and Production Ready Sky and Atmosphere Rendering Technique"
+(2020), in `Shaders/atmosphere.glsl`. Distances are kilometres: a planet of 6360 km with
+100 km of air, Rayleigh scattering falling off over 8 km, ozone in a tent 15 km either
+side of 25 km, and an aerosol falling off over 1.2 km. The aerosol comes from the
+turbidity: Ångström's β = 0.04608T − 0.04586, as Preetham relates them, its optical depth
+at 550 nm τ = β·0.55^-1.3, spread so straight up it has that depth, nine tenths
+scattering. `Vulkan/SkyAtmosphere.cs` draws three rgba16f tables, each with its own
+compute shader: the transmittance (256 × 64) and the light scattered many times
+(32 × 32), redrawn only when the turbidity changes, and the sky seen from 50 m up
+(192 × 108, Hillaire's sky-view table with its horizon packed tight), redrawn on every
+sky change. `environment.comp` reads the sky-view through binding 2 of the cube shaders'
+layout, present for every cube, and adds `NIGHT_GLOW`, a faint blue that keeps night from
+going black. `SOLAR_STRENGTH` (13) is the sun at the top of the air in the renderer's
+units, where a sun light of about 8 is the real 100 klux; it gives a turbidity-3 sky with
+the sun 60° up the average brightness the Preetham sky it replaced had, so the examples'
+exposures held. `Passes/Atmosphere.cs` holds the transmittance and the aerosol in C#, so
+tests can check them against hand-worked values, and `Passes/SkyModel.cs` picks the sun:
+the shadow-casting light among the frame's first `MaxLights`, else the first.
+
+`SkyModel.Tinted` multiplies that sun's radiance by `Atmosphere.SunTint`, its
+transmittance through the air divided by the transmittance at 60° up, faded out over the
+disc's own radius as it sets. The renderer's public `Render`, `Bake` and `BakeChunk` pass
+the tinted view on, so the lighting, the shadows, the probes, the bakes and the disc all
+see one sun; the copy lives in a buffer the renderer keeps, so it allocates nothing per
+frame. The lighting hashes need nothing new, since the tint follows from the turbidity,
+the light and `LightAngle` they already cover. Below the horizon the bake fades from the
+sky at the horizon into the floor band, which `EnvironmentUniforms.Floor.W` scales by
+`Atmosphere.GroundLight`: the tinted sun on a level floor plus a quarter as much from the
+sky, 1 at 60° up and never under 0.002, so `Ground` darkens through dusk.
+
+Far surfaces fade into the air through `throughAir()` in `sky.glsl`, in closed form for
+air of one density, the ground's, all the way: the surface times exp(−σd), plus the sun's
+light and the sky's average, `flatIrradiance` times the environment intensity, scattered
+towards the eye times (1 − exp(−σd))/σ. The frame uniforms carry it as `airExtinction`
+(per metre, and the aerosol's scattering) and `airSun` (the sunlight reaching the air
+from `Atmosphere.Air`, and w = 1 when the fade is on). It is off under a view's own haze,
+which takes precedence, with `RenderEffects.AerialPerspective` off, and under the
+gradient sky. The lighting pass, glass and particles apply it, after the height fog.
 
 The disc is `LightAngle` across, which is a diameter, and as bright as the light's
 radiance spread over its solid angle, 4π sin²(r/2) for radius r, held at
@@ -1540,13 +1569,13 @@ mip 0 of the reflection cube. The rough mips, the irradiance cube and `Environme
 keep the circumsolar glow but not the disc, because the direct light already gives its
 highlight and its diffuse light; a disc there would count it twice and turn into specks in
 the prefiltered mips. Reflection probe captures leave it out for the same reason, through
-a zero `sunDisc` in the frame uniforms. The background draws the sky analytically, disc
-included, rather than from the cube, so it stays sharp at any resolution; below the
-horizon it reads the cube. What hazy surfaces and particles fade into, `skyBehind()`, is the
-analytic sky without the disc above the horizon, since mip 0's disc would show through a
-distant hill as a hot spot for bloom to spread. `SkyModel.Sun` holds a turbidity above zero
-to 1.7 to 10, as below about 1.2 the luminance's B turns positive and its exponential
-overflows at the horizon, and a sun straight below the horizon takes a level direction.
+a zero `sunDisc` in the frame uniforms. The background reads `EnvironmentMap.Background`,
+the prefilter's source cube, which holds the sky without the disc, and adds the disc per
+pixel from `sunDisc`, so the disc stays sharp at any resolution and sinks behind the
+horizon with the sun. What hazy surfaces, fog and particles fade into, `skyBehind()`, is
+that same cube, since mip 0's disc would show through a distant hill as a hot spot for
+bloom to spread. `SkyModel.Sun` holds a turbidity above zero to 1.7 to 10, the range
+`SkySettings` takes.
 
 The frame uniforms carry `skySun` (towards the sun, and the turbidity) and `sunDisc`
 (its radiance, and the cosine of its radius). The renderer compares `SkyModel.Sun` with
@@ -4685,8 +4714,9 @@ direction page, which it used to refuse.
 
 L1 keeps only the sky's broad shape. It is exact for an even sky, but a sky much brighter at the horizon than
 overhead is smeared over the zenith, so an open floor reads too bright. Under a clear `AnalyticSky` at turbidity 3, a
-chunk's floor is 8.03 steps of 255 on average from a space baked under the same sky; under an even sky it is about 1.
-`ChunkRelightGpuTests.Chunk_stays_near_a_space_bake` holds it to 9. Turning is checked apart, against a chunk baked
+chunk's floor is 18.97 steps of 255 on average from a space baked under the same sky, whose hazy horizon is bright
+against its zenith; under an even sky it is about 1.
+`ChunkRelightGpuTests.Chunk_stays_near_a_space_bake` holds it to 21. Turning is checked apart, against a chunk baked
 with its wall where the turn puts it, which is L1 too: 2.5 to 2.7 steps, held to 6.
 
 `glow.frag` and any other custom surface shader includes `surface.glsl`, and a static model's identity hashes its

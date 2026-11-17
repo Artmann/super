@@ -190,7 +190,6 @@ public sealed unsafe class Renderer : IDisposable
 
     // What this frame's folds fill the sky with, where a probe saw nothing.
     private float _probeEnvironmentIntensity;
-    private Vector4 _probeSkySun;
 
     // The frame whose uniforms Render wrote last, so SampleProbeIrradiance reads what that frame did.
     private int _uniformFrame;
@@ -208,6 +207,9 @@ public sealed unsafe class Renderer : IDisposable
     // The clear sky and sun the environment was last baked with. The lighting hashes cover what
     // decides it through the view, so baking it again leaves the version alone.
     private SkySun _bakedSky;
+
+    // The view's lights with the sun coloured by the physical sky's air; see SkyModel.Tinted.
+    private DirectionalLight[] _tintedLights = [];
 
     /// <summary>The sky or the environment's description changed and its cubes aren't redrawn yet.</summary>
     private bool _environmentPending;
@@ -641,7 +643,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _frameSetLayout = CreateFrameSetLayout();
         // With the frame set's three, the lighting pass samples 19 textures, more than MoltenVK allows in ordinary sets.
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 17, ShaderStageFlags.FragmentBit, updateAfterBind: true);
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 18, ShaderStageFlags.FragmentBit, updateAfterBind: true);
         _threeTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
         _fourTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 4, ShaderStageFlags.FragmentBit);
         _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
@@ -653,7 +655,7 @@ public sealed unsafe class Renderer : IDisposable
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 9 * FramesInFlight),
             new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 28 + 3 * FramesInFlight));
         _lightingPool = _context.CreateDescriptorPool(
-            DescriptorPoolCreateFlags.UpdateAfterBindBit, 1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 17));
+            DescriptorPoolCreateFlags.UpdateAfterBindBit, 1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 18));
 
         for (int i = 0; i < FramesInFlight; i++)
         {
@@ -2105,7 +2107,10 @@ public sealed unsafe class Renderer : IDisposable
     /// <paramref name="settings"/> asks for another texel density than the space's
     /// <see cref="BakedSpace.TexelsPerMetre"/>, so no frame would find the bake fresh.
     /// </exception>
-    public byte[] Bake(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
+    public byte[] Bake(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings) =>
+        BakeTinted(SkyModel.Tinted(view, ref _tintedLights), draws, settings);
+
+    private byte[] BakeTinted(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
     {
         var (space, probeSettings) = CheckSpace(view, settings);
         long started = Stopwatch.GetTimestamp();
@@ -2808,7 +2813,10 @@ public sealed unsafe class Renderer : IDisposable
     /// <exception cref="InvalidOperationException">
     /// The chunk owns no static draws, some of its draws don't fit in its one page, or the GPU can't trace rays.
     /// </exception>
-    public byte[] BakeChunk(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings)
+    public byte[] BakeChunk(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings) =>
+        BakeChunkTinted(SkyModel.Tinted(view, ref _tintedLights), draws, chunk, settings);
+
+    private byte[] BakeChunkTinted(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings)
     {
         CheckChunk(view, chunk, settings);
         long started = Stopwatch.GetTimestamp();
@@ -3393,9 +3401,7 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        var sky = SkyModel.Sun(view);
         _probeEnvironmentIntensity = view.EnvironmentIntensity;
-        _probeSkySun = new Vector4(sky.Direction, sky.Turbidity);
 
         // Traced probes find the sun with shadow rays, through the frame's top-level structure, and draw nothing.
         if (traced)
@@ -3525,7 +3531,7 @@ public sealed unsafe class Renderer : IDisposable
             _lightProbes.BeginFolds(cmd);
             tracePass.Record(cmd, batch, scene, _tracing!, _frameIndex, frameSet,
                 CollectionsMarshal.AsSpan(_probeBatchPositions), CollectionsMarshal.AsSpan(_probeBatchSpacings),
-                (uint)scheduler.Frame, _probeEnvironmentIntensity, _probeSkySun);
+                (uint)scheduler.Frame, _probeEnvironmentIntensity);
             _lightProbes.RecordBlend(cmd, batch, TracedBlend, TracedSnap);
             scheduler.Updated(batch);
             _probesSettledOnce |= scheduler.Settled;
@@ -3537,7 +3543,7 @@ public sealed unsafe class Renderer : IDisposable
         _lightProbes.BeginFolds(cmd);
         for (int i = 0; i < batch.Count; i++)
         {
-            _lightProbes.RecordFold(cmd, i, _probeBatchSpacings[i], _probeEnvironmentIntensity, _probeSkySun);
+            _lightProbes.RecordFold(cmd, i, _probeBatchSpacings[i], _probeEnvironmentIntensity);
         }
 
         _lightProbes.RecordBlend(cmd, batch, RasterBlend);
@@ -3900,7 +3906,10 @@ public sealed unsafe class Renderer : IDisposable
         return new BakeSphere(part.Center, part.Radius);
     }
 
-    public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws)
+    public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws) =>
+        RenderTinted(SkyModel.Tinted(view, ref _tintedLights), draws);
+
+    private void RenderTinted(in FrameView view, ReadOnlySpan<DrawItem> draws)
     {
         if (view.Width <= 0 || view.Height <= 0)
         {
@@ -5239,6 +5248,10 @@ public sealed unsafe class Renderer : IDisposable
             LastSunDisc = disc;
         }
 
+        // The physical sky's air between the eye and far surfaces, for scenes without a haze of their own.
+        (uniforms->AirExtinction, uniforms->AirSun) = Atmosphere.Air(
+            sky.Turbidity, sky.Direction, view.EnvironmentIntensity, !_off.HasFlag(RenderEffects.AerialPerspective));
+
         // Moving points two texels of the first cascade off their surface stops them
         // shadowing themselves. The lighting pass works this out per cascade itself.
         float normalOffset = view.Shadows.Radius * 4f / _shadowPass.Resolution;
@@ -5836,6 +5849,7 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, _gBuffer.Mask.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.Traced.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.BounceBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         WriteImages(_reflectionSet,
         [
@@ -5863,7 +5877,8 @@ public sealed unsafe class Renderer : IDisposable
             testedDepth,
             new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal));
+            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal));
 
         // Glass has just used depth for testing, and it stays in that layout.
         WriteImages(_taaSet,
@@ -5887,7 +5902,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _volumetricFog.SetSources(
             new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
             new(_linearSampler, _lightProbes.DepthView, ImageLayout.General));
         foreach (ref var frame in _frames.AsSpan())

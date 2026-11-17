@@ -46,8 +46,8 @@ internal sealed unsafe class TransparentPass : IDisposable
         _resources = resources;
         var api = context.Api;
 
-        // The studio's reflections and light, the copy of the scene, depth and the reflection probes.
-        const int bindingCount = 5;
+        // The studio's reflections and light, the copy of the scene, depth, the reflection probes and the background.
+        const int bindingCount = 6;
         Span<DescriptorSetLayoutBinding> bindings = stackalloc DescriptorSetLayoutBinding[bindingCount];
         for (int i = 0; i < bindingCount; i++)
         {
@@ -58,12 +58,10 @@ internal sealed unsafe class TransparentPass : IDisposable
         _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, bindingCount));
         _environmentSet = context.AllocateSet(_pool, _environmentLayout);
 
-        WriteImages(0,
-        [
-            new(environment.Sampler, environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
-            new(environment.Sampler, environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
-        WriteImages(4, [new(environment.Sampler, probes.View, ImageLayout.ShaderReadOnlyOptimal)]);
+        var sampler = environment.Sampler;
+        const ImageLayout readOnly = ImageLayout.ShaderReadOnlyOptimal;
+        WriteImages(0, [new(sampler, environment.Reflections, readOnly), new(sampler, environment.Irradiance, readOnly)]);
+        WriteImages(4, [new(sampler, probes.View, readOnly), new(sampler, environment.Background, readOnly)]);
 
         _layout = context.CreatePipelineLayout([frameSetLayout, resources.Layout, _environmentLayout], SceneDraws.PushRange);
 

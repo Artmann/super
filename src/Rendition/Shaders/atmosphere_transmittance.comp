@@ -1,0 +1,41 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "atmosphere.glsl"
+
+// The transmittance table: for each height and angle, the share of the light that crosses the
+// air from there to its top. Redrawn only when the turbidity changes.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba16f, set = 0, binding = 0) uniform writeonly image2D target;
+
+// Must match AirConstants in Vulkan/SkyAtmosphere.cs.
+layout(push_constant) uniform Air {
+    vec4 sun;     // xyz: towards the sun
+    vec4 aerosol; // x: the aerosol's scattering per kilometre at the ground; y: its extinction
+} air;
+
+const int STEPS = 40;
+
+void main() {
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    if (texel.x >= TRANSMITTANCE_SIZE.x || texel.y >= TRANSMITTANCE_SIZE.y) {
+        return;
+    }
+
+    float r;
+    float mu;
+    transmittanceRadiusAndCosine((vec2(texel) + 0.5) / vec2(TRANSMITTANCE_SIZE), r, mu);
+    float distance = max(distanceToSphere(r, mu, ATMOSPHERE_RADIUS), 0.0);
+
+    Aerosol aerosol = Aerosol(air.aerosol.x, air.aerosol.y);
+    float step = distance / float(STEPS);
+    vec3 depth = vec3(0.0);
+    for (int i = 0; i < STEPS; i++) {
+        float t = (float(i) + 0.5) * step;
+        float radius = sqrt(r * r + t * t + 2.0 * r * t * mu);
+        depth += mediumAt(radius, aerosol).extinction * step;
+    }
+
+    imageStore(target, texel, vec4(exp(-depth), 1.0));
+}

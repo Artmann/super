@@ -41,7 +41,7 @@ vec3 fogSkyLight(samplerCube sky, vec3 direction) {
     if (frame.showEnvironment == 1) {
         vec3 level = vec3(direction.x, max(direction.y, 0.0), direction.z);
         level = dot(level, level) > 1e-8 ? normalize(level) : vec3(1.0, 0.0, 0.0);
-        color = skyBehind(sky, level, frame.skySun) * frame.backgroundRadiance.a;
+        color = skyBehind(sky, level) * frame.backgroundRadiance.a;
     }
 
     return color;

@@ -16,6 +16,9 @@ internal sealed unsafe class ParticlePass : IDisposable
 {
     public const int MaxParticles = Particle.MaxPerFrame;
 
+    /// <summary>Depth, the shadow map with comparison, the sky's light, the sky itself and the background without the sun.</summary>
+    private const int ImageCount = 5;
+
     private readonly VulkanContext _context;
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
@@ -48,16 +51,15 @@ internal sealed unsafe class ParticlePass : IDisposable
                 context, (ulong)(MaxParticles * sizeof(Particle)), BufferUsageFlags.VertexBufferBit);
         }
 
-        // Depth, the shadow map with comparison, the sky's light and the sky itself.
         const ShaderStageFlags stages = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit;
-        _setLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.CombinedImageSampler, 1, stages),
-            new(1, DescriptorType.CombinedImageSampler, 1, stages),
-            new(2, DescriptorType.CombinedImageSampler, 1, stages),
-            new(3, DescriptorType.CombinedImageSampler, 1, stages),
-        ]);
-        _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 4));
+        Span<DescriptorSetLayoutBinding> bindings = stackalloc DescriptorSetLayoutBinding[ImageCount];
+        for (int i = 0; i < ImageCount; i++)
+        {
+            bindings[i] = new DescriptorSetLayoutBinding((uint)i, DescriptorType.CombinedImageSampler, 1, stages);
+        }
+
+        _setLayout = context.CreateSetLayout(bindings);
+        _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, ImageCount));
         _set = context.AllocateSet(_pool, _setLayout);
         _layout = context.CreatePipelineLayout(
             [frameSetLayout, _setLayout], new PushConstantRange(stages, 0, (uint)sizeof(CameraConstants)));
@@ -89,11 +91,12 @@ internal sealed unsafe class ParticlePass : IDisposable
 
     /// <summary>Points the pass at the current depth buffer, shadow map and sky. Call again after a resize.</summary>
     public void WriteTargets(
-        DescriptorImageInfo depth, DescriptorImageInfo shadowCompare, DescriptorImageInfo irradiance, DescriptorImageInfo reflections)
+        DescriptorImageInfo depth, DescriptorImageInfo shadowCompare, DescriptorImageInfo irradiance, DescriptorImageInfo reflections,
+        DescriptorImageInfo background)
     {
-        var images = stackalloc DescriptorImageInfo[] { depth, shadowCompare, irradiance, reflections };
-        var writes = stackalloc WriteDescriptorSet[4];
-        for (int i = 0; i < 4; i++)
+        var images = stackalloc DescriptorImageInfo[] { depth, shadowCompare, irradiance, reflections, background };
+        var writes = stackalloc WriteDescriptorSet[ImageCount];
+        for (int i = 0; i < ImageCount; i++)
         {
             writes[i] = new WriteDescriptorSet
             {
@@ -106,7 +109,7 @@ internal sealed unsafe class ParticlePass : IDisposable
             };
         }
 
-        _context.Api.UpdateDescriptorSets(_context.Device, 4, writes, 0, null);
+        _context.Api.UpdateDescriptorSets(_context.Device, ImageCount, writes, 0, null);
     }
 
     /// <summary>This frame's particles as uploaded, furthest first.</summary>

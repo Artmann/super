@@ -4,8 +4,8 @@ namespace Rendition.Vulkan;
 
 /// <summary>
 /// A compute shader that writes one level of an <see cref="EnvironmentCube"/>, eight by eight texels a group and one
-/// face per z: binding 0 is what it reads, binding 1 the level it writes, and <typeparamref name="TConstants"/> its
-/// push constants.
+/// face per z: binding 0 is what it reads, binding 1 the level it writes, binding 2 a table it may also read, and
+/// <typeparamref name="TConstants"/> its push constants.
 /// </summary>
 internal sealed unsafe class CubeShader<TConstants> : IDisposable where TConstants : unmanaged
 {
@@ -16,7 +16,7 @@ internal sealed unsafe class CubeShader<TConstants> : IDisposable where TConstan
     private readonly LivePipeline _pipeline;
 
     /// <param name="input">What binding 0 holds: a uniform buffer or a sampled cube.</param>
-    /// <param name="sets">How many descriptor sets <see cref="CreateSet(GpuBuffer, ImageView)"/> and its overload may make.</param>
+    /// <param name="sets">How many descriptor sets <see cref="CreateSet(GpuBuffer, ImageView, Sampler, ImageView)"/> and its overload may make.</param>
     public CubeShader(VulkanContext context, string shader, DescriptorType input, uint sets)
     {
         _context = context;
@@ -24,28 +24,35 @@ internal sealed unsafe class CubeShader<TConstants> : IDisposable where TConstan
         [
             new(0, input, 1, ShaderStageFlags.ComputeBit),
             new(1, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
+            new(2, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
         ]);
         _pool = context.CreateDescriptorPool(sets,
             new DescriptorPoolSize(input, sets),
-            new DescriptorPoolSize(DescriptorType.StorageImage, sets));
+            new DescriptorPoolSize(DescriptorType.StorageImage, sets),
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, sets));
         _pipelineLayout = context.CreatePipelineLayout(
             [_setLayout],
             new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(TConstants)));
         _pipeline = PipelineFactory.CreateCompute(context, shader, _pipelineLayout);
     }
 
-    /// <summary>A set that reads the whole of a uniform buffer and writes <paramref name="target"/>.</summary>
-    public DescriptorSet CreateSet(GpuBuffer uniforms, ImageView target)
+    /// <summary>
+    /// A set that reads the whole of a uniform buffer and a 2D <paramref name="table"/> at binding 2, and writes
+    /// <paramref name="target"/>.
+    /// </summary>
+    public DescriptorSet CreateSet(GpuBuffer uniforms, ImageView target, Sampler sampler, ImageView table)
     {
         var set = _context.AllocateSet(_pool, _setLayout);
         var bufferInfo = new DescriptorBufferInfo(uniforms.Handle, 0, uniforms.Size);
         var imageInfo = new DescriptorImageInfo(default, target, ImageLayout.General);
+        var tableInfo = new DescriptorImageInfo(sampler, table, ImageLayout.ShaderReadOnlyOptimal);
         var writes = stackalloc WriteDescriptorSet[]
         {
             Descriptors.BufferWrite(set, 0, &bufferInfo, DescriptorType.UniformBuffer),
             Descriptors.ImageWrite(set, 1, DescriptorType.StorageImage, &imageInfo),
+            Descriptors.ImageWrite(set, 2, DescriptorType.CombinedImageSampler, &tableInfo),
         };
-        _context.Api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
+        _context.Api.UpdateDescriptorSets(_context.Device, 3, writes, 0, null);
         return set;
     }
 
