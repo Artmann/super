@@ -1256,11 +1256,21 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>
     /// Records the frame's share of the environment's redraw: after a change of sky or description, its sharp levels
-    /// and a slice of the rough reflections, and after that, while the sky holds still, the slices left.
+    /// and a slice of the rough reflections, and after that, while the sky holds still, the slices left. A change
+    /// pending at the first frame draws every level, so a sky a game sets before it, and a screenshot of it, show no
+    /// default.
     /// </summary>
     private void RecordEnvironment(CommandBuffer cmd)
     {
-        _environment.RecordFrame(cmd, _bakedSky, _environmentPending);
+        if (_environmentPending && _framesSubmitted == 0)
+        {
+            _environment.Record(cmd, _bakedSky);
+        }
+        else
+        {
+            _environment.RecordFrame(cmd, _bakedSky, _environmentPending);
+        }
+
         _environmentPending = false;
     }
 

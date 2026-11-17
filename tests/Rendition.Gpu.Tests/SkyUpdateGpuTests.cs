@@ -147,6 +147,25 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void A_sky_set_before_the_first_frame_reaches_every_reflection_level_in_that_frame()
+    {
+        var colour = new Vector3(0.25f, 0.75f, 0.5f);
+        using var fresh = new GpuFixture(disableRayTracing: false);
+        int errors = fresh.ValidationErrors;
+
+        // A game sets its sky before its first frame; a screenshot of that frame must not show the default in the
+        // rough reflections.
+        fresh.Renderer.SetEnvironment(Even(colour));
+        fresh.RenderOneFrame();
+        fresh.Context.Api.DeviceWaitIdle(fresh.Context.Device).Check();
+
+        // The next frame reads back what the first one left in the roughest level.
+        fresh.RenderOneFrame();
+        AssertClose(colour, fresh.Renderer.LastFlat.Reflection, 2e-3f);
+        Assert.Equal(errors, fresh.ValidationErrors);
+    }
+
     // Towards a sun the given degrees above the horizon, off to the side.
     private static Vector3 Towards(float elevation)
     {

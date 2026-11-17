@@ -1490,7 +1490,9 @@ the sky changes by under one level of brightness from one frame to the next.
 tests. The renderer keeps the description and the clear sky, marks the environment pending
 when either changes, and records `RecordFrame` in the next frame's command buffer, right
 after the GPU timer starts, as the "Sky" pass. While the sky then holds still, each frame
-records the next slice until all three are done. The bake slice and chunk copies recorded
+records the next slice until all three are done. A change still pending at the very first frame
+records every level at once instead, so a sky a game sets before it, and a screenshot of it, never show the default
+studio in the rough reflections. The bake slice and chunk copies recorded
 before it in that frame still read the previous sky, a frame behind. The paths that draw
 outside a frame (a blocking bake, a reflection probe capture, the constructor) call
 `FlushEnvironment`, which records the whole update in its own submit and waits when
