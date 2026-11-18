@@ -4,48 +4,6 @@ using Silk.NET.Vulkan;
 
 namespace Rendition;
 
-/// <summary>What a <see cref="BakeJob"/> step asks of whoever runs it.</summary>
-internal enum BakeStepResult
-{
-    /// <summary>Submit the step's work and step again whenever suits.</summary>
-    Continue,
-
-    /// <summary>
-    /// The step copied results into memory the next step reads, so wait until the GPU is done with this step's work
-    /// before the next one.
-    /// </summary>
-    AwaitGpu,
-
-    /// <summary>
-    /// The step recorded nothing and started work on the thread pool; step again whenever suits, and the step that
-    /// finds the work done records what follows it. A caller that may wait can call <see cref="BakeJob.WaitForCpu"/>.
-    /// </summary>
-    AwaitCpu,
-
-    /// <summary>Nothing is left to record; <see cref="BakeJob.Finish"/> makes the file.</summary>
-    Done,
-}
-
-/// <summary>
-/// One area to bake, a space or a chunk, everything in the area's own space.
-/// </summary>
-/// <param name="Draws">Every draw that blocks and bounces light; the job builds its top level from them.</param>
-/// <param name="Lights">The lights of the bake, each Mixed one with the mask channel it was assigned.</param>
-/// <param name="IsChunk">Whether the paths also sum the sky and sun transfer, on a page of the layout's own side.</param>
-/// <param name="Layout">Where each draw sits: from <see cref="LightmapLayout.Build"/> for a space, <see cref="LightmapLayout.BuildSingle"/> for a chunk.</param>
-/// <param name="SkyIntensity">What the sky in the plain light is scaled by; 0 leaves it out.</param>
-/// <param name="PlainLight">Whether the irradiance and direction pages are kept.</param>
-/// <param name="Probes">The space's light probes, or null for a chunk, which has none.</param>
-internal sealed record AreaJob(
-    DrawItem[] Draws, GpuBakeLight[] Lights, bool IsChunk, LightmapLayout Layout, float SkyIntensity, bool PlainLight,
-    ProbeVolumeSettings? Probes);
-
-/// <summary>What a <see cref="BakeJob"/> made: the pages as the file stores them, and what the report needs.</summary>
-internal sealed record BakeResult(
-    List<LightBakePage>? Irradiance, List<LightBakePage>? Direction, List<LightBakePage> Mask,
-    LightBakeTransfer? Transfer, float InvalidShare, int Passes, LightBakePage? ProbeIrradiance,
-    LightBakePage? ProbeDepth);
-
 /// <summary>
 /// A bake of a space or a chunk as a series of steps, each recording a slice of the work into a command buffer the
 /// caller submits: texel setup, then for each page its paths a few passes at a time, the readback of their sums, the
@@ -75,6 +33,21 @@ internal sealed unsafe class BakeJob : IDisposable
         Cpu,
         Done,
     }
+
+    // What a step does in each stage, in the order of Stage.
+    private static readonly Func<BakeJob, CommandBuffer, int, BakeStepResult>[] Steps =
+    [
+        (job, cmd, _) => job.SetUp(cmd),
+        (job, cmd, passes) => job.Trace(cmd, passes),
+        (job, _, _) => job.ReadSums(),
+        (job, _, _) => job.ReadFilter(),
+        (job, _, _) => job.ReadTransfer(),
+        (job, cmd, passes) => job.TraceProbes(cmd, passes),
+        (job, cmd, _) => job.Fold(cmd),
+        (job, _, _) => job.ReadFold(),
+        (job, cmd, _) => job.AfterCpu(cmd),
+        (_, _, _) => BakeStepResult.Done,
+    ];
 
     private readonly Baker _baker;
     private readonly VulkanContext _context;
@@ -301,19 +274,7 @@ internal sealed unsafe class BakeJob : IDisposable
         ArgumentOutOfRangeException.ThrowIfLessThan(passes, 1);
         ObjectDisposedException.ThrowIf(_disposed, this);
         PassesInLastStep = 0;
-        return _stage switch
-        {
-            Stage.Setup => SetUp(cmd),
-            Stage.Trace => Trace(cmd, passes),
-            Stage.ReadSums => ReadSums(),
-            Stage.ReadFilter => ReadFilter(),
-            Stage.ReadTransfer => ReadTransfer(),
-            Stage.ProbeTrace => TraceProbes(cmd, passes),
-            Stage.Fold => Fold(cmd),
-            Stage.ReadFold => ReadFold(),
-            Stage.Cpu => AfterCpu(cmd),
-            _ => BakeStepResult.Done,
-        };
+        return Steps[(int)_stage](this, cmd, passes);
     }
 
     /// <summary>
@@ -333,49 +294,55 @@ internal sealed unsafe class BakeJob : IDisposable
         var irradiance = new List<LightBakePage>();
         var direction = new List<LightBakePage>();
         var mask = new List<LightBakePage>();
-        long covered = 0;
-        long invalid = 0;
         foreach (var page in _filtered)
         {
             var encoded = BakeEncoding.Encode(page);
             irradiance.Add(BakeEncoding.Crop(encoded.Irradiance, side));
             direction.Add(BakeEncoding.Crop(encoded.Direction, side));
             mask.Add(BakeEncoding.Crop(encoded.Mask, side));
+        }
+
+        var transfer = _area.IsChunk ? EncodeTransfer(side) : null;
+        var (probeIrradiance, probeDepth) = _area.Probes is not null ? ProbePages() : default;
+        var result = new BakeResult(
+            _area.PlainLight ? irradiance : null, _area.PlainLight ? direction : null, mask, transfer,
+            InvalidShare(), _passes, probeIrradiance, probeDepth);
+        return _compose(result).ToBytes();
+    }
+
+    // The share of the covered texels no ray found a front face for, 0 when none is covered.
+    private float InvalidShare()
+    {
+        long covered = 0;
+        long invalid = 0;
+        foreach (var page in _filtered)
+        {
             for (int t = 0; t < page.Covered.Length; t++)
             {
                 if (page.Covered[t])
                 {
                     covered++;
-                    if (!page.Valid[t])
-                    {
-                        invalid++;
-                    }
+                    invalid += page.Valid[t] ? 0 : 1;
                 }
             }
         }
 
-        // A chunk with nothing that can hold a lightmap still has its transfer, holding none.
-        LightBakeTransfer? transfer = null;
-        if (_area.IsChunk)
-        {
-            var page = _transferPage ?? new TracedPage(0, 0, 0, 0, 0, [], [], [], [], [], []) { Transfer = [] };
-            transfer = BakeEncoding.EncodeTransfer(page, side);
-        }
+        return covered == 0 ? 0f : (float)invalid / covered;
+    }
 
-        LightBakePage? probeIrradiance = null;
-        LightBakePage? probeDepth = null;
-        if (_area.Probes is not null)
-        {
-            const int irradianceSide = BakedProbeAtlas.IrradianceAtlasSize;
-            const int depthSide = BakedProbeAtlas.DepthAtlasSize;
-            probeIrradiance = new LightBakePage(irradianceSide, irradianceSide, LightBakePageFormat.Rgba16f, ProbeIrradiance);
-            probeDepth = new LightBakePage(depthSide, depthSide, LightBakePageFormat.Rgba16f, ProbeDepth);
-        }
+    // A chunk with nothing that can hold a lightmap still has its transfer, holding none.
+    private LightBakeTransfer EncodeTransfer(int side)
+    {
+        var page = _transferPage ?? new TracedPage(0, 0, 0, 0, 0, [], [], [], [], [], []) { Transfer = [] };
+        return BakeEncoding.EncodeTransfer(page, side);
+    }
 
-        var result = new BakeResult(
-            _area.PlainLight ? irradiance : null, _area.PlainLight ? direction : null, mask, transfer,
-            covered == 0 ? 0f : (float)invalid / covered, _passes, probeIrradiance, probeDepth);
-        return _compose(result).ToBytes();
+    private (LightBakePage? Irradiance, LightBakePage? Depth) ProbePages()
+    {
+        const int irradianceSide = BakedProbeAtlas.IrradianceAtlasSize;
+        const int depthSide = BakedProbeAtlas.DepthAtlasSize;
+        return (new LightBakePage(irradianceSide, irradianceSide, LightBakePageFormat.Rgba16f, ProbeIrradiance),
+            new LightBakePage(depthSide, depthSide, LightBakePageFormat.Rgba16f, ProbeDepth));
     }
 
     private byte[] ProbeIrradiance =>
@@ -608,27 +575,12 @@ internal sealed unsafe class BakeJob : IDisposable
     {
         if (_probeSum is null)
         {
-            var settings = _area.Probes!.Value;
-            _positions = GpuBuffer.CreateHostVisible(
-                _context, (ulong)_probeCount * (ulong)sizeof(Vector4), BufferUsageFlags.StorageBufferBit);
-            var positions = new Span<Vector4>(_positions.Mapped, _probeCount);
-            for (int i = 0; i < _probeCount; i++)
-            {
-                positions[i] = new Vector4(ProbeGrid.Position(settings, i), 1f);
-            }
-
-            (_probeSum, _probeFaces) = _baker.CreateProbeTargets();
-            _probeSet = _baker.CreateProbeSet(_pool, _scene, _lights, _positions, _probeSum, _probeFaces, _sky, _skySampler);
-            int slots = Math.Min(_volume!.FaceSlots, _volume.StagingSlots);
-            _foldBuffer = GpuBuffer.CreateHostVisible(
-                _context, (ulong)slots * ProbeVolume.StagedTileBytes, BufferUsageFlags.TransferDstBit);
-            _firstProbe = 0;
-            _probePass = 0;
+            StartProbes();
         }
 
         if (_probePass == 0)
         {
-            _baker.ClearSums(cmd, [_probeSum, _probeFaces!]);
+            _baker.ClearSums(cmd, [_probeSum!, _probeFaces!]);
         }
 
         var constants = new Baker.ProbeTraceConstants
@@ -654,6 +606,27 @@ internal sealed unsafe class BakeJob : IDisposable
         }
 
         return BakeStepResult.Continue;
+    }
+
+    // Uploads every probe's position and makes the targets, descriptor set and readback buffer all batches share.
+    private void StartProbes()
+    {
+        var settings = _area.Probes!.Value;
+        _positions = GpuBuffer.CreateHostVisible(
+            _context, (ulong)_probeCount * (ulong)sizeof(Vector4), BufferUsageFlags.StorageBufferBit);
+        var positions = new Span<Vector4>(_positions.Mapped, _probeCount);
+        for (int i = 0; i < _probeCount; i++)
+        {
+            positions[i] = new Vector4(ProbeGrid.Position(settings, i), 1f);
+        }
+
+        (_probeSum, _probeFaces) = _baker.CreateProbeTargets();
+        _probeSet = _baker.CreateProbeSet(_pool, _scene, _lights, _positions, _probeSum, _probeFaces, _sky, _skySampler);
+        int slots = Math.Min(_volume!.FaceSlots, _volume.StagingSlots);
+        _foldBuffer = GpuBuffer.CreateHostVisible(
+            _context, (ulong)slots * ProbeVolume.StagedTileBytes, BufferUsageFlags.TransferDstBit);
+        _firstProbe = 0;
+        _probePass = 0;
     }
 
     // The live fold of as many of the batch's probes as the volume has slots for, and the copy of their tiles. The
