@@ -1834,8 +1834,8 @@ public sealed unsafe class Renderer : IDisposable
         WriteEffects(uniforms, view, shift, historyValid);
         uniforms->CountBlock.ProbeCount = _probes.Prepare(
             view.View, view.Projection, new Span<GpuReflectionProbe>(frame.ReflectionProbes.Mapped, ReflectionProbeOrder.MaxProbes));
-        WriteLightProbes(uniforms, view);
-        WriteBakedProbes(uniforms);
+        ProbeUniforms.WriteLive(uniforms, view, LightProbes);
+        ProbeUniforms.WriteBaked(uniforms, _frameBakes, BakedProbeBand);
         WriteSky(uniforms, view);
         _fog.WriteWater(uniforms, view);
 
@@ -1890,63 +1890,6 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->WeatherBlock.Wind = Wind.Pack(view.Weather.Wind, _switches.Off);
     }
 
-    /// <summary>Where the live light probes are: the fixed grid's box and the cascades round the camera.</summary>
-    private void WriteLightProbes(FrameUniforms* uniforms, in FrameView view)
-    {
-        // The fixed grid, read wherever it has a probe updated.
-        bool inUse = LightProbes.InUse;
-        if (inUse && view.LightProbes is { } lightProbes)
-        {
-            var (x, y, z) = ProbeGrid.Counts(lightProbes);
-            uniforms->ProbeBlock.LightProbeMin = new Vector4(lightProbes.Min, lightProbes.Spacing);
-            uniforms->ProbeBlock.LightProbeCounts = new Vector4(x, y, z, 1f);
-        }
-        else
-        {
-            uniforms->ProbeBlock.LightProbeMin = Vector4.Zero;
-            uniforms->ProbeBlock.LightProbeCounts = Vector4.Zero;
-        }
-
-        // The cascades, read once any of their probes holds an update.
-        var cascades = LightProbes.Batch.Cascades;
-        for (int c = 0; c < ProbeCascades.Count; c++)
-        {
-            var origin = cascades.Origin(c);
-            uniforms->ProbeBlock.ProbeCascadeOrigins[c] = new Vector4(origin.X, origin.Y, origin.Z, cascades.Layout(c).Spacing);
-        }
-
-        bool readCascades = inUse && LightProbes.Volume.Atlases.CascadesWritten;
-        var cascadeLayout = cascades.Layout(0);
-        uniforms->ProbeBlock.ProbeCascadeCounts = new Vector4(
-            cascadeLayout.CountX, cascadeLayout.CountY, cascadeLayout.CountZ, readCascades ? 1f : 0f);
-    }
-
-    /// <summary>The baked space's probes and box, and how far its bake has faded in.</summary>
-    private void WriteBakedProbes(FrameUniforms* uniforms)
-    {
-        // Inside the baked space's box, a fresh bake's probes give the soft light, blended into the live light over one
-        // probe spacing in from the box's faces, or, with BakedProbeBand off for a test, cut off hard at them. The
-        // shader's box is the probe grid's Min..Max, which is the space's box: the space's box is in the bake's input
-        // hash, so a fresh bake's grid matches it.
-        if (_frameBakes.SpaceProbes is { } baked)
-        {
-            var (x, y, z) = ProbeGrid.Counts(baked.Settings);
-            uniforms->BakedBlock.BakedProbeMin = new Vector4(baked.Settings.Min, baked.Settings.Spacing);
-            uniforms->BakedBlock.BakedProbeCounts = new Vector4(x, y, z, BakedProbeBand ? 1f : 2f);
-            uniforms->BakedBlock.BakedSpaceMin = new Vector4(baked.Settings.Min, baked.Irradiance);
-            uniforms->BakedBlock.BakedSpaceMax = new Vector4(baked.Settings.Max, baked.Depth);
-        }
-        else
-        {
-            uniforms->BakedBlock.BakedProbeMin = Vector4.Zero;
-            uniforms->BakedBlock.BakedProbeCounts = Vector4.Zero;
-            uniforms->BakedBlock.BakedSpaceMin = Vector4.Zero;
-            uniforms->BakedBlock.BakedSpaceMax = Vector4.Zero;
-        }
-
-        // How far the space's bake has faded in, which weighs its lightmaps and probes against the live light.
-        uniforms->BakedBlock.BakedFade = new Vector4(_frameBakes.SpaceFade, 0f, 0f, 0f);
-    }
 
     /// <summary>The camera's place, the environment's light, the sky's sun and night, and the shadows' settings.</summary>
     private void WriteSky(FrameUniforms* uniforms, in FrameView view)
