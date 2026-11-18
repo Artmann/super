@@ -13,6 +13,7 @@ layout(set = 1, binding = 3) uniform sampler2D historyTexture;
 
 layout(push_constant) uniform Occlusion {
     int scale; // Screen pixels per pixel of the target, along each axis: 1 or 2.
+    int slices; // How many slices this frame traces round a pixel, 1 or 2; see AoSlices in Renderer.cs.
 } occlusion;
 
 // xy: the bent normal in view space, octahedral and moved into 0 to 1; z: visibility.
@@ -20,7 +21,6 @@ layout(location = 0) out vec4 outOcclusion;
 // rgb: the light nearby surfaces bounce onto the point, as the average over its hemisphere, cosine weighted.
 layout(location = 1) out vec4 outBounce;
 
-const int SLICES = 2;
 const int STEPS = 8; // Each way along a slice.
 
 // Steps each way past the occlusion's radius, out to the bounce's.
@@ -190,8 +190,8 @@ void main() {
 
     float visibility = 0.0;
     vec3 bentNormal = vec3(0.0);
-    for (int slice = 0; slice < SLICES; slice++) {
-        float angle = (float(slice) + noise) / float(SLICES) * PI;
+    for (int slice = 0; slice < occlusion.slices; slice++) {
+        float angle = (float(slice) + noise) / float(occlusion.slices) * PI;
         vec2 omega = vec2(cos(angle), sin(angle));
 
         // The slice's direction in view space, found by stepping across the screen at this
@@ -275,7 +275,7 @@ void main() {
         bentNormal += (direction * t0 + v * t1) * projectedLength;
     }
 
-    visibility = clamp(visibility / float(SLICES), 0.0, 1.0);
+    visibility = clamp(visibility / float(occlusion.slices), 0.0, 1.0);
     bentNormal = dot(bentNormal, bentNormal) > 1e-8 ? normalize(bentNormal) : n;
 
     visibility = mix(1.0, visibility, strength);
@@ -283,5 +283,5 @@ void main() {
     // Alpha is how settled the occlusion is, which ao_blur.frag reads: nothing yet, until ao_temporal.frag has
     // gathered frames of it.
     outOcclusion = vec4(octahedralEncode(bentNormal) * 0.5 + 0.5, visibility, 0.0);
-    outBounce = vec4(bounce / float(SLICES) * bounceStrength, 1.0);
+    outBounce = vec4(bounce / float(occlusion.slices) * bounceStrength, 1.0);
 }

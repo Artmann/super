@@ -1372,11 +1372,28 @@ under its key, until it wants under 0.4 or over 1.2 times it, so a light near th
 doesn't flicker between sizes. Sizes that don't fit are halved, and a light that won't
 fit at 64 gets no shadow. A point light takes six tiles, one per cube face, and a spot
 one. The tiles are laid out biggest first along a Z-order curve, which packs powers of
-two with no gaps. Each tile's projection is widened by three texels so the soft filter
+two with no gaps, and tiles of one size go in the order of their lights' keys, so a light
+keeps its place from frame to frame. An unstable sort on size alone shuffled lights of one
+size between frames once there were more than 16, which redrew their kept shadows. Each tile's projection is widened by three texels so the soft filter
 doesn't read across its edge, and its depth is reversed with the light's range at 0. The
-shadow pass draws every tile in one render pass, a viewport each, with its own culling
+shadow pass draws the tiles in one render pass, a viewport each, with its own culling
 and detail choice, and the shading is the sun's blocker search and filter scaled to a
 light 0.8 times its radius wide (`SHADOW_WIDTH_PER_RADIUS`). Glass and particles take the lights without shadows.
+
+The atlas keeps its depths from frame to frame, and a tile is only drawn again when what
+it would draw changed. `ShadowTileCache` hashes each tile's matrix and place in the atlas
+with what its casters show the light: mesh, index range, transform, swim, cross-fade
+dither, and the material's `ShadowShapeOf`, a hash of its opacity, cut-off, their
+textures and its flags, so a material that only changes colour keeps its shadows. A tile
+matches the hash that its own place held last frame, and a place no tile used last frame
+is drawn again, since another tile may have drawn over it. A tile with a skinned caster,
+or one that sways in the wind, is drawn every frame, as those move on the GPU with nothing
+in the draw changing. Destroying a mesh, texture or material, or reloading shaders, bumps
+a count that forgets every tile, as a handle may come back for something else. A drawn
+tile is cleared with `vkCmdClearAttachments` over its own square, and the pass loads the
+rest. When no tile needs drawing, the pass and its barriers are skipped. In the Crypt at
+1600 by 900, 19 of its 32 tiles are kept each frame; the other 13 see the lantern swinging
+on its chain. `--profile` prints the count as "Light shadow tiles".
 
 Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command
@@ -2174,7 +2191,10 @@ switches. Not wear and dirt, which neither path draws into a probe. When it chan
 Geometry and the camera are not in it.
 `ProbeLightTracker.Follow` compares the frame's point and spot lights with last frame's by `Key`: a
 light that appeared, moved, turned, changed colour or range, or went away calls `LightChanged`
-for where it was and where it is. Then `Next` picks the batch: where the GPU traces,
+for where it was and where it is. The light is compared with what its probes were last marked
+for, not with last frame, and a colour counts as changed once any channel is more than
+`ColorDrift`, a third, of the brighter colour's brightest channel away. A torch flickering by a
+tenth each frame so stays within it, and a light going out never does. Then `Next` picks the batch: where the GPU traces,
 `ProbeBudget.Traced` probes and nothing more; otherwise `ProbeBudget.Raster` probes (8, 16 or 32
 by `ProbeQuality`), and `ProbeCapturePass.Prepare` culls their draws and cuts the batch at the
 triangle budget. Updates are counted in frames, never seconds.
@@ -2297,8 +2317,8 @@ the near probes settle in 37 frames, and the bounce reaches half its full readin
 220 frames, 80% after about 740, 90% after about 3,900 and 95% after more than 6,000. Holding
 the whole budget for good would reach 90% after about 1,600 and 95% after about 2,600, and
 dropping to the quarter at once took about 540 frames for half and 2,100 for 80%. Scenes
-whose near probes never settle keep the whole budget: Crypt's flickering torches dirty probes
-every frame (0.90 ms), and Gallery's camera tour keeps bringing in new ones (0.42 ms). On the
+whose near probes never settle keep the whole budget: Crypt's swinging lantern dirties probes
+every frame (its flickering torches did too, until they had to drift by a third), and Gallery's camera tour keeps bringing in new ones (0.42 ms). On the
 CPU, `Next` used to scan every probe each frame whatever the budget, which `--profile` put at about
 1 ms a frame at High. Reading only the waiting probes and the oldest captures took the Courtyard's
 CPU time from 1.6 to 0.7 ms a frame, and left `Next` under 1% of the game thread's samples.
@@ -3532,6 +3552,16 @@ arcs give the bent normal, the average direction the point still sees the sky in
 pass writes both to an RGBA8 target: the bent normal in view space, octahedral, in x and
 y, and the visibility in z. Two slices a pixel leave grain, which is taken away in two
 steps: an average over time, and then a narrow blur.
+
+At `OcclusionResolution.Full` with the average over time running, each pixel walks one
+slice a frame instead of two, pushed to the shader as `slices` with the scale (`AoSlices`
+in `Renderer.cs`). The noise turns the slice every frame, so the average of 8 frames still
+sees 8 directions, as it saw 16, and the Crypt shot with one slice is hard to tell from the
+one with two (45 dB PSNR, no edge stands out in the difference). That made the occlusion
+pass about 28% cheaper in the Crypt at 1600 by 900. At `Half` each pixel already stands for
+four, and with the history off nothing gathers the turning slices, so both keep two.
+
+![The Crypt at Full occlusion: left, two slices a frame; right, one](media/crypt-ao-one-slice.webp)
 
 `ao_temporal.frag` (`_aoSteadyPass`) averages the occlusion and the bounce over the last
 frames. It writes `GBuffer.AoSteady` and

@@ -105,6 +105,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly MaterialFlags[] _materialFlags = new MaterialFlags[MaxMaterials];
     private readonly int[] _materialShaders = new int[MaxMaterials];
     private readonly bool[] _materialCutouts = new bool[MaxMaterials];
+    private readonly int[] _materialShadows = new int[MaxMaterials];
     private readonly float[] _materialWind = new float[MaxMaterials];
     private readonly DistanceFade?[] _materialFade = new DistanceFade?[MaxMaterials];
     private readonly bool[] _materialGlows = new bool[MaxMaterials];
@@ -160,6 +161,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         _context = context;
         SwayOf = GetWind;
         FadeOf = material => _materialFade[material.Index];
+        ShadowShapeOf = material => _materialShadows[material.Index];
         var api = context.Api;
 
         var properties11 = new PhysicalDeviceVulkan11Properties { SType = StructureType.PhysicalDeviceVulkan11Properties };
@@ -254,6 +256,12 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     /// <summary>Whether the material's texture cuts holes in it.</summary>
     public bool HasCutouts(MaterialHandle material) => _materialCutouts[material.Index];
+
+    /// <summary>
+    /// A hash of what in the material shapes its shadow: its opacity, cut-off, the textures they come from and its flags,
+    /// so a material that only changes colour keeps the shadows it casts. A lookup made once.
+    /// </summary>
+    public Func<MaterialHandle, int> ShadowShapeOf { get; }
 
     /// <summary>How far the material sways in the wind, as a share of its strength: 0 for not at all.</summary>
     public float GetWind(MaterialHandle material) => _materialWind[material.Index];
@@ -537,6 +545,8 @@ internal sealed unsafe class ResourceTable : IDisposable
         _materialFlags[index] = material.Flags;
         _materialShaders[index] = material.Shader?.Index ?? 0;
         _materialCutouts[index] = material.AlphaCutoff > 0f;
+        _materialShadows[index] = HashCode.Combine(
+            material.BaseColor.W, material.AlphaCutoff, material.BaseColorTexture, material.SurfaceTexture, material.Flags);
         _materialWind[index] = Sway(material);
         _materialFade[index] = material.Fade;
         _materialGlows[index] = material.Emissive.X > 0f || material.Emissive.Y > 0f || material.Emissive.Z > 0f;

@@ -296,16 +296,34 @@ internal sealed unsafe class ShadowPass : IDisposable
         api.CmdEndRendering(cmd);
     }
 
+    /// <summary>Which of a frame's draws belong to one atlas tile, and whether the tile is drawn again this frame.</summary>
+    public readonly record struct TileDraws(int First, int Count, bool Redraw);
+
+    /// <summary>Whether any tile is drawn again this frame, so the atlas needs a pass at all.</summary>
+    public static bool AnyRedrawn(ReadOnlySpan<TileDraws> ranges)
+    {
+        foreach (ref readonly var range in ranges)
+        {
+            if (range.Redraw)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
-    /// Draws every tile of the atlas in one pass, each through its own viewport.
-    /// <paramref name="ranges"/> says which of <paramref name="draws"/> belong to each tile.
+    /// Clears and draws the tiles of the atlas that <paramref name="ranges"/> marks to redraw, in one pass, each
+    /// through its own viewport, and leaves the rest of the atlas as it was. <paramref name="ranges"/> also says which
+    /// of <paramref name="draws"/> belong to each tile.
     /// </summary>
     public void RecordTiles(
         CommandBuffer cmd,
         DescriptorSet frameSet,
         ReadOnlySpan<ShadowView> tiles,
         ReadOnlySpan<DrawItem> draws,
-        ReadOnlySpan<(int First, int Count)> ranges,
+        ReadOnlySpan<TileDraws> ranges,
         List<Mesh?> meshes,
         List<PartDetail> details,
         InstanceBuffer instances)
@@ -317,9 +335,8 @@ internal sealed unsafe class ShadowPass : IDisposable
             SType = StructureType.RenderingAttachmentInfo,
             ImageView = Atlas.View,
             ImageLayout = ImageLayout.DepthAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Clear,
+            LoadOp = AttachmentLoadOp.Load,
             StoreOp = AttachmentStoreOp.Store,
-            ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(0f, 0)), // Reversed-Z far plane.
         };
         var rendering = new RenderingInfo
         {
@@ -334,17 +351,35 @@ internal sealed unsafe class ShadowPass : IDisposable
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
         for (int tile = 0; tile < tiles.Length; tile++)
         {
-            ref readonly var view = ref tiles[tile];
-            var viewport = new Viewport(view.X, view.Y, view.Size, view.Size, 0, 1);
-            var scissor = new Rect2D(new Offset2D(view.X, view.Y), new Extent2D((uint)view.Size, (uint)view.Size));
-            api.CmdSetViewport(cmd, 0, 1, &viewport);
-            api.CmdSetScissor(cmd, 0, 1, &scissor);
-            var (first, count) = ranges[tile];
+            var (first, count, redraw) = ranges[tile];
+            if (!redraw)
+            {
+                continue;
+            }
+
+            ClearTile(cmd, tiles[tile]);
             SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws.Slice(first, count), meshes, details, instances,
                 ScenePass.Shadow, solids: _solids, cascade: MaxCascades + tile);
         }
 
         api.CmdEndRendering(cmd);
+    }
+
+    /// <summary>Clears one tile to the far plane and points the viewport and scissor at it.</summary>
+    private void ClearTile(CommandBuffer cmd, in ShadowView view)
+    {
+        var api = _context.Api;
+        var clear = new ClearAttachment
+        {
+            AspectMask = ImageAspectFlags.DepthBit,
+            ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(0f, 0)), // Reversed-Z far plane.
+        };
+        var viewport = new Viewport(view.X, view.Y, view.Size, view.Size, 0, 1);
+        var scissor = new Rect2D(new Offset2D(view.X, view.Y), new Extent2D((uint)view.Size, (uint)view.Size));
+        var rect = new ClearRect(scissor, 0, 1);
+        api.CmdClearAttachments(cmd, 1, &clear, 1, &rect);
+        api.CmdSetViewport(cmd, 0, 1, &viewport);
+        api.CmdSetScissor(cmd, 0, 1, &scissor);
     }
 
     public void Dispose()
