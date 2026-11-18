@@ -16,85 +16,142 @@ public static class ViewExtensions
     /// </summary>
     public static void Models(this View view, World world)
     {
-        int transformType = world.TypeIdOrMissing<Transform>();
-        int modelType = world.TypeIdOrMissing<Model>();
-        int animatedType = world.TypeIdOrMissing<Animated>();
-        if (transformType < 0 || (modelType < 0 && animatedType < 0))
+        var types = ModelTypes.Of(world);
+        if (types.Transform < 0 || (types.Model < 0 && types.Animated < 0))
         {
             return;
         }
-
-        int smoothedType = world.TypeIdOrMissing<Smoothed>();
-        int parentType = world.TypeIdOrMissing<Parent>();
-        int swimType = world.TypeIdOrMissing<Swim>();
-        int staticType = world.TypeIdOrMissing<Static>();
-        ulong mask = 1UL << transformType;
-        float blend = view.Blend;
 
         world.BeginIteration();
         try
         {
             int index = -1;
-            while (world.NextArchetype(ref index, mask) is { } archetype)
+            while (world.NextArchetype(ref index, 1UL << types.Transform) is { } archetype)
             {
-                var models = archetype.ColumnOrNull<Model>(modelType)?.Values;
-                var animated = archetype.ColumnOrNull<Animated>(animatedType)?.Values;
-                if (models is null && animated is null)
+                var rows = ModelRows.Of(archetype, types);
+                if (rows.Models is null && rows.Animated is null)
                 {
                     continue;
                 }
 
-                var entities = archetype.Entities;
-                var transforms = archetype.Column<Transform>(transformType).Values;
-                var smoothed = archetype.ColumnOrNull<Smoothed>(smoothedType)?.Values;
-                var parents = archetype.ColumnOrNull<Parent>(parentType)?.Values;
-                var swims = archetype.ColumnOrNull<Swim>(swimType)?.Values;
-                bool isStatic = staticType >= 0 && (archetype.Mask & (1UL << staticType)) != 0;
-
                 for (int i = 0; i < archetype.Count; i++)
                 {
-                    var animator = animated?[i].Value;
-
-                    // A Model says what to draw; without one, an animator draws its rig's own model.
-                    Model model;
-                    if (models is not null)
-                    {
-                        model = models[i];
-                    }
-                    else if (animator is null)
-                    {
-                        continue;
-                    }
-                    else
-                    {
-                        model = new Model(animator.Rig.Model ?? throw new InvalidOperationException(
-                            $"Entity {entities[i].Id} is Animated with no Model, and its animator's rig wasn't read with content.Rig, so there's no model to draw. Add a Model."));
-                    }
-
-                    var matrix = smoothed is null ? transforms[i].Matrix : Blended(in transforms[i], in smoothed[i], blend).Matrix;
-                    if (parents is not null)
-                    {
-                        matrix *= WorldMatrix(world, parents[i].Value, blend, depth: 0);
-                    }
-
-                    var pose = animator?.Pose;
-                    if (swims is null)
-                    {
-                        view.Model(entities[i].Id, model.Value, matrix, model.Color, default, pose, model.Meshes, isStatic, model.Fade);
-                        continue;
-                    }
-
-                    ref readonly var swim = ref swims[i];
-                    float phase = smoothed is not null && smoothed[i].HasPrevious
-                        ? float.Lerp(smoothed[i].PreviousPhase, swim.Phase, blend)
-                        : swim.Phase;
-                    view.Model(entities[i].Id, model.Value, matrix, model.Color, new SwimMotion(swim.Amplitude, swim.BodyLength, phase), pose, model.Meshes, isStatic, model.Fade);
+                    rows.Draw(view, world, i);
                 }
             }
         }
         finally
         {
             world.EndIteration();
+        }
+    }
+
+    /// <summary>The component type IDs <see cref="Models"/> reads, or -1 for each the world has never seen.</summary>
+    private readonly struct ModelTypes
+    {
+        public int Transform { get; init; }
+
+        public int Model { get; init; }
+
+        public int Animated { get; init; }
+
+        public int Smoothed { get; init; }
+
+        public int Parent { get; init; }
+
+        public int Swim { get; init; }
+
+        public int Static { get; init; }
+
+        public static ModelTypes Of(World world) => new()
+        {
+            Transform = world.TypeIdOrMissing<Transform>(),
+            Model = world.TypeIdOrMissing<Model>(),
+            Animated = world.TypeIdOrMissing<Animated>(),
+            Smoothed = world.TypeIdOrMissing<Smoothed>(),
+            Parent = world.TypeIdOrMissing<Parent>(),
+            Swim = world.TypeIdOrMissing<Swim>(),
+            Static = world.TypeIdOrMissing<Static>(),
+        };
+    }
+
+    /// <summary>One archetype's columns that <see cref="Models"/> draws from. A column the archetype lacks is null.</summary>
+    private readonly struct ModelRows
+    {
+        public Entity[] Entities { get; init; }
+
+        public Transform[] Transforms { get; init; }
+
+        public Model[]? Models { get; init; }
+
+        public Animated[]? Animated { get; init; }
+
+        public Smoothed[]? Smoothed { get; init; }
+
+        public Parent[]? Parents { get; init; }
+
+        public Swim[]? Swims { get; init; }
+
+        public bool IsStatic { get; init; }
+
+        public static ModelRows Of(Archetype archetype, in ModelTypes types) => new()
+        {
+            Entities = archetype.Entities,
+            Transforms = archetype.Column<Transform>(types.Transform).Values,
+            Models = archetype.ColumnOrNull<Model>(types.Model)?.Values,
+            Animated = archetype.ColumnOrNull<Animated>(types.Animated)?.Values,
+            Smoothed = archetype.ColumnOrNull<Smoothed>(types.Smoothed)?.Values,
+            Parents = archetype.ColumnOrNull<Parent>(types.Parent)?.Values,
+            Swims = archetype.ColumnOrNull<Swim>(types.Swim)?.Values,
+            IsStatic = types.Static >= 0 && (archetype.Mask & (1UL << types.Static)) != 0,
+        };
+
+        public void Draw(View view, World world, int i)
+        {
+            var animator = Animated?[i].Value;
+            if (!TryGetModel(i, animator, out var model))
+            {
+                return;
+            }
+
+            float blend = view.Blend;
+            var matrix = Smoothed is null ? Transforms[i].Matrix : Blended(in Transforms[i], in Smoothed[i], blend).Matrix;
+            if (Parents is not null)
+            {
+                matrix *= WorldMatrix(world, Parents[i].Value, blend, depth: 0);
+            }
+
+            var swim = Swims is null ? default : SwimAt(i, blend);
+            view.Model(Entities[i].Id, model.Value, matrix, model.Color, swim, animator?.Pose, model.Meshes, IsStatic, model.Fade);
+        }
+
+        /// <summary>A Model says what to draw; without one, an animator draws its rig's own model. False when neither is there.</summary>
+        private bool TryGetModel(int i, Animator? animator, out Model model)
+        {
+            if (Models is not null)
+            {
+                model = Models[i];
+                return true;
+            }
+
+            if (animator is null)
+            {
+                model = default;
+                return false;
+            }
+
+            model = new Model(animator.Rig.Model ?? throw new InvalidOperationException(
+                $"Entity {Entities[i].Id} is Animated with no Model, and its animator's rig wasn't read with content.Rig, so there's no model to draw. Add a Model."));
+            return true;
+        }
+
+        private SwimMotion SwimAt(int i, float blend)
+        {
+            ref readonly var swim = ref Swims![i];
+            float phase = Smoothed is not null && Smoothed[i].HasPrevious
+                ? float.Lerp(Smoothed[i].PreviousPhase, swim.Phase, blend)
+                : swim.Phase;
+            return new SwimMotion(swim.Amplitude, swim.BodyLength, phase);
         }
     }
 
