@@ -120,7 +120,12 @@ public sealed class Transitions(GameTime time)
             }
             else
             {
-                TransitionLook.Fill(ref screen, transition, amount);
+                screen.Style = transition.Style;
+                screen.Amount = amount;
+                screen.Color = transition.LinearColor;
+                screen.Direction = transition.DirectionVector;
+                screen.Center = transition.Center;
+                screen.Softness = transition.Softness;
             }
         }
 
@@ -128,44 +133,4 @@ public sealed class Transitions(GameTime time)
         _lastShown = view.Shot;
         _shownAny = true;
     }
-}
-
-/// <summary>Turns a <see cref="Transition"/> into what the renderer draws over the screen.</summary>
-internal static class TransitionLook
-{
-    /// <summary>Sets everything on the screen's transition but the held picture, this far in.</summary>
-    public static void Fill(ref ScreenTransition screen, Transition transition, float amount)
-    {
-        screen.Style = Style(transition.Kind);
-        screen.Amount = amount;
-        screen.Color = LinearColor(transition.Color);
-        screen.Direction = DirectionVector(transition.Direction);
-        screen.Center = transition.Center;
-        screen.Softness = transition.Softness;
-    }
-
-    private static TransitionStyle Style(TransitionKind kind) => kind switch
-    {
-        TransitionKind.Fade => TransitionStyle.Fade,
-        TransitionKind.Dissolve => TransitionStyle.Dissolve,
-        TransitionKind.Wipe => TransitionStyle.Wipe,
-        TransitionKind.Iris => TransitionStyle.Iris,
-        _ => TransitionStyle.None,
-    };
-
-    /// <summary>Which way the wipe travels on screen, with y down.</summary>
-    private static System.Numerics.Vector2 DirectionVector(WipeDirection direction) => direction switch
-    {
-        WipeDirection.Left => -System.Numerics.Vector2.UnitX,
-        WipeDirection.Down => System.Numerics.Vector2.UnitY,
-        WipeDirection.Up => -System.Numerics.Vector2.UnitY,
-        _ => System.Numerics.Vector2.UnitX,
-    };
-
-    /// <summary>The fade's colour as light, which is what the screen mixes in.</summary>
-    private static System.Numerics.Vector3 LinearColor(Color color) =>
-        new(ToLinear(color.R), ToLinear(color.G), ToLinear(color.B));
-
-    private static float ToLinear(float srgb) =>
-        srgb <= 0.04045f ? srgb / 12.92f : MathF.Pow((srgb + 0.055f) / 1.055f, 2.4f);
 }

@@ -102,7 +102,7 @@ public sealed class Transition
         float softness = 0.05f,
         Easing easing = Easing.InOut)
     {
-        CheckSoftness(softness);
+        TransitionSums.CheckSoftness(softness);
         return new(TransitionKind.Wipe, seconds, easing) { Direction = direction, Softness = softness };
     }
 
@@ -112,8 +112,8 @@ public sealed class Transition
     /// </summary>
     public static Transition Iris(float seconds, Vector2? center = null, float softness = 0.02f, Easing easing = Easing.InOut)
     {
-        CheckSoftness(softness);
-        var at = center ?? new Vector2(0.5f, 0.5f);
+        TransitionSums.CheckSoftness(softness);
+        var at =center ?? new Vector2(0.5f, 0.5f);
         if (!(at.X >= 0f && at.X <= 1f && at.Y >= 0f && at.Y <= 1f))
         {
             throw new ArgumentOutOfRangeException(nameof(center), center, "An iris opens from a point on the screen, with x and y from 0 to 1.");
@@ -138,7 +138,36 @@ public sealed class Transition
         return Ease.Apply(Easing, through);
     }
 
-    private static void CheckSoftness(float softness)
+    internal Rendition.TransitionStyle Style => Kind switch
+    {
+        TransitionKind.Fade => Rendition.TransitionStyle.Fade,
+        TransitionKind.Dissolve => Rendition.TransitionStyle.Dissolve,
+        TransitionKind.Wipe => Rendition.TransitionStyle.Wipe,
+        TransitionKind.Iris => Rendition.TransitionStyle.Iris,
+        _ => Rendition.TransitionStyle.None,
+    };
+
+    /// <summary>Which way the wipe travels on screen, with y down.</summary>
+    internal Vector2 DirectionVector => Direction switch
+    {
+        WipeDirection.Left => -Vector2.UnitX,
+        WipeDirection.Down => Vector2.UnitY,
+        WipeDirection.Up => -Vector2.UnitY,
+        _ => Vector2.UnitX,
+    };
+
+    /// <summary>The fade's colour as light, which is what the screen mixes in.</summary>
+    internal Vector3 LinearColor => new(TransitionSums.ToLinear(Color.R), TransitionSums.ToLinear(Color.G), TransitionSums.ToLinear(Color.B));
+}
+
+/// <summary>The small sums and checks behind a transition.</summary>
+internal static class TransitionSums
+{
+    /// <summary>An sRGB channel as light.</summary>
+    public static float ToLinear(float srgb) =>
+        srgb <= 0.04045f ? srgb / 12.92f : MathF.Pow((srgb + 0.055f) / 1.055f, 2.4f);
+
+    public static void CheckSoftness(float softness)
     {
         if (!(softness >= 0f) || !float.IsFinite(softness))
         {
