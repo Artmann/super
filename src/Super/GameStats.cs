@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Rendition;
 
 namespace Super;
@@ -68,21 +67,12 @@ public sealed class GameStats
 {
     private const double SecondsBetweenUpdates = 0.5;
 
-    /// <summary>How many of the slowest passes <see cref="RenderStats.SlowestPasses"/> lists.</summary>
-    internal const int ListedPasses = 5;
-
     private readonly TimeProvider _time;
+    private readonly RenderAverages _render = new();
     private long _since;
     private long _measuringFrom = GC.GetAllocatedBytesForCurrentThread();
     private long _allocated;
     private int _frames;
-
-    private readonly Dictionary<string, double> _passes = [];
-    private double _gpu;
-    private int _timedFrames;
-    private double _wait;
-    private int _renderedFrames;
-    private RenderStats _newest;
 
     public GameStats()
         : this(TimeProvider.System)
@@ -98,10 +88,37 @@ public sealed class GameStats
     public FrameStats Latest { get; private set; }
 
     /// <summary>
-    /// Whether the engine shows its stats panel over the game, with the renderer's figures in it. F3 turns it on and
-    /// off in a window, and <c>--stats</c> starts with it on. A game may turn it on from a menu of its own.
+    /// Whether the engine shows its stats panel over the game, with the renderer's figures in it.
+    /// <see cref="ToggleKey"/> turns it on and off in a window, and <c>--stats</c> starts with it on. A game may turn
+    /// it on from a menu of its own.
     /// </summary>
     public bool Shown { get; set; }
+
+    /// <summary>
+    /// The key that shows and hides the stats panel in a window, F3 unless the game picks another. The game never
+    /// sees this key. Null turns the key off, for a shipped game, and then the game gets every key; <see cref="Shown"/>
+    /// and <c>--stats</c> still work.
+    /// </summary>
+    public Key? ToggleKey { get; set; } = Key.F3;
+
+    /// <summary>
+    /// Takes a key from the window before the game sees it: the toggle key flips <see cref="Shown"/> when pressed.
+    /// Returns whether the key was the toggle key, which the game then never hears of.
+    /// </summary>
+    internal bool TakeKey(Key key, bool pressed)
+    {
+        if (key != ToggleKey)
+        {
+            return false;
+        }
+
+        if (pressed)
+        {
+            Shown = !Shown;
+        }
+
+        return true;
+    }
 
     /// <summary>Ends a frame's measurement. What happens before <see cref="Resume"/> isn't counted.</summary>
     internal void EndFrame()
@@ -121,7 +138,7 @@ public sealed class GameStats
             _allocated / _frames,
             GC.GetTotalMemory(forceFullCollection: false),
             GC.CollectionCount(0),
-            TakeRender());
+            _render.Take());
         _allocated = 0;
         _frames = 0;
         _since = _time.GetTimestamp();
@@ -136,7 +153,7 @@ public sealed class GameStats
         _allocated = 0;
         _frames = 0;
         _since = _time.GetTimestamp();
-        TakeRender();
+        _render.Take();
     }
 
     /// <summary>
@@ -144,54 +161,6 @@ public sealed class GameStats
     /// time them, the wait for the GPU and the display, and the frame's counts. The times are averaged over the
     /// moments between updates; the counts are the newest frame's.
     /// </summary>
-    internal void AddRender(ReadOnlySpan<GpuPassTime> passes, double waitMilliseconds, in RenderStats counts)
-    {
-        if (!passes.IsEmpty)
-        {
-            foreach (ref readonly var pass in passes)
-            {
-                _passes[pass.Name] = _passes.GetValueOrDefault(pass.Name) + pass.Milliseconds;
-                _gpu += pass.Milliseconds;
-            }
-
-            _timedFrames++;
-        }
-
-        _wait += waitMilliseconds;
-        _renderedFrames++;
-        _newest = counts;
-    }
-
-    private RenderStats TakeRender()
-    {
-        if (_renderedFrames == 0)
-        {
-            return default;
-        }
-
-        int timed = Math.Max(_timedFrames, 1);
-        var render = _newest with
-        {
-            GpuMilliseconds = _gpu / timed,
-            WaitMilliseconds = _wait / _renderedFrames,
-            SlowestPasses = Slowest(timed),
-        };
-
-        _passes.Clear();
-        _gpu = 0.0;
-        _timedFrames = 0;
-        _wait = 0.0;
-        _renderedFrames = 0;
-        return render;
-    }
-
-    // Kept apart, and never inlined, because compiling a method with lambdas makes the class that caches them, which
-    // allocates. In TakeRender that would happen in a game that never renders, which must allocate nothing a frame.
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private GpuPassTime[] Slowest(int timed) => _passes
-        .Select(pass => new GpuPassTime(pass.Key, pass.Value / timed))
-        .OrderByDescending(pass => pass.Milliseconds)
-        .ThenBy(pass => pass.Name, StringComparer.Ordinal)
-        .Take(ListedPasses)
-        .ToArray();
+    internal void AddRender(ReadOnlySpan<GpuPassTime> passes, double waitMilliseconds, in RenderStats counts) =>
+        _render.Add(passes, waitMilliseconds, counts);
 }

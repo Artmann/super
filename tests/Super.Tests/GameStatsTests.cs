@@ -107,5 +107,39 @@ public class GameStatsTests
         Assert.Equal(10.0, new FrameStats(100.0, 10.0, 0, 0, 0).BusyMilliseconds, 9);
     }
 
+    [Fact]
+    public void F3_shows_and_hides_the_panel_on_press_and_never_reaches_the_game()
+    {
+        var stats = new GameStats(_time);
+
+        Assert.True(stats.TakeKey(Key.F3, pressed: true));
+        Assert.True(stats.Shown);
+        Assert.True(stats.TakeKey(Key.F3, pressed: false));
+        Assert.True(stats.Shown);
+        Assert.True(stats.TakeKey(Key.F3, pressed: true));
+        Assert.False(stats.Shown);
+    }
+
+    [Fact]
+    public void Another_toggle_key_takes_over_and_f3_goes_to_the_game()
+    {
+        var stats = new GameStats(_time) { ToggleKey = Key.F10 };
+
+        Assert.False(stats.TakeKey(Key.F3, pressed: true));
+        Assert.False(stats.Shown);
+        Assert.True(stats.TakeKey(Key.F10, pressed: true));
+        Assert.True(stats.Shown);
+    }
+
+    [Fact]
+    public void Without_a_toggle_key_every_key_goes_to_the_game()
+    {
+        var stats = new GameStats(_time) { ToggleKey = null };
+
+        Assert.False(stats.TakeKey(Key.F3, pressed: true));
+        Assert.False(stats.TakeKey(Key.A, pressed: true));
+        Assert.False(stats.Shown);
+    }
+
     private static RenderStats Counts(int drawCalls) => new(0.0, 0.0, null, drawCalls, 0, 0, 0, 0, 0, 0, 1280, 720);
 }

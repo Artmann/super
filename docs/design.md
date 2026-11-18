@@ -4756,7 +4756,10 @@ the difference in `DrawCalls`, which is 0 while the renderer isn't measured. Tri
 shadow tiles are the counters the renderer already keeps for `--profile`, and GPU memory is
 `GpuMemory.UsedBytes` and `ReservedBytes`.
 
-F3 is handled in `GameWindow`'s key callback and not forwarded to `Input`. A `--stats`
+`WindowInput`'s key callback hands every mapped key to `GameStats.TakeKey` first, which flips
+`Shown` on a press of `ToggleKey` (F3 by default, null for none) and says the key was taken,
+so it isn't forwarded to `Input`. The callback reads `ToggleKey` on each key, so a change
+while playing takes effect at once. A `--stats`
 screenshot calls `GameStats.Restart` after the probes settle and then renders until the first
 update with the renderer measured, up to 600 frames, so the shot's panel shows the scene as
 captured and not the settling frames.
