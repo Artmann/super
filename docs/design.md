@@ -3376,7 +3376,7 @@ steps, so before this a strand pattern at a cutoff of 0.3
 went from 20% passing to none on its 8 by 8 level, and a grid lost a tenth of its pixels at
 64 by 64. So `TextureCompression` hands each cut-out texture its cutoff, the material's
 cutoff over `BaseColor.W` as above, and compresses every level but the full-size one
-through `KeepCompressedCoverage`. The encoder is told the alpha byte the cutoff falls on, and
+through `CutoutEncoder`. The encoder is told the alpha byte the cutoff falls on, and
 picks between mode 6 and mode 5, and among mode 5's rotations, by how many pixels' decoded
 alpha lands on the other side of it first and by squared error second, since mode 6 ties
 alpha to the colour's line and a colour gradient across a block drags it across the
@@ -3395,7 +3395,7 @@ or 2 pixels on the small levels. The cutoff is part of the compressed-texture me
 the step cache's key, and the model cooker's version went to 18.
 
 A material whose colour and surface both carry alpha (above) keeps its product's coverage
-through compression too. `TextureCompression.Coverage` sees both textures' partial alpha,
+through compression too. `CoverageClaims` sees both textures' partial alpha,
 leaves the surface whole, so its alpha is encoded plainly and never stretched, and hands
 the colour the uncompressed surface as its partner. Each pixel of the colour's level then
 has its own threshold, `ceil(cutoff * 255 * 255 / p)` over the partner byte p under it, read
