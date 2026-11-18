@@ -1122,7 +1122,8 @@ frame waits for the device to go idle once and rebuilds the targets (`RebuildTar
 same way a window resize does, and history starts again. Probes have their own small
 G-buffers, and `RenderScale` isn't part of `FrameView`, so it never changes the lighting
 hash or photographs a probe again. Each `GBuffer` keeps what its own images hold
-(`HistoryReady`, `HeldReady`, `LdrReady`), and a new one starts with none of them. A probe's
+(`HistoryReady`, `HeldReady` and `LdrReady` on its `PictureTargets`, `HistoryReady` on its
+`OcclusionTargets`), and a new one starts with none of them. A probe's
 history image is never drawn, but the lighting pass still binds it, so each face moves that
 image out of `Undefined` before it is read. The screen's flags are untouched while a probe's
 targets stand in, so a `finally` only has to put the screen's targets back.
@@ -1355,7 +1356,7 @@ every draw whose ball overlaps the column the map sees towards the sun
 (`ShadowCascades.CasterReach`, over the balls `DrawSelection.Bounds` works out each frame), so
 a tree out of frame still dapples a wall in it. A caster can stretch the reach to no more
 than six radii (`ShadowPass.MaxReach`). A longer reach spreads depth thinner, and
-`FrameUniforms.ShadowDepthScales` carries the ratio so the shaders scale their bias to match.
+`FrameUniforms.ShadowBlock.ShadowDepthScales` carries the ratio so the shaders scale their bias to match.
 
 The lighting pass picks the first cascade a point falls inside. In the outer tenth of a map
 (`ShadowPass.HandOver`) a point uses the next cascade with a chance that grows towards the
@@ -1375,7 +1376,7 @@ shadow passes' detail choice.
 
 Contact shadows (`contactShadow` in `lighting.frag`) cover the centimetres the maps can't.
 For the sun with the shadow, the lighting pass walks 12 steps along the light over
-`ShadowSettings.ContactLength` metres (`FrameUniforms.ShadowFade.w`), from a random offset
+`ShadowSettings.ContactLength` metres (`FrameUniforms.ShadowBlock.ShadowFade.w`), from a random offset
 per pixel and frame that anti-aliasing averages. Each step is projected with the camera's
 matrix and `depthGap` compares its linear depth with the depth buffer's. A step more than
 0.02 m behind what the camera sees there is blocked, unless it's more than 0.15 m behind
@@ -1457,7 +1458,7 @@ pass counts exactly zero, while a pass that still runs counts every shader, even
 return at once, so `EffectsOffGpuTests` checks each switch by its count, not its time. Every image a later pass binds must still be in a valid layout, so a skipped
 pass moves its output from `Undefined` to `ShaderReadOnlyOptimal` instead (the sun's shadow
 map, the blurred AO, bloom's result). The contents are then undefined, so the shaders that
-bind them read the same set from `FrameUniforms.Off` (`frame.off` and `isOff()` in
+bind them read the same set from `FrameUniforms.CountBlock.Off` (`frame.off` and `isOff()` in
 `common.glsl`) and don't sample them: lighting takes AO as 1 and no traced reflection, and
 tonemapping skips the bloom mix. The sun's shadows off sends no cascades, so lighting counts
 every point as lit, and light shadows off hands out no atlas tiles, so every light's tile is -1.
@@ -2103,7 +2104,7 @@ miss probes behind the camera. It is drawn through the shadow pass's pipelines o
 sun turns, when the camera has moved an eighth of its width, or every 240 frames, so moved
 things show up; each costs one shadow draw in that frame, the same work as the main shadow pass.
 Like the capture it leaves out ghosts and skinned and swimming draws, as `TraceScene.Collect`
-does, and draws what sways in the wind at rest (`still` on `ShadowPass.RecordInto`), so a probe
+does, and draws what sways in the wind at rest (`Still` in the `SceneDrawOptions` it hands `ShadowPass.RecordInto`), so a probe
 updated long ago never keeps the shadow of a pose that has gone. It leaves out see-through draws
 too (`ProbeSunShadow.Casts`), as traced shadow rays pass glass, so neither path's probes see a
 pane's shadow from the sun.
@@ -3512,7 +3513,7 @@ the same are still stored once, since objects go by the hash of their bytes. BC5
 so shaders rebuild the normal's z from them (`normalFrom` in `surface.glsl`) for every
 normal map, compressed or not.
 
-While TAA is on, `FrameUniforms.mipBias` is -0.75 and every material read is biased by
+While TAA is on, the frame block's `mipBias` (`FrameUniforms.CountBlock.MipBias`) is -0.75 and every material read is biased by
 it: `textureGrad` derivatives are scaled by `exp2(mipBias)` in `surface.glsl`, and plain
 `texture` reads in surface shaders and glass take it as the bias argument. Each frame
 alone would shimmer at that level, but TAA's jittered blend settles it. While FSR draws the
@@ -3635,8 +3636,8 @@ four, and with the history off nothing gathers the turning slices, so both keep 
 ![The Crypt at Full occlusion: left, two slices a frame; right, one](media/crypt-ao-one-slice.webp)
 
 `ao_temporal.frag` (`_aoSteadyPass`) averages the occlusion and the bounce over the last
-frames. It writes `GBuffer.AoSteady` and
-`BounceSteady`, both RGBA16F at `AoExtent`, which are copied to `AoHistory` and
+frames. It writes `OcclusionTargets.AoSteady` (the G-buffer's `Occlusion`) and
+`BounceSteady`, both RGBA16F at its `Extent`, which are copied to `AoHistory` and
 `BounceHistory` for the next frame to read. The occlusion's alpha counts the frames in
 the average as a share of `MAX_FRAMES`, 8, and the bounce's alpha holds the depth of the
 pixel it was traced for. Each pixel finds where its surface was last frame as `taa.frag`
@@ -3658,7 +3659,7 @@ a first version did that, and it started over on plain grain. The bent normal is
 as a direction and the bounce as it is, with no clamp.
 
 The pass runs for a frame only, with the frame's `MotionHistory`. A probe's faces are
-drawn once each, so theirs go straight to the blur. `GBuffer.OcclusionHistoryReady` is
+drawn once each, so theirs go straight to the blur. `OcclusionTargets.HistoryReady` is
 false on new targets, after a frame with the occlusion or `RenderEffects.OcclusionHistory`
 (bit 41, read on the CPU alone) off, and after a resize or a change of render scale or
 `OcclusionResolution`, which all rebuild the targets, and the pass is then pushed
@@ -3674,7 +3675,7 @@ comparison it replaced couldn't tell a stair's tread from its riser once the sta
 small on screen, which is what smeared the shade across small models. It decodes each
 tap's bent normal and sums the directions, since averaging the octahedral form itself gives
 a wrong direction where it folds, and averages the visibility as it is. The blur runs
-twice, across into `GBuffer.AoAcross` and then down into `AoBlurred`, with the step pushed
+twice, across into `OcclusionTargets.AoAcross` and then down into `AoBlurred`, with the step pushed
 as a constant, and carries the frame count through in alpha. It reaches 3 pixels each way
 while the count is below a quarter of `MAX_FRAMES`, as it does with the history off, 2
 below three quarters and 1 after that. A pixel with nothing drawn in it is written as fully
@@ -3691,7 +3692,7 @@ so it trails by a few frames while the camera turns fast. The bounce has no clam
 light that goes out leaves its bounce for about 8 frames.
 
 At `OcclusionResolution.Half`, the default, the three occlusion targets are
-`GBuffer.AoExtent`, half the scene's size each way, rounded up, and the pass works the
+`OcclusionTargets.Extent`, half the scene's size each way, rounded up, and the pass works the
 way the [traced reflections](#reflections) do at half resolution: each texel works out
 the occlusion of one pixel of a 2 × 2 block, the one `tracedPixel` in `screen_trace.glsl`
 picks from the frame number, with that pixel's own depth and normal. The pass is pushed
@@ -3760,7 +3761,7 @@ their projected length as the occlusion's are.
 The occlusion's 8 steps cover its own radius; when the bounce's radius looks wider on
 screen, 4 more steps go on from one to the other, and they only gather light. Surfaces
 fade out over the last 40% of the bounce's radius. The pass writes the light, already
-times the strength, to a second target, `GBuffer.Bounce`, B10G11R11 at `AoExtent`. The
+times the strength, to a second target, `OcclusionTargets.Bounce`, B10G11R11 at its `Extent`. The
 average and the blur take it through the same steps with the occlusion's weights, into
 `BounceSteady`, `BounceAcross` and `BounceBlurred`, and `screenOcclusionAt` blends it with the
 occlusion's weights. Lighting adds `bounce * baseColor * (1 - metallic)` to the soft
@@ -3933,7 +3934,7 @@ picked, FSR 3.1.4 here, and `Renderer.UpscalerVersion` returns it.
 
 FSR draws only while anti-aliasing is on and the render scale is 1 or less. It then owns
 both TAA's job and the finish pass's stretch: the G-buffer, HDR and depth stay at the scene
-size, and `GBuffer.Display`, the window's size, sizes `Resolved`, the LDR target and
+size, and `PictureTargets.Display` (the G-buffer's `Picture`), the window's size, sizes `Resolved`, the LDR target and
 `Held`, so depth of field, bloom, the exposure meter, the tonemap and the finish pass all
 run at the window's size and the finish pass reads one window pixel per pixel. `Resolved`
 is always made with storage use, since FSR writes it from compute. Starting or stopping

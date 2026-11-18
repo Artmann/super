@@ -90,7 +90,7 @@ public class ReflectionProbeOrderTests
         var lights = new LocalLights();
 
         lights.Prepare(
-            [], LookingDownZ, Perspective, 720, new GpuLocalLight[LocalLight.MaxPerFrame], new GpuShadowTile[LocalLights.MaxTiles],
+            [], (LookingDownZ, Perspective, 720), new GpuLocalLight[LocalLight.MaxPerFrame], new GpuShadowTile[LocalLights.MaxTiles],
             cover: (4f, 12f));
 
         Assert.Equal(0, lights.LightCount);
@@ -105,7 +105,7 @@ public class ReflectionProbeOrderTests
         LocalLight[] lamp = [new LocalLight { Key = 1, Position = new Vector3(0f, 0f, -7f), Radiance = Vector3.One, Range = 2f }];
 
         lights.Prepare(
-            lamp, LookingDownZ, Perspective, 720, new GpuLocalLight[LocalLight.MaxPerFrame], new GpuShadowTile[LocalLights.MaxTiles],
+            lamp, (LookingDownZ, Perspective, 720), new GpuLocalLight[LocalLight.MaxPerFrame], new GpuShadowTile[LocalLights.MaxTiles],
             cover: (6f, 20f));
 
         // The lamp reaches from 5 to 9 m, and the probes from 6 to 20 m.
