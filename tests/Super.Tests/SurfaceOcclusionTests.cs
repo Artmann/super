@@ -23,8 +23,8 @@ public class SurfaceOcclusionTests
     [Fact]
     public void Occlusion_on_the_second_uv_set_sets_the_materials_flag()
     {
-        Assert.Equal(MaterialFlags.OcclusionOnUv2, SceneRenderer.FlagsOf(new Surface { OcclusionOnUv2 = true }));
-        Assert.Equal(MaterialFlags.None, SceneRenderer.FlagsOf(new Surface()) & MaterialFlags.OcclusionOnUv2);
+        Assert.Equal(MaterialFlags.OcclusionOnUv2, SurfaceMaterials.FlagsOf(new Surface { OcclusionOnUv2 = true }));
+        Assert.Equal(MaterialFlags.None, SurfaceMaterials.FlagsOf(new Surface()) & MaterialFlags.OcclusionOnUv2);
     }
 
     [Fact]

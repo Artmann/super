@@ -30,7 +30,7 @@ public class ModelShaderLoadTests
     }.ToBytes();
 
     private static object Prepare(MemoryContent files, string texture) =>
-        SceneRenderer.PrepareModel("models/a.glb", new WithModel(files, "models/a.glb", ModelWithShader(texture)), _ => [1, 2, 3, 4]);
+        ItemReads.PrepareModel("models/a.glb", new WithModel(files, "models/a.glb", ModelWithShader(texture)), _ => [1, 2, 3, 4]);
 
     [Fact]
     public void A_shader_texture_that_isnt_cooked_is_named_when_the_model_loads()
@@ -47,7 +47,7 @@ public class ModelShaderLoadTests
     {
         var files = new MemoryContent().Add("textures/ripples.png", ImageTests.Png(2, 2));
 
-        var prepared = Assert.IsType<SceneRenderer.PreparedModel>(Prepare(files, "textures/ripples.png"));
+        var prepared = Assert.IsType<PreparedModel>(Prepare(files, "textures/ripples.png"));
 
         var texture = Assert.Single(prepared.Textures);
         Assert.Equal("textures/ripples.png", texture.Key);
@@ -68,7 +68,7 @@ public class ModelShaderLoadTests
             Textures = [],
         }.ToBytes());
 
-        var prepared = SceneRenderer.PrepareModel("models/a.glb", files, _ => throw new InvalidOperationException("No shader should be read."));
+        var prepared = ItemReads.PrepareModel("models/a.glb", files, _ => throw new InvalidOperationException("No shader should be read."));
 
         Assert.IsType<ModelData>(prepared);
     }

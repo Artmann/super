@@ -32,12 +32,12 @@ public class GlfwInputTests
     [Fact]
     public void Cursor_positions_scale_to_the_framebuffer()
     {
-        Assert.Equal(new Vector2(300f, 100f), GlfwInput.ToFramebuffer(100, 50, 1000, 500, 3000, 1000));
+        Assert.Equal(new Vector2(300f, 100f), GlfwInput.ToFramebuffer(100, 50, (1000, 500), (3000, 1000)));
     }
 
     [Fact]
     public void A_zero_sized_window_passes_positions_through()
     {
-        Assert.Equal(new Vector2(5f, 5f), GlfwInput.ToFramebuffer(5, 5, 0, 0, 10, 10));
+        Assert.Equal(new Vector2(5f, 5f), GlfwInput.ToFramebuffer(5, 5, (0, 0), (10, 10)));
     }
 }

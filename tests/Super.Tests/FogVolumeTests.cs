@@ -277,8 +277,8 @@ public class FogVolumeTests
     [Fact]
     public void Fog_volumes_draw_in_a_game_that_sets_no_fog_of_its_own()
     {
-        var noSky = SceneRenderer.FrameFog(null);
-        var skyWithoutFog = SceneRenderer.FrameFog(new SkySettings());
+        var noSky = ViewSky.FrameFog(null);
+        var skyWithoutFog = ViewSky.FrameFog(new SkySettings());
 
         Assert.Equal(48f, VolumetricFog.Pack(noSky, 1, RenderEffects.None, null).X);
         Assert.Equal(48f, VolumetricFog.Pack(skyWithoutFog, 1, RenderEffects.None, null).X);
@@ -291,7 +291,7 @@ public class FogVolumeTests
     {
         var fog = new FogSettings(0.01f) { VolumetricDistance = 0f };
 
-        var frame = SceneRenderer.FrameFog(new SkySettings { Fog = fog });
+        var frame = ViewSky.FrameFog(new SkySettings { Fog = fog });
 
         Assert.Equal(fog, frame);
         Assert.Equal(0f, VolumetricFog.Pack(frame, 1, RenderEffects.None, null).X);

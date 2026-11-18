@@ -57,7 +57,7 @@ public class MeshMaskDrawTests
         var mask = new MeshMask(3, 4, [0]);
         var draws = new DrawItem[8];
 
-        var problem = Assert.Throws<InvalidOperationException>(() => SceneRenderer.AddShown(Parts(3, 3, 3, 3, 3), mask, ref draws, 0));
+        var problem = Assert.Throws<InvalidOperationException>(() => MeshMaskParts.AddShown(Parts(3, 3, 3, 3, 3), mask, ref draws, 0));
 
         Assert.Equal(
             "The mesh mask was made for a model drawn in 4 parts, but the model being drawn has 5. Make it from the same cooked file.",
@@ -71,7 +71,7 @@ public class MeshMaskDrawTests
         var draws = new DrawItem[2];
         draws[0] = new DrawItem { FirstIndex = 999 };
 
-        int count = SceneRenderer.AddShown(Parts(3, 6, 9), mask, ref draws, 1);
+        int count = MeshMaskParts.AddShown(Parts(3, 6, 9), mask, ref draws, 1);
 
         Assert.Equal(3, count);
         Assert.Equal(999u, draws[0].FirstIndex);
@@ -84,7 +84,7 @@ public class MeshMaskDrawTests
     {
         var draws = Array.Empty<DrawItem>();
 
-        int count = SceneRenderer.AddShown(Parts(3, 6), null, ref draws, 0);
+        int count = MeshMaskParts.AddShown(Parts(3, 6), null, ref draws, 0);
 
         Assert.Equal(2, count);
         Assert.Equal([0u, 100u], draws.Take(count).Select(d => d.FirstIndex));
@@ -96,7 +96,7 @@ public class MeshMaskDrawTests
         var mask = new MeshMask(3, 70, [0, 63, 64, 69]);
         var draws = Array.Empty<DrawItem>();
 
-        int count = SceneRenderer.AddShown(Parts(Enumerable.Repeat(3u, 70).ToArray()), mask, ref draws, 0);
+        int count = MeshMaskParts.AddShown(Parts(Enumerable.Repeat(3u, 70).ToArray()), mask, ref draws, 0);
 
         Assert.Equal([0u, 6300u, 6400u, 6900u], draws.Take(count).Select(d => d.FirstIndex));
     }
@@ -107,7 +107,7 @@ public class MeshMaskDrawTests
         var mask = new MeshMask(3, 3, [1, 2]);
 
         // 6 + 9 indices shown, 3 hidden: 15 indices are 5 triangles.
-        Assert.Equal(5, SceneRenderer.ShownTriangles(Parts(3, 6, 9), mask));
-        Assert.Equal(6, SceneRenderer.ShownTriangles(Parts(3, 6, 9), null));
+        Assert.Equal(5, MeshMaskParts.ShownTriangles(Parts(3, 6, 9), mask));
+        Assert.Equal(6, MeshMaskParts.ShownTriangles(Parts(3, 6, 9), null));
     }
 }

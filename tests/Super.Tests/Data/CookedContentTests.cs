@@ -89,8 +89,8 @@ public class CookedContentTests
         files.Add("a-normal.png", ImageTests.Png(2, 2)).Add("a.png", ImageTests.Png(2, 2));
         var content = new Content(files);
 
-        var normal = SceneRenderer.LoadTexture((TextureItem)content.Items[content.Texture("a-normal.png").Index - 1]);
-        var color = SceneRenderer.LoadTexture((TextureItem)content.Items[content.Texture("a.png").Index - 1]);
+        var normal = ItemReads.LoadTexture((TextureItem)content.Items[content.Texture("a-normal.png").Index - 1]);
+        var color = ItemReads.LoadTexture((TextureItem)content.Items[content.Texture("a.png").Index - 1]);
 
         Assert.Equal(TextureKind.Linear, normal.Kind);
         Assert.Equal(TextureKind.Color, color.Kind);
@@ -141,7 +141,7 @@ public class CookedContentTests
     [Fact]
     public void A_model_is_streamed_not_read_whole()
     {
-        var model = SceneRenderer.LoadModel("hero.glb", new StreamOnly("hero.glb", RiggedModel()));
+        var model = ItemReads.LoadModel("hero.glb", new StreamOnly("hero.glb", RiggedModel()));
 
         Assert.Equal(2, model.Skeleton!.Count);
     }

@@ -220,7 +220,7 @@ public class GlassTests
     [Fact]
     public void A_surface_below_full_opacity_is_glass_with_its_ior()
     {
-        var material = SceneRenderer.MaterialOf(new Surface { Color = new Vector3(0.2f, 0.4f, 0.6f), Opacity = 0.3f, Ior = 1.5f });
+        var material = SurfaceMaterials.MaterialOf(new Surface { Color = new Vector3(0.2f, 0.4f, 0.6f), Opacity = 0.3f, Ior = 1.5f });
 
         Assert.Equal(MaterialFlags.Transparent, material.Flags);
         Assert.Equal(new Vector4(0.2f, 0.4f, 0.6f, 0.3f), material.BaseColor);
@@ -230,7 +230,7 @@ public class GlassTests
     [Fact]
     public void A_surface_at_full_opacity_is_solid()
     {
-        var material = SceneRenderer.MaterialOf(new Surface());
+        var material = SurfaceMaterials.MaterialOf(new Surface());
 
         Assert.Equal(MaterialFlags.None, material.Flags);
         Assert.Equal(1f, material.BaseColor.W);

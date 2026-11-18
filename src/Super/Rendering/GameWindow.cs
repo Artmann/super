@@ -111,7 +111,7 @@ internal sealed unsafe class GameWindow : IDisposable
 
         try
         {
-            _scene.ReloadShaders(changed);
+            _scene.Renderer.ReloadShaders(changed);
         }
         catch (Exception e)
         {
@@ -184,7 +184,7 @@ internal sealed unsafe class GameWindow : IDisposable
         host.Content.GoLive();
 
         // Only here is missing lighting baked as it appears, and only here does a bake that arrives fade in.
-        _scene.BakeFadeSeconds = PlayBakeFadeSeconds;
+        _scene.Renderer.BakeFadeSeconds = PlayBakeFadeSeconds;
         _autoBake.TurnOn();
         host.ShowsBakes = true;
         ApplyAutoBake(host);
@@ -237,7 +237,7 @@ internal sealed unsafe class GameWindow : IDisposable
         }
 
         _cursor.Apply(_glfw, _window, host.Input, host.Ui.Scale);
-        host.BakeProgress = _scene.BakeProgress;
+        host.BakeProgress = _scene.Renderer.BakeProgress;
         Draw(host, clock.Blend);
         ApplyAutoBake(host);
         Show(host, (float)played);
@@ -252,7 +252,7 @@ internal sealed unsafe class GameWindow : IDisposable
     /// </summary>
     internal BakeCache? BakeCache
     {
-        set => _scene.BakeCache = value;
+        set => _scene.Baking.BakeCache = value;
     }
 
     private readonly AutoBakeSwitch _autoBake = new();
@@ -276,10 +276,10 @@ internal sealed unsafe class GameWindow : IDisposable
         }
 
         var dev = DevOf(host);
-        _scene.BakeOnArrival(AutoBakePolicy.For(dev, CanTrace, host.Graphics));
+        _scene.Baking.BakeOnArrival(AutoBakePolicy.For(dev, CanTrace, host.Graphics));
 
         // From source, a GPU that can't trace says once why the lighting stays live; a player isn't told.
-        _scene.SaysWhyNotBaking = host.Graphics.BakeOnArrival && !CanTrace && dev is not null;
+        _scene.Baking.SaysWhyNotBaking =host.Graphics.BakeOnArrival && !CanTrace && dev is not null;
     }
 
     /// <summary>
@@ -299,13 +299,13 @@ internal sealed unsafe class GameWindow : IDisposable
     private Rendition.DebugView _commandLineDebugView;
 
     /// <summary>Whether the GPU can trace rays.</summary>
-    public bool CanTrace => _scene.CanTrace;
+    public bool CanTrace => _scene.Renderer.CanTrace;
 
     /// <summary>Why <see cref="CanTrace"/> is false, or null when it is true.</summary>
-    public string? NoTraceReason => _scene.NoTraceReason;
+    public string? NoTraceReason => _scene.Renderer.NoTraceReason;
 
     /// <summary>The GPU the game is drawn with.</summary>
-    public Rendition.GpuInfo Gpu => _scene.Gpu;
+    public Rendition.GpuInfo Gpu => _scene.Renderer.Gpu;
 
     /// <summary>
     /// How many pixels the window has for each unit of its size: 2 on a Mac's Retina screen, where the window is sized
@@ -335,12 +335,11 @@ internal sealed unsafe class GameWindow : IDisposable
 
         // Reflection probes are photographed one a frame and each waits in line once at most, so after a frame for every
         // probe each holds a picture taken in the settled light.
-        Settle(host, time, _scene.ReflectionProbeCount);
-        MeasureForStats(host, time);
+        Settle(host, time, _scene.Renderer.ReflectionProbeCount);
 
         host.Capture.Screenshot(path);
         Show(host, time);
-        return _scene.ValidationErrors;
+        return _scene.Renderer.ValidationErrors;
     }
 
     /// <summary>
@@ -356,7 +355,7 @@ internal sealed unsafe class GameWindow : IDisposable
     {
         float time = PlayAndDraw(host, ticks);
         var chunks = host.View.BakedChunks;
-        var frame = _scene.LastBakeFrame;
+        var frame = _scene.Renderer.LastBakeFrame;
         var targets = BakeCommand.Targets(
             host.View.BakedSpace is { } named ? BakeFiles.Space(named.Name) : null,
             chunks.Count,
@@ -371,9 +370,9 @@ internal sealed unsafe class GameWindow : IDisposable
             {
                 // Each is baked at its area's own texel density, which is what a frame checks its bake against.
                 byte[] bake = target.Chunk == BakeTarget.Space
-                    ? _scene.Bake(host.View, host.Content, width, height, time,
+                    ? _scene.Bake(host.View, host.Content, new FrameRequest(width, height, time),
                         new BakeSettings(host.View.BakedSpace!.Value.TexelsPerMetre, quality))
-                    : _scene.BakeChunk(host.View, host.Content, width, height, time, target.Chunk,
+                    : _scene.BakeChunk(host.View, host.Content, new FrameRequest(width, height, time), target.Chunk,
                         new BakeSettings(chunks[target.Chunk].TexelsPerMetre, quality));
 
                 string path = Path.GetFullPath(Path.Combine(folder, target.File));
@@ -383,7 +382,7 @@ internal sealed unsafe class GameWindow : IDisposable
             },
             Console.Out);
 
-        return _scene.ValidationErrors;
+        return _scene.Renderer.ValidationErrors;
     }
 
     /// <summary>
@@ -395,7 +394,7 @@ internal sealed unsafe class GameWindow : IDisposable
         where TGame : class, IGame
     {
         PlayAndDraw(host, ticks);
-        var frame = _scene.LastBakeFrame;
+        var frame = _scene.Renderer.LastBakeFrame;
         if (frame is null)
         {
             return BakeCommand.Check([], _ => null, Console.Out);
@@ -410,7 +409,7 @@ internal sealed unsafe class GameWindow : IDisposable
             target =>
             {
                 var inputs = target.Chunk == BakeTarget.Space ? frame.Space!.Value : frame.Chunks[target.Chunk];
-                return _scene.Bakes.Saved(target.File) is { } saved ? inputs.Changes(saved) : null;
+                return _scene.Baking.Bakes.Saved(target.File) is { } saved ? inputs.Changes(saved) : null;
             },
             Console.Out);
     }
@@ -470,7 +469,7 @@ internal sealed unsafe class GameWindow : IDisposable
         }
 
         host.Capture.StopRecording();
-        return _scene.ValidationErrors;
+        return _scene.Renderer.ValidationErrors;
     }
 
     /// <summary>Plays the given number of ticks, then measures some frames and writes a report.</summary>
@@ -482,8 +481,7 @@ internal sealed unsafe class GameWindow : IDisposable
         double step = 1.0 / ProfileFramesPerSecond;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
 
-        _profiling = true;
-        _scene.MeasureGpu = true;
+        _scene.Renderer.MeasureGpu =true;
         var warmup = new ProfiledFrame[ProfileWarmupFrames];
         var gpu = new Dictionary<string, double>();
         MeasureFrames(host, clock, step, warmup, gpu);
@@ -494,8 +492,7 @@ internal sealed unsafe class GameWindow : IDisposable
         var sampler = CpuSampler.Start(Path.ChangeExtension(path, ".nettrace"));
         MeasureFrames(host, clock, step, measured, gpu);
         var stacks = sampler.Stop(nameof(MeasureFrames));
-        _scene.MeasureGpu = false;
-        _profiling = false;
+        _scene.Renderer.MeasureGpu =false;
 
         foreach (string pass in gpu.Keys)
         {
@@ -503,7 +500,7 @@ internal sealed unsafe class GameWindow : IDisposable
         }
 
         _glfw.GetFramebufferSize(_window, out int width, out int height);
-        var run = new ProfileRun(title, seed, firstTick, width, height, measured, gpu, stacks, _scene.CountModels(host.View, host.Content), _scene.DrawnTriangles, _scene.ShadowTiles);
+        var run = new ProfileRun(title, seed, firstTick, width, height, measured, gpu, stacks, _scene.CountModels(host.View, host.Content), _scene.Renderer.DrawnTriangles);
         File.WriteAllText(path, ProfileReport.Write(run));
         File.WriteAllText(Path.ChangeExtension(path, ".csv"), ProfileReport.WriteFrames(measured));
     }
@@ -524,8 +521,8 @@ internal sealed unsafe class GameWindow : IDisposable
         float time = (float)host.Time.TotalSeconds;
         for (int frame = 0; frame < frames.Length; frame++)
         {
-            int idleWaits = _scene.GpuIdleWaits;
-            int captures = _scene.ReflectionCapturesDrawn;
+            int idleWaits = _scene.Renderer.GpuIdleWaits;
+            int captures = _scene.Renderer.ReflectionCapturesDrawn;
             long allocated = GC.GetAllocatedBytesForCurrentThread();
             long start = Stopwatch.GetTimestamp();
             int due = clock.Advance(step);
@@ -541,7 +538,7 @@ internal sealed unsafe class GameWindow : IDisposable
             long shown = Stopwatch.GetTimestamp();
 
             double gpuTotal = 0.0;
-            foreach (ref readonly var pass in _scene.GpuTimes)
+            foreach (ref readonly var pass in _scene.Renderer.GpuTimes)
             {
                 gpu[pass.Name] = gpu.GetValueOrDefault(pass.Name) + pass.Milliseconds;
                 gpuTotal += pass.Milliseconds;
@@ -552,11 +549,11 @@ internal sealed unsafe class GameWindow : IDisposable
                 Stopwatch.GetElapsedTime(start, ticked).TotalMilliseconds,
                 Stopwatch.GetElapsedTime(ticked, drawn).TotalMilliseconds,
                 Stopwatch.GetElapsedTime(drawn, shown).TotalMilliseconds,
-                _scene.WaitMilliseconds,
+                _scene.Renderer.WaitMilliseconds,
                 GC.GetAllocatedBytesForCurrentThread() - allocated,
                 gpuTotal,
-                _scene.GpuIdleWaits - idleWaits,
-                _scene.ReflectionCapturesDrawn - captures);
+                _scene.Renderer.GpuIdleWaits - idleWaits,
+                _scene.Renderer.ReflectionCapturesDrawn - captures);
         }
     }
 
@@ -635,7 +632,7 @@ internal sealed unsafe class GameWindow : IDisposable
 
         _glfw.GetFramebufferSize(_window, out int width, out int height);
         int frames = ExtraSettleFrames(
-            () => _scene.ProbesSettled,
+            () => _scene.Renderer.ProbesSettled,
             () =>
             {
                 ApplyGraphics(host.Graphics);
@@ -643,7 +640,7 @@ internal sealed unsafe class GameWindow : IDisposable
             },
             ScreenshotProbeFrames);
 
-        if (frames == ScreenshotProbeFrames && !_scene.ProbesSettled)
+        if (frames == ScreenshotProbeFrames && !_scene.Renderer.ProbesSettled)
         {
             Console.WriteLine($"The light probes were still filling in after {frames} more frames; the shot shows them as they are.");
         }
@@ -727,9 +724,9 @@ internal sealed unsafe class GameWindow : IDisposable
     /// <summary>Hands the game's graphics settings, as they are now, to the renderer for the next frame.</summary>
     private void ApplyGraphics(Graphics graphics)
     {
-        (_scene.Off, _scene.Vsync, _scene.ShadowResolution, _scene.MaxShadowCascades, _scene.MeshDetail, _scene.RenderScale,
-            _scene.Upscaler, _scene.ProbeQuality, _scene.ReflectionResolution, _scene.OcclusionResolution, _scene.VolumetricFogCellSize,
-            _scene.VolumetricFogSlices, _scene.DebugView) =
+        (_scene.Off, _scene.Renderer.Vsync, _scene.Renderer.ShadowResolution, _scene.Renderer.MaxShadowCascades, _scene.Renderer.MeshDetailScale,
+            _scene.Renderer.RenderScale, _scene.Renderer.Upscaler, _scene.Renderer.ProbeQuality, _scene.Renderer.ReflectionResolution,
+            _scene.Renderer.OcclusionResolution, _scene.Renderer.VolumetricFogCellSize, _scene.Renderer.VolumetricFogSlices, _scene.DebugView) =
             RendererSettings(graphics, _hidden, _takingShot, _commandLineDebugView, CanTrace);
     }
 
@@ -799,7 +796,7 @@ internal sealed unsafe class GameWindow : IDisposable
         {
             _glfw.GetWindowSize(_window, out int windowWidth, out int windowHeight);
             _glfw.GetFramebufferSize(_window, out int framebufferWidth, out int framebufferHeight);
-            input.Mouse.Feed.MouseMoved(GlfwInput.ToFramebuffer(x, y, windowWidth, windowHeight, framebufferWidth, framebufferHeight));
+            input.Mouse.Feed.MouseMoved(GlfwInput.ToFramebuffer(x, y, (windowWidth, windowHeight), (framebufferWidth, framebufferHeight)));
         };
         _onCursorEnter = (_, entered) =>
         {

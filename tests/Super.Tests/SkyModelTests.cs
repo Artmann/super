@@ -71,12 +71,12 @@ public class SkyModelTests
         var view = new View();
         view.Sky(Gradient);
 
-        var (ceiling, horizon, floor) = SceneRenderer.SurroundingColors(view, RenderEffects.None);
+        var (ceiling, horizon, floor) = ViewSky.SurroundingColors(view, RenderEffects.None);
 
         Assert.Equal(Gradient.Zenith, ceiling);
         Assert.Equal(Gradient.Horizon, horizon);
         Assert.Equal(Gradient.Ground, floor);
-        Assert.Equal(0f, SceneRenderer.FrameSky(view, RenderEffects.None).Turbidity);
+        Assert.Equal(0f, ViewSky.FrameSky(view, RenderEffects.None).Turbidity);
     }
 
     [Fact]
@@ -85,12 +85,12 @@ public class SkyModelTests
         var view = new View();
         view.Sky(new SkySettings { Ground = new Vector3(0.2f, 0.17f, 0.14f), Turbidity = 2.5f });
 
-        Assert.Equal(2.5f, SceneRenderer.FrameSky(view, RenderEffects.None).Turbidity);
-        Assert.Equal(new Vector3(0.2f, 0.17f, 0.14f), SceneRenderer.SurroundingColors(view, RenderEffects.None).Floor);
+        Assert.Equal(2.5f, ViewSky.FrameSky(view, RenderEffects.None).Turbidity);
+        Assert.Equal(new Vector3(0.2f, 0.17f, 0.14f), ViewSky.SurroundingColors(view, RenderEffects.None).Floor);
 
         view.Water(new UnderwaterSettings { Absorption = new Vector3(0.4f, 0.1f, 0.05f) });
 
-        Assert.Equal(0f, SceneRenderer.FrameSky(view, RenderEffects.None).Turbidity);
+        Assert.Equal(0f, ViewSky.FrameSky(view, RenderEffects.None).Turbidity);
     }
 
     // The gradient sky with a clear-sky turbidity, under the lake.
@@ -109,12 +109,12 @@ public class SkyModelTests
     {
         var view = UnderTheLake();
 
-        var (ceiling, horizon, floor) = SceneRenderer.SurroundingColors(view, RenderEffects.Underwater);
+        var (ceiling, horizon, floor) = ViewSky.SurroundingColors(view, RenderEffects.Underwater);
 
         Assert.Equal(Gradient.Zenith, ceiling);
         Assert.Equal(Gradient.Horizon, horizon);
         Assert.Equal(Gradient.Ground, floor);
-        Assert.Equal(2.5f, SceneRenderer.FrameSky(view, RenderEffects.Underwater).Turbidity);
+        Assert.Equal(2.5f, ViewSky.FrameSky(view, RenderEffects.Underwater).Turbidity);
     }
 
     [Fact]
@@ -122,11 +122,11 @@ public class SkyModelTests
     {
         var view = UnderTheLake();
 
-        var (ceiling, _, floor) = SceneRenderer.SurroundingColors(view, RenderEffects.None);
+        var (ceiling, _, floor) = ViewSky.SurroundingColors(view, RenderEffects.None);
 
         Assert.Equal(Lake.ShallowColor, ceiling);
         Assert.Equal(Lake.DeepColor, floor);
-        Assert.Equal(0f, SceneRenderer.FrameSky(view, RenderEffects.None).Turbidity);
+        Assert.Equal(0f, ViewSky.FrameSky(view, RenderEffects.None).Turbidity);
     }
 
     [Fact]
@@ -326,7 +326,7 @@ public class SkyModelTests
         var view = new View();
         view.Sky(new SkySettings { Turbidity = 2.5f, Moon = new Vector3(0f, 1f, 1f), HideStars = true, StarRotation = 0.5f });
 
-        var sky = SceneRenderer.FrameSky(view, RenderEffects.None);
+        var sky = ViewSky.FrameSky(view, RenderEffects.None);
 
         Assert.Equal(new Vector3(0f, 1f, 1f), sky.Moon);
         Assert.True(sky.HideStars);

@@ -266,8 +266,8 @@ public class ReflectionProbeTests
         var view = new View();
         view.ReflectionProbe(1, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax);
 
-        Assert.Equal(1, SceneRenderer.WantedReflectionProbes(view, RenderEffects.Bloom).Length);
-        Assert.True(SceneRenderer.WantedReflectionProbes(view, RenderEffects.Reflections | RenderEffects.Bloom).IsEmpty);
+        Assert.Equal(1, ReflectionProbeUpdater.WantedReflectionProbes(view, RenderEffects.Bloom).Length);
+        Assert.True(ReflectionProbeUpdater.WantedReflectionProbes(view, RenderEffects.Reflections | RenderEffects.Bloom).IsEmpty);
     }
 
     [Fact]

@@ -55,7 +55,7 @@ public sealed class SharedTextureTests : IDisposable
     [Fact]
     public void A_model_reads_its_shared_textures_through_the_cooked_folder()
     {
-        var model = SceneRenderer.LoadModel("hero.glb", Folder(Model(Texture(10), Texture(200))));
+        var model = ItemReads.LoadModel("hero.glb", Folder(Model(Texture(10), Texture(200))));
 
         Assert.Equal(2, model.Textures.Length);
         Assert.Equal(new byte[] { 10, 0, 0, 255, 10, 0, 0, 255 }, model.Textures[0].Mips[0]);
@@ -67,7 +67,7 @@ public sealed class SharedTextureTests : IDisposable
     {
         var folder = Folder(Model(Texture(10)), listObjects: false);
 
-        var exception = Assert.Throws<FileNotFoundException>(() => SceneRenderer.LoadModel("hero.glb", folder));
+        var exception = Assert.Throws<FileNotFoundException>(() => ItemReads.LoadModel("hero.glb", folder));
 
         Assert.Matches("^The cooked content keeps no object [0-9a-f]{64}\\. Cook it again\\.$", exception.Message);
     }
@@ -99,7 +99,7 @@ public sealed class SharedTextureTests : IDisposable
     {
         var files = new ModelOnly(Model(Texture(10)).ToBytes(_ => new string('a', 64)));
 
-        var exception = Assert.Throws<NotSupportedException>(() => SceneRenderer.LoadModel("hero.glb", files));
+        var exception = Assert.Throws<NotSupportedException>(() => ItemReads.LoadModel("hero.glb", files));
 
         Assert.Equal("ModelOnly can't open objects by hash, so it can't read models that share their textures.", exception.Message);
     }
@@ -107,7 +107,7 @@ public sealed class SharedTextureTests : IDisposable
     [Fact]
     public void A_model_with_its_textures_inside_needs_no_objects()
     {
-        var model = SceneRenderer.LoadModel("hero.glb", new ModelOnly(Model(Texture(10)).ToBytes()));
+        var model = ItemReads.LoadModel("hero.glb", new ModelOnly(Model(Texture(10)).ToBytes()));
 
         Assert.Equal(new byte[] { 10, 0, 0, 255, 10, 0, 0, 255 }, Assert.Single(model.Textures).Mips[0]);
     }

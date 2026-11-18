@@ -45,8 +45,8 @@ public class HazeTests
     {
         var shot = new Camera(Eye, new Vector3(10f, 0f, 4f));
 
-        Assert.Equal(new Vector3(10f, 0f, 4f), SceneRenderer.HazeOrigin(new SkySettings { HazeFromFocus = true }, shot));
-        Assert.Null(SceneRenderer.HazeOrigin(new SkySettings(), shot));
-        Assert.Null(SceneRenderer.HazeOrigin(null, shot));
+        Assert.Equal(new Vector3(10f, 0f, 4f), ViewSky.HazeOrigin(new SkySettings { HazeFromFocus = true }, shot));
+        Assert.Null(ViewSky.HazeOrigin(new SkySettings(), shot));
+        Assert.Null(ViewSky.HazeOrigin(null, shot));
     }
 }

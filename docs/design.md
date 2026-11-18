@@ -436,7 +436,7 @@ reads it through `CookedFolder`.
 
 `IContentFiles.Read` gives an asset's bytes whole, which suits data, textures and sounds.
 Models are big (162 MB for a rigged FBX with its clips), so they go through
-`IContentFiles.Open`, a stream: `SceneRenderer.LoadModel` reads the model piece by piece on
+`IContentFiles.Open`, a stream: `ItemReads.LoadModel` reads the model piece by piece on
 the loading thread, `Content.Rig` reads only the rig at the front of the file and
 `Content.Meshes` only the mesh names before it, so the raw file is never held whole beside what's built from it. `CookedFolder.Open` is a `FileStream`
 with a 64 KB buffer, small enough to stay off the large object heap, opened with
@@ -703,7 +703,7 @@ the decoded image every model of the cook shares. A texture a model makes for it
 such as a widened surface texture, a graph's textures or baked masks, is a new object each
 time, so it's written and hashed again, though equal bytes still make one stored object.
 
-`SceneRenderer.LoadModel` reads a texture through `IContentFiles.OpenObject(hash)`.
+`ItemReads.LoadModel` reads a texture through `IContentFiles.OpenObject(hash)`.
 `CookedFolder` opens only a hash the manifest lists, so a damaged model can't name a file
 outside the folder. The GPU still gets a copy of a shared texture per model, since
 `Renderer` frees textures with their model; sharing them there needs reference counts.
@@ -827,7 +827,7 @@ them for `Content.Meshes`. `Content` caches each model's names by index and drop
 model is unloaded.
 
 At draw time a `MeshMask` is a bitset over the model's parts, made for one `ModelRef`.
-`View.Model` checks the mask's model, and `SceneRenderer.AddShown` copies only the shown parts
+`View.Model` checks the mask's model, and `MeshMaskParts.AddShown` copies only the shown parts
 into the frame's draw list, checking that the mask's part count matches the loaded model. A
 masked draw still skins the whole skeleton once. The profiler keys copies by model and mask,
 so `ShownTriangles` counts only what each mask shows.
@@ -874,8 +874,8 @@ nothing. Animators advanced by hand in tests get no `Audio` and play nothing.
 A material rule's `shader`, `shaderParameters` and `shaderTextures` are written after the
 materials as `ModelData.MaterialShaders`, empty or one entry (or none) per material, by name: the
 shader's file name, its parameters as `Vector4`s padded with zeros, and the source names of its
-textures. Rendition can't resolve names, so `SceneRenderer.PrepareModel` reads the shaders and
-cooked textures on the loading thread, and `UploadModel` makes them and hands them to
+textures. Rendition can't resolve names, so `ItemReads.PrepareModel` reads the shaders and
+cooked textures on the loading thread, and `ItemUploads.UploadModel` makes them and hands them to
 `Renderer.CreateModel` through its `finish` callback, which can change each material before it is
 made. The shaders are kept for the renderer's life, one per name. The textures are made for each
 model, since `DestroyModel` frees every texture its materials name.
@@ -1374,7 +1374,7 @@ result multiplies the PCSS visibility. The length is 0, so the walk is skipped, 
 (`ShadowPass.ContactLength`), and the sun's shadows left out skip it with the rest.
 
 One sun casts the shadows: the one the game marks with `shadows: true`, or else the first
-(`SceneRenderer.ShadowSun`).
+(`FrameMaker.ShadowSun`).
 
 Point and spot lights are clustered. `LocalLights` culls the frame's lights against
 the camera (the same `DetailView` planes as models, with a far plane at the furthest
@@ -2007,7 +2007,7 @@ and positions are left out, so a flickering candle or a swinging lantern, which 
 crossed any grid fine enough to matter, doesn't keep probes busy. The camera and the view's
 shadow settings are out of both, since a capture frames the sun on its own box.
 
-Super places probes with `view.ReflectionProbe`. `SceneRenderer.UpdateReflectionProbes`, before
+Super places probes with `view.ReflectionProbe`. `ReflectionProbeUpdater.Update`, before
 each frame's `Render`, asks `ReflectionProbeSchedule.ShouldCapture` about each key: a new key, or
 a request that differs from the last one asked for (moved, a new box, version or update mode),
 always asks; then `ProbeUpdate.OnChange` asks when the two hashes combined differ from the last,
@@ -2971,7 +2971,7 @@ no surface and the blur is skipped, so the surface is lit as plain matte.
 
 A decal is a box. `View.Decal` takes its matrix, a `Surface` made of textures and a
 `DecalBlend`, and refuses a box that can't be inverted, a weight outside 0 to 1, a surface
-shader and a 257th decal before anything is drawn. `SceneRenderer` turns each surface into
+shader and a 257th decal before anything is drawn. `DecalMaterials` turns each surface into
 a material of its own once (colour, normal and surface textures, no flags) and hands the
 renderer `FrameView.Decals`. It keeps those materials, with the frame each was last used,
 until content unloads; past `MaxDecalMaterials` (512, twice what a frame can use) it lets go
@@ -3019,7 +3019,7 @@ mirrored box still reads its normal map the right way up. The result is mixed in
 skipped when a frame has no decals. Depth goes to shader-read for the pass, which the AO
 pass then reads as it was going to anyway.
 
-`RenderEffects.Decals` (bit 14) works on the CPU and has no shader flag: `SceneRenderer`
+`RenderEffects.Decals` (bit 14) works on the CPU and has no shader flag: `DecalMaterials`
 hands over no decals and the renderer packs none, so the copy and the pass are both
 skipped. With `RenderEffects.Materials` off, `decal.frag` discards every pixel, so the
 plain clay stays plain.
@@ -3416,7 +3416,7 @@ so a version 1 file, or a cut-short one, says `<name> is not a current cooked te
 again.` The readers on the CPU decode instead: `CookedTexture.DecodePixels` runs level 0
 through BCnEncoder.NET's decoder (which `Super` now references), copies BC4's red to green
 and blue, and rebuilds a BC5 normal map's blue from red and green as the shaders do.
-`GameImage.ReadPixels` uses it, and so does `SceneRenderer.LoadImage`, because interface
+`GameImage.ReadPixels` uses it, and so does `ItemReads.LoadImage`, because interface
 images build alpha-weighted mips with `ImageMips` that the cooked mips don't have. So a
 compressed image is smaller on disk only, and is uploaded as RGBA8. The cooker can't tell an
 image from a texture, since which one a file is depends on the code that loads it, so UI
@@ -4048,14 +4048,23 @@ Handles are recycled through a free list per kind, and each kind remembers which
 slots are on their way out, so destroying a handle twice fails rather than freeing
 whatever reused the slot. Nothing here allocates once the lists have grown.
 
+Super's `SceneRenderer` (`src/Super/Rendering/SceneRenderer.cs`) owns the `Renderer` and makes each frame from
+small parts, each in its own file next to it. `ItemReads` reads a content item's files on a background thread;
+`UploadedItems` keeps what each item became on the GPU, by its index, and `ItemUploads` makes and frees it on the
+main thread. `DressedDraws` copies the parts each draw shows and dresses them, with `PoseSkinning` for the bones,
+`DecalMaterials` makes the decals, `OverlayUpkeep` keeps the interface's atlas and images, and `FrameMaker` turns
+the view into the `FrameView`, with `ViewSky` for the sky, water and fog. `ReflectionProbeUpdater` asks for
+reflection probe pictures, and `SceneBakes` connects the bake store, the bake cache and the background bake. The
+renderer's own settings and counters are read on `SceneRenderer.Renderer`.
+
 The built-in shapes live outside `Content`. The cube is index 0, slot 0 of the
 `ContentLoader`, and content items count up from 1. The other shapes take negative
-indices, so adding one never moves an index a game already holds. `SceneRenderer`
+indices, so adding one never moves an index a game already holds. `UploadedItems`
 builds them from `Shapes.BuiltIn` once, with the shared white material, and keeps them
 for its whole life; `Content` treats any index of 0 or below as always ready and never
 unloadable, and `View.Model` refuses a negative index with no shape behind it.
 
-Generated meshes share materials. `SceneRenderer` keeps one material per surface in
+Generated meshes share materials. `ItemUploads` keeps one material per surface in
 `SharedMaterials`, counting the meshes that use it, and destroys it when the last of them is
 unloaded or fails to upload. Surfaces are compared by value, with their arrays compared item
 by item, and the cache keeps its own copy of each surface's arrays, so a game changing one in
@@ -4170,11 +4179,12 @@ other, so the result holds every part but isn't always the tightest sphere.
 
 ## A static draw's ids
 
-`SceneRenderer.PrepareDraws` copies a model's shown parts into the frame's draws, and
-`SceneRenderer.Dress` then sets each copy's transform, tint and the rest. For a static draw it
-also calls `BakeIdentity.Assign` (`src/Super/Rendering/BakeIdentity.cs`). `Dress` is static
-and takes the part spheres as an argument, so tests run it without a GPU; the renderer reads
-the spheres from `Renderer.BoundsOf` into a buffer it keeps.
+`DressedDraws.Fill` copies a model's shown parts into the frame's draws, and
+`DressedDraws.Dress` then sets each copy's transform, tint and the rest. For a static draw it
+also calls `BakeIdentity.Assign` (`src/Super/Rendering/BakeIdentity.cs`) with a `BakeIdDraw` (the
+model's identity, tint and transform) and the frame's `BakeIdAreas` (its baked space and chunks, and the
+`BakeIdScratch` the ids are worked out in). `Dress` is static and takes the part spheres as an argument, so
+tests run it without a GPU; `DressedDraws` reads the spheres from `Renderer.BoundsOf` into a buffer it keeps.
 
 `Assign` moves the sphere of each shown part into the world and asks `OwnerOfModel` which
 baked area owns the model. When a chunk owns it, the draw's transform is made relative to the
@@ -4209,7 +4219,7 @@ it until the model is unloaded or the content reloads. It starts with a kind:
   generated one by its size, pixels, kind and normal-map flag), the shader's name and the
   SHA-256 of its SPIR-V, parameters, shader textures and array layers.
 
-A shader's SPIR-V comes from `Content.ShaderBytes`, which is `SceneRenderer.LoadShader` (the
+A shader's SPIR-V comes from `Content.ShaderBytes`, which is `ItemReads.LoadShader` (the
 `shaders` folder beside the program) unless a test swaps it, so editing a shader changes the
 ids of every static draw that uses it. A game that draws nothing static never hashes a model.
 
@@ -4219,7 +4229,7 @@ uploads and what `IdentityOf` hashes, so the identity covers the second UVs and 
 `GeneratedMesh` made with and without the flag hashes differently when the unwrap changed it.
 Unwrapping on the first static draw instead would upload the mesh again mid-game and change its
 identity under its bake. `Content` keeps the indices of code meshes made without the flag in a
-set, dropped from it when one is unloaded, and `SceneRenderer.Dress` throws for a static draw of
+set, dropped from it when one is unloaded, and `DressedDraws.Dress` throws for a static draw of
 one, after its `Static` check, so a dynamic draw costs nothing more. Built-in shapes and cooked
 models always have lightmap UVs, so they are never in the set.
 
@@ -4381,7 +4391,7 @@ pages are resident in the pool; see "Chunk bakes on the GPU" and "Relighting a c
 
 `LightBakeStore` (`src/Rendition/Baking/LightBakeStore.cs`) is the `IBakeStore` a Super game
 uses. It reads files through a `Func<string, byte[]?>`, so Rendition doesn't know where content
-lives; `SceneRenderer` gives it `Content.Files.Read` for names whose kind is `ContentKind.Data`,
+lives; `SceneBakes` gives it `Content.Files.Read` for names whose kind is `ContentKind.Data`,
 so it sees the cooked bakes, and logs to `Console.Error`. `Saved(file)` and `SavedQuality(file)`
 read a file's header with `LightBakeFile.ReadInputsAndQuality` the first time either is asked about
 and keep its inputs and quality in a `Dictionary`, null for a missing file or one that can't be read: a header
@@ -4400,8 +4410,8 @@ up a file's one report either. So once every area's file has been asked about, a
 allocates nothing, the stale path included, which `LightBakeStoreTests` checks with
 `GC.GetAllocatedBytesForCurrentThread`.
 
-`Forget` clears both, so the next frame reads the headers again and logs again. `SceneRenderer`
-calls it in `Prepare` when `Content.Files` is a different object or `Content.Reloads` has moved
+`Forget` clears both, so the next frame reads the headers again and logs again. `SceneBakes`
+calls it in `Follow` when `Content.Files` is a different object or `Content.Reloads` has moved
 since the last frame; `Content.Reload` counts up right after it refreshes the files. `Load`
 reads a whole file with `LightBakeFile.Read` and keeps nothing; it is for drawing a fresh bake.
 `Forget` also counts up `Reloads`, so the renderer reads the bake it holds again. `Forget(file)` drops one file's header and its stale report instead, and does not count `Reloads` up, since that would make the renderer let go of every chunk bake on the GPU and upload them all again. It records the file for `IBakeStore.TakeForgotten`, which the renderer drains in `FrameBakes.TryResolve`: it takes that file off its unreadable set and calls `ChunkBakePool.Forget`, which touches just that entry (see [Chunk bakes on the GPU](#chunk-bakes-on-the-gpu)). That reads no file and waits for nothing, so the other chunk bakes stay resident. `Load`, `Reloads` and `TakeForgotten` are on
@@ -4697,7 +4707,7 @@ game's local app data and not the roaming folder (`LOCALAPPDATA\{id}\Bakes` on W
 Linux), under the same names as the content's bakes, which hold the input hash. `BakeCache.PlayFolder` picks
 the folder for live play: `Bakes` inside `--user-data` when it is given, otherwise `FolderFor`, and none, with one
 line saying why, when `FolderFor` finds no folder in the environment. `Game.Run` looks up the player's user-data folder
-only when it uses it, so `--user-data` runs where the environment names none. `SceneRenderer.BakeCache`
+only when it uses it, so `--user-data` runs where the environment names none. `SceneBakes.BakeCache`
 is null by default, and `ReadBake` asks it only for a name the cooked content doesn't have as data,
 so a cooked bake always wins. A bake is read where `ReadBake` already runs, which can be on the
 render thread (see the known limit below).
@@ -4726,6 +4736,8 @@ setting a use time never fails a read or a write. A file that can't be opened or
 another handle, a folder in its place, no access) counts as not kept, so the chunk is baked again.
 The first write of a session sweeps `.tmp` files last written over an hour before the `TimeProvider`'s
 now, left by a crash. It goes by the last-write time, since not every file system keeps a creation time.
+`BakeCache` hands the work to three parts: `HeldBakes` holds the bakes in memory under its lock, `CachedBakeFiles`
+does the file work in the folder, and `BakeCacheTrimmer` sweeps and trims under the second lock.
 
 Known limit: a bake cached in an earlier session isn't in memory, so the first time its name is asked
 for it is read from disk, synchronously, on the thread that asks, which can be the render thread.
@@ -4742,7 +4754,7 @@ does today.
 ### Baking on arrival
 
 Super turns the renderer's [background bake](#baking-in-the-background) on in play only. `Game.StartWindowsGameLoop`
-makes the `BakeCache` just before `GameWindow.Run`, from the game's id, and hands it to `SceneRenderer.BakeCache`
+makes the `BakeCache` just before `GameWindow.Run`, from the game's id, and hands it to `SceneBakes.BakeCache`
 through `GameWindow.BakeCache`, so the other runs neither bake nor read the cache. `Run` turns baking on after the
 game goes live by calling `AutoBakeSwitch.TurnOn` (`src/Super/Rendering/AutoBakeSwitch.cs`), and `ApplyAutoBake`,
 called again before each frame is shown, works out the plan only when `AutoBakeSwitch.Changed` says
@@ -4752,7 +4764,7 @@ Every other run leaves the switch off. The switch is tested on its own; that onl
 `AutoBakePolicy.For` (`src/Super/Rendering/AutoBakePolicy.cs`) makes the plan: null when the switch is off or the GPU
 can't trace; from source, where `CookedFolder.Dev` has roots, spaces and chunks at Preview then Final, 4 ms, with the
 first root as the space folder; published, chunks only at Preview, 2 ms, and no space folder.
-`SceneRenderer.BakeOnArrival` sets `Renderer.AutoBake` with `BakeSaver.Done` as its `Done`.
+`SceneBakes.BakeOnArrival` sets `Renderer.AutoBake` with `BakeSaver.Done` as its `Done`.
 
 `BakeSaver` (`src/Super/Rendering/BakeSaver.cs`) gets each finished file on the render thread and chains its work onto
 the last bake's task on the thread pool, so files are kept in the order they finished and a Final never loses to a
@@ -4763,7 +4775,7 @@ That reload calls `LightBakeStore.Forget()`, which lets go of every chunk bake t
 chunks the chunks are lit live for a moment and their headers are read again on the render thread; no example has
 both yet. Forgetting only the space's file would need the reload to say which files changed, which it doesn't. A
 chunk's goes to `BakeCache.Write`, and its name goes to `WrittenBakes.Written`, a `ConcurrentQueue` that
-`SceneRenderer.Prepare` drains on the render thread with `WrittenBakes.ForgetIn` into `LightBakeStore.Forget(file)`, so the store reads the new file, from the cache's memory, on the next
+`SceneBakes.Follow` drains on the render thread with `WrittenBakes.ForgetIn` into `LightBakeStore.Forget(file)`, so the store reads the new file, from the cache's memory, on the next
 frame. Every exception is caught and logged as one line, since nothing else would hear of it, and the area stays lit
 live. `SceneRenderer.Dispose` waits up to 10 seconds for the saver after the renderer has gone, so a bake that finished
 just before the window closed is still kept. A new saver is made only when the space folder or the cache changes,
@@ -4800,7 +4812,7 @@ screenshot calls `GameStats.Restart` after the probes settle and then renders un
 update with the renderer measured, up to 600 frames, so the shot's panel shows the scene as
 captured and not the settling frames.
 
-Where the GPU can't trace, `SceneRenderer.SaysWhyNotBaking` is set from source, and after `Render` the first frame
+Where the GPU can't trace, `SceneBakes.SaysWhyNotBaking` is set from source, and after `Render` the first frame
 with a space that isn't fresh, or a chunk that is neither fresh nor pending, logs `Not baking {name}: {reason}` once.
 `NotBakingNotice` (`src/Super/Rendering/NotBakingNotice.cs`) makes that decision from the frame's `BakeFrame`, and
 says nothing while baked lighting is switched off.
