@@ -714,7 +714,7 @@ own, but a graph's compile errors are reported with their lines as usual.
 
 Leaving `System.IO` out of the usings doesn't keep a graph from files, since
 `System.Private.CoreLib` holds `File`, `Thread`, `DateTime.Now` and `System.Random`, and
-`System.Runtime` forwards them. So once the graph emits, `GraphCompiler` walks its own
+`System.Runtime` forwards them. So once the graph emits, `GraphCompiler` has `PureApiCheck` walk its own
 tree (not the usings tree) with the semantic model, top down. Each expression that binds
 to a banned symbol is one error on its line, and its children aren't checked, so
 `System.IO.File.Exists` is one error, not three. Banned are the namespaces `System.IO`,

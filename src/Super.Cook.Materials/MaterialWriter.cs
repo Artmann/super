@@ -30,14 +30,26 @@ internal static class MaterialWriter
             output.Warning($"{name}: {part} has pixels that aren't numbers. They were written as 0.");
         }
 
-        (string Part, TextureKind Kind, bool NormalMap, TextureFormat Format, byte[] Pixels)[] parts =
+        TexturePart[] parts =
         [
-            ("color", TextureKind.Color, false, TextureFormat.Bc7, pixels.Color),
-            ("normal", TextureKind.Linear, true, TextureFormat.Bc5, pixels.Normal),
-            ("surface", TextureKind.Linear, false, TextureFormat.Bc7, pixels.Surface),
-            ("height", TextureKind.Linear, false, TextureFormat.Bc4, pixels.Height),
+            new("color", TextureKind.Color, false, TextureFormat.Bc7, pixels.Color),
+            new("normal", TextureKind.Linear, true, TextureFormat.Bc5, pixels.Normal),
+            new("surface", TextureKind.Linear, false, TextureFormat.Bc7, pixels.Surface),
+            new("height", TextureKind.Linear, false, TextureFormat.Bc4, pixels.Height),
         ];
 
+        var cooked = Cook(parts, size, compress);
+        for (int i = 0; i < parts.Length; i++)
+        {
+            output.AddPart(parts[i].Part, ContentKind.Texture, cooked[i]);
+        }
+
+        output.AddPart("material", ContentKind.Data, WidthJson(images.Width));
+    }
+
+    /// <summary>Each part cooked: RGBA8 at full size, or with <paramref name="compress"/> block-compressed with its mips.</summary>
+    private static byte[][] Cook(TexturePart[] parts, int size, CookInput? compress)
+    {
         var cooked = new byte[parts.Length][];
         if (compress is null)
         {
@@ -45,32 +57,35 @@ internal static class MaterialWriter
             {
                 cooked[i] = new CookedTexture(size, size, parts[i].Kind, parts[i].NormalMap, parts[i].Pixels).Write();
             }
-        }
-        else
-        {
-            Parallel.For(0, parts.Length, i =>
-            {
-                var part = parts[i];
-                var mips = TextureData.FromPixels(size, size, part.Kind, part.Pixels, part.NormalMap);
-                cooked[i] = TextureCompression.CompressCooked(mips, part.Format, part.NormalMap, compress);
-            });
+
+            return cooked;
         }
 
-        for (int i = 0; i < parts.Length; i++)
+        Parallel.For(0, parts.Length, i =>
         {
-            output.AddPart(parts[i].Part, ContentKind.Texture, cooked[i]);
-        }
+            var part = parts[i];
+            var mips = TextureData.FromPixels(size, size, part.Kind, part.Pixels, part.NormalMap);
+            cooked[i] = TextureCompression.CompressCooked(mips, part.Format, part.NormalMap, compress);
+        });
+        return cooked;
+    }
 
+    /// <summary>The material part: a JSON object holding the material's width.</summary>
+    private static byte[] WidthJson(float width)
+    {
         using var json = new MemoryStream();
         using (var writer = new Utf8JsonWriter(json))
         {
             writer.WriteStartObject();
-            writer.WriteNumber("width", images.Width);
+            writer.WriteNumber("width", width);
             writer.WriteEndObject();
         }
 
-        output.AddPart("material", ContentKind.Data, json.ToArray());
+        return json.ToArray();
     }
+
+    /// <summary>One of a material's four textures: its part's name, how it's read and compressed, and its pixels.</summary>
+    private readonly record struct TexturePart(string Part, TextureKind Kind, bool NormalMap, TextureFormat Format, byte[] Pixels);
 }
 
 /// <summary>

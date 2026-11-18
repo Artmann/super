@@ -42,21 +42,7 @@ internal sealed class Variant
                 return null;
             }
 
-            string? graph = null;
-            var values = new List<(string, JsonElement)>();
-            foreach (var property in root.EnumerateObject())
-            {
-                if (string.Equals(property.Name, GraphKey, StringComparison.OrdinalIgnoreCase))
-                {
-                    graph = property.Value.ValueKind == JsonValueKind.String ? property.Value.GetString() : property.Value.GetRawText();
-                }
-                else
-                {
-                    // The document is disposed below, so the value must outlive it.
-                    values.Add((property.Name, property.Value.Clone()));
-                }
-            }
-
+            var (graph, values) = Split(root);
             if (string.IsNullOrEmpty(graph))
             {
                 error($"{name} needs \"graph\", the .material.cs file it sets values for.");
@@ -73,6 +59,26 @@ internal sealed class Variant
             variant._values.AddRange(values);
             return variant;
         }
+    }
+
+    /// <summary>The variant's graph, as written, and every other value by its name, copied so it outlives the document.</summary>
+    private static (string? Graph, List<(string Name, JsonElement Value)> Values) Split(JsonElement root)
+    {
+        string? graph = null;
+        var values = new List<(string Name, JsonElement Value)>();
+        foreach (var property in root.EnumerateObject())
+        {
+            if (string.Equals(property.Name, GraphKey, StringComparison.OrdinalIgnoreCase))
+            {
+                graph = property.Value.ValueKind == JsonValueKind.String ? property.Value.GetString() : property.Value.GetRawText();
+            }
+            else
+            {
+                values.Add((property.Name, property.Value.Clone()));
+            }
+        }
+
+        return (graph, values);
     }
 
     /// <summary>Sets the values on <paramref name="graph"/>. Reports each one that can't be set.</summary>
@@ -124,40 +130,22 @@ internal sealed class Variant
 
     private static bool TryConvert(Type type, JsonElement value, out object? converted, out string wanted)
     {
-        converted = null;
-        if (type == typeof(float))
-        {
-            wanted = "a number";
-            if (value.ValueKind == JsonValueKind.Number && value.TryGetSingle(out float number) && float.IsFinite(number))
-            {
-                converted = number;
-            }
-        }
-        else if (type == typeof(int))
-        {
-            wanted = "a whole number";
-            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int whole))
-            {
-                converted = whole;
-            }
-        }
-        else if (type == typeof(bool))
-        {
-            wanted = "true or false";
-            if (value.ValueKind is JsonValueKind.True or JsonValueKind.False)
-            {
-                converted = value.GetBoolean();
-            }
-        }
-        else
-        {
-            wanted = "text";
-            if (value.ValueKind == JsonValueKind.String)
-            {
-                converted = value.GetString();
-            }
-        }
-
+        (converted, wanted) = type == typeof(float) ? (AsNumber(value), "a number")
+            : type == typeof(int) ? (AsWholeNumber(value), "a whole number")
+            : type == typeof(bool) ? (AsTrueOrFalse(value), "true or false")
+            : (AsText(value), "text");
         return converted is not null;
     }
+
+    private static object? AsNumber(JsonElement value) =>
+        value.ValueKind == JsonValueKind.Number && value.TryGetSingle(out float number) && float.IsFinite(number) ? number : null;
+
+    private static object? AsWholeNumber(JsonElement value) =>
+        value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int whole) ? whole : null;
+
+    private static object? AsTrueOrFalse(JsonElement value) =>
+        value.ValueKind is JsonValueKind.True or JsonValueKind.False ? value.GetBoolean() : null;
+
+    private static object? AsText(JsonElement value) =>
+        value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 }
