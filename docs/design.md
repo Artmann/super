@@ -128,7 +128,11 @@ sample or per draw keeps an enum on the object and decides once per block, not p
 
 `Mixer` (in `src/Super/Audio`) owns every playing voice. `Mix(span)` clears the span,
 adds each voice into it and moves the sample clock (`Clock`, frames mixed) on by the
-span's frame count. It allocates nothing: voices live in 64 slots made up front, each
+span's frame count. It hands the work to a few parts: `VoiceBank` holds the 64 voice
+slots, `AmbienceBank` the 8 ambience players, `MixListening` the channel volumes, listener
+and world rate (`Mixer.Listening`), and `MixFailures` the failure count (`Mixer.Failures`).
+Each `Voice` reads its clip through a `VoiceSource`, which keeps a `VoiceBuffer` of source
+frames and the cursor. It allocates nothing: voices live in 64 slots made up front, each
 with its own read buffer, and a slot keeps the reader of the last decoded clip it played
 and rebinds it for the next one. A streamed clip (over 10 s) opens a decoder when it
 starts, which is the one allocation allowed, and disposes it when the voice ends or is
@@ -188,9 +192,9 @@ on unknown, ended or dropped ids do nothing.
 
 **Bad voices.** A voice whose reader throws while mixing (say a corrupt frame far into a
 streamed ogg) is ended and the rest carry on. Only the clip's reader is guarded, so any
-other exception still reaches the caller. `FailedVoices` and `LastFailure` on the mixer
-count these, skipped scattered sounds, and ambience layers that found no free voice
-(`RecordFailure`). The device's audio thread logs a line when the count grows; manual
+other exception still reaches the caller. `Mixer.Failures` (`Failed` and `LastMessage`)
+counts these, skipped scattered sounds, and ambience layers that found no free voice
+(`Tally`). The device's audio thread logs a line when the count grows; manual
 mixing (headless, tests) logs nothing. Starting a voice opens its reader before the
 slot is marked in use, so a clip that fails to open throws from `Start` and leaves the
 slot free; a voice that was to be dropped for it keeps playing until the new one has begun.
@@ -221,7 +225,7 @@ below comes from it, so one seed gives the same ambience every run.
   protected from the voice limit like music; scattered sounds are ordinary voices and can
   be dropped. If a layer can't start, the layers already started are stopped and the
   error reaches the caller of `StartAmbience`. A layer the limit refuses, which only
-  happens when all 64 voices are music or layers, is counted with `RecordFailure` and the
+  happens when all 64 voices are music or layers, is counted in `Mixer.Failures` and the
   rest of the ambience plays. If a scattered sound can't start (say its
   clip fails to open), that one play is skipped and the next is timed as usual.
 - `SetAmbienceVolume` fades the layers (and the volume new scattered sounds use) to the new
@@ -267,7 +271,7 @@ the mixer voice or ambience id it got, `Mixer.Dropped` or `Mixer.NoAmbience` if 
 mixer refused it. A command reaches a mixer voice only if its game id matches the one
 stored, so a command whose start was dropped can't reach an older sound. One-shots have
 no id and no mapping. A start whose clip fails to open is counted in the mixer's
-`FailedVoices` and mapped to `Dropped`, so one bad clip can't stop the mixer.
+`Failures` and mapped to `Dropped`, so one bad clip can't stop the mixer.
 
 **Fades.** Loops fade in over 0.1 s, change volume over 0.1 s and fade out over 0.3 s.
 Ambiences fade in, change and fade out over 2 s. Music cross-fades over `fadeSeconds`:
@@ -353,8 +357,8 @@ ring, then mixes) and queues it, then makes sure the source is playing. It then 
 up to 2 ms (often about 15 ms on Windows) on an event that `Resume` and `Dispose` set. If
 it falls behind, every processed buffer is refilled in one pass, and a source that ran
 dry and stopped is played again, so it never stays stopped. It allocates nothing per
-pass. After each pass it compares `Mixer.FailedVoices` with the count it last saw, and
-when it grew writes `A sound failed and stopped ({count} so far): {LastFailure}` to the
+pass. After each pass it compares `Mixer.Failures.Failed` with the count it last saw, and
+when it grew writes `A sound failed and stopped ({count} so far): {LastMessage}` to the
 log given to `UseDevice`, a plain `WriteLine` inside a `try`. Anything else that throws
 on the thread is caught: it logs `Sound stopped: {message}` and stops rendering for good,
 because the mixer may be half way through a change; the game carries on in silence. The

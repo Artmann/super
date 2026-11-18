@@ -104,7 +104,7 @@ public class AmbiencePlayerTests
     public void AmbienceVolumeAndChannelScaleTheLayers()
     {
         var mixer = TestMixer.Make();
-        mixer.SetChannelVolume(Channel.Ambience, 0.5f);
+        mixer.Listening.SetChannelVolume(Channel.Ambience, 0.5f);
 
         mixer.StartAmbience(Layers((Constant("rain.wav", 4800), 0.6f)), 0.5f, 0);
         float[] stereo = Mix(mixer, 10);
@@ -353,8 +353,8 @@ public class AmbiencePlayerTests
 
         Assert.NotEqual(Mixer.NoAmbience, mixer.StartAmbience(Layers((Constant("rain.wav", 4800), 1f)), 1, 0));
 
-        Assert.Equal(1, mixer.FailedVoices);
-        Assert.Equal("The ambience layer rain.wav found no free voice: all 64 are music or ambience layers.", mixer.LastFailure);
+        Assert.Equal(1, mixer.Failures.Failed);
+        Assert.Equal("The ambience layer rain.wav found no free voice: all 64 are music or ambience layers.", mixer.Failures.LastMessage);
         Assert.DoesNotContain(Snapshot(mixer), p => p.Clip == "rain.wav");
     }
 
@@ -535,8 +535,8 @@ public class AmbiencePlayerTests
             Assert.Equal(0.5f, stereo[^2], 1e-6f);
         }
 
-        Assert.InRange(mixer.FailedVoices, 6, 9);
-        Assert.Equal("can't open", mixer.LastFailure);
+        Assert.InRange(mixer.Failures.Failed, 6, 9);
+        Assert.Equal("can't open", mixer.Failures.LastMessage);
         Assert.Equal(4L * Mixer.SampleRate / Block * Block, mixer.Clock);
         Assert.Equal("rain.wav", Assert.Single(Snapshot(mixer)).Clip);
     }
