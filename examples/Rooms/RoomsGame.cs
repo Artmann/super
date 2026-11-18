@@ -40,10 +40,10 @@ public record Motion(string Id, float Seconds, Curve Curve);
 public record struct Hut;
 
 /// <summary>A hut on its way up out of the ground. The tween is its height, kept in the world like any other state.</summary>
-public struct Rising(Tween<float> height)
+public struct Rising(TweenValue<float> height)
 {
     /// <summary>A field, not a property, so a query can update the tween where it lies.</summary>
-    public Tween<float> Height = height;
+    public TweenValue<float> Height = height;
 }
 
 /// <summary>A menu, a loading screen, and two areas with one player walking between them.</summary>

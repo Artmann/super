@@ -101,8 +101,8 @@ mistake, with the file's path.
 ## Tweens
 
 `Tween.Between(from, to, seconds, easing)` makes a tween for a `float`, `Vector2`,
-`Vector3`, `Vector4`, `Quaternion` (turned the short way with `Slerp`) or `Color`. The
-rest is set by calls that each give a new tween:
+`Vector3`, `Vector4`, `Quaternion` (turned the short way with `Slerp`) or `Color`, as a
+`TweenValue<T>`. The rest is set by calls that each give a new tween:
 
 | Call | What it does |
 | --- | --- |
@@ -162,9 +162,9 @@ Put the tween in a component and update it in a query. `examples/Rooms` raises a
 of the ground when you press E outside, using the curve in `content/motions/rise.json`:
 
 ```csharp
-public struct Rising(Tween<float> height)
+public struct Rising(TweenValue<float> height)
 {
-    public Tween<float> Height = height;
+    public TweenValue<float> Height = height;
 }
 
 world.Add(hut, new Rising(Tween.Between(-1.3f, 0.1f, rise.Seconds).Ease(rise.Curve)));
