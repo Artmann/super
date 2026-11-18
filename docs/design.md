@@ -1343,7 +1343,7 @@ to four cascades, each a ball three times the radius of the one before.
 `Renderer.Settings.MaxShadowCascades` (`Graphics.Shadowing.ShadowCascades`) caps how many are drawn, keeping the
 nearest, so a lower setting gives up the far shadows and keeps the near ones as sharp.
 
-`Renderer.FitCascades` lays the balls along the view. `ShadowCascades.Spread` reads how far a
+`SunShadows.FitCascades` lays the balls along the view. `ShadowCascades.Spread` reads how far a
 frustum corner leaves the view axis per metre of depth, and `ShadowCascades.FitSlice` finds the
 deepest slice of the frustum, starting where the last one ended, whose corners still fit in
 a ball of the cascade's radius. The ball's size never depends on the camera's angle, and
@@ -1603,7 +1603,7 @@ records every level at once instead, so a sky a game sets before it, and a scree
 studio in the rough reflections. The bake slice and chunk copies recorded
 before it in that frame still read the previous sky, a frame behind. The paths that draw
 outside a frame (a blocking bake, the constructor) call
-`FlushEnvironment`, which records the whole update in its own submit and waits when
+`EnvironmentSky.Flush`, which records the whole update in its own submit and waits when
 anything is pending or slices are left. `Flat` follows a frame or two behind, since it
 reads what the GPU last finished, and its reflection half reads mip 5, so it can trail the
 last slice. `Sky` is a view of the sky cube's first mip only, so the light probes, reflection
@@ -1729,14 +1729,14 @@ spread evenly over it (clamped to 65504 for half floats); its direction is the c
 that light, and the patch is cut down to the ring's level. `SkyImageData.ReadSunDirection` reads only the
 header, so `content.Sky` knows the sun's direction without loading the faces.
 
-The renderer keeps each `CreateSkyImage` cube in `_skyImages` with its sun and an XxHash64
+`EnvironmentSky` keeps each `CreateSkyImage` cube in its list of images with its sun and an XxHash64
 of its texels, and frees them only when it is disposed. `SkyModel.Photographed` gives a
 `SkySun` with turbidity 0, the sun turned by the rotation, its disc scaled by 2^exposure and
 clamped to 30000, and the image, rotation and scale; `EnvironmentUniforms` writes these to
 the Environment block's `image` (1, cos, sin, scale). The cube sits in binding 3 of every
 cube shader's layout; while no image is set, `EnvironmentPrefilter` binds `_noImage`, a
 one-texel black cube, so the layout never changes. Swapping the image rewrites that
-binding, so `BakeSky` waits for the device to go idle first; turning or brightening it is an
+binding, so `EnvironmentSky.Follow` waits for the device to go idle first; turning or brightening it is an
 ordinary sky change. `photographed()` turns the direction, reads the mip whose texels are
 about as wide as the target's, and adds the disc only where `draw.disc` is 1, so the sun
 shows in the sharp level and, through `lighting.frag`'s nothing-drawn branch, behind the
@@ -2375,7 +2375,7 @@ CPU, `Next` used to scan every probe each frame whatever the budget, which `--pr
 1 ms a frame at High. Reading only the waiting probes and the oldest captures took the Courtyard's
 CPU time from 1.6 to 0.7 ms a frame, and left `Next` under 1% of the game thread's samples.
 
-`ProbeDebugPass` draws `DebugView.Probes`. A frame's `RecordTransparent` runs it after the transparent pass and only while `_lightProbesInUse`, so with
+`ProbeDebugPass` draws `DebugView.Probes`. A frame's `BlendStage.Record` runs it after the transparent pass and only while `_lightProbesInUse`, so with
 the probes off it records nothing and no atlases are made. It needs no buffers: probe_debug.vert
 builds a 12 × 8 UV sphere (576 vertices) from `gl_VertexIndex` and finds its probe from
 `gl_InstanceIndex`. The first instances are cascade 0's cells, placed and slotted with the same
@@ -3046,7 +3046,7 @@ RT1 is written whole, without blending, while RT0 blends, which needs the device
 and names it when it's missing. A normal can't be blended as a colour:
 the decal's normal map is laid over the normal underneath with reoriented normal mapping
 (RNM), so the brick's bumps show through the damp. The pass must read the normal it
-writes, and a colour attachment can't be sampled while it's drawn to, so `RecordDecals`
+writes, and a colour attachment can't be sampled while it's drawn to, so `OpaqueStage.RecordDecals`
 copies RT1 into `GBuffer.NormalCopy` with `vkCmdCopyImage` first and the shader reads the
 copy. The RNM runs in the box's frame, set up the way a mesh's is: the
 tangent is the box's +X, the way u rises, the bitangent its +Z, the way v falls, and the
@@ -4351,8 +4351,8 @@ item, `Spot`, and the plain one calls every local light a point light.
 
 `BakeResolver.Resolve` (`src/Rendition/Baking/BakeResolver.cs`) decides, once a frame, which
 bakes are fresh and which lights they take over. `Renderer.Render` calls it after the bake id
-and chunk checks and after `BakeSky`, since `EnvironmentHash` reads the sky and intensity
-`BakeSky` sets. `Capture` goes through `Render`, so it does the same. A frame that names no
+and chunk checks and after `EnvironmentSky.Follow`, since `EnvironmentHash` reads the sky and intensity
+`EnvironmentSky.Follow` sets. `Capture` goes through `Render`, so it does the same. A frame that names no
 space and no chunks returns the shared `BakeFrame.None` at once, before hashing, asking the
 store or feeding the tracker, so a game without baked areas does no work and allocates
 nothing. The renderer then sets `LastBakeFrame` to null.
@@ -4488,8 +4488,8 @@ lights. Because the frame is reused, **the `BakeFrame` a call returns is valid o
 next call** (`LastBakeFrame` included): keep what you need from it, not the frame. The only
 other garbage is from a store that allocates in `IsFresh`, which is the store's own. The
 resolver expects the chunks to have passed `BakeFiles.IsRigid`, which `Render` checks first.
-The sky is worked out once, from the original view: the second pass skips `BakeSky`, and
-`WriteUniforms` reads the `SkySun` that `BakeSky` stored rather than `SkyModel.Sun` of the view
+The sky is worked out once, from the original view: the second pass skips `EnvironmentSky.Follow`, and
+`WriteUniforms` reads the `SkySun` that `EnvironmentSky.Follow` stored rather than `SkyModel.Sun` of the view
 it draws. So a dropped Baked sun keeps lighting the sky and keeps its disc, and the sky isn't
 baked again without it each frame (`BakedSunGpuTests`).
 
