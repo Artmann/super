@@ -21,18 +21,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Actions.Evaluate",
-      "file": "src/Super/Input/Actions.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Audio.Apply",
-      "file": "src/Super/Audio/Audio.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.BakeIdentity.AddMesh",
       "file": "src/Super/Rendering/BakeIdentity.cs",
       "metric": 16
@@ -75,24 +63,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Curve.Check",
-      "file": "src/Super/Curve.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Ease.Apply",
-      "file": "src/Super/Easing.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Ease.In",
-      "file": "src/Super/Easing.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
       "metric": 27
@@ -102,12 +72,6 @@
       "name": "Super.GameWindow.ListenForInput",
       "file": "src/Super/Rendering/GameWindow.cs",
       "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.OpenAlSpeakers.Open",
-      "file": "src/Super/Audio/DeviceOutput.cs",
-      "metric": 12
     },
     {
       "kind": "high-complexity",
@@ -123,24 +87,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Spline.CheckPositions",
-      "file": "src/Super/Spline.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Spline.Spline",
-      "file": "src/Super/Spline.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Ui.UiPointer.RefreshLook",
-      "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.View.CheckLight",
       "file": "src/Super/View.cs",
       "metric": 13
@@ -149,12 +95,6 @@
       "kind": "high-complexity",
       "name": "Super.View.Sky",
       "file": "src/Super/View.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Voice.Begin",
-      "file": "src/Super/Audio/Voice.cs",
       "metric": 12
     },
     {
@@ -189,21 +129,9 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.Mixer.Mix",
-      "file": "src/Super/Audio/Mixer.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Spline.Spline",
-      "file": "src/Super/Spline.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Voice.Begin",
-      "file": "src/Super/Audio/Voice.cs",
-      "metric": 18
+      "name": "Super.GameWindow.ListenForInput",
+      "file": "src/Super/Rendering/GameWindow.cs",
+      "metric": 17
     },
     {
       "kind": "long-method",
@@ -579,18 +507,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Actions.Evaluate",
-      "file": "src/Super/Input/Actions.cs",
-      "metric": 51
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.AmbiencePlayer.Begin",
-      "file": "src/Super/Audio/AmbiencePlayer.cs",
-      "metric": 57
-    },
-    {
-      "kind": "long-method",
       "name": "Super.BakeCache.Read",
       "file": "src/Super/Rendering/BakeCache.cs",
       "metric": 42
@@ -663,30 +579,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Mixer.Mix",
-      "file": "src/Super/Audio/Mixer.cs",
-      "metric": 59
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.OpenAlSpeakers.Open",
-      "file": "src/Super/Audio/DeviceOutput.cs",
-      "metric": 78
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.ParticleEmitter.Emit",
-      "file": "src/Super/Particles/ParticleEmitter.cs",
-      "metric": 73
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.ParticleEmitter.ParticleEmitter/7",
-      "file": "src/Super/Particles/ParticleEmitter.cs",
-      "metric": 46
-    },
-    {
-      "kind": "long-method",
       "name": "Super.SceneRenderer.CreateFrame",
       "file": "src/Super/Rendering/SceneRenderer.cs",
       "metric": 58
@@ -717,56 +609,14 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.SkeletonSpace.Reach",
-      "file": "src/Super/Animation/SkeletonSpace.cs",
-      "metric": 48
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Spline.MinimalUps",
-      "file": "src/Super/Spline.cs",
-      "metric": 53
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Spline.Spline",
-      "file": "src/Super/Spline.cs",
-      "metric": 54
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Terrain.Heightfield.Chunk",
       "file": "src/Super/Terrain/Heightfield.cs",
       "metric": 46
     },
     {
       "kind": "long-method",
-      "name": "Super.Ui.GlyphAtlas.Rasterize",
-      "file": "src/Super/Ui/GlyphAtlas.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Ui.GlyphAtlas.Wrap",
-      "file": "src/Super/Ui/GlyphAtlas.cs",
-      "metric": 49
-    },
-    {
-      "kind": "long-method",
       "name": "Super.View.Sky",
       "file": "src/Super/View.cs",
-      "metric": 45
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Voice.Begin",
-      "file": "src/Super/Audio/Voice.cs",
-      "metric": 81
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Voice.Fetch",
-      "file": "src/Super/Audio/Voice.cs",
       "metric": 45
     },
     {
@@ -1089,18 +939,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Super.AmbiencePlayer.Begin",
-      "file": "src/Super/Audio/AmbiencePlayer.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Audio.StartLoop",
-      "file": "src/Super/Audio/Audio.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Super.BakeIdentity.Assign",
       "file": "src/Super/Rendering/BakeIdentity.cs",
       "metric": 9
@@ -1137,24 +975,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Super.OpenAlSpeakers.OpenAlSpeakers",
-      "file": "src/Super/Audio/DeviceOutput.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.ParticleEmitter.Emit",
-      "file": "src/Super/Particles/ParticleEmitter.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.ParticleEmitter.ParticleEmitter/7",
-      "file": "src/Super/Particles/ParticleEmitter.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Super.SceneRenderer.Bake",
       "file": "src/Super/Rendering/SceneRenderer.cs",
       "metric": 6
@@ -1176,18 +996,6 @@
       "name": "Super.Shapes.AddArc",
       "file": "src/Super/Shapes.cs",
       "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Shot.Orbit",
-      "file": "src/Super/Cutscene.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.SoundClip.SoundClip",
-      "file": "src/Super/Audio/SoundClip.cs",
-      "metric": 6
     },
     {
       "kind": "too-many-parameters",
@@ -1230,12 +1038,6 @@
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
       "metric": 1873
-    },
-    {
-      "kind": "large-file",
-      "name": "src/Super/Audio/Audio.cs",
-      "file": "src/Super/Audio/Audio.cs",
-      "metric": 868
     },
     {
       "kind": "large-file",
@@ -1473,33 +1275,9 @@
     },
     {
       "kind": "large-type",
-      "name": "Super.AnimationPose",
-      "file": "src/Super/Animation/AnimationPose.cs",
-      "metric": 28
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Animator",
-      "file": "src/Super/Animation/Animator.cs",
-      "metric": 43
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Audio",
-      "file": "src/Super/Audio/Audio.cs",
-      "metric": 75
-    },
-    {
-      "kind": "large-type",
       "name": "Super.BakeCache",
       "file": "src/Super/Rendering/BakeCache.cs",
       "metric": 26
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.BoomCamera",
-      "file": "src/Super/CameraRigs.cs",
-      "metric": 23
     },
     {
       "kind": "large-type",
@@ -1527,12 +1305,6 @@
     },
     {
       "kind": "large-type",
-      "name": "Super.DeviceOutput",
-      "file": "src/Super/Audio/DeviceOutput.cs",
-      "metric": 21
-    },
-    {
-      "kind": "large-type",
       "name": "Super.GameHost",
       "file": "src/Super/GameHost.cs",
       "metric": 44
@@ -1551,36 +1323,6 @@
     },
     {
       "kind": "large-type",
-      "name": "Super.Input",
-      "file": "src/Super/Input/Input.cs",
-      "metric": 50
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Mixer",
-      "file": "src/Super/Audio/Mixer.cs",
-      "metric": 39
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.OverheadCamera",
-      "file": "src/Super/CameraRigs.cs",
-      "metric": 21
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.ParticleEmitter",
-      "file": "src/Super/Particles/ParticleEmitter.cs",
-      "metric": 57
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Rig",
-      "file": "src/Super/Animation/Rig.cs",
-      "metric": 26
-    },
-    {
-      "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
       "metric": 119
@@ -1593,75 +1335,15 @@
     },
     {
       "kind": "large-type",
-      "name": "Super.Spline",
-      "file": "src/Super/Spline.cs",
-      "metric": 46
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.States",
-      "file": "src/Super/States/States.cs",
-      "metric": 21
-    },
-    {
-      "kind": "large-type",
       "name": "Super.Surface",
       "file": "src/Super/Surface.cs",
       "metric": 33
     },
     {
       "kind": "large-type",
-      "name": "Super.Transition",
-      "file": "src/Super/Transition.cs",
-      "metric": 21
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Tween",
-      "file": "src/Super/Tween.cs",
-      "metric": 28
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Ui.GlyphAtlas",
-      "file": "src/Super/Ui/GlyphAtlas.cs",
-      "metric": 27
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Ui.ScrollView",
-      "file": "src/Super/Ui/ScrollView.cs",
-      "metric": 25
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Ui.UiNode",
-      "file": "src/Super/Ui/UiNode.cs",
-      "metric": 38
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Ui.UiPointer",
-      "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 38
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Ui.UiTree",
-      "file": "src/Super/Ui/UiTree.cs",
-      "metric": 48
-    },
-    {
-      "kind": "large-type",
       "name": "Super.View",
       "file": "src/Super/View.cs",
       "metric": 80
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Voice",
-      "file": "src/Super/Audio/Voice.cs",
-      "metric": 42
     },
     {
       "kind": "large-type",
