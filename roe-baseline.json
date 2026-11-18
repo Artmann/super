@@ -723,12 +723,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Voice.Mix",
-      "file": "src/Super/Audio/Voice.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.WavReader.Parse",
       "file": "src/Super/Audio/WavReader.cs",
       "metric": 20
@@ -1218,12 +1212,6 @@
       "name": "Super.Voice.Begin",
       "file": "src/Super/Audio/Voice.cs",
       "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Voice.Mix",
-      "file": "src/Super/Audio/Voice.cs",
-      "metric": 32
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2673,12 +2661,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Voice.Mix",
-      "file": "src/Super/Audio/Voice.cs",
-      "metric": 81
-    },
-    {
-      "kind": "long-method",
       "name": "Super.WavReader.Parse",
       "file": "src/Super/Audio/WavReader.cs",
       "metric": 61
@@ -3827,7 +3809,7 @@
       "kind": "large-type",
       "name": "Super.Voice",
       "file": "src/Super/Audio/Voice.cs",
-      "metric": 40
+      "metric": 42
     },
     {
       "kind": "large-type",
