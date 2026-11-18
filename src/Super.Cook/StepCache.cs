@@ -97,7 +97,7 @@ internal sealed class StepCache(string folder, CacheUsage? usage = null)
     {
         try
         {
-            CookCache.SaveObject(_root, hash, bytes, _usage);
+            CacheObjects.Save(_root, hash, bytes, _usage);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -119,7 +119,7 @@ internal sealed class StepCache(string folder, CacheUsage? usage = null)
         }
 
         string hash = Encoding.ASCII.GetString(entry);
-        return CookCache.ReadObject(_root, hash, _usage) is { } bytes ? (hash, bytes) : null;
+        return CacheObjects.Read(_root, hash, _usage) is { } bytes ? (hash, bytes) : null;
     }
 
     private string EntryFile(string step, string key)

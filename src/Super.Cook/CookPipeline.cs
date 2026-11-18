@@ -374,8 +374,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
             {
                 using (_clock.Start("write cache"))
                 {
-                    cache!.Save(key, job.File, input.Inputs, output.Assets, hashes, output.Objects,
-                        output.Problems.Select(problem => (problem.Message, problem.Line)).ToList());
+                    cache!.Save(key, job.File, input.Inputs, output, hashes);
                 }
             }
 
