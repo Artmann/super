@@ -143,7 +143,7 @@ internal sealed class ModelMasks
     private byte[]? Recall(MeshData mesh, MeshData rest, out string? key)
     {
         key = null;
-        if (!_cook.Input.HasStepCache)
+        if (!_cook.Input.StepResults.HasCache)
         {
             return null;
         }
@@ -152,7 +152,7 @@ internal sealed class ModelMasks
         {
             _shape ??= MaskKeys.Shape(_positions!, _uvs!);
             key = MaskKeys.Key(_shape, mesh, rest);
-            return _cook.Input.Recall(Step, key) is { Length: MaskBaker.DefaultSize * MaskBaker.DefaultSize * 4 } kept ? kept : null;
+            return _cook.Input.StepResults.Recall(Step, key) is { Length: MaskBaker.DefaultSize * MaskBaker.DefaultSize * 4 } kept ? kept : null;
         }
     }
 
@@ -200,7 +200,7 @@ internal sealed class ModelMasks
             {
                 using (_cook.Input.Time("keep masks"))
                 {
-                    _cook.Input.Keep(Step, bake.Key, bake.Rgba);
+                    _cook.Input.StepResults.Keep(Step, bake.Key, bake.Rgba);
                 }
             }
 

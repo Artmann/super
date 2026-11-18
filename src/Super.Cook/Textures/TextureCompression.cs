@@ -63,7 +63,7 @@ internal static class TextureCompression
         var coverage = CoverageClaims.Of(textures, materials, warn);
         var forms = formats.Select((format, i) => format is { } known ? Form(known, coverage[i]) : default).ToArray();
         int[] wanted = [.. Enumerable.Range(0, textures.Length).Where(i => formats[i] is not null && textures[i].Format == TextureFormat.Rgba8)];
-        var keys = input is { HasStepCache: true } ? Recall(textures, wanted, forms, input) : new string?[textures.Length];
+        var keys = input is { StepResults.HasCache: true } ? Recall(textures, wanted, forms, input) : new string?[textures.Length];
 
         var made = new ConcurrentBag<int>();
         using (input?.Time("compress textures"))
@@ -78,7 +78,7 @@ internal static class TextureCompression
             });
         }
 
-        if (input is { HasStepCache: true })
+        if (input is { StepResults.HasCache: true })
         {
             using (input.Time("keep compressed textures"))
             {
@@ -86,7 +86,7 @@ internal static class TextureCompression
                 Parallel.ForEach(made.Where(i => keys[i] is not null), i =>
                 {
                     var (hash, bytes) = SerializedTextures.Of(textures[i]);
-                    input.KeepObject(Step, keys[i]!, hash, bytes);
+                    input.StepResults.KeepObject(Step, keys[i]!, hash, bytes);
                 });
             }
         }
@@ -152,7 +152,7 @@ internal static class TextureCompression
         }
 
         key = Key(texture, form.Format, cutoff: form.Cutoff, partner: form.Partner);
-        if (input.RecallObject(Step, key) is not var (hash, bytes) || Read(bytes, texture, form.Format) is not { } read)
+        if (input.StepResults.RecallObject(Step, key) is not var (hash, bytes) || Read(bytes, texture, form.Format) is not { } read)
         {
             return null;
         }
@@ -182,19 +182,19 @@ internal static class TextureCompression
     /// </summary>
     public static byte[] CompressCooked(TextureData texture, TextureFormat format, bool normalMap, CookInput? input)
     {
-        if (input is not { HasStepCache: true })
+        if (input is not { StepResults.HasCache: true })
         {
             return CookedTexture.From(Compress(texture, format), normalMap).Write();
         }
 
         string key = CookedKey(texture, format, normalMap);
-        if (input.RecallObject(Step, key) is var (_, kept) && FitsCooked(kept, texture, format, normalMap))
+        if (input.StepResults.RecallObject(Step, key) is var (_, kept) && FitsCooked(kept, texture, format, normalMap))
         {
             return kept;
         }
 
         byte[] cooked = CookedTexture.From(Compress(texture, format), normalMap).Write();
-        input.KeepObject(Step, key, Convert.ToHexStringLower(SHA256.HashData(cooked)), cooked);
+        input.StepResults.KeepObject(Step, key, Convert.ToHexStringLower(SHA256.HashData(cooked)), cooked);
         return cooked;
     }
 

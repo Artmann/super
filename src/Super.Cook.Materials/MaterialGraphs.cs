@@ -102,7 +102,7 @@ public static class MaterialGraphs
         using (input.Time("recall graph runs"))
         {
             key = RunKey(input, relativePath, size);
-            if (input.HasStepCache && key is not null && input.Recall(RunStep, key) is { } kept && ReadKept(input, folder, kept) is { } packed)
+            if (input.StepResults.HasCache && key is not null && input.StepResults.Recall(RunStep, key) is { } kept && ReadKept(input, folder, kept) is { } packed)
             {
                 return packed;
             }
@@ -149,11 +149,11 @@ public static class MaterialGraphs
 
     private static void Keep(CookInput input, string? key, SharedGraphRuns.Run? made, List<(string Path, byte[] Hash)> reads)
     {
-        if (made is not null && key is not null && input.HasStepCache)
+        if (made is not null && key is not null && input.StepResults.HasCache)
         {
             using (input.Time("keep graph runs"))
             {
-                input.Keep(RunStep, key, WriteKept(made.Packed, reads));
+                input.StepResults.Keep(RunStep, key, WriteKept(made.Packed, reads));
             }
         }
     }
