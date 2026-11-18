@@ -107,11 +107,11 @@ public sealed class Audio
     /// <summary>The mixer's sample clock, frames mixed so far. Readable from any thread.</summary>
     internal long MixedFrames => _mixer.Clock;
 
-    /// <summary>Mixer side: how many sounds failed as they started or played. See <see cref="Mixer.FailedVoices"/>.</summary>
-    internal int FailedVoices => _mixer.FailedVoices;
+    /// <summary>Mixer side: how many sounds failed as they started or played. See <see cref="Mixer.Failures"/>.</summary>
+    internal int FailedVoices => _mixer.Failures.Failed;
 
     /// <summary>Mixer side: the message of the latest failure, or null.</summary>
-    internal string? LastFailure => _mixer.LastFailure;
+    internal string? LastFailure => _mixer.Failures.LastMessage;
 
     /// <summary>
     /// Plays through the default sound device from now on, mixed on an audio thread, and returns true. If the device
@@ -615,13 +615,13 @@ public sealed class Audio
                 Forget(_ambienceGameIds, _mixerAmbiences, command.Id, Mixer.NoAmbience);
                 break;
             case AudioCommandKind.ChannelVolume:
-                _mixer.SetChannelVolume(command.Channel, command.Value);
+                _mixer.Listening.SetChannelVolume(command.Channel, command.Value);
                 break;
             case AudioCommandKind.Listener:
-                _mixer.SetListener(command.Position, command.Forward);
+                _mixer.Listening.SetListener(command.Position, command.Forward);
                 break;
             case AudioCommandKind.WorldRate:
-                _mixer.SetWorldRate(command.Value);
+                _mixer.Listening.SetWorldRate(command.Value);
                 break;
         }
     }
@@ -664,7 +664,7 @@ public sealed class Audio
     }
 
     /// <summary>
-    /// A clip that fails to open costs only its own sound: the mixer counts it in <see cref="Mixer.FailedVoices"/>
+    /// A clip that fails to open costs only its own sound: the mixer counts it in <see cref="Mixer.Failures"/>
     /// and later commands for it do nothing, as for a voice the limit dropped.
     /// </summary>
     private int StartOnMixer(in VoiceStart start)
@@ -675,7 +675,7 @@ public sealed class Audio
         }
         catch (Exception problem)
         {
-            _mixer.RecordFailure(problem);
+            _mixer.Failures.Tally(problem);
             return Mixer.Dropped;
         }
     }
@@ -688,7 +688,7 @@ public sealed class Audio
         }
         catch (Exception problem)
         {
-            _mixer.RecordFailure(problem);
+            _mixer.Failures.Tally(problem);
             return Mixer.NoAmbience;
         }
     }
