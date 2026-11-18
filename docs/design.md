@@ -482,7 +482,7 @@ first exception out of the loop is rethrown as itself, not as an `AggregateExcep
 `CookPipeline.InUse` still recognises a locked file. An `ICookedStore` is called from several
 workers at once. `StoreWriter` holds a lock per hash, so two workers never write the same
 object at once, and an object already in the store isn't made twice. `CookCache` guards its
-hash memo with a lock and writes each object under a lock of its own.
+hash memo (`FileHashes`) with a lock and writes each object under a lock of its own.
 
 The workers take the sources in a start order rather than by name, so a big model doesn't start
 last and cook alone at the end while the other workers sit idle. After each cook
@@ -616,7 +616,7 @@ removes only the folders it left empty. That keeps `--cache` pointed at the wron
 from deleting it, except a content folder, whose `objects` are named as the cache's are, so
 both refuse a folder holding a `content.manifest` with an `InvalidOperationException`; a cook
 turns it into a warning. The record and step caches write objects through one
-`CookCache.SaveObject`, under a fixed set of 64 locks picked by the object's path, so two
+`CacheObjects.Save`, under a fixed set of 64 locks picked by the object's path, so two
 workers never write one object at once.
 A warm cook restores whole records and never reads the step entries, so under a tight limit
 the step entries are the first of a game's files to go, and the next edit runs its steps
@@ -630,7 +630,7 @@ Evicting it leaves the content folder's copy, and a later cook that needs it wri
 cache copy, which is a new file rather than a link to the old one, so its bytes are on disk
 twice until the content folder drops its copy.
 `hashes.json`, the memo of file hashes keyed by path, size and last-write time, drops on
-`Flush` every key whose file is gone or has changed since (`CookCache.CurrentKeys`, one
+`Flush` every key whose file is gone or has changed since (`FileHashes.CurrentKeys`, one
 listing per folder), so it doesn't grow with every edit.
 
 Graph runs are shared between the sources of a cook, and the cooks after it in the same
