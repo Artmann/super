@@ -70,20 +70,20 @@ public class InputTests
     public void Mouse_delta_and_scroll_sum_within_a_tick_and_reset()
     {
         var input = Create();
-        input.MouseMoved(new Vector2(10f, 10f));
-        input.MouseMoved(new Vector2(15f, 12f));
-        input.Scrolled(1f);
-        input.Scrolled(1f);
+        input.Mouse.Feed.MouseMoved(new Vector2(10f, 10f));
+        input.Mouse.Feed.MouseMoved(new Vector2(15f, 12f));
+        input.Mouse.Feed.Scrolled(1f);
+        input.Mouse.Feed.Scrolled(1f);
 
         input.Roll();
-        Assert.Equal(new Vector2(5f, 2f), input.MouseDelta);
-        Assert.Equal(2f, input.Scroll);
-        Assert.Equal(new Vector2(15f, 12f), input.MousePosition);
+        Assert.Equal(new Vector2(5f, 2f), input.Mouse.Delta);
+        Assert.Equal(2f, input.Mouse.Scroll);
+        Assert.Equal(new Vector2(15f, 12f), input.Mouse.Position);
 
         input.Roll();
-        Assert.Equal(Vector2.Zero, input.MouseDelta);
-        Assert.Equal(0f, input.Scroll);
-        Assert.Equal(new Vector2(15f, 12f), input.MousePosition);
+        Assert.Equal(Vector2.Zero, input.Mouse.Delta);
+        Assert.Equal(0f, input.Mouse.Scroll);
+        Assert.Equal(new Vector2(15f, 12f), input.Mouse.Position);
     }
 
     [Fact]
@@ -103,23 +103,23 @@ public class InputTests
     public void A_small_stick_is_inside_the_dead_zone()
     {
         var input = Create();
-        input.Gamepad(true, Axes(leftX: 0.1f, leftY: -0.1f), NoButtons);
+        input.Gamepad.Polled(true, Axes(leftX: 0.1f, leftY: -0.1f), NoButtons);
         input.Roll();
-        Assert.Equal(Vector2.Zero, input.Stick(GamepadStick.Left));
+        Assert.Equal(Vector2.Zero, input.Gamepad.Stick(GamepadStick.Left));
     }
 
     [Fact]
     public void A_stick_is_rescaled_past_the_dead_zone_with_forward_positive()
     {
         var input = Create();
-        input.Gamepad(true, Axes(leftY: -1f), NoButtons);
+        input.Gamepad.Polled(true, Axes(leftY: -1f), NoButtons);
         input.Roll();
-        Assert.Equal(new Vector2(0f, 1f), input.Stick(GamepadStick.Left));
+        Assert.Equal(new Vector2(0f, 1f), input.Gamepad.Stick(GamepadStick.Left));
 
-        input.Gamepad(true, Axes(leftX: 0.6f), NoButtons);
+        input.Gamepad.Polled(true, Axes(leftX: 0.6f), NoButtons);
         input.Roll();
-        Assert.Equal(0.5f, input.Stick(GamepadStick.Left).X, 1e-5f);
-        Assert.Equal(0f, input.Stick(GamepadStick.Left).Y, 1e-5f);
+        Assert.Equal(0.5f, input.Gamepad.Stick(GamepadStick.Left).X, 1e-5f);
+        Assert.Equal(0f, input.Gamepad.Stick(GamepadStick.Left).Y, 1e-5f);
     }
 
     [Fact]
@@ -127,8 +127,8 @@ public class InputTests
     {
         var input = new Input { Readable = true };
         input.Roll();
-        Assert.Equal(0f, input.Trigger(GamepadTrigger.Left));
-        Assert.Equal(0f, input.Trigger(GamepadTrigger.Right));
+        Assert.Equal(0f, input.Gamepad.Trigger(GamepadTrigger.Left));
+        Assert.Equal(0f, input.Gamepad.Trigger(GamepadTrigger.Right));
     }
 
     [Fact]
@@ -171,10 +171,10 @@ public class InputTests
     public void Triggers_map_to_zero_to_one()
     {
         var input = Create();
-        input.Gamepad(true, Axes(leftTrigger: -1f, rightTrigger: 1f), NoButtons);
+        input.Gamepad.Polled(true, Axes(leftTrigger: -1f, rightTrigger: 1f), NoButtons);
         input.Roll();
-        Assert.Equal(0f, input.Trigger(GamepadTrigger.Left));
-        Assert.Equal(1f, input.Trigger(GamepadTrigger.Right));
+        Assert.Equal(0f, input.Gamepad.Trigger(GamepadTrigger.Left));
+        Assert.Equal(1f, input.Gamepad.Trigger(GamepadTrigger.Right));
     }
 
     [Fact]
@@ -183,12 +183,12 @@ public class InputTests
         var input = Create();
         var buttons = new bool[15];
         buttons[(int)GamepadButton.South] = true;
-        input.Gamepad(true, Axes(), buttons);
+        input.Gamepad.Polled(true, Axes(), buttons);
         input.Roll();
         Assert.True(input.Pressed(GamepadButton.South));
         Assert.True(input.Down(GamepadButton.South));
 
-        input.Gamepad(true, Axes(), NoButtons);
+        input.Gamepad.Polled(true, Axes(), NoButtons);
         input.Roll();
         Assert.True(input.Released(GamepadButton.South));
         Assert.False(input.Down(GamepadButton.South));
@@ -200,15 +200,15 @@ public class InputTests
         var input = Create();
         var buttons = new bool[15];
         buttons[(int)GamepadButton.South] = true;
-        input.Gamepad(true, Axes(leftX: 1f), buttons);
+        input.Gamepad.Polled(true, Axes(leftX: 1f), buttons);
         input.Roll();
-        Assert.True(input.GamepadConnected);
+        Assert.True(input.Gamepad.Connected);
 
-        input.Gamepad(false, default, default);
+        input.Gamepad.Polled(false, default, default);
         input.Roll();
         Assert.True(input.Released(GamepadButton.South));
-        Assert.False(input.GamepadConnected);
-        Assert.Equal(Vector2.Zero, input.Stick(GamepadStick.Left));
+        Assert.False(input.Gamepad.Connected);
+        Assert.Equal(Vector2.Zero, input.Gamepad.Stick(GamepadStick.Left));
     }
 
     [Fact]

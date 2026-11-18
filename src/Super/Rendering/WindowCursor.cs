@@ -4,7 +4,7 @@ namespace Super;
 
 /// <summary>
 /// The window's system cursor: hidden or locked as the game asks, and drawn with the game's own picture
-/// (<see cref="Input.Cursor"/>) when it has one.
+/// (<see cref="MouseInput.Cursor"/>) when it has one.
 /// </summary>
 internal sealed unsafe class WindowCursor
 {
@@ -17,7 +17,7 @@ internal sealed unsafe class WindowCursor
     public void Apply(Glfw glfw, WindowHandle* window, Input input, float scale)
     {
         ApplyMode(glfw, window, input);
-        ApplyLook(glfw, window, input.Cursor, scale);
+        ApplyLook(glfw, window, input.Mouse.Cursor, scale);
     }
 
     /// <summary>Gives the window the system's arrow back and frees the game's picture.</summary>
@@ -32,8 +32,8 @@ internal sealed unsafe class WindowCursor
     /// </summary>
     private void ApplyMode(Glfw glfw, WindowHandle* window, Input input)
     {
-        var mode = input.CaptureMouse ? CursorModeValue.CursorDisabled
-            : input.HideCursor ? CursorModeValue.CursorHidden
+        var mode = input.Mouse.Locked ? CursorModeValue.CursorDisabled
+            : input.Mouse.HideCursor ? CursorModeValue.CursorHidden
             : CursorModeValue.CursorNormal;
         if (mode == _mode)
         {

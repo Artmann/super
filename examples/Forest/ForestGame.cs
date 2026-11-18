@@ -186,7 +186,7 @@ public sealed class ForestGame(
 
         if (input.Down(MouseButton.Left))
         {
-            Camera.Turn(input.MouseDelta * 0.005f);
+            Camera.Turn(input.Mouse.Delta * 0.005f);
         }
 
         Camera.Turn(new Vector2(OrbitSpeed * tick.TickSeconds, 0f));

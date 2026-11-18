@@ -9,156 +9,70 @@ internal interface IInputListener
     void Rolled();
 }
 
-internal enum MouseEventKind
-{
-    Moved,
-    Down,
-    Up,
-    Wheel,
-    Left,
-}
-
-/// <summary>One thing the mouse did, kept in order for the interface to look at first.</summary>
-internal readonly record struct MouseEvent(MouseEventKind Kind, MouseButton Button, Vector2 Position, float Notches);
-
 /// <summary>
 /// What the player did, frozen for one tick. The window and headless runs feed it
 /// between ticks; Update reads it. Draw and Ui can't, so the picture stays a function
-/// of state and a seed replays the same way.
+/// of state and a seed replays the same way. Keys and every button are read here; the
+/// cursor and wheel are on <see cref="Mouse"/>, and the sticks and triggers on <see cref="Gamepad"/>.
 /// </summary>
 public sealed class Input
 {
     internal const int KeyCount = (int)Key.Menu + 1;
-    internal const int MouseButtonCount = 8;
-    internal const int GamepadButtonCount = 15;
-    internal const int GamepadAxisCount = 6;
-    private const string NotReadable = "Input can only be read in Update. Draw and Ui describe state, so they can't look at input.";
+    internal const int MouseButtonCount = MouseFeed.ButtonCount;
+    internal const int GamepadButtonCount = GamepadInput.ButtonCount;
+    internal const int GamepadAxisCount = GamepadInput.AxisCount;
 
+    private readonly InputTick _tick = new();
     private readonly ButtonSet _keys = new(KeyCount);
-    private readonly ButtonSet _mouseButtons = new(MouseButtonCount);
-    private readonly ButtonSet _gamepadButtons = new(GamepadButtonCount);
-    private readonly float[] _pendingAxes = RestingAxes();
-    private readonly float[] _axes = RestingAxes();
     private readonly List<IInputListener> _listeners = [];
     private readonly StringBuilder _typing = new();
 
-    private Vector2 _pendingPosition;
-    private Vector2 _pendingDelta;
-    private float _pendingScroll;
-    private bool _hasPosition;
-    private bool _pendingConnected;
+    public Input()
+    {
+        Mouse = new MouseInput(_tick);
+        Gamepad = new GamepadInput(_tick);
+    }
 
-    /// <summary>How far a stick must move before it counts, as a fraction of its travel.</summary>
-    public float DeadZone { get; set; } = 0.2f;
+    /// <summary>The cursor, the wheel, and how the system shows the cursor.</summary>
+    public MouseInput Mouse { get; }
 
-    /// <summary>Set in Update to hide the cursor and lock it to the window, for looking around with the mouse.</summary>
-    public bool CaptureMouse { get; set; }
-
-    /// <summary>
-    /// Set to hide the system cursor over the window while leaving it free, for a game that draws its own
-    /// pointer in the interface. <see cref="CaptureMouse"/> hides it anyway.
-    /// </summary>
-    public bool HideCursor { get; set; }
-
-    /// <summary>
-    /// A picture the system draws as the cursor in place of its arrow, or null for the arrow. The system moves
-    /// it with the mouse itself, between frames, so it never lags behind the hand the way a pointer drawn in
-    /// the interface does on a slow frame. <see cref="HideCursor"/> and <see cref="CaptureMouse"/> still hide it.
-    /// </summary>
-    public CursorLook? Cursor { get; set; }
-
-    /// <summary>Where the cursor is, in the same pixels the interface lays itself out in.</summary>
-    public Vector2 MousePosition { get => Read(field); private set; }
-
-    /// <summary>The line from the camera through the cursor, for working out what was clicked.</summary>
-    public Ray MouseRay(in Camera camera) => camera.Ray(MousePosition, ScreenSize);
-
-    /// <summary>How far the cursor moved this tick.</summary>
-    public Vector2 MouseDelta { get => Read(field); private set; }
-
-    /// <summary>
-    /// Whether the mouse belongs to the interface this tick: it's over something solid, or
-    /// a press began there. Mouse buttons and the wheel read as idle then.
-    /// </summary>
-    public bool MouseOverUi { get => Read(field); private set; }
-
-    /// <summary>Wheel notches turned this tick, positive away from the player.</summary>
-    public float Scroll { get => Read(field); private set; }
+    /// <summary>The gamepad's sticks and triggers, and whether one is connected.</summary>
+    public GamepadInput Gamepad { get; }
 
     /// <summary>The characters typed this tick, for text fields.</summary>
-    public string Typed { get => Read(field); private set; } = string.Empty;
-
-    public bool GamepadConnected { get => Read(field); private set; }
+    public string Typed { get => _tick.Read(field); private set; } = string.Empty;
 
     /// <summary>
     /// The size of the screen in the same pixels as the cursor and the interface, for placing interface
     /// over things in the world. The host sets it each tick.
     /// </summary>
-    public Vector2 ScreenSize { get; internal set; }
+    public Vector2 ScreenSize { get => _tick.ScreenSize; internal set => _tick.ScreenSize = value; }
 
     /// <summary>Whether reads are allowed right now. The host turns it on for Update only.</summary>
-    internal bool Readable { get; set; }
-
-    /// <summary>When set, the mouse waits in <see cref="MouseEvents"/> for the interface to pass on what it doesn't take.</summary>
-    internal bool RoutesMouse { get; set; }
-
-    /// <summary>What the mouse did that the interface hasn't seen yet, in order.</summary>
-    internal List<MouseEvent> MouseEvents { get; } = [];
-
-    /// <summary>What the next tick's <see cref="MouseOverUi"/> says.</summary>
-    internal bool PendingMouseOverUi { get; set; }
+    internal bool Readable { get => _tick.Readable; set => _tick.Readable = value; }
 
     /// <summary>Whether the key is held during this tick.</summary>
-    public bool Down(Key key) => Read(_keys.Down((int)key));
+    public bool Down(Key key) => _tick.Read(_keys.Down((int)key));
 
     /// <summary>Whether the key went down since the last tick.</summary>
-    public bool Pressed(Key key) => Read(_keys.Pressed((int)key));
+    public bool Pressed(Key key) => _tick.Read(_keys.Pressed((int)key));
 
     /// <summary>Whether the key went up since the last tick.</summary>
-    public bool Released(Key key) => Read(_keys.Released((int)key));
+    public bool Released(Key key) => _tick.Read(_keys.Released((int)key));
 
-    public bool Down(MouseButton button) => Read(_mouseButtons.Down((int)button));
+    public bool Down(MouseButton button) => _tick.Read(Mouse.Feed.Buttons.Down((int)button));
 
-    public bool Pressed(MouseButton button) => Read(_mouseButtons.Pressed((int)button));
+    public bool Pressed(MouseButton button) => _tick.Read(Mouse.Feed.Buttons.Pressed((int)button));
 
-    public bool Released(MouseButton button) => Read(_mouseButtons.Released((int)button));
+    public bool Released(MouseButton button) => _tick.Read(Mouse.Feed.Buttons.Released((int)button));
 
-    public bool Down(GamepadButton button) => Read(_gamepadButtons.Down((int)button));
+    public bool Down(GamepadButton button) => _tick.Read(Gamepad.Buttons.Down((int)button));
 
-    public bool Pressed(GamepadButton button) => Read(_gamepadButtons.Pressed((int)button));
+    public bool Pressed(GamepadButton button) => _tick.Read(Gamepad.Buttons.Pressed((int)button));
 
-    public bool Released(GamepadButton button) => Read(_gamepadButtons.Released((int)button));
+    public bool Released(GamepadButton button) => _tick.Read(Gamepad.Buttons.Released((int)button));
 
-    /// <summary>A stick's position, from -1 to 1 on each axis with forward positive, after the dead zone.</summary>
-    public Vector2 Stick(GamepadStick stick)
-    {
-        CheckReadable();
-        int first = (int)stick * 2;
-        var raw = new Vector2(_axes[first], -_axes[first + 1]);
-        float length = raw.Length();
-        if (length <= DeadZone)
-        {
-            return Vector2.Zero;
-        }
-
-        float scaled = Math.Min((length - DeadZone) / (1f - DeadZone), 1f);
-        return raw * (scaled / length);
-    }
-
-    /// <summary>How far a trigger is pulled, from 0 to 1.</summary>
-    public float Trigger(GamepadTrigger trigger)
-    {
-        CheckReadable();
-        return (_axes[4 + (int)trigger] + 1f) * 0.5f;
-    }
-
-    internal void CheckReadable()
-    {
-        if (!Readable)
-        {
-            throw new InvalidOperationException(NotReadable);
-        }
-    }
+    internal void CheckReadable() => _tick.Check();
 
     internal void Listen(IInputListener listener) => _listeners.Add(listener);
 
@@ -169,125 +83,14 @@ public sealed class Input
 
     internal void KeyUp(Key key) => _keys.Release((int)key);
 
-    internal void MouseButtonDown(MouseButton button)
-    {
-        if (RoutesMouse)
-        {
-            MouseEvents.Add(new MouseEvent(MouseEventKind.Down, button, default, 0f));
-        }
-        else
-        {
-            ApplyMouseButton(button, true);
-        }
-    }
-
-    internal void MouseButtonUp(MouseButton button)
-    {
-        if (RoutesMouse)
-        {
-            MouseEvents.Add(new MouseEvent(MouseEventKind.Up, button, default, 0f));
-        }
-        else
-        {
-            ApplyMouseButton(button, false);
-        }
-    }
-
-    /// <summary>A button event the interface didn't take, or no interface is there to take.</summary>
-    internal void ApplyMouseButton(MouseButton button, bool down)
-    {
-        if (down)
-        {
-            _mouseButtons.Press((int)button);
-        }
-        else
-        {
-            _mouseButtons.Release((int)button);
-        }
-    }
-
-    /// <summary>A turn of the wheel the interface didn't take.</summary>
-    internal void ApplyScroll(float notches) => _pendingScroll += notches;
-
-    internal void MouseMoved(Vector2 position)
-    {
-        if (_hasPosition)
-        {
-            _pendingDelta += position - _pendingPosition;
-        }
-
-        _pendingPosition = position;
-        _hasPosition = true;
-        if (RoutesMouse)
-        {
-            MouseEvents.Add(new MouseEvent(MouseEventKind.Moved, default, position, 0f));
-        }
-    }
-
-    /// <summary>The cursor went off the window, so it's over nothing until it comes back.</summary>
-    internal void MouseLeftWindow()
-    {
-        if (RoutesMouse)
-        {
-            MouseEvents.Add(new MouseEvent(MouseEventKind.Left, default, default, 0f));
-        }
-    }
-
-    internal void Scrolled(float notches)
-    {
-        if (RoutesMouse)
-        {
-            MouseEvents.Add(new MouseEvent(MouseEventKind.Wheel, default, default, notches));
-        }
-        else
-        {
-            ApplyScroll(notches);
-        }
-    }
-
     internal void TypedCharacter(char character) => _typing.Append(character);
-
-    /// <summary>
-    /// The gamepad as it is now. Axes come in GLFW's order and ranges: left x and y,
-    /// right x and y, then the triggers from -1 to 1. Buttons are in <see cref="GamepadButton"/> order.
-    /// </summary>
-    internal void Gamepad(bool connected, ReadOnlySpan<float> axes, ReadOnlySpan<bool> buttons)
-    {
-        _pendingConnected = connected;
-        for (int i = 0; i < GamepadAxisCount; i++)
-        {
-            float centred = i >= 4 ? -1f : 0f;
-            _pendingAxes[i] = connected ? axes[i] : centred;
-        }
-
-        for (int i = 0; i < GamepadButtonCount; i++)
-        {
-            if (connected && buttons[i])
-            {
-                _gamepadButtons.Press(i);
-            }
-            else
-            {
-                _gamepadButtons.Release(i);
-            }
-        }
-    }
 
     /// <summary>Turns everything that happened since the last tick into this tick's snapshot.</summary>
     internal void Roll()
     {
         _keys.Roll();
-        _mouseButtons.Roll();
-        _gamepadButtons.Roll();
-        _pendingAxes.CopyTo(_axes, 0);
-        GamepadConnected = _pendingConnected;
-
-        MouseOverUi = PendingMouseOverUi;
-        MousePosition = _pendingPosition;
-        MouseDelta = _pendingDelta;
-        Scroll = _pendingScroll;
-        _pendingDelta = Vector2.Zero;
-        _pendingScroll = 0f;
+        Mouse.Roll();
+        Gamepad.Roll();
 
         Typed = _typing.Length == 0 ? string.Empty : _typing.ToString();
         _typing.Clear();
@@ -297,100 +100,10 @@ public sealed class Input
             listener.Rolled();
         }
     }
-
-    private T Read<T>(T value)
-    {
-        CheckReadable();
-        return value;
-    }
-
-    /// <summary>Sticks centred and triggers at rest, which GLFW reports as -1.</summary>
-    private static float[] RestingAxes() => [0f, 0f, 0f, 0f, -1f, -1f];
-
-    /// <summary>A set of buttons with the same press, hold and release rules.</summary>
-    private sealed class ButtonSet(int count)
-    {
-        private readonly State[] _states = new State[count];
-
-        public bool Down(int index) => _states[index].Down;
-
-        public bool Physical(int index) => _states[index].Physical;
-
-        public bool Pressed(int index) => _states[index].Pressed;
-
-        public bool Released(int index) => _states[index].Released;
-
-        /// <summary>A down event. Repeats while already down are ignored.</summary>
-        public void Press(int index)
-        {
-            ref var state = ref _states[index];
-            if (state.Physical)
-            {
-                return;
-            }
-
-            state.Physical = true;
-            state.WentDown = true;
-        }
-
-        public void Release(int index)
-        {
-            ref var state = ref _states[index];
-            if (!state.Physical)
-            {
-                return;
-            }
-
-            state.Physical = false;
-            state.WentUp = true;
-        }
-
-        public void Roll()
-        {
-            foreach (ref var state in _states.AsSpan())
-            {
-                state.Pressed = state.WentDown;
-                // A tap owed a release from the last tick still gets it, even if the button went down again.
-                if (state.Physical)
-                {
-                    state.Down = true;
-                    state.Released = state.WentUp || state.PendingRelease;
-                    state.PendingRelease = false;
-                }
-                else if (state.WentDown)
-                {
-                    // A tap inside one tick: held for this tick, let go on the next.
-                    state.Down = true;
-                    state.Released = state.PendingRelease;
-                    state.PendingRelease = true;
-                }
-                else
-                {
-                    state.Down = false;
-                    state.Released = state.WentUp || state.PendingRelease;
-                    state.PendingRelease = false;
-                }
-
-                state.WentDown = false;
-                state.WentUp = false;
-            }
-        }
-
-        private struct State
-        {
-            public bool Physical;
-            public bool Down;
-            public bool Pressed;
-            public bool Released;
-            public bool PendingRelease;
-            public bool WentDown;
-            public bool WentUp;
-        }
-    }
 }
 
 /// <summary>
-/// What <see cref="Input.Cursor"/> shows: an <see cref="Image"/> drawn <see cref="Size"/> interface units
+/// What <c>input.Mouse.Cursor</c> shows: an <see cref="Image"/> drawn <see cref="Size"/> interface units
 /// square, with the mouse at <see cref="Hotspot"/>, in the image's own pixels from its top left.
 /// </summary>
 public sealed record CursorLook(Ui.GameImage Image, float Size, System.Numerics.Vector2 Hotspot);

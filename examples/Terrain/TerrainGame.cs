@@ -83,7 +83,7 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
     public void Load()
     {
         actions.Bind(Control.Move, Keys.WASD, Keys.Arrows, GamepadStick.Left);
-        actions.Bind(Control.Look, Mouse.Delta.Scaled(TurnPerPixel), ((Binding)GamepadStick.Right).Scaled(TurnPerSecond / 30f));
+        actions.Bind(Control.Look, Binding.MouseDelta.Scaled(TurnPerPixel), ((Binding)GamepadStick.Right).Scaled(TurnPerSecond / 30f));
         actions.Bind(Control.Rise, Binding.Axis((Binding)Key.LeftShift, (Binding)Key.Space), Binding.Axis((Binding)GamepadTrigger.Left, (Binding)GamepadTrigger.Right));
         actions.Bind(Control.Flyover, Key.F, GamepadButton.North);
 
@@ -132,7 +132,7 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
 
     public void Update(GameTime time)
     {
-        input.CaptureMouse = true;
+        input.Mouse.Locked = true;
         _previousPosition = _position;
         _previousYaw = _yaw;
         _previousPitch = _pitch;

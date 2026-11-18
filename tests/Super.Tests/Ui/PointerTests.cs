@@ -270,7 +270,7 @@ public sealed class PointerTests
     public void A_solid_box_keeps_the_mouse_from_the_game()
     {
         using var run = Run(_ => Corner(new Text("panel").Frame(100f, 100f).Background(Solid)));
-        run.Game.Watch = input => input.Pressed(MouseButton.Left) || input.Scroll != 0f;
+        run.Game.Watch = input => input.Pressed(MouseButton.Left) || input.Mouse.Scroll != 0f;
 
         MoveTo(run, OnBox);
         Press(run);
@@ -300,8 +300,8 @@ public sealed class PointerTests
         using var run = Run(_ => Corner(new Text("panel").Frame(100f, 100f).Background(Solid)));
         run.Game.Watch = input =>
         {
-            over = input.MouseOverUi;
-            position = input.MousePosition;
+            over = input.Mouse.OverUi;
+            position = input.Mouse.Position;
             return false;
         };
 
@@ -354,7 +354,7 @@ public sealed class PointerTests
     public void A_captured_mouse_never_touches_the_interface()
     {
         using var run = Run(game => Target(game));
-        run.Game.Input.CaptureMouse = true;
+        run.Game.Input.Mouse.Locked = true;
         run.Game.Watch = input => input.Pressed(MouseButton.Left);
 
         Click(run, OnBox);

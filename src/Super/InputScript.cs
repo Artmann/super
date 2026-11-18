@@ -20,18 +20,18 @@ public sealed class InputScript
         return this;
     }
 
-    public InputScript MoveMouse(Vector2 position) => Then(input => input.MouseMoved(position));
+    public InputScript MoveMouse(Vector2 position) => Then(input => input.Mouse.Feed.MouseMoved(position));
 
     /// <summary>
     /// Moves the cursor to the middle of the view given this id with <see cref="UiExtensions.Id"/>.
     /// The view is looked up when the step runs, in the layout last shown.
     /// </summary>
-    public InputScript MoveMouse(object id) => Then((input, ui) => input.MouseMoved(ui.ScreenMiddle(id)));
+    public InputScript MoveMouse(object id) => Then((input, ui) => input.Mouse.Feed.MouseMoved(ui.ScreenMiddle(id)));
 
     /// <summary>Holds the button down until <see cref="Release(MouseButton)"/>.</summary>
-    public InputScript Hold(MouseButton button) => Then(input => input.MouseButtonDown(button));
+    public InputScript Hold(MouseButton button) => Then(input => input.Mouse.Feed.MouseButtonDown(button));
 
-    public InputScript Release(MouseButton button) => Then(input => input.MouseButtonUp(button));
+    public InputScript Release(MouseButton button) => Then(input => input.Mouse.Feed.MouseButtonUp(button));
 
     /// <summary>A tap: the key is pressed on this tick and let go on the next. It takes a tick.</summary>
     public InputScript Press(Key key) => Hold(key).Release(key).Wait(1);
@@ -42,10 +42,10 @@ public sealed class InputScript
     public InputScript Release(Key key) => Then(input => input.KeyUp(key));
 
     /// <summary>Takes the cursor off the window.</summary>
-    public InputScript LeaveWindow() => Then(input => input.MouseLeftWindow());
+    public InputScript LeaveWindow() => Then(input => input.Mouse.Feed.MouseLeftWindow());
 
     /// <summary>A notch of the wheel. Positive turns it away from the player.</summary>
-    public InputScript Scroll(float notches) => Then(input => input.Scrolled(notches));
+    public InputScript Scroll(float notches) => Then(input => input.Mouse.Feed.Scrolled(notches));
 
     /// <summary>Moves the cursor here and clicks, taking a tick so the interface sees it arrive.</summary>
     public InputScript Click(Vector2 position) => MoveMouse(position).Wait(1).ClickHere();
@@ -80,7 +80,7 @@ public sealed class InputScript
         for (int step = 1; step <= Steps; step++)
         {
             float share = step / (float)Steps;
-            Then((input, ui) => input.MouseMoved(Vector2.Lerp(ui.ScreenMiddle(from), ui.ScreenMiddle(to), share))).Wait(1);
+            Then((input, ui) => input.Mouse.Feed.MouseMoved(Vector2.Lerp(ui.ScreenMiddle(from), ui.ScreenMiddle(to), share))).Wait(1);
         }
 
         return Release(button).Wait(1);

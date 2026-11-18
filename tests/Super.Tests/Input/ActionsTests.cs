@@ -67,7 +67,7 @@ public class ActionsTests
 
         var buttons = new bool[15];
         buttons[(int)GamepadButton.South] = true;
-        input.Gamepad(true, Axes(), buttons);
+        input.Gamepad.Polled(true, Axes(), buttons);
         input.Roll();
         Assert.True(actions.Pressed(Control.Jump));
     }
@@ -108,7 +108,7 @@ public class ActionsTests
         actions.Bind(Control.Move, Keys.WASD, GamepadStick.Left);
 
         input.KeyDown(Key.W);
-        input.Gamepad(true, Axes(leftY: -1f), NoButtons);
+        input.Gamepad.Polled(true, Axes(leftY: -1f), NoButtons);
         input.Roll();
         Assert.Equal(new Vector2(0f, 1f), actions.Vector(Control.Move));
     }
@@ -117,10 +117,10 @@ public class ActionsTests
     public void Mouse_delta_is_scaled_and_never_clamped()
     {
         var (input, actions) = Create();
-        actions.Bind(Control.Look, Mouse.Delta.Scaled(0.5f), GamepadStick.Right);
+        actions.Bind(Control.Look, Binding.MouseDelta.Scaled(0.5f), GamepadStick.Right);
 
-        input.MouseMoved(Vector2.Zero);
-        input.MouseMoved(new Vector2(40f, 0f));
+        input.Mouse.Feed.MouseMoved(Vector2.Zero);
+        input.Mouse.Feed.MouseMoved(new Vector2(40f, 0f));
         input.Roll();
         Assert.Equal(new Vector2(20f, 0f), actions.Vector(Control.Look));
     }
@@ -131,11 +131,11 @@ public class ActionsTests
         var (input, actions) = Create();
         actions.Bind(Control.Zoom, Binding.Axis(GamepadTrigger.Left, GamepadTrigger.Right));
 
-        input.Gamepad(true, Axes(rightTrigger: 1f), NoButtons);
+        input.Gamepad.Polled(true, Axes(rightTrigger: 1f), NoButtons);
         input.Roll();
         Assert.Equal(1f, actions.Vector(Control.Zoom).X);
 
-        input.Gamepad(true, Axes(leftTrigger: 1f), NoButtons);
+        input.Gamepad.Polled(true, Axes(leftTrigger: 1f), NoButtons);
         input.Roll();
         Assert.Equal(-1f, actions.Vector(Control.Zoom).X);
     }
@@ -146,11 +146,11 @@ public class ActionsTests
         var (input, actions) = Create();
         actions.Bind(Control.Move, GamepadStick.Left);
 
-        input.Gamepad(true, Axes(leftY: -0.7f), NoButtons);
+        input.Gamepad.Polled(true, Axes(leftY: -0.7f), NoButtons);
         input.Roll();
         Assert.True(actions.Down(Control.Move));
 
-        input.Gamepad(true, Axes(leftY: -0.3f), NoButtons);
+        input.Gamepad.Polled(true, Axes(leftY: -0.3f), NoButtons);
         input.Roll();
         Assert.False(actions.Down(Control.Move));
     }

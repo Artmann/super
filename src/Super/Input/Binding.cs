@@ -81,14 +81,6 @@ public static class Keys
     public static Binding Arrows { get; } = Binding.Composite(Key.Up, Key.Down, Key.Left, Key.Right);
 }
 
-/// <summary>The mouse as a binding source.</summary>
-public static class Mouse
-{
-    public static Binding Delta => Binding.MouseDelta;
-
-    public static Binding Scroll => Binding.MouseScroll;
-}
-
 internal enum BindingKind
 {
     Button,
@@ -119,7 +111,7 @@ internal readonly record struct Source(SourceKind Kind, int Code)
         SourceKind.Key => input.Down((Key)Code) ? 1f : 0f,
         SourceKind.MouseButton => input.Down((MouseButton)Code) ? 1f : 0f,
         SourceKind.GamepadButton => input.Down((GamepadButton)Code) ? 1f : 0f,
-        SourceKind.GamepadTrigger => input.Trigger((GamepadTrigger)Code),
+        SourceKind.GamepadTrigger => input.Gamepad.Trigger((GamepadTrigger)Code),
         _ => 0f,
     };
 
@@ -132,5 +124,5 @@ internal readonly record struct Source(SourceKind Kind, int Code)
         _ => false,
     };
 
-    public Vector2 ReadStick(Input input) => input.Stick((GamepadStick)Code);
+    public Vector2 ReadStick(Input input) => input.Gamepad.Stick((GamepadStick)Code);
 }

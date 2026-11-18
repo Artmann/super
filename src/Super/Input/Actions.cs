@@ -107,38 +107,14 @@ public sealed class Actions<TControl> : IInputListener
         tapped = false;
         foreach (var binding in bindings)
         {
-            switch (binding.Kind)
+            if (binding.Kind == BindingKind.Button)
             {
-                case BindingKind.Button:
-                    button |= binding.First.Read(_input) > 0f;
-                    tapped |= binding.First.ReadPressed(_input);
-                    break;
-                case BindingKind.Trigger:
-                    clamped.X += binding.First.Read(_input) * binding.Scale;
-                    break;
-                case BindingKind.Stick:
-                    clamped += binding.First.ReadStick(_input) * binding.Scale;
-                    break;
-                case BindingKind.Axis:
-                    clamped.X += (binding.Second.Read(_input) - binding.First.Read(_input)) * binding.Scale;
-                    break;
-                case BindingKind.Composite:
-                    var direction = new Vector2(
-                        binding.Fourth.Read(_input) - binding.Third.Read(_input),
-                        binding.First.Read(_input) - binding.Second.Read(_input));
-                    if (direction.LengthSquared() > 1f)
-                    {
-                        direction = Vector2.Normalize(direction);
-                    }
-
-                    clamped += direction * binding.Scale;
-                    break;
-                case BindingKind.MouseDelta:
-                    free += _input.MouseDelta * binding.Scale;
-                    break;
-                case BindingKind.MouseScroll:
-                    free.X += _input.Scroll * binding.Scale;
-                    break;
+                button |= binding.First.Read(_input) > 0f;
+                tapped |= binding.First.ReadPressed(_input);
+            }
+            else
+            {
+                AddMotion(binding, _input, ref clamped, ref free);
             }
         }
 
@@ -150,6 +126,44 @@ public sealed class Actions<TControl> : IInputListener
         vector = clamped + free;
         float length = vector.Length();
         value = button ? Math.Max(1f, length) : length;
+    }
+
+    /// <summary>
+    /// Adds what a stick, trigger, axis, composite or mouse binding gives. Sticks, triggers,
+    /// axes and composites go into <paramref name="clamped"/>, which is held to length 1 after
+    /// all bindings are in. The mouse goes into <paramref name="free"/>, which never is.
+    /// </summary>
+    private static void AddMotion(Binding binding, Input input, ref Vector2 clamped, ref Vector2 free)
+    {
+        switch (binding.Kind)
+        {
+            case BindingKind.Trigger:
+                clamped.X += binding.First.Read(input) * binding.Scale;
+                break;
+            case BindingKind.Stick:
+                clamped += binding.First.ReadStick(input) * binding.Scale;
+                break;
+            case BindingKind.Axis:
+                clamped.X += (binding.Second.Read(input) - binding.First.Read(input)) * binding.Scale;
+                break;
+            case BindingKind.Composite:
+                var direction = new Vector2(
+                    binding.Fourth.Read(input) - binding.Third.Read(input),
+                    binding.First.Read(input) - binding.Second.Read(input));
+                if (direction.LengthSquared() > 1f)
+                {
+                    direction = Vector2.Normalize(direction);
+                }
+
+                clamped += direction * binding.Scale;
+                break;
+            case BindingKind.MouseDelta:
+                free += input.Mouse.Delta * binding.Scale;
+                break;
+            case BindingKind.MouseScroll:
+                free.X += input.Mouse.Scroll * binding.Scale;
+                break;
+        }
     }
 
     private ref State Read(TControl control)

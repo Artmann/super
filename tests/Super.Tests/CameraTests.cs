@@ -163,7 +163,7 @@ public class CameraTests
         {
             if (input.Pressed(MouseButton.Left))
             {
-                Clicked = input.MouseRay(Above).Ground();
+                Clicked = input.Mouse.Ray(Above).Ground();
             }
         }
 
@@ -175,7 +175,7 @@ public class CameraTests
 
         public Action? Peek { get; set; }
 
-        public void ReadRay() => input.MouseRay(Above);
+        public void ReadRay() => input.Mouse.Ray(Above);
     }
 
     [Fact]

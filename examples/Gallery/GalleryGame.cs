@@ -202,7 +202,7 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
             }
         }
 
-        input.CaptureMouse = _flying;
+        input.Mouse.Locked = _flying;
         _previousPosition = _position;
         _previousYaw = _yaw;
         _previousPitch = _pitch;
@@ -211,7 +211,7 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
             return;
         }
 
-        var turn = input.MouseDelta * TurnPerPixel;
+        var turn = input.Mouse.Delta * TurnPerPixel;
         _yaw -= turn.X;
         _pitch = Math.Clamp(_pitch - turn.Y, -1.5f, 1.5f);
 
