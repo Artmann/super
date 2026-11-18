@@ -2019,12 +2019,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Materials.PerlinNode.Evaluate",
-      "file": "src/Super.Materials/Noise.cs",
-      "metric": 47
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Mixer.Mix",
       "file": "src/Super/Audio/Mixer.cs",
       "metric": 59
