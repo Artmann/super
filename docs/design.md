@@ -496,6 +496,15 @@ order. Without a cache folder there are no timings and only rank and size count.
 timed sources, those the last cook didn't time are dropped. The order changes only which
 source starts when: the results still merge in source order.
 
+`ModelCooker` cooks a model, or each of its parts, in steps of their own, which share a
+`ModelCook` (the input, the output, the part's message prefix, the settings, the textures and
+the graph runs). `ModelReader` reads the file with Assimp: the rig or the flattened scene, the
+embedded images, the materials (`ImportedMaterials`, each one by `MaterialImporter`, with
+`MaterialExtras` for its shader, toon, occlusion, wear and dirt), the meshes laid end to end
+(`ModelMeshes`) and the clips, and turns and scales the vertices. Then `LightmapUvs` settles
+the second UV set, `ModelMasks` bakes the masks, and `ModelCooker` checks the materials,
+compresses the textures and writes the model.
+
 Inside one model the slow steps also overlap. Before its materials are read, the models
 cooker runs the graphs they will ask for, three materials at a time
 (`GraphRuns.RunAhead`). A material's detail graph runs only once its main graph has worked,
@@ -510,7 +519,7 @@ idle.
 All of that is bounded for the whole process, not per model: at most half the processors,
 from 2 to 8, run a graph at once (`MaterialGraphs.RunsAtOnce`, taken around `GraphRunner.Run`
 only, never while waiting for a shared run, which would deadlock) and as many bake masks
-(`ModelCooker.BakesAtOnce`). Most of the memory a cook took was garbage, though: the large
+(`ModelMasks.BakesAtOnce`). Most of the memory a cook took was garbage, though: the large
 object heap grew with the images workers dropped, and a cold cook of the whole Courtyard
 peaked at 9 to 15 GB from run to run. `super-cook` sets `System.GC.ConserveMemory` to 7, so
 the collector compacts that heap, and the same cook peaks near 6 GB in the same time. Lower
@@ -3193,7 +3202,7 @@ The model cooker asks Assimp for a glTF material's occlusion as its `Lightmap` t
 which is where Assimp's glTF importer files `occlusionTexture`, with the UV set from
 `GetMaterialTexture`'s `uvindex`. `OcclusionWanted` settles the file, the set and a rule's
 `occlusion`, `occlusionUv` and `noOcclusionMap` while the materials import, but the texture
-is only added once `LightmapUv` has settled each material's second set. `LightmapUv` returns
+is only added once `LightmapUvs.Make` has settled each material's second set. `LightmapUvs.Make` returns
 the materials whose set it made (unwrapped or recalled), and `AddOcclusion` leaves out, with a
 warning, an occlusion texture on the second set of one of those, so the image is never cooked
 for nothing. `TextureCompression.Compress` takes the occlusion textures as BC4 in its `extra`
