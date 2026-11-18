@@ -2172,7 +2172,7 @@ flags, the environment (a version bumped by `SetEnvironment`), its intensity, th
 turbidity, whether the sun's shadow is on, and the sun-shadow, light-shadow, plain-materials and underwater
 switches. Not wear and dirt, which neither path draws into a probe. When it changes, `EverythingChanged` marks every probe dirty.
 Geometry and the camera are not in it.
-`FollowProbeLights` compares the frame's point and spot lights with last frame's by `Key`: a
+`ProbeLightTracker.Follow` compares the frame's point and spot lights with last frame's by `Key`: a
 light that appeared, moved, turned, changed colour or range, or went away calls `LightChanged`
 for where it was and where it is. Then `Next` picks the batch: where the GPU traces,
 `ProbeBudget.Traced` probes and nothing more; otherwise `ProbeBudget.Raster` probes (8, 16 or 32

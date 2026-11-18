@@ -174,9 +174,7 @@ public sealed unsafe class Renderer : IDisposable
     // reaches everything, and each point and spot light by its key.
     private ProbeVolumeSettings? _probeGrid;
     private int _probeLightingKey;
-    private readonly Dictionary<int, LocalLight> _probeLights = [];
-    private readonly HashSet<int> _probeLightsSeen = [];
-    private readonly List<int> _probeLightsGone = [];
+    private readonly ProbeLightTracker _probeLights = new();
 
     // How far a probe already captured moves towards a new rasterized capture: halfway, so its light
     // settles over a few updates instead of flickering. A first capture is taken whole.
@@ -2637,13 +2635,6 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>A baked space that passed <see cref="CheckSpace"/>, and its probes' grid.</summary>
     private readonly record struct CheckedSpace(BakedSpace Space, ProbeVolumeSettings Probes);
 
-    /// <summary>
-    /// The lights a space's bake takes, and where each of the view's suns and local lights is among them, or -1. The
-    /// copies for the mask channels are Realtime where the bake doesn't take the light.
-    /// </summary>
-    private sealed record SpaceLights(
-        List<GpuBakeLight> Lights, int[] SunIndex, int[] LocalIndex, DirectionalLight[] SunsForMask, LocalLight[] LocalsForMask);
-
     /// <summary>Lays out the static draws the space owns on its lightmap pages, and throws when they don't fit.</summary>
     private LightmapLayout LayOutSpace(
         ReadOnlySpan<DrawItem> draws, BakedSpace space, ReadOnlySpan<BakedChunk> chunks, BakeSettings settings)
@@ -2668,78 +2659,6 @@ public sealed unsafe class Renderer : IDisposable
         return layout;
     }
 
-    /// <summary>The lights the space's bake takes: Mixed and Baked ones that hold still, a local light only in the space's box.</summary>
-    private SpaceLights TakeSpaceLights(in FrameView view, BakedSpace space)
-    {
-        var suns = view.Lights;
-        var locals = view.LocalLights;
-        var lights = new SpaceLights([], new int[suns.Length], new int[locals.Length], suns.ToArray(), locals.ToArray());
-        for (int i = 0; i < suns.Length; i++)
-        {
-            lights.SunIndex[i] = -1;
-            if (suns[i].Mode != LightMode.Realtime && !_animatedLights.IsAnimated(new LightKey(true, i)))
-            {
-                lights.SunIndex[i] = lights.Lights.Count;
-                lights.Lights.Add(GpuBakeLight.Sun(suns[i], view.Shadows.LightAngle));
-            }
-            else
-            {
-                lights.SunsForMask[i].Mode = LightMode.Realtime;
-            }
-        }
-
-        for (int i = 0; i < locals.Length; i++)
-        {
-            lights.LocalIndex[i] = -1;
-            if (locals[i].Mode != LightMode.Realtime && !_animatedLights.IsAnimated(new LightKey(false, locals[i].Key))
-                && BakeAreas.OwnerOfLight(locals[i].Position, space, view.BakedChunks) == BakeAreas.Space)
-            {
-                lights.LocalIndex[i] = lights.Lights.Count;
-                lights.Lights.Add(GpuBakeLight.Local(locals[i]));
-            }
-            else
-            {
-                lights.LocalsForMask[i].Mode = LightMode.Realtime;
-            }
-        }
-
-        return lights;
-    }
-
-    /// <summary>
-    /// Gives each Mixed light its mask channel, and lists the local lights' channels by key. Local lights that don't
-    /// overlap can share one, so the channel goes on each light rather than each channel naming one light. The sun's
-    /// channel 0 is implied, so only local lights are listed.
-    /// </summary>
-    private static List<(int LightKey, int Channel)> AssignSpaceChannels(
-        in FrameView view, BakedSpace space, SpaceLights lights, List<int> unassigned)
-    {
-        var locals = view.LocalLights;
-        var sunChannels = new int[view.Lights.Length];
-        var localChannels = new int[locals.Length];
-        ShadowMaskChannels.Assign(space, lights.SunsForMask, lights.LocalsForMask, sunChannels, localChannels, unassigned);
-        var bakeLights = CollectionsMarshal.AsSpan(lights.Lights);
-        var channels = new List<(int LightKey, int Channel)>();
-        for (int i = 0; i < sunChannels.Length; i++)
-        {
-            if (sunChannels[i] >= 0)
-            {
-                bakeLights[lights.SunIndex[i]].MaskChannel = sunChannels[i];
-            }
-        }
-
-        for (int i = 0; i < locals.Length; i++)
-        {
-            if (localChannels[i] >= 0)
-            {
-                bakeLights[lights.LocalIndex[i]].MaskChannel = localChannels[i];
-                channels.Add((locals[i].Key, localChannels[i]));
-            }
-        }
-
-        return channels;
-    }
-
     // Resolves the space's inputs, lays out its draws and takes its lights, and makes the job that bakes them. Never
     // waits: the baker and its probe volume come from PrepareBaking.
     private BakeJob SpaceJob(
@@ -2753,9 +2672,9 @@ public sealed unsafe class Renderer : IDisposable
             .Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash, _animatedLights).Space!.Value;
 
         var layout = LayOutSpace(draws, space, view.BakedChunks, settings);
-        var lights = TakeSpaceLights(view, space);
+        var lights = BakeLights.TakeSpace(view, space, _animatedLights);
         var unassigned = new List<int>();
-        var channels = AssignSpaceChannels(view, space, lights, unassigned);
+        var channels = BakeLights.AssignSpaceChannels(view, space, lights, unassigned);
         var bakeLights = CollectionsMarshal.AsSpan(lights.Lights);
         var (baker, volume) = PreparedBaker(space.Name, probes: true);
         var area = new AreaJob(draws.ToArray(), bakeLights.ToArray(), false, layout, view.EnvironmentIntensity, true,
@@ -2869,12 +2788,6 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// The lights a chunk's bake takes, moved into its space, where each of the view's local lights is among them, or
-    /// -1, and the copies for the mask channels, Realtime where the bake doesn't take the light.
-    /// </summary>
-    private sealed record ChunkLights(List<GpuBakeLight> Lights, int[] LightOf, LocalLight[] ForMask);
-
-    /// <summary>
     /// The chunk's draws, in its own space, and whether any of them glows. The rest of the world neither blocks nor
     /// bounces its light. Only this copy's: every copy of a chunk has the same ids, so an id alone would take the other
     /// copies' draws too.
@@ -2899,61 +2812,6 @@ public sealed unsafe class Renderer : IDisposable
         return owned;
     }
 
-    /// <summary>
-    /// The chunk's own lights, Mixed and Baked ones that hold still, moved into its space. Every other light is
-    /// Realtime as far as the mask channels go, so only these get one.
-    /// </summary>
-    private ChunkLights TakeChunkLights(in FrameView view, int chunk)
-    {
-        var baked = view.BakedChunks[chunk];
-        var locals = view.LocalLights;
-        var lights = new ChunkLights([], new int[locals.Length], locals.ToArray());
-        for (int i = 0; i < locals.Length; i++)
-        {
-            lights.LightOf[i] = -1;
-            if (locals[i].Mode != LightMode.Realtime && !_animatedLights.IsAnimated(new LightKey(false, locals[i].Key))
-                && BakeAreas.OwnerOfLight(locals[i].Position, view.BakedSpace, view.BakedChunks) == chunk)
-            {
-                var light = locals[i];
-                var (px, py, pz) = BakeAreas.IntoChunk(baked.Transform, light.Position.X, light.Position.Y, light.Position.Z, 1.0);
-                var (dx, dy, dz) = BakeAreas.IntoChunk(baked.Transform, light.Direction.X, light.Direction.Y, light.Direction.Z, 0.0);
-                light.Position = new Vector3((float)px, (float)py, (float)pz);
-                light.Direction = new Vector3((float)dx, (float)dy, (float)dz);
-                lights.LightOf[i] = lights.Lights.Count;
-                lights.Lights.Add(GpuBakeLight.Local(light));
-            }
-            else
-            {
-                lights.ForMask[i].Mode = LightMode.Realtime;
-            }
-        }
-
-        return lights;
-    }
-
-    /// <summary>
-    /// Gives each of the chunk's Mixed lights its mask channel, and lists the channels by each light's chunk-space hash.
-    /// Returns the lights the bake takes, with their channels.
-    /// </summary>
-    private static (GpuBakeLight[] Lights, List<(ulong LightHash, int Channel)> Channels) AssignChunkChannels(
-        ReadOnlySpan<LocalLight> locals, in BakedChunk baked, ChunkLights lights, List<int> unassigned)
-    {
-        var maskChannels = new int[locals.Length];
-        ShadowMaskChannels.AssignChunk(baked, lights.ForMask, maskChannels, unassigned);
-        var bakeLights = lights.Lights.ToArray();
-        var chunkChannels = new List<(ulong LightHash, int Channel)>();
-        for (int i = 0; i < locals.Length; i++)
-        {
-            if (maskChannels[i] >= 0 && lights.LightOf[i] >= 0)
-            {
-                bakeLights[lights.LightOf[i]].MaskChannel = maskChannels[i];
-                chunkChannels.Add((BakeInputHash.Light(locals[i], baked.Transform), maskChannels[i]));
-            }
-        }
-
-        return (bakeLights, chunkChannels);
-    }
-
     // Moves the chunk's draws and lights into its space, lays them out on its page, and makes the job that bakes them.
     // Never waits: the baker comes from PrepareBaking.
     private BakeJob ChunkJob(
@@ -2969,9 +2827,9 @@ public sealed unsafe class Renderer : IDisposable
                 $"{layout.Left.Count.ToString(CultureInfo.InvariantCulture)} of the {owned.Count.ToString(CultureInfo.InvariantCulture)} static draws in the baked chunk \"{baked.Name}\" don't fit in one lightmap page of {LightmapLayout.PageSize.ToString(CultureInfo.InvariantCulture)} texels, so they would get no baked light. Use fewer than {baked.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, or make the chunk smaller.");
         }
 
-        var lights = TakeChunkLights(view, resolved.Chunk);
+        var lights = BakeLights.TakeChunk(view, resolved.Chunk, _animatedLights);
         var unassigned = new List<int>();
-        var (bakeLights, chunkChannels) = AssignChunkChannels(view.LocalLights, baked, lights, unassigned);
+        var (bakeLights, chunkChannels) = BakeLights.AssignChunkChannels(view.LocalLights, baked, lights, unassigned);
 
         // No sky and no sun in the plain light: the transfer carries them, for whatever sky the chunk is placed under.
         bool plainLight = lights.Lights.Count > 0 || glows;
@@ -3442,7 +3300,7 @@ public sealed unsafe class Renderer : IDisposable
             scheduler.EverythingChanged();
         }
 
-        FollowProbeLights(DrawnLocalLights(view), scheduler);
+        _probeLights.Follow(DrawnLocalLights(view), scheduler);
     }
 
     // A new box for the fixed grid starts it again, with its old probes cleared.
@@ -3530,69 +3388,6 @@ public sealed unsafe class Renderer : IDisposable
 
         return captured + (_probeSun.Redraw ? draws.Length : 0);
     }
-
-    /// <summary>
-    /// Marks the probes near each point and spot light that appeared, went out, or changed its place,
-    /// range, colour, cone or shadow since last frame, both where it was and where it is now.
-    /// </summary>
-    private void FollowProbeLights(ReadOnlySpan<LocalLight> lights, ProbeScheduler scheduler)
-    {
-        _probeLightsSeen.Clear();
-        foreach (ref readonly var light in lights)
-        {
-            _probeLightsSeen.Add(light.Key);
-            if (_probeLights.TryGetValue(light.Key, out var old))
-            {
-                if (SameProbeLight(old, light))
-                {
-                    continue;
-                }
-
-                // A light that only flickers covers the same probes as before, so they are marked once, below.
-                if (old.Position != light.Position || old.Range != light.Range)
-                {
-                    scheduler.LightChanged(old.Position, old.Range);
-                }
-            }
-
-            scheduler.LightChanged(light.Position, light.Range);
-            _probeLights[light.Key] = light;
-        }
-
-        if (_probeLights.Count != _probeLightsSeen.Count)
-        {
-            ForgetProbeLightsGone(scheduler);
-        }
-    }
-
-    // Marks the probes near each light that wasn't seen this frame, and forgets the light.
-    private void ForgetProbeLightsGone(ProbeScheduler scheduler)
-    {
-        _probeLightsGone.Clear();
-        foreach (var (key, old) in _probeLights)
-        {
-            if (!_probeLightsSeen.Contains(key))
-            {
-                scheduler.LightChanged(old.Position, old.Range);
-                _probeLightsGone.Add(key);
-            }
-        }
-
-        foreach (int key in _probeLightsGone)
-        {
-            _probeLights.Remove(key);
-        }
-    }
-
-    private static bool SameProbeLight(in LocalLight a, in LocalLight b) =>
-        a.Position == b.Position
-        && a.Range == b.Range
-        && a.Radiance == b.Radiance
-        && a.Radius == b.Radius
-        && a.Direction == b.Direction
-        && a.InnerAngle == b.InnerAngle
-        && a.OuterAngle == b.OuterAngle
-        && a.CastsShadow == b.CastsShadow;
 
     /// <summary>
     /// Records this frame's light probe work, after the lights' shadow tiles: clears the cells the

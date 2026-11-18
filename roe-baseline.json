@@ -9,96 +9,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Rendition.Renderer.CheckPages",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.ChunkJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.FindMaskSlots",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 23
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.FindRelitChunks",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.LoadSpaceBake",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.PlanProbes",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.RecordBakeSlice",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.RecordFrame",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.RecordScene",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 23
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.RenderTinted",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 41
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.ResolveBakes",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 22
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.SpaceJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.UpdateBackgroundBake",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 22
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.ValidateMaterial",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.WriteUniforms",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 30
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.SkylinePacker.TryPack",
       "file": "src/Rendition/Lightmaps/SkylinePacker.cs",
       "metric": 18
@@ -324,72 +234,6 @@
       "name": "Rendition.LightmapLayout.Single",
       "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
       "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.FindMaskSlots",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 46
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.FindRelitChunks",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.LoadSpaceBake",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.PlanProbes",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 24
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.RecordFrame",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.RecordScene",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 28
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.RenderTinted",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 39
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.ResolveBakes",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.SpaceJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.UpdateBackgroundBake",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 26
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.WriteUniforms",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 36
     },
     {
       "kind": "high-cognitive-complexity",
@@ -753,117 +597,9 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Renderer.ChunkJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 88
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.CreateFrame",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 70
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.Dispose",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 83
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.FindMaskSlots",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 96
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.FindRelitChunks",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 80
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.LoadSpaceBake",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 91
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.PlanProbes",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 122
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.RecordBakeSlice",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 61
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.RecordFrame",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 107
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.RecordScene",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 231
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.RenderTinted",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 291
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
       "metric": 165
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.ResolveBakes",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 83
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.SampleProbeIrradiance",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 105
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.SelectDraws",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 61
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.SpaceJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 101
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.UpdateBackgroundBake",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 75
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.WriteTargetDescriptors",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 123
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.WriteUniforms",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 161
     },
     {
       "kind": "long-method",
@@ -1557,36 +1293,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.Renderer.ChunkJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Renderer.RecordFrame",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Renderer.RecordScene",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Renderer.SpaceJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Renderer.WriteUniforms",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Rendition.ShadowMaskChannels.Assign",
       "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
       "metric": 6
@@ -1829,7 +1535,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 6009
+      "metric": 6103
     },
     {
       "kind": "large-file",
@@ -2003,7 +1709,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 411
+      "metric": 468
     },
     {
       "kind": "large-type",
@@ -2344,6 +2050,8 @@
         "Rendition.BakeFilter",
         "Rendition.BakeJob",
         "Rendition.BakeLightOwners",
+        "Rendition.BakeLights",
+        "Rendition.BakePages",
         "Rendition.BakeQueue",
         "Rendition.BakeResolver",
         "Rendition.BakedProbeAtlas",
@@ -2357,6 +2065,7 @@
         "Rendition.FadeRules",
         "Rendition.FilterRun",
         "Rendition.FogVolumeBatch",
+        "Rendition.FrameMaskSlots",
         "Rendition.FrameView",
         "Rendition.IBakeStore",
         "Rendition.LastFrame",
@@ -2409,6 +2118,7 @@
         "Rendition.Passes.Wind",
         "Rendition.ProbeCandidate",
         "Rendition.ProbeCaptureQueue",
+        "Rendition.ProbeLightTracker",
         "Rendition.ProbeScheduler",
         "Rendition.RenderEffects",
         "Rendition.Renderer",
