@@ -224,20 +224,17 @@ public class SkyModelTests
         Assert.Equal(default, SkyModel.Sun(gradient));
     }
 
-    // The air fades far surfaces only where nothing else does: a view's own haze takes over, with Graphics.Haze off
-    // too, and a probe's capture leaves out both, so a reflection matches what a probe sees.
+    // The air fades far surfaces only where nothing else does: a view's own haze takes over, with Graphics.Haze off too.
     [Theory]
-    [InlineData(0f, 0f, RenderEffects.None, false, true)]
-    [InlineData(45f, 150f, RenderEffects.None, false, false)]
-    [InlineData(45f, 150f, RenderEffects.Haze, false, false)]
-    [InlineData(0f, 0f, RenderEffects.AerialPerspective, false, false)]
-    [InlineData(0f, 0f, RenderEffects.None, true, false)]
-    public void Air_shows_only_without_haze_switch_off_or_capture(
-        float fadeStart, float fadeEnd, RenderEffects off, bool capturingProbe, bool shows)
+    [InlineData(0f, 0f, RenderEffects.None, true)]
+    [InlineData(45f, 150f, RenderEffects.None, false)]
+    [InlineData(45f, 150f, RenderEffects.Haze, false)]
+    [InlineData(0f, 0f, RenderEffects.AerialPerspective, false)]
+    public void Air_shows_only_without_haze_or_the_switch_off(float fadeStart, float fadeEnd, RenderEffects off, bool shows)
     {
         var view = new FrameView { BackgroundFadeStart = fadeStart, BackgroundFadeEnd = fadeEnd };
 
-        Assert.Equal(shows, SkyModel.AirShows(view, off, capturingProbe));
+        Assert.Equal(shows, SkyModel.AirShows(view, off));
     }
 
     private static Vector3 Elevated(float degrees)
@@ -253,7 +250,7 @@ public class SkyModelTests
     public void Stars_fade_in_as_the_sun_goes_from_2_to_12_degrees_below_the_horizon()
     {
         static float Stars(float sunDegrees) =>
-            SkyModel.Night(Night(Vector3.Zero), Elevated(sunDegrees), RenderEffects.None, false).Stars.X;
+            SkyModel.Night(Night(Vector3.Zero), Elevated(sunDegrees), RenderEffects.None).Stars.X;
 
         Assert.Equal(0f, Stars(10f));
         Assert.Equal(0f, Stars(-1.5f));
@@ -262,7 +259,7 @@ public class SkyModelTests
         Assert.Equal(full, Stars(-40f));
         // Halfway between 2 and 12 degrees down, 0.035 and 0.21 radians, they are at half their brightness.
         Assert.Equal(full / 2f, Stars(-7.02f), 1e-3f);
-        Assert.Equal(1.25f, SkyModel.Night(Night(Vector3.Zero), Elevated(-40f), RenderEffects.None, false).Stars.Y);
+        Assert.Equal(1.25f, SkyModel.Night(Night(Vector3.Zero), Elevated(-40f), RenderEffects.None).Stars.Y);
     }
 
     [Theory]
@@ -272,19 +269,18 @@ public class SkyModelTests
     {
         var view = Night(Vector3.Zero, hideStars);
 
-        Assert.Equal(0f, SkyModel.Night(view, Elevated(-40f), off, false).Stars.X);
+        Assert.Equal(0f, SkyModel.Night(view, Elevated(-40f), off).Stars.X);
     }
 
     [Fact]
-    public void A_gradient_sky_and_a_probe_capture_have_no_moon_or_stars()
+    public void A_gradient_sky_has_no_moon_or_stars()
     {
         var clear = Night(Elevated(60f));
         var gradient = clear;
         gradient.Sky.Turbidity = 0f;
 
-        Assert.Equal(default, SkyModel.Night(gradient, Elevated(-40f), RenderEffects.None, false));
-        Assert.Equal(default, SkyModel.Night(clear, Elevated(-40f), RenderEffects.None, true));
-        Assert.NotEqual(default, SkyModel.Night(clear, Elevated(-40f), RenderEffects.None, false));
+        Assert.Equal(default, SkyModel.Night(gradient, Elevated(-40f), RenderEffects.None));
+        Assert.NotEqual(default, SkyModel.Night(clear, Elevated(-40f), RenderEffects.None));
     }
 
     [Fact]
@@ -292,10 +288,10 @@ public class SkyModelTests
     {
         var sun = Elevated(-40f);
 
-        var (high, highLight, _) = SkyModel.Night(Night(new Vector3(0f, 2f, 2f)), sun, RenderEffects.None, false);
-        var (_, lowLight, _) = SkyModel.Night(Night(Elevated(3f)), sun, RenderEffects.None, false);
-        var (_, setLight, _) = SkyModel.Night(Night(Elevated(-5f)), sun, RenderEffects.None, false);
-        var (none, noLight, _) = SkyModel.Night(Night(Vector3.Zero), sun, RenderEffects.None, false);
+        var (high, highLight, _) = SkyModel.Night(Night(new Vector3(0f, 2f, 2f)), sun, RenderEffects.None);
+        var (_, lowLight, _) = SkyModel.Night(Night(Elevated(3f)), sun, RenderEffects.None);
+        var (_, setLight, _) = SkyModel.Night(Night(Elevated(-5f)), sun, RenderEffects.None);
+        var (none, noLight, _) = SkyModel.Night(Night(Vector3.Zero), sun, RenderEffects.None);
 
         Assert.True(Vector4.Distance(new Vector4(0f, MathF.Sqrt(0.5f), MathF.Sqrt(0.5f), 1f), high) < 1e-6f, $"The moon is at {high}.");
         Assert.True(highLight.X > 0.1f, $"The high moon is {highLight}.");

@@ -112,6 +112,48 @@ public sealed class ProfilingTests
             CultureInfo.CurrentCulture = original;
         }
     }
+
+    [Fact]
+    public void The_report_lists_the_slowest_frames_first_with_their_idle_waits_and_captures()
+    {
+        ProfiledFrame[] frames =
+        [
+            new(1, 2.0, 3.0, 5.0, 0.0, 128, Gpu: 4.0),
+            new(1, 2.0, 3.0, 35.0, 0.0, 128, Gpu: 4.5, IdleWaits: 2, ReflectionCaptures: 7),
+            new(1, 2.0, 3.0, 7.0, 0.0, 128, Gpu: 4.0, ReflectionCaptures: 1),
+        ];
+        var run = Run([["Main"]]) with { Frames = frames };
+
+        string report = ProfileReport.Write(run);
+
+        Assert.Contains("Stopped until the GPU was idle 2 times in 3 frames. Reflection probe captures: 8.", report);
+        // 2 + 3 + 35 ms, then 2 + 3 + 7 ms, then 2 + 3 + 5 ms.
+        AssertInOrder(report, "frame    1     40.0 ms  GPU    4.5 ms  2 idle waits  7 reflection captures",
+            "frame    2     12.0 ms  GPU    4.0 ms  0 idle waits  1 reflection captures");
+        AssertInOrder(report, "frame    2     12.0 ms", "frame    0     10.0 ms");
+    }
+
+    [Fact]
+    public void The_frames_file_has_a_line_for_each_frame_with_points_for_decimals_in_any_culture()
+    {
+        ProfiledFrame[] frames = [new(2, 1.5, 0.25, 6.0, 4.0, 64, Gpu: 3.125, IdleWaits: 1, ReflectionCaptures: 1)];
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("sv-SE");
+
+            string csv = ProfileReport.WriteFrames(frames);
+
+            Assert.Equal(
+                "frame,ticks,frame_ms,update_ms,draw_ms,render_ms,waiting_ms,gpu_ms,idle_waits,reflection_captures\n"
+                + "0,2,7.750,1.500,0.250,6.000,4.000,3.125,1,1\n",
+                csv);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
 }
 
 /// <summary>The sampler listens to the whole process, so nothing else may run beside it.</summary>

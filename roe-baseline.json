@@ -215,7 +215,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.PlanProbes",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 23
+      "metric": 19
     },
     {
       "kind": "high-complexity",
@@ -233,7 +233,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 22
+      "metric": 23
     },
     {
       "kind": "high-complexity",
@@ -269,7 +269,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 40
+      "metric": 30
     },
     {
       "kind": "high-complexity",
@@ -735,12 +735,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.View.ReflectionProbe",
-      "file": "src/Super/View.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.View.Sky",
       "file": "src/Super/View.cs",
       "metric": 12
@@ -917,7 +911,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.PlanProbes",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 31
+      "metric": 24
     },
     {
       "kind": "high-cognitive-complexity",
@@ -929,7 +923,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 27
+      "metric": 28
     },
     {
       "kind": "high-cognitive-complexity",
@@ -959,7 +953,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 44
+      "metric": 36
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1269,12 +1263,6 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.View.ReflectionProbe",
-      "file": "src/Super/View.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Super.Voice.Begin",
       "file": "src/Super/Audio/Voice.cs",
       "metric": 18
@@ -1379,7 +1367,7 @@
       "kind": "long-method",
       "name": "Gallery.GalleryGame.Draw",
       "file": "examples/Gallery/GalleryGame.cs",
-      "metric": 69
+      "metric": 65
     },
     {
       "kind": "long-method",
@@ -1397,7 +1385,7 @@
       "kind": "long-method",
       "name": "Gallery.GalleryGame.Update",
       "file": "examples/Gallery/GalleryGame.cs",
-      "metric": 52
+      "metric": 54
     },
     {
       "kind": "long-method",
@@ -1761,15 +1749,9 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Passes.ProbeCapturePass.Prepare",
-      "file": "src/Rendition/Passes/ProbeCapturePass.cs",
-      "metric": 42
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Passes.ProbeCapturePass.Record",
       "file": "src/Rendition/Passes/ProbeCapturePass.cs",
-      "metric": 88
+      "metric": 49
     },
     {
       "kind": "long-method",
@@ -1845,12 +1827,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Renderer.CaptureFaces",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 67
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Renderer.ChunkJob",
       "file": "src/Rendition/Renderer.cs",
       "metric": 88
@@ -1859,13 +1835,13 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.CreateFrame",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 82
+      "metric": 70
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.Dispose",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 92
+      "metric": 83
     },
     {
       "kind": "long-method",
@@ -1889,7 +1865,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.PlanProbes",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 136
+      "metric": 122
     },
     {
       "kind": "long-method",
@@ -1907,7 +1883,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 223
+      "metric": 231
     },
     {
       "kind": "long-method",
@@ -1919,7 +1895,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 163
+      "metric": 165
     },
     {
       "kind": "long-method",
@@ -1955,13 +1931,13 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 118
+      "metric": 123
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 168
+      "metric": 161
     },
     {
       "kind": "long-method",
@@ -2061,21 +2037,9 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Vulkan.ReflectionProbes.FilterLevel",
-      "file": "src/Rendition/Vulkan/ReflectionProbes.cs",
-      "metric": 60
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.ReflectionProbes.ReflectionProbes",
-      "file": "src/Rendition/Vulkan/ReflectionProbes.cs",
-      "metric": 53
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Vulkan.RenderTarget.RenderTarget",
       "file": "src/Rendition/Vulkan/RenderTarget.cs",
-      "metric": 45
+      "metric": 46
     },
     {
       "kind": "long-method",
@@ -2685,12 +2649,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.SceneRenderer.CaptureReflectionProbes",
-      "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 43
-    },
-    {
-      "kind": "long-method",
       "name": "Super.SceneRenderer.CreateFrame",
       "file": "src/Super/Rendering/SceneRenderer.cs",
       "metric": 58
@@ -2766,12 +2724,6 @@
       "name": "Super.Ui.GlyphAtlas.Wrap",
       "file": "src/Super/Ui/GlyphAtlas.cs",
       "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.View.ReflectionProbe",
-      "file": "src/Super/View.cs",
-      "metric": 42
     },
     {
       "kind": "long-method",
@@ -3131,7 +3083,7 @@
       "kind": "too-many-parameters",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 8
+      "metric": 7
     },
     {
       "kind": "too-many-parameters",
@@ -3437,13 +3389,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 6085
+      "metric": 6009
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1867
+      "metric": 1873
     },
     {
       "kind": "large-file",
@@ -3473,19 +3425,19 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/GameWindow.cs",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 822
+      "metric": 835
     },
     {
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1247
+      "metric": 1249
     },
     {
       "kind": "large-file",
       "name": "src/Super/View.cs",
       "file": "src/Super/View.cs",
-      "metric": 1202
+      "metric": 1246
     },
     {
       "kind": "large-type",
@@ -3509,7 +3461,7 @@
       "kind": "large-type",
       "name": "Gallery.GalleryGame",
       "file": "examples/Gallery/GalleryGame.cs",
-      "metric": 41
+      "metric": 43
     },
     {
       "kind": "large-type",
@@ -3629,7 +3581,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 404
+      "metric": 411
     },
     {
       "kind": "large-type",
@@ -3671,7 +3623,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.ReflectionProbes",
       "file": "src/Rendition/Vulkan/ReflectionProbes.cs",
-      "metric": 24
+      "metric": 28
     },
     {
       "kind": "large-type",
@@ -3695,7 +3647,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.VulkanContext",
       "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 40
+      "metric": 42
     },
     {
       "kind": "large-type",
@@ -3881,7 +3833,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 113
+      "metric": 116
     },
     {
       "kind": "large-type",
@@ -4016,6 +3968,8 @@
         "Rendition.ModelData",
         "Rendition.NoBakes",
         "Rendition.Passes.BloomPass",
+        "Rendition.Passes.CaptureScene",
+        "Rendition.Passes.CubeCapture",
         "Rendition.Passes.DecalBatch",
         "Rendition.Passes.DecalPass",
         "Rendition.Passes.DepthFirst",
@@ -4030,7 +3984,6 @@
         "Rendition.Passes.GBuffer",
         "Rendition.Passes.GBufferPass",
         "Rendition.Passes.GpuLightArray",
-        "Rendition.Passes.GpuReflectionProbeArray",
         "Rendition.Passes.Motion",
         "Rendition.Passes.Occlusion",
         "Rendition.Passes.OverlayPass",
@@ -4041,6 +3994,8 @@
         "Rendition.Passes.ProbeSunShadow",
         "Rendition.Passes.ProbeTracePass",
         "Rendition.Passes.Puddles",
+        "Rendition.Passes.ReflectionCaptureCube",
+        "Rendition.Passes.ReflectionCapturePass",
         "Rendition.Passes.SceneDraws",
         "Rendition.Passes.ShadowMatrixArray",
         "Rendition.Passes.ShadowPass",
@@ -4060,7 +4015,6 @@
         "Rendition.ShL1",
         "Rendition.SkyImageData",
         "Rendition.TextureData",
-        "Rendition.Vulkan.CaptureCube",
         "Rendition.Vulkan.CubeCentres",
         "Rendition.Vulkan.CubeLevel",
         "Rendition.Vulkan.CubeShader<TConstants>",
@@ -4077,6 +4031,7 @@
         "Rendition.Vulkan.GpuTexture",
         "Rendition.Vulkan.InstanceBuffer",
         "Rendition.Vulkan.PipelineFactory",
+        "Rendition.Vulkan.ProbeCubes",
         "Rendition.Vulkan.ProbeVolume",
         "Rendition.Vulkan.RayTracing",
         "Rendition.Vulkan.ReflectionProbes",

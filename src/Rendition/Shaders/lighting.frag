@@ -5,10 +5,10 @@
 #include "brdf.glsl"
 #include "sampling.glsl"
 #include "probes.glsl"
-#include "reflection_probes.glsl"
 #include "water.glsl"
 #include "material_data.glsl"
 #include "light_data.glsl"
+#include "reflection_probes.glsl"
 #include "local_shadows.glsl"
 #include "sky.glsl"
 #include "fog.glsl"
@@ -109,64 +109,7 @@ float specularOcclusion(float nDotV, float ao, float roughness) {
     return clamp(pow(nDotV + ao, exp2(-16.0 * roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
 }
 
-// How much a point takes the baked space's probes over the live light, while the frame draws its fresh bake's probes: 1
-// deep inside the box, falling to 0 at its faces over one probe spacing in from each, the product of each axis's
-// smoothstep, and 0 outside the box or with no bake. A moving thing that crosses the box then blends from one light into
-// the other with no jump. With the band off for a test (w 2), 1 anywhere in the box. Either way it is scaled by how far
-// the bake has faded in (frame.bakedFade.x), so a bake that arrives on screen fades in instead of popping.
-float bakedProbeWeight(vec3 position) {
-    if (frame.bakedProbeCounts.w < 0.5) {
-        return 0.0;
-    }
-
-    vec3 inside = min(position - frame.bakedSpaceMin.xyz, frame.bakedSpaceMax.xyz - position);
-    if (any(lessThan(inside, vec3(0.0)))) {
-        return 0.0;
-    }
-
-    if (frame.bakedProbeCounts.w > 1.5) {
-        return frame.bakedFade.x;
-    }
-
-    vec3 band = smoothstep(vec3(0.0), vec3(frame.bakedProbeMin.w), inside);
-    return band.x * band.y * band.z * frame.bakedFade.x;
-}
-
-// The soft light from the live frame: the live light probes, as probeIrradiance orders them, the view's fixed grid,
-// then the cascades round the camera; then the sky, where none of the probes can see the point.
-vec3 liveSoftLight(vec3 position, vec3 direction, vec3 v) {
-    if (frame.lightProbeCounts.w > 0.5 || frame.probeCascadeCounts.w > 0.5) {
-        vec3 fromProbes = probeIrradiance(position, direction, v);
-        if (fromProbes.x >= 0.0) {
-            return fromProbes;
-        }
-    }
-
-    return skyIrradiance(irradianceTexture, direction) * frame.backgroundRadiance.a;
-}
-
-// The soft light reaching a point from around a direction, in the lit image's units. Inside a fresh baked space, the
-// bake's probes, which hold its Baked lights the live frame leaves out, blended by bakedProbeWeight with the live soft
-// light, which alone lights everywhere else; where none of the bake's probes sees the point, the live light alone.
-// Lightmapped pixels take theirs from the lightmap instead, or in a chunk's edge band blend the two, so this lights
-// dynamic objects and surfaces without a lightmap.
-vec3 softLight(vec3 position, vec3 direction, vec3 v) {
-    float weight = bakedProbeWeight(position);
-    vec3 fromBake = vec3(0.0);
-    if (weight > 0.0) {
-        fromBake = bakedProbeIrradiance(textures[int(frame.bakedSpaceMin.w + 0.5)],
-            textures[int(frame.bakedSpaceMax.w + 0.5)], frame.bakedProbeMin.xyz, frame.bakedProbeMin.w,
-            ivec3(frame.bakedProbeCounts.xyz + 0.5), position, direction, v);
-        if (fromBake.x < 0.0) {
-            weight = 0.0;
-        } else if (weight >= 1.0) {
-            return fromBake;
-        }
-    }
-
-    vec3 live = liveSoftLight(position, direction, v);
-    return weight > 0.0 ? mix(live, fromBake, weight) : live;
-}
+#include "soft_light.glsl"
 
 // What a surface is made of and how it's seen, for lighting it one light at a time.
 struct Surface {
@@ -409,7 +352,7 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
 
 // What the reflection probes, or the studio where there are none, show in a direction.
 vec3 sampleReflection(vec3 position, vec3 direction, float lod) {
-    return probeReflection(probeTexture, reflectionTexture, position, direction, lod);
+    return probeReflection(probeTexture, reflectionTexture, gl_FragCoord.xy, position, direction, lod);
 }
 
 // Light blocked by something touching the surface, nearer than the shadow maps' texels can

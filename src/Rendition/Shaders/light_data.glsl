@@ -1,7 +1,8 @@
 // Point and spot lights, sorted into clusters: the view cut into CLUSTER_X by CLUSTER_Y
-// tiles on screen and CLUSTER_Z slices of depth, each listing the lights that reach it.
-// cluster.comp fills the lists; the lighting, glass and particle passes read them.
-// Needs common.glsl. The sizes must match LocalLights in Passes/LocalLights.cs.
+// tiles on screen and CLUSTER_Z slices of depth, each listing the lights that reach it and
+// marking the reflection probes whose box it touches. cluster.comp fills the lists; the
+// lighting, glass and particle passes read them. Needs common.glsl. The sizes must match
+// LocalLights in Passes/LocalLights.cs.
 
 const uint CLUSTER_X = 16;
 const uint CLUSTER_Y = 9;
@@ -44,9 +45,22 @@ layout(std430, set = 0, binding = 4) readonly buffer ShadowTiles {
     ShadowTile shadowTiles[];
 };
 
+// Must match GpuReflectionProbe in Passes/FrameUniforms.cs.
+struct ReflectionProbe {
+    vec4 position; // xyz: where it was captured; w: distance over which it fades out
+    vec4 boxMin;   // xyz: the room it describes; w: its cube in the cube array
+    vec4 boxMax;
+};
+
+// The frame.probeCount probes the view sees, in the order they blend: see ReflectionProbeOrder.
+layout(std430, set = 0, binding = 13) readonly buffer ReflectionProbes {
+    ReflectionProbe reflectionProbes[];
+};
+
 #ifndef CLUSTER_WRITER
 layout(std430, set = 0, binding = 5) readonly buffer Clusters {
     uint clusterCounts[CLUSTER_COUNT];
+    uvec2 clusterProbes[CLUSTER_COUNT]; // Bit i is set when reflectionProbes[i]'s box touches the cluster.
     uint clusterLights[]; // CLUSTER_LIGHTS / 2 words per cluster, two 16-bit light indices to a word
 };
 #endif
@@ -77,6 +91,11 @@ uint clusterLightCount(uint cluster) {
 uint clusterLight(uint cluster, uint i) {
     uint word = clusterLights[cluster * (CLUSTER_LIGHTS / 2) + i / 2];
     return (word >> (16u * (i & 1u))) & 0xFFFFu;
+}
+
+// The reflection probes whose box touches the cluster, one bit each.
+uvec2 clusterProbeMask(uint cluster) {
+    return frame.probeCount > 0 ? clusterProbes[cluster] : uvec2(0u);
 }
 #endif
 

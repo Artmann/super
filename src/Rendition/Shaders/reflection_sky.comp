@@ -1,0 +1,34 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "sky.glsl"
+#include "cube_faces.glsl"
+
+// Fills the texels of a reflection probe's capture where nothing was drawn with the sky behind them, as the lighting
+// pass draws it behind a frame: alpha 0 marks them. Its sun's disc is left out, as a probe's blur would only smear it.
+// See Passes/ReflectionCapturePass.cs.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform samplerCube sky;
+layout(rgba16f, set = 0, binding = 1) uniform image2DArray capture;
+
+// Must match SkyConstants in Passes/ReflectionCaptureCube.cs.
+layout(push_constant) uniform Fill {
+    float environmentIntensity;
+} fill;
+
+void main() {
+    ivec3 size = imageSize(capture);
+    ivec3 texel = ivec3(gl_GlobalInvocationID);
+    if (texel.x >= size.x || texel.y >= size.y) {
+        return;
+    }
+
+    if (imageLoad(capture, texel).a > 0.5) {
+        return;
+    }
+
+    vec2 uv = (vec2(texel.xy) + 0.5) / vec2(size.xy) * 2.0 - 1.0;
+    vec3 direction = normalize(cubeWorldDirection(texel.z, uv));
+    imageStore(capture, texel, vec4(skyBehind(sky, direction) * fill.environmentIntensity, 1.0));
+}

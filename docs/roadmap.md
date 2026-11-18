@@ -23,9 +23,9 @@ Super is early. These are the known gaps, so you can plan around them.
 - **Some camera moves.** A camera can't roll, and asymmetric views are a shift, so head
   tracking and tiled displays can't be done yet. Underwater views are wrong under an
   orthographic camera.
-- **Local lights in reflections.** [Reflection probes](rendering.md#reflections) are
-  photographed by the sun and sky alone, so a lantern or a lit window doesn't show in a
-  reflection, and turning one on doesn't photograph the probe again.
+- **Shine in reflections.** [Reflection probes](rendering.md#reflections) photograph diffuse
+  light only, so a polished floor seen in a mirror is matte, and a surface shader's glow doesn't
+  show.
 - [Light probes](rendering.md#bounced-light) are traced with ray queries, as DDGI does, where
   the GPU can, but each update adds only one more bounce, so bounce between walls takes about
   12 seconds to mostly build up and a minute or two to finish, and a moved object reaches the bounce only when its probes

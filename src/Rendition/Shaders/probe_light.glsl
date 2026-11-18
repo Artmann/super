@@ -1,6 +1,7 @@
 // The light a surface sends towards a light probe, for probe updates: the suns, every point and
 // spot light in range, the bounce the probes themselves already hold, and its own glow. The sky
-// reaches a probe through the directions where it sees nothing, not through here.
+// reaches a probe through the directions where it sees nothing, not through here. Reflection probe captures take only
+// the direct light from here, and their soft light from soft_light.glsl.
 //
 // Needs common.glsl, sampling.glsl, brdf.glsl, light_data.glsl, probes.glsl and water_absorption.glsl first, and two
 // macros from the includer, each giving 0 for blocked to 1 for lit:
@@ -24,8 +25,9 @@ vec3 probeSunlightReaching(vec3 position, vec3 l, int light) {
     return radiance * waterAbsorbed(metresToSurface(position, l));
 }
 
-vec3 probeRadiance(vec3 position, vec3 normal, vec3 albedo, vec3 emissive) {
-    // Light arriving straight from the lights, as irradiance; the diffuse surface sends albedo / pi of it on.
+// Light arriving at a surface straight from the lights, as irradiance: the suns, then every point and spot light of the
+// frame. A diffuse surface sends albedo / pi of it on.
+vec3 probeDirectLight(vec3 position, vec3 normal) {
     vec3 direct = vec3(0.0);
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
@@ -50,6 +52,12 @@ vec3 probeRadiance(vec3 position, vec3 normal, vec3 albedo, vec3 emissive) {
 
         direct += light.radianceShadow.rgb * reaching * nDotL * PROBE_LIGHT_VISIBILITY(i, position, normal);
     }
+
+    return direct;
+}
+
+vec3 probeRadiance(vec3 position, vec3 normal, vec3 albedo, vec3 emissive) {
+    vec3 direct = probeDirectLight(position, normal);
 
     // The probes' own light, as the lighting pass gives it, is what makes the second and later bounces.
     // Where no probe can tell yet, there is none.

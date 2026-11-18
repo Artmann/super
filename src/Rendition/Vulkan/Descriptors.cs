@@ -143,4 +143,12 @@ internal static unsafe class Descriptors
             return layout;
         }
     }
+
+    /// <summary>Destroys what a pass with one set made through these helpers: its pipeline layout, pool and set layout.</summary>
+    public static void DestroyLayouts(this VulkanContext context, PipelineLayout layout, DescriptorPool pool, DescriptorSetLayout setLayout)
+    {
+        context.Api.DestroyPipelineLayout(context.Device, layout, null);
+        context.Api.DestroyDescriptorPool(context.Device, pool, null);
+        context.Api.DestroyDescriptorSetLayout(context.Device, setLayout, null);
+    }
 }

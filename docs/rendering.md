@@ -370,7 +370,7 @@ candelabras, a lantern, a beam from a grate and 126 candles, about 150 lights. T
 windows without.
 
 Point and spot lights light models, glass and [particles](views.md#particles). Glass and
-particles get no shadows from them. They aren't seen in reflection probes. In
+particles get no shadows from them. Reflection probes see what they light. In
 [fog](#fog) they glow with a halo; `volumetric:` sets how strongly, and 0 leaves a light
 out of the fog (see [volumetric fog](#volumetric-fog)).
 
@@ -1017,21 +1017,67 @@ roof: a reflected ray runs on to the box before it looks the probe up, so what i
 where it would really be and doesn't slide as the camera moves. Towards the sides of its box a
 probe fades out over `blend` metres, 0.5 by default, into the sky or the next probe.
 
-The key names the probe across frames, so place it every frame like a light. It is
-photographed the first frame it's placed and again only when it moves, its box changes or the
-lighting does: the sun's direction or colour, the sky, the shadow softness or cascades, the
-ambient occlusion settings, the `SunShadows`, `Materials` or `AmbientOcclusion` switches. Moving
-the camera doesn't, because the photograph frames the sun's shadow on the probe's own box, and
-nor does moving or adding objects, so probes suit what stands still. Once the [light
-probes](#bounced-light) round the camera have first settled, each probe is photographed once more.
-Each photograph waits for the GPU and takes a moment, so a sun that moves every frame keeps
-them drawing. Point and spot lights aren't in the photograph, so a lantern's glow doesn't show in
-a reflection. A probe left out of a frame is dropped, and the rest are photographed again.
+Where boxes overlap, the probe with the higher `priority` (0 by default) goes first, and the
+next fills in only what the first leaves as it fades out towards its sides. Between equal
+priorities the smaller box goes first, so a room's probe wins inside the room and the yard's
+round it takes over at the door, with no priorities to set:
 
-At most 4 probes fit in a frame, and a fifth throws. The position must be inside the box,
-`boxMax` above `boxMin` on every axis, `blend` 0 or more, and each key used once a frame.
-With `Graphics.Reflections` off, no probes are photographed and shiny surfaces and glass
-reflect only the sky.
+```csharp
+view.ReflectionProbe(key: 1, position: new(0f, 2f, 0f), boxMin: new(-40f, -1f, -40f), boxMax: new(40f, 20f, 40f)); // the yard
+view.ReflectionProbe(key: 2, position: new(3f, 1.6f, 5f), boxMin: new(0f, 0f, 2f), boxMax: new(6f, 3f, 8f), blend: 0.3f); // a house in it
+```
+
+A pixel blends at most four probes, the first four that reach it in that order.
+
+![The Gallery's chapel at the same moment, before and after it got a probe of its own: before, the lantern's metal frame reflects the blue sky through the roof; after, it reflects the dark chapel round it](media/reflection-probes-chapel.webp)
+
+The key names the probe across frames, so place it every frame like a light. Probes are
+photographed during play, inside the frame and without stopping the game: one a frame, in the
+order they asked, so a new probe shows a frame or a few after it's first placed, and surfaces
+reflect the sky behind it until then. A probe left out of a frame is dropped, and the rest keep
+their photographs.
+
+A probe is photographed again whenever it moves or its box changes, and otherwise as `update`
+says:
+
+| `update` | Photographed again |
+| --- | --- |
+| `ProbeUpdate.OnChange`, the default | When the light on it changes: the sun's direction or colour, the sky and its brightness, the bake, the `SunShadows`, `Materials`, `Emissive`, `EnvironmentLight`, `LocalLights` or `LightShadows` switches, or a point or spot light that reaches its box appearing, going out, or changing its range, cone or shadow. Once the [light probes](#bounced-light) round the camera have first settled, every probe is photographed once more |
+| `ProbeUpdate.OnRequest` | Only when `version` changes, so the game says when |
+| `ProbeUpdate.Always` | Over and over, taking turns with the others: with three such probes each is photographed every third frame |
+
+Moving the camera never counts, because the photograph frames the sun's shadow on the probe's
+own box, and nor does moving or adding objects. A light's colour and where it is aren't watched
+either, so a flickering candle or a swinging lantern doesn't keep a probe busy. For a probe that
+should follow something that moves, use `Always`; for one that should follow a lamp the game
+dims, use `OnRequest` and change `version` with it:
+
+```csharp
+view.ReflectionProbe(key: 3, position: new(0f, 1.5f, 0f), boxMin: new(-4f, 0f, -4f), boxMax: new(4f, 3f, 4f),
+    update: ProbeUpdate.OnRequest, version: _lampLevel);
+```
+
+The [Gallery](../examples/Gallery) shows it: L puts the chapel's lantern out, and C dims the sky,
+and the probes catch up over the next few frames. Below, the frame times as C dims the sky, on
+main, where each probe's photograph stopped the game, and with photographs taken in the frame:
+
+![Frame times in the Gallery's colour room as the sky dims. On main the frame that dims it takes 109 ms, for four probes photographed while the game waits. Here seven probes are photographed over frames 31 to 37 and no frame stands out](media/reflection-probes-frame-times.webp)
+
+A photograph lights each surface as the screen does, without its shine: the suns with their
+shadows, every point and spot light in range with its shadows, and the soft light from the
+bake's probes, the [light probes](#bounced-light) or the sky. A metal shows its own colour in the
+soft light round it. It sees things up to 100 m away, from both sides only where a material is
+two-sided, so a probe inside a closed object sees out through it. It runs no surface shader, so
+a glow made by one, like the Gallery's lamp discs, doesn't show; a material's own `Emissive` does.
+Decals, glass, particles, outlines, fog and anything skinned, swimming or a ghost aren't in it.
+On an M4 Mac a photograph takes about 0.7 ms of the GPU's time.
+
+At most 64 probes fit in a frame, and a sixty-fifth throws. Each probe takes about 1 MB of
+GPU memory. Room for 8 is made at the start and doubles when it runs out, up to 64, which
+waits for the GPU once. The position must be inside the box, `boxMax` above `boxMin` on
+every axis, `blend` 0 or more, `priority` a finite number, `update` one of the three, and each
+key used once a frame. With `Graphics.Reflections` off, no probes are photographed and shiny
+surfaces and glass reflect only the sky.
 
 ## The look of the picture
 
