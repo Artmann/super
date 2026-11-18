@@ -20,84 +20,6 @@
       "metric": 13
     },
     {
-      "kind": "high-complexity",
-      "name": "Super.BakeIdentity.AddMesh",
-      "file": "src/Super/Rendering/BakeIdentity.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.ContentValidator.Fields",
-      "file": "src/Super/Data/ContentValidator.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.ContentValidator.Value",
-      "file": "src/Super/Data/ContentValidator.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.ContentValidator.Whole",
-      "file": "src/Super/Data/ContentValidator.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.ContentValidator.Word",
-      "file": "src/Super/Data/ContentValidator.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.CookedTexture.DecodePixels",
-      "file": "src/Super/Rendering/CookedTexture.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.CookedTexture.ReadSize",
-      "file": "src/Super/Rendering/CookedTexture.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Game.StartWindowsGameLoop",
-      "file": "src/Super/Game.cs",
-      "metric": 27
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.GameWindow.ListenForInput",
-      "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.SceneRenderer.Prepare",
-      "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.SceneRenderer.PrepareItem",
-      "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.View.CheckLight",
-      "file": "src/Super/View.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.View.Sky",
-      "file": "src/Super/View.cs",
-      "metric": 12
-    },
-    {
       "kind": "high-cognitive-complexity",
       "name": "Rendition.LightmapLayout.Single",
       "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
@@ -108,30 +30,6 @@
       "name": "Rendition.SkylinePacker.TryPack",
       "file": "src/Rendition/Lightmaps/SkylinePacker.cs",
       "metric": 28
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.BakeIdentity.AddMesh",
-      "file": "src/Super/Rendering/BakeIdentity.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.ContentValidator.Fields",
-      "file": "src/Super/Data/ContentValidator.cs",
-      "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Game.StartWindowsGameLoop",
-      "file": "src/Super/Game.cs",
-      "metric": 34
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.GameWindow.ListenForInput",
-      "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 17
     },
     {
       "kind": "long-method",
@@ -507,120 +405,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.BakeCache.Read",
-      "file": "src/Super/Rendering/BakeCache.cs",
-      "metric": 42
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.BakeCache.Trim",
-      "file": "src/Super/Rendering/BakeCache.cs",
-      "metric": 58
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.BakeCache.Write",
-      "file": "src/Super/Rendering/BakeCache.cs",
-      "metric": 53
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.BakeIdentity.AddMesh",
-      "file": "src/Super/Rendering/BakeIdentity.cs",
-      "metric": 77
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Content.Surface",
-      "file": "src/Super/Content.cs",
-      "metric": 47
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.ContentValidator.Fields",
-      "file": "src/Super/Data/ContentValidator.cs",
-      "metric": 45
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.ContentValidator.Value",
-      "file": "src/Super/Data/ContentValidator.cs",
-      "metric": 58
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Game.StartWindowsGameLoop",
-      "file": "src/Super/Game.cs",
-      "metric": 151
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.GameHost.GameHost",
-      "file": "src/Super/GameHost.cs",
-      "metric": 52
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.GameHost.TickOnce",
-      "file": "src/Super/GameHost.cs",
-      "metric": 56
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.GameWindow.GameWindow",
-      "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.GameWindow.Run",
-      "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.SceneRenderer.CreateFrame",
-      "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 58
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.SceneRenderer.Prepare",
-      "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 70
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Shapes.ShapeBuilder.AddGridChart",
-      "file": "src/Super/Shapes.cs",
-      "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Shapes.ShapeBuilder.Disc",
-      "file": "src/Super/Shapes.cs",
-      "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Shapes.Strips",
-      "file": "src/Super/ShapesAlongSplines.cs",
-      "metric": 48
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Terrain.Heightfield.Chunk",
-      "file": "src/Super/Terrain/Heightfield.cs",
-      "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.View.Sky",
-      "file": "src/Super/View.cs",
-      "metric": 45
-    },
-    {
-      "kind": "long-method",
       "name": "Terrain.TerrainGame.Load",
       "file": "examples/Terrain/TerrainGame.cs",
       "metric": 48
@@ -938,90 +722,6 @@
       "metric": 10
     },
     {
-      "kind": "too-many-parameters",
-      "name": "Super.BakeIdentity.Assign",
-      "file": "src/Super/Rendering/BakeIdentity.cs",
-      "metric": 9
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.ContentValidator.ContentValidator",
-      "file": "src/Super/Data/ContentValidator.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.GameWindow.GameWindow",
-      "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.GameWindow.Profile",
-      "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.GameWindow.Record",
-      "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.GlfwInput.ToFramebuffer",
-      "file": "src/Super/Rendering/GlfwInput.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.SceneRenderer.Bake",
-      "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.SceneRenderer.BakeChunk",
-      "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.SceneRenderer.Dress",
-      "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Shapes.AddArc",
-      "file": "src/Super/Shapes.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.View.CheckLight",
-      "file": "src/Super/View.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.View.Model/6",
-      "file": "src/Super/View.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.View.Model/9",
-      "file": "src/Super/View.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.View.SpotLight",
-      "file": "src/Super/View.cs",
-      "metric": 7
-    },
-    {
       "kind": "large-file",
       "name": "src/Rendition/Baking/Baker.cs",
       "file": "src/Rendition/Baking/Baker.cs",
@@ -1038,30 +738,6 @@
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
       "metric": 1873
-    },
-    {
-      "kind": "large-file",
-      "name": "src/Super/Content.cs",
-      "file": "src/Super/Content.cs",
-      "metric": 1017
-    },
-    {
-      "kind": "large-file",
-      "name": "src/Super/Rendering/GameWindow.cs",
-      "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 784
-    },
-    {
-      "kind": "large-file",
-      "name": "src/Super/Rendering/SceneRenderer.cs",
-      "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1255
-    },
-    {
-      "kind": "large-file",
-      "name": "src/Super/View.cs",
-      "file": "src/Super/View.cs",
-      "metric": 1246
     },
     {
       "kind": "large-type",
@@ -1275,75 +951,9 @@
     },
     {
       "kind": "large-type",
-      "name": "Super.BakeCache",
-      "file": "src/Super/Rendering/BakeCache.cs",
-      "metric": 26
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Catalog",
-      "file": "src/Super/Data/Catalog.cs",
-      "metric": 23
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Content",
-      "file": "src/Super/Content.cs",
-      "metric": 88
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.ContentValidator",
-      "file": "src/Super/Data/ContentValidator.cs",
-      "metric": 32
-    },
-    {
-      "kind": "large-type",
       "name": "Super.Cook.Models.MaterialRule",
       "file": "src/Super.Cook.Models/ImportSettings.cs",
       "metric": 45
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.GameHost",
-      "file": "src/Super/GameHost.cs",
-      "metric": 44
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.GameWindow",
-      "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 45
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Graphics",
-      "file": "src/Super/Graphics.cs",
-      "metric": 70
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.SceneRenderer",
-      "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 119
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Shapes",
-      "file": "src/Super/Shapes.cs",
-      "metric": 28
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Surface",
-      "file": "src/Super/Surface.cs",
-      "metric": 33
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.View",
-      "file": "src/Super/View.cs",
-      "metric": 80
     },
     {
       "kind": "large-type",
@@ -1359,19 +969,6 @@
     }
   ],
   "cycles": [
-    {
-      "members": [
-        "Archer.ArcherGame",
-        "Archer.Film"
-      ]
-    },
-    {
-      "members": [
-        "Gallery.Building",
-        "Gallery.GalleryGame",
-        "Gallery.Tour"
-      ]
-    },
     {
       "members": [
         "Rendition.BakeInputHash",
@@ -1396,12 +993,6 @@
       "members": [
         "Super.Cook.CacheFolder",
         "Super.Cook.CacheUsage"
-      ]
-    },
-    {
-      "members": [
-        "Super.Cook.SourceFile",
-        "Super.Cook.Sources"
       ]
     },
     {
