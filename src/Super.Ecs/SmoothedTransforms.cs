@@ -1,26 +1,26 @@
 namespace Super.Ecs;
 
-public sealed partial class World : ITickHook
+/// <summary>Keeps each <see cref="Smoothed"/> entity's memory of its last tick, which drawing blends from.</summary>
+internal static class SmoothedTransforms
 {
-    void ITickHook.BeforeUpdate() => RememberTransforms();
-
     /// <summary>
     /// Copies every <see cref="Smoothed"/> entity's transform into its memory of last
     /// tick. The game loop does this before each Update.
     /// </summary>
-    internal void RememberTransforms()
+    public static void Remember(World world)
     {
-        int transformType = TypeIdOrMissing<Transform>();
-        int smoothedType = TypeIdOrMissing<Smoothed>();
+        var archetypes = world.Archetypes;
+        int transformType = archetypes.TypeIdOrMissing<Transform>();
+        int smoothedType = archetypes.TypeIdOrMissing<Smoothed>();
         if (transformType < 0 || smoothedType < 0)
         {
             return;
         }
 
-        int swimType = TypeIdOrMissing<Swim>();
+        int swimType = archetypes.TypeIdOrMissing<Swim>();
         ulong mask = (1UL << transformType) | (1UL << smoothedType);
         int index = -1;
-        while (NextArchetype(ref index, mask) is { } archetype)
+        while (archetypes.NextMatching(ref index, mask) is { } archetype)
         {
             var transforms = archetype.Column<Transform>(transformType).Values;
             var smoothed = archetype.Column<Smoothed>(smoothedType).Values;
