@@ -89,7 +89,7 @@ internal sealed class LightProbes(VulkanContext context, EnvironmentMap environm
         var depth = new DescriptorImageInfo(kit.LinearSampler, Volume.DepthView, ImageLayout.General);
         _updatePass.WriteSet(irradiance, depth,
             new DescriptorImageInfo(kit.ShadowSampler, _sun.View, ImageLayout.ShaderReadOnlyOptimal));
-        _tracePass?.WriteSet(irradiance, depth, Volume.StagingTiles,
+        _tracePass?.WriteSet(irradiance, depth, Volume.Atlases.Staging.Handle,
             new DescriptorImageInfo(environment.Sampler, environment.Sky, ImageLayout.ShaderReadOnlyOptimal));
         return true;
     }
@@ -117,8 +117,8 @@ internal sealed class LightProbes(VulkanContext context, EnvironmentMap environm
         {
             var budget = ProbeBudget.For(Quality);
             int count = traced
-                ? Math.Min(budget.Traced, Volume.StagingSlots)
-                : Math.Min(budget.Raster, Math.Min(Volume.FaceSlots, Volume.StagingSlots));
+                ? Math.Min(budget.Traced, Volume.Atlases.StagingSlots)
+                : Math.Min(budget.Raster, Math.Min(Volume.Faces?.Slots ?? 0, Volume.Atlases.StagingSlots));
             Batch.Take(view, count, traced ? budget.TracedRefresh : count);
         }
 

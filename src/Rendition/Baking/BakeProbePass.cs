@@ -102,7 +102,7 @@ internal sealed unsafe class BakeProbePass : IDisposable
         var api = _context.Api;
         var volume = Volume!;
         uint layers = (uint)(count * 6);
-        api.Transition(cmd, volume.FacesImage, ImageAspectFlags.ColorBit,
+        api.Transition(cmd, volume.Faces!.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferDstOptimal,
             PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
             PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
@@ -122,10 +122,10 @@ internal sealed unsafe class BakeProbePass : IDisposable
                 };
             }
 
-            api.CmdCopyImage(cmd, faces.Image, ImageLayout.General, volume.FacesImage, ImageLayout.TransferDstOptimal, 6, regions);
+            api.CmdCopyImage(cmd, faces.Image, ImageLayout.General, volume.Faces.Image, ImageLayout.TransferDstOptimal, 6, regions);
         }
 
-        api.Transition(cmd, volume.FacesImage, ImageAspectFlags.ColorBit,
+        api.Transition(cmd, volume.Faces.Image, ImageAspectFlags.ColorBit,
             ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
             PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,

@@ -7,7 +7,7 @@ namespace Rendition.Passes;
 
 /// <summary>
 /// Draws the scene round a few light probes a frame, each into the six faces of its own slot of
-/// <see cref="ProbeVolume.FacesImage"/> in one multiview pass. Each surface is lit as
+/// <see cref="ProbeVolume.Faces"/> in one multiview pass. Each surface is lit as
 /// probe_light.glsl says, with the sun, the point and spot lights, the bounce the probes already
 /// hold and its own glow, and the alpha keeps its distance from the probe: negative where the probe
 /// saw the back of a one-sided surface. Everything is drawn two-sided, so a probe inside a wall can
@@ -190,7 +190,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
         int[] order = System.Buffers.ArrayPool<int>.Shared.Rent(Math.Max(_kept.Count, 1));
         for (int p = 0; p < probes; p++)
         {
-            _faces.Begin(cmd, volume.SlotColorView(p), volume.SlotDepthView(p), new Vector4(0f, 0f, 0f, ProbeVolume.SkyMark));
+            _faces.Begin(cmd, volume.Faces!.ColorView(p), volume.Faces.DepthView(p), new Vector4(0f, 0f, 0f, ProbeVolume.SkyMark));
             api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 3, sets, 0, null);
             var probe = new ProbeConstants { Probe = new Vector4(_positions[p], 1f) };
             api.CmdPushConstants(cmd, _layout, SceneDraws.PushStages, (uint)sizeof(SceneDraws.DrawConstants), (uint)sizeof(ProbeConstants), &probe);
@@ -209,7 +209,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
 
         System.Buffers.ArrayPool<int>.Shared.Return(order);
 
-        api.Transition(cmd, volume.FacesImage, ImageAspectFlags.ColorBit,
+        api.Transition(cmd, volume.Faces!.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
             PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit, layerCount: layers);
@@ -219,11 +219,11 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
     private void ReadyFaces(CommandBuffer cmd, ProbeVolume volume, uint layers)
     {
         var api = _context.Api;
-        api.Transition(cmd, volume.FacesImage, ImageAspectFlags.ColorBit,
+        api.Transition(cmd, volume.Faces!.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ShaderReadOnlyOptimal, ImageLayout.ColorAttachmentOptimal,
             PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
             PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit, layerCount: layers);
-        api.Transition(cmd, volume.FacesDepthImage, ImageAspectFlags.DepthBit,
+        api.Transition(cmd, volume.Faces!.DepthImage, ImageAspectFlags.DepthBit,
             ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal,
             PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit, AccessFlags2.DepthStencilAttachmentWriteBit,
             PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit,

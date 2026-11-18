@@ -2045,7 +2045,8 @@ by tracing rays where the GPU can and by rasterising where it can't. The rendere
 the camera (`ProbeCascades`, below) with no setup, and `FrameView.LightProbes` can add a box
 and a spacing of its own, a fixed grid that `ProbeGrid` lays out, x fastest, and that wins where
 it reaches. `ProbeVolume` owns two
-atlases of octahedral tiles. The irradiance atlas (RGBA16F) has an 8×8 tile per probe and the
+atlases of octahedral tiles (`ProbeVolumeAtlases`, with the staging slots), the faces a batch is drawn
+into (`ProbeFaces`) and the fold, blend and invalidate passes (`ProbeVolumePasses`). The irradiance atlas (RGBA16F) has an 8×8 tile per probe and the
 depth atlas (RG16F) a 16×16 one, each with a one-texel border copied from across the
 octahedral map's edges, so bilinear filtering wraps round. Both stay in the `General` layout,
 written by compute and read by the lighting pass, and start black.
@@ -2067,7 +2068,7 @@ cleared. The lookup multiplies each probe's trilinear weight by it, so a probe n
 counts for nothing rather than for black, and `ProbeGrid.Weight` takes the same `captured`.
 
 An update draws a probe's six faces at 16² with `ProbeCapturePass`, into the probe's slot of
-`ProbeVolume.FacesImage`, in one `CmdBeginRendering` per probe with view mask `0x3F`: multiview
+`ProbeVolume.Faces` (a `ProbeFaces`), in one `CmdBeginRendering` per probe with view mask `0x3F`: multiview
 draws all six faces at once, `gl_ViewIndex` picking the face. Each face is a 90° reversed-Z
 projection with no far plane and a near plane of 1 mm (`CAPTURE_NEAR`), so a probe a few
 centimetres from a wall still sees the wall rather than through it; the depth is 32-bit float,
@@ -2125,7 +2126,7 @@ same way. The direction each cube face texel looks in comes from `cube_faces.gls
 (`cubeDirection`, `cubeWorldDirection`), which the bake's probes share; see "Baking probes".
 
 The fold doesn't write the atlases. It writes a slot of the staging buffer
-(`ProbeVolume.StagingTiles`, one bordered tile pair of 4,192 bytes per slot, as many slots as the
+(`ProbeVolumeAtlases.Staging`, one bordered tile pair of 4,192 bytes per slot, as many slots as the
 traced budget: about 4.3 MB at High), and `RecordBlend(cmd, ids, alpha, snap)` then moves staging slot
 i into probe `ids[i]` with `probe_blend.comp`, one workgroup per probe. A probe not yet captured
 takes the new tile whole; one that was moves towards it by alpha, so its light settles over a few
@@ -2779,7 +2780,7 @@ a bounce through `pathFrom`. `Baked` lights, emission and the sky count in full.
 
 The fold is the live one. The baker keeps a `ProbeVolume` of its own at `ProbeQuality.Low`, made by
 `PreparedBakers.Prepare` (`BakeProbePass.EnsureVolume`), and
-for each group of up to `FaceSlots` (8) probes copies their faces into `FacesImage`, one slot each,
+for each group of up to `ProbeFaces.Slots` (8) probes copies their faces into the faces image, one slot each,
 calls `ProbeVolume.RecordFold` per slot, and `RecordStagingReadBack` copies the staging slots to a
 host buffer. So the tiles, borders, depth moments and inside marks come from `probe_fold.comp`
 itself, not a copy of it. `BakeEncoding.WriteTile` writes each probe's float32 tiles into the pages as

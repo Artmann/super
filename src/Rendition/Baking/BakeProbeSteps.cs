@@ -91,7 +91,7 @@ internal sealed unsafe class BakeProbeSteps
     {
         var volume = _volume!;
         var targets = _targets!;
-        int slots = Math.Min(volume.FaceSlots, volume.StagingSlots);
+        int slots = Math.Min(volume.Faces?.Slots ?? 0, volume.Atlases.StagingSlots);
         _inGroup = Math.Min(slots, InBatch() - _row);
         _kit.Baker.Probes.RecordCopyFaces(cmd, targets.Faces, _row, _inGroup);
         volume.BeginFolds(cmd);
@@ -168,7 +168,7 @@ internal sealed unsafe class ProbeTargets
 
         (Sum, Faces) = kit.Baker.Probes.CreateTargets();
         Set = kit.Baker.Probes.CreateSet(kit.Pool, kit.Inputs, Positions, (Sum, Faces));
-        int slots = Math.Min(volume.FaceSlots, volume.StagingSlots);
+        int slots = Math.Min(volume.Faces?.Slots ?? 0, volume.Atlases.StagingSlots);
         FoldBuffer = GpuBuffer.CreateHostVisible(
             context, (ulong)slots * ProbeVolume.StagedTileBytes, BufferUsageFlags.TransferDstBit);
     }
