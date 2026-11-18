@@ -321,12 +321,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.ContentManifest.Parse",
-      "file": "src/Super/Data/ContentManifest.cs",
-      "metric": 27
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.ContentValidator.Fields",
       "file": "src/Super/Data/ContentValidator.cs",
       "metric": 14
@@ -930,12 +924,6 @@
       "name": "Super.BakeIdentity.AddMesh",
       "file": "src/Super/Rendering/BakeIdentity.cs",
       "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.ContentManifest.Parse",
-      "file": "src/Super/Data/ContentManifest.cs",
-      "metric": 23
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2052,12 +2040,6 @@
       "name": "Super.Content.Surface",
       "file": "src/Super/Content.cs",
       "metric": 47
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.ContentManifest.Parse",
-      "file": "src/Super/Data/ContentManifest.cs",
-      "metric": 71
     },
     {
       "kind": "long-method",
