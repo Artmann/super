@@ -99,11 +99,7 @@ sealed class BricksNode : Node
     public BricksNode(BrickLayout layout, int? seed) : base(1)
     {
         _layout = layout;
-
-        if (seed is { } s)
-        {
-            UseSeed(s);
-        }
+        UseSeed(seed);
     }
 
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)

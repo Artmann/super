@@ -161,10 +161,7 @@ sealed class RandomGrayNode : Node
 {
     public RandomGrayNode(Node input, int? seed) : base(1, input)
     {
-        if (seed is { } s)
-        {
-            UseSeed(s);
-        }
+        UseSeed(seed);
     }
 
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)

@@ -98,10 +98,7 @@ sealed class PerlinNode : Node
         _octaves = octaves;
         _persistence = persistence;
 
-        if (seed is { } s)
-        {
-            UseSeed(s);
-        }
+        UseSeed(seed);
     }
 
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
@@ -236,10 +233,7 @@ sealed class CellsNode : Node
         _output = output;
         _jitter = jitter;
 
-        if (seed is { } s)
-        {
-            UseSeed(s);
-        }
+        UseSeed(seed);
     }
 
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
@@ -317,10 +311,7 @@ sealed class WhiteNode : Node
 {
     public WhiteNode(int? seed) : base(1)
     {
-        if (seed is { } s)
-        {
-            UseSeed(s);
-        }
+        UseSeed(seed);
     }
 
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)

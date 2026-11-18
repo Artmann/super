@@ -29,10 +29,13 @@ internal abstract class Node
 
     public Node[] Inputs { get; }
 
-    /// <summary>For a node that takes a <c>seed:</c>. Mixes it into this node's seed.</summary>
-    protected void UseSeed(int seed)
+    /// <summary>For a node that takes a <c>seed:</c>. Mixes it into this node's seed, or leaves the seed as it is when null.</summary>
+    protected void UseSeed(int? seed)
     {
-        Seed = SeedFor(string.Create(CultureInfo.InvariantCulture, $"node {Index} seed {seed}"));
+        if (seed is { } given)
+        {
+            Seed = SeedFor(string.Create(CultureInfo.InvariantCulture, $"node {Index} seed {given}"));
+        }
     }
 
     internal abstract void Evaluate(EvaluationContext context, float[][] inputs, float[] output);
