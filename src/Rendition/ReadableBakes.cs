@@ -27,6 +27,15 @@ internal sealed class ReadableBakes : IBakeStore
     int IBakeStore.Reloads => ReloadsSeen;
 
     /// <summary>
+    /// A chunk bake the pool couldn't read, check or put on the GPU: reported once, and missing until the store reloads.
+    /// </summary>
+    public void ChunkUnreadable(string file, string problem, string message)
+    {
+        Console.Error.WriteLine($"The bake {file} {problem}, so its area is lit live: {message}");
+        Unreadable.Add(file);
+    }
+
+    /// <summary>
     /// Whether the store has its own <see cref="IBakeStore.Load"/>. Only a store that leaves it out may answer null for
     /// a fresh file and still have the area count as baked.
     /// </summary>

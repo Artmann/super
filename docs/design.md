@@ -2012,7 +2012,7 @@ fixed-grid probes: 64 × 64 tiles at `ProbeQuality.Low`, 84 × 83 at `Medium` an
 before. `EnsureStorage(quality)` makes them on the first frame with the probes on, and again,
 cleared, after `Renderer.ProbeQuality` (High by default, set from `Graphics.ProbeQuality`) changes; `Release()` frees them when
 `RenderEffects.LightProbes` is switched off. Each of the three waits for the device once, in
-`ManageProbeStorage` before the frame's fence. With the switch off nothing else is allocated
+`ManageProbeStorage` (through `LightProbes.Ensure` and `Release`, `src/Rendition/LightProbes.cs`) before the frame's fence. With the switch off nothing else is allocated
 and nothing is recorded, and switching it back on starts every probe uncaptured.
 
 A probe's irradiance alpha is its valid flag: 1 once it has been captured, 0 while it is still
@@ -2179,8 +2179,8 @@ the sky. Soft light is now worked out in absolute units in `softLight()`: the sk
 the environment intensity, or the probe value as captured.
 
 The probes update a few a frame inside `Renderer.Render`, with no waits. `ManageProbeStorage`
-runs before the frame's fence, as above. `PlanProbes` runs before the frame's uniforms are
-written. It moves the cascades to the camera and hands the `ScrollResult` to the scheduler, and
+runs before the frame's fence, as above. `LightProbes.Plan` runs before the frame's uniforms are
+written. Its `ProbeBatch` (`src/Rendition/ProbeBatch.cs`) moves the cascades to the camera and hands the `ScrollResult` to the scheduler, and
 queues a `probe_invalidate.comp` dispatch for each cascade that scrolled, which clears the tiles
 of the slots it handed to new probes so they read as uncaptured instead of as the probes that
 left. When `FrameView.LightProbes` changes it sets or clears the scheduler's fixed grid and
@@ -2199,9 +2199,9 @@ tenth each frame so stays within it, and a light going out never does. Then `Nex
 by `ProbeQuality`), and `ProbeCapturePass.Prepare` culls their draws and cuts the batch at the
 triangle budget. Updates are counted in frames, never seconds.
 
-`RecordProbeUpdate` runs after the shadow tile atlas: the invalidations, the probes' sun map
+`LightProbes.Record` runs after the shadow tile atlas: the invalidations, the probes' sun map
 when it is due, the captures, the fold and the blend, then `Updated` tells the scheduler which
-probes are clean. `ProbeUpdatesLastFrame` says how many were updated, and `ProbesSettled`, which
+probes are clean. `LightProbes.UpdatesLastFrame` says how many were updated, and `ProbesSettled`, which
 is public, is the scheduler's `Settled`, false while the probes are switched off and true on a
 GPU that can't run them. Super's `GameWindow.Screenshot` renders on after its 48
 settle frames until `ProbesSettled`, at most `ScreenshotProbeFrames` (2,048) more, through
@@ -2814,7 +2814,7 @@ calls `PreparedBakers.Prepare(probes: Spaces)`, which may wait the first time, s
 that can't trace skips both, and every frame then does nothing new. A device that traces but can't bake (`Prepare`
 throws) reports it once to the console and bakes nothing until `AutoBake` is set again.
 
-Each frame, after `ResolveBakes`, `BackgroundBakes.Update` lists the frame's wants (`BakeWants`) and hands them to a `BakeQueue`
+Each frame, after `FrameBakes.TryResolve`, `BackgroundBakes.Update` lists the frame's wants (`BakeWants`) and hands them to a `BakeQueue`
 (`src/Rendition/Baking/BakeQueue.cs`). Nothing is wanted before `AnimatedLights.Settled`, since a light that moves may
 not have been seen moving yet. The space is wanted when `AutoBake.Spaces` is set and the store has no fresh bake of its
 inputs (`IsFreshQuietly`, so a frame doesn't log). A chunk is wanted the same way unless its fresh bake is
@@ -4370,7 +4370,7 @@ allocates nothing, the stale path included, which `LightBakeStoreTests` checks w
 calls it in `Prepare` when `Content.Files` is a different object or `Content.Reloads` has moved
 since the last frame; `Content.Reload` counts up right after it refreshes the files. `Load`
 reads a whole file with `LightBakeFile.Read` and keeps nothing; it is for drawing a fresh bake.
-`Forget` also counts up `Reloads`, so the renderer reads the bake it holds again. `Forget(file)` drops one file's header and its stale report instead, and does not count `Reloads` up, since that would make the renderer let go of every chunk bake on the GPU and upload them all again. It records the file for `IBakeStore.TakeForgotten`, which the renderer drains in `ResolveBakes`: it takes that file off its unreadable set and calls `ChunkBakePool.Forget`, which touches just that entry (see [Chunk bakes on the GPU](#chunk-bakes-on-the-gpu)). That reads no file and waits for nothing, so the other chunk bakes stay resident. `Load`, `Reloads` and `TakeForgotten` are on
+`Forget` also counts up `Reloads`, so the renderer reads the bake it holds again. `Forget(file)` drops one file's header and its stale report instead, and does not count `Reloads` up, since that would make the renderer let go of every chunk bake on the GPU and upload them all again. It records the file for `IBakeStore.TakeForgotten`, which the renderer drains in `FrameBakes.TryResolve`: it takes that file off its unreadable set and calls `ChunkBakePool.Forget`, which touches just that entry (see [Chunk bakes on the GPU](#chunk-bakes-on-the-gpu)). That reads no file and waits for nothing, so the other chunk bakes stay resident. `Load`, `Reloads` and `TakeForgotten` are on
 `IBakeStore` with defaults (`Load` gives null, `Reloads` stays 0, `TakeForgotten` gives none, and `SavedQuality` gives null,
 so a background bake counts a fresh area as done), so a store that only answers
 `IsFresh` still works and its areas count as baked with live soft light. A store with a `Load` of
@@ -4409,8 +4409,8 @@ baked again without it each frame (`BakedSunGpuTests`).
 
 ### Drawing a bake
 
-When a frame's space is fresh, `Renderer.ResolveBakes` makes sure its bake is on the GPU
-(`LoadSpaceBake`). The loaded bake is keyed by its file, its combined inputs, the store and the
+When a frame's space is fresh, `FrameBakes.TryResolve` (`src/Rendition/FrameBakes.cs`) makes sure its bake is on the GPU
+(`SpaceBake.Load`). The loaded bake is keyed by its file, its combined inputs, the store and the
 store's `Reloads`, so a frame that matches reads nothing. Otherwise the old pages are destroyed,
 `IBakeStore.Load` reads the file, and `BakePages.CheckSpace` checks that the page counts agree, that each
 page's bytes fit its size and format (`TextureData.LevelSize`) and that every draw's page
@@ -4443,7 +4443,7 @@ chunk bake the full table refuses rather than throw.
 A chunk's bake goes through `ChunkBakePool` (`src/Rendition/Baking/ChunkBakePool.cs`), which
 the renderer keeps one of. The resolver asks it through `BakeResolver.ChunkResident`, a hook
 called only for a chunk whose file is stored and fresh. When the store has no `Load` of its own
-(`GivesLightmaps`) the hook answers true at once, as before. Otherwise `Renderer.ChunkResident`
+(`GivesLightmaps`) the hook answers true at once, as before. Otherwise `ChunkResidency`
 calls `ChunkBakePool.Use(file, store)`, which marks the file used this frame and answers whether
 its pages are all on the GPU. A file asked about for the first time gets an entry and a
 `Task.Run` that calls `IBakeStore.Load` and `ChunkBakeCheck.CheckPages`, which checks the five
@@ -4495,7 +4495,7 @@ A chunk's rects are never merged with the space's or another chunk's. Copies of 
 can hold different bakes, one per set of inputs, whose rects share bake ids, so a merged
 dictionary would hand a pending copy a resident copy's rect. `InstanceBuffer.Lightmaps` holds
 the space's rects alone, and `InstanceBuffer.ChunkLightmaps` holds each relit chunk's entry rects
-by chunk index (`Renderer._chunkLightmaps`, filled in `FindRelitChunks`). `Add` looks a copy up
+by chunk index (`ChunkRelight.Lightmaps`, filled in `ChunkRelight.Find`). `Add` looks a copy up
 in its own chunk's rects when `Chunks` gives it one, and in the space's otherwise. A copy whose
 chunk isn't relit, being pending, stale or unowned, gets chunk -1 and finds nothing among the
 space's rects, so it is lit live. A frame with no chunk draws exactly as before. A hash of the
@@ -4541,10 +4541,10 @@ specular occlusion is unchanged. `ReflectionLightingHash` adds the
 loaded bake's inputs while lightmaps or the bake's probes are drawn, so the probes are captured
 again when the bake changes. With no bake, every pixel's alpha is 0 and the frame is the same to the byte.
 
-The bake's probes light what has no lightmap. `LoadSpaceBake` puts the two probe atlases in the
+The bake's probes light what has no lightmap. `SpaceBake.Load` puts the two probe atlases in the
 material table beside the pages, as one-level linear textures with clamped edges, and adds them
 to `Pages`, so they are destroyed with them; `LoadedBake.Probes` keeps the grid and the two
-texture indices. `ResolveBakes` sets `_activeBakedProbes` while the space is fresh, which also
+texture indices. `FrameBakes.SpaceProbes` gives them while the space is fresh, which also
 means `BakedLighting` is on, and clears it otherwise. The frame uniforms then carry the grid in
 `bakedProbeMin` and `bakedProbeCounts` (w is 1 while they are drawn), and the box in
 `bakedSpaceMin` and `bakedSpaceMax`, whose w components hold the irradiance and depth atlases'
@@ -4570,9 +4570,9 @@ weighs it (`BakedProbeGpuTests`, which also checks the fall through to live prob
 box). Near the box's faces the two are blended; see [Edge bands](#edge-bands).
 Transparent surfaces and particles don't read probes at all, so they are unchanged.
 
-The mask shadows Mixed lights. `LoadSpaceBake` keeps the file's `Channels` as a key-to-channel
-dictionary in `LoadedBake`. While `_activeLightmaps` is set (the space fresh, `BakedLighting`
-on, rects loaded) or a chunk is relit, `FindMaskSlots` works out the frame's slots in `FrameMaskSlots` (see
+The mask shadows Mixed lights. `SpaceBake.Load` keeps the file's `Channels` as a key-to-channel
+dictionary in `LoadedBake`. While `FrameBakes.SpaceLightmaps` is set (the space fresh, `BakedLighting`
+on, rects loaded) or a chunk is relit, `ChunkRelight.AssignMaskSlots` works out the frame's slots in `FrameMaskSlots` (see
 [Shadow mask channels](#shadow-mask-channels) for how chunks share them). For the space, the first sun that
 `BakeFrame.ModeOf` calls Mixed takes channel 0, the same rule `ShadowMaskChannels.Assign`
 followed at bake time over the suns the bake held (Mixed and not moving), so nothing more is
@@ -4788,7 +4788,7 @@ says nothing while baked lighting is switched off.
 - If 16 is set, the irradiance pages and then the direction pages, each a count and then the pages. A
   chunk with no Baked or Mixed light and no glowing surface has no plain light, so it stores neither
   and `Irradiance` and `Direction` read as null. Most Hamlet cottages are like that. A space always
-  has them, and `Renderer.LoadSpaceBake` rejects one without, naming the file.
+  has them, and `SpaceBake.Load` rejects one without, naming the file.
 - Mask pages: a count, then the pages.
 - The probe atlases (flags 1 and 2) and then the probe settings (flag 4), when set. The probe
   settings are `Min` xyz, `Max` xyz and `Spacing`, all `float`s.
@@ -4935,7 +4935,7 @@ matching `GpuChunk` in `GpuChunk.cs`:
   sun tint page's slot and `y` the shadow mask page's, or -1. These go beyond the plan's struct, since a chunk's transfer pages are read through it, not through the
   copy's `GpuLightmapRect`.
 
-`Renderer.FindRelitChunks` fills these after the resolver runs. A chunk is relit when its bake is fresh, resident in
+`ChunkRelight.Find` fills these after the resolver runs. A chunk is relit when its bake is fresh, resident in
 the pool and has transfer pages. `BakeResolver.Owners` gives each draw's owning chunk, from the same filing as its
 ids, and a draw owned by a relit chunk gets that chunk's index. `DrawSelection.Select` reports each kept draw's index
 among the frame's draws, and `InstanceBuffer.Add` writes the chunk into `GpuLightmapRect.Chunk` for a copy that has a
@@ -4997,7 +4997,7 @@ it takes `mix(softLight, baked.rgb, a)` for the diffuse light, mixes the live am
 light takes `min(mix(1, mask, a), live)`, an unshadowed one `mix(live, mask, a)`. The weight is per pixel, so a light
 is counted once across the band, never by both sides (`EdgeBandGpuTests.Edge_band_keeps_a_light_counted_once`).
 A bake fading in uses the same blend: `writeBaked` multiplies a chunk pixel's weight by the chunk's fade, which
-`FindRelitChunks` puts in `ChunkData.max.w` from `BakeFrame.ChunkFade`, and a space's lightmapped pixel writes
+`ChunkRelight.Find` puts in `ChunkData.max.w` from `BakeFrame.ChunkFade`, and a space's lightmapped pixel writes
 `frame.bakedFade.x` instead of 1. So a fade at 1 draws bit for bit as before, and one at 0 as live.
 `BakeFiles.CheckEdgeBlend` throws for a negative or NaN blend, or one over half the box's smaller side across x and
 z, where opposite bands would overlap.
