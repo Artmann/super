@@ -38,7 +38,27 @@ public static class ShadowMaskChannels
         }
 
         unassigned.Clear();
+        var firstFree = AssignSuns(suns, sunChannels);
 
+        // Each member is its key and its index, so sorting goes by key and a shared key falls back to the index.
+        var members = new List<(int Key, int Index, Vector3 Position)>();
+        for (var i = 0; i < lights.Length; i++)
+        {
+            lightChannels[i] = -1;
+            if (lights[i].Mode == LightMode.Mixed &&
+                BakeAreas.OwnerOfLight(lights[i].Position, space, []) == BakeAreas.Space)
+            {
+                members.Add((lights[i].Key, i, lights[i].Position));
+            }
+        }
+
+        members.Sort((a, b) => a.Key != b.Key ? a.Key.CompareTo(b.Key) : a.Index.CompareTo(b.Index));
+        Colour(lights, members, firstFree, lightChannels, unassigned);
+    }
+
+    // The first Mixed sun takes channel 0 and every other sun none. Returns the first channel left for local lights.
+    private static int AssignSuns(ReadOnlySpan<DirectionalLight> suns, Span<int> sunChannels)
+    {
         var firstFree = 0;
         for (var i = 0; i < suns.Length; i++)
         {
@@ -50,47 +70,7 @@ public static class ShadowMaskChannels
             }
         }
 
-        // Each member is its key and its index, so sorting goes by key and a shared key falls back to the index.
-        var members = new List<(int Key, int Index)>();
-        for (var i = 0; i < lights.Length; i++)
-        {
-            lightChannels[i] = -1;
-            if (lights[i].Mode == LightMode.Mixed &&
-                BakeAreas.OwnerOfLight(lights[i].Position, space, []) == BakeAreas.Space)
-            {
-                members.Add((lights[i].Key, i));
-            }
-        }
-
-        members.Sort();
-
-        for (var m = 0; m < members.Count; m++)
-        {
-            var light = members[m].Index;
-            var taken = 0;
-            for (var earlier = 0; earlier < m; earlier++)
-            {
-                var other = members[earlier].Index;
-                if (lightChannels[other] >= 0 && RangesOverlap(lights[light], lights[other]))
-                {
-                    taken |= 1 << lightChannels[other];
-                }
-            }
-
-            for (var channel = firstFree; channel < Count; channel++)
-            {
-                if ((taken & (1 << channel)) == 0)
-                {
-                    lightChannels[light] = channel;
-                    break;
-                }
-            }
-
-            if (lightChannels[light] < 0)
-            {
-                unassigned.Add(lights[light].Key);
-            }
-        }
+        return firstFree;
     }
 
     /// <summary>
@@ -123,25 +103,36 @@ public static class ShadowMaskChannels
         for (var i = 0; i < lights.Length; i++)
         {
             channels[i] = -1;
-            if (lights[i].Mode != LightMode.Mixed)
+            if (lights[i].Mode == LightMode.Mixed && InChunk(chunk, lights[i].Position) is { } position)
             {
-                continue;
+                members.Add((BakeInputHash.Light(lights[i], chunk.Transform), i, position));
             }
-
-            var position = lights[i].Position;
-            var (x, y, z) = BakeAreas.IntoChunk(chunk.Transform, position.X, position.Y, position.Z, 1.0);
-            if (x < chunk.Min.X || x > chunk.Max.X
-                || y < chunk.Min.Y || y > chunk.Max.Y
-                || z < chunk.Min.Z || z > chunk.Max.Z)
-            {
-                continue;
-            }
-
-            members.Add((BakeInputHash.Light(lights[i], chunk.Transform), i, new Vector3((float)x, (float)y, (float)z)));
         }
 
         members.Sort((a, b) => a.Hash != b.Hash ? a.Hash.CompareTo(b.Hash) : a.Index.CompareTo(b.Index));
+        Colour(lights, members, 0, channels, unassigned);
+        unassigned.Sort();
+    }
 
+    // The position in the chunk's own space, or null when that is outside the chunk's box.
+    private static Vector3? InChunk(BakedChunk chunk, Vector3 position)
+    {
+        var (x, y, z) = BakeAreas.IntoChunk(chunk.Transform, position.X, position.Y, position.Z, 1.0);
+        if (x < chunk.Min.X || x > chunk.Max.X
+            || y < chunk.Min.Y || y > chunk.Max.Y
+            || z < chunk.Min.Z || z > chunk.Max.Z)
+        {
+            return null;
+        }
+
+        return new Vector3((float)x, (float)y, (float)z);
+    }
+
+    // Greedy colouring of the members, in their order: each takes the first channel from firstFree on that no earlier
+    // member whose range overlaps it holds, or none, and then its key goes in unassigned.
+    private static void Colour<TOrder>(ReadOnlySpan<LocalLight> lights, List<(TOrder Order, int Index, Vector3 Position)> members,
+        int firstFree, Span<int> channels, List<int> unassigned)
+    {
         for (var m = 0; m < members.Count; m++)
         {
             var light = members[m].Index;
@@ -156,27 +147,25 @@ public static class ShadowMaskChannels
                 }
             }
 
-            for (var channel = 0; channel < Count; channel++)
-            {
-                if ((taken & (1 << channel)) == 0)
-                {
-                    channels[light] = channel;
-                    break;
-                }
-            }
-
+            channels[light] = FirstFree(taken, firstFree);
             if (channels[light] < 0)
             {
                 unassigned.Add(lights[light].Key);
             }
         }
-
-        unassigned.Sort();
     }
 
-    private static bool RangesOverlap(in LocalLight a, in LocalLight b)
+    // The lowest channel from first on that is not in taken, or -1 when all are.
+    private static int FirstFree(int taken, int first)
     {
-        var reach = a.Range + b.Range;
-        return Vector3.DistanceSquared(a.Position, b.Position) < reach * reach;
+        for (var channel = first; channel < Count; channel++)
+        {
+            if ((taken & (1 << channel)) == 0)
+            {
+                return channel;
+            }
+        }
+
+        return -1;
     }
 }
