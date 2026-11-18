@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.6.0](https://github.com/Artmann/super/compare/v1.5.0...v1.6.0) (2026-11-18)
+
+
+### Features
+
+* let a game pick the stats panel's key or turn it off ([6841eba](https://github.com/Artmann/super/commit/6841eba0a6955b0cf5ee9cb2a5e70d9e1cd43b5f))
+* show an engine stats panel with F3 or --stats ([76943bf](https://github.com/Artmann/super/commit/76943bf927b414d879d4f25f8b5e88303e330ff2))
+
+
+### Performance Improvements
+
+* a flickering light no longer re-marks the light probes round it every frame ([eda57db](https://github.com/Artmann/super/commit/eda57db62505f5ad561bbf32b179584c2d9fe900))
+* keep still lamp shadows between frames and walk one AO slice at full resolution ([3add6f5](https://github.com/Artmann/super/commit/3add6f5e7b55af0dd68774a82ad95893377bc7b1))
+
 ## [1.5.0](https://github.com/Artmann/super/compare/v1.4.0...v1.5.0) (2026-11-18)
 
 
