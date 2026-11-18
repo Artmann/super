@@ -549,12 +549,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Materials.SplatterNode.Evaluate",
-      "file": "src/Super.Materials/Transform.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.OpenAlSpeakers.Open",
       "file": "src/Super/Audio/DeviceOutput.cs",
       "metric": 12
@@ -995,12 +989,6 @@
       "kind": "high-cognitive-complexity",
       "name": "Super.Materials.SlopeBlurNode.Evaluate",
       "file": "src/Super.Materials/Warps.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.SplatterNode.Evaluate",
-      "file": "src/Super.Materials/Transform.cs",
       "metric": 20
     },
     {
@@ -2208,12 +2196,6 @@
       "name": "Super.Materials.SlopeBlurNode.Evaluate",
       "file": "src/Super.Materials/Warps.cs",
       "metric": 56
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.SplatterNode.Evaluate",
-      "file": "src/Super.Materials/Transform.cs",
-      "metric": 64
     },
     {
       "kind": "long-method",
