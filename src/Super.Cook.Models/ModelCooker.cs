@@ -294,8 +294,8 @@ public sealed class ModelCooker : ICooker
         material.Subsurface.Problem(material.Clearcoat, material.Flags);
 
     private static string? FoliageProblem(in ModelMaterial material) =>
-        ((material.Flags & MaterialFlags.Foliage) != 0 ? Rendition.Material.TranslucencyProblem(material.Translucency) : null)
-        ?? Rendition.Material.WindProblem(material.Wind);
+        ((material.Flags & MaterialFlags.Foliage) != 0 ? MaterialProblems.Translucency(material.Translucency) : null)
+        ?? MaterialProblems.Wind(material.Wind);
 }
 
 /// <summary>Every cooker that ships with Super, the model cooker included.</summary>

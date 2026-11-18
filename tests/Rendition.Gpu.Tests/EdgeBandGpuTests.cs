@@ -318,9 +318,9 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
         View = Matrix4x4.CreateLookAt(eye, eye with { Y = 0f }, -Vector3.UnitZ),
         Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
         CameraPosition = eye,
-        EnvironmentIntensity = 1f,
+        Environment = new EnvironmentSettings { Intensity = 1f },
         Off = TestEffects.OnlyBaked,
-        BakedChunks = new[] { chunk },
+        Baked = new BakedAreas { Chunks = new[] { chunk } },
     };
 
     // Looking down -z from the camera, with the sky at the intensity given.
@@ -331,9 +331,9 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
         View = Matrix4x4.CreateLookAt(camera, camera with { Z = 0f }, Vector3.UnitY),
         Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
         CameraPosition = camera,
-        EnvironmentIntensity = sky,
+        Environment = new EnvironmentSettings { Intensity = sky },
         Off = TestEffects.OnlyBaked,
-        BakedSpace = room,
+        Baked = new BakedAreas { Space = room },
         Lights = suns,
     };
 

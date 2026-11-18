@@ -235,7 +235,7 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
         {
             var view = _gpu.View(DebugView.None);
             view.Off = RenderEffects.AntiAliasing | RenderEffects.LightProbes | RenderEffects.AutoExposure;
-            view.EnvironmentIntensity = 1f;
+            view.Environment.Intensity = 1f;
             return view;
         }
 

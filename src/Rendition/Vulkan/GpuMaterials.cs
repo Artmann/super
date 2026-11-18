@@ -126,8 +126,8 @@ internal static class GpuMaterials
         var gpu = Surface(material, defaults);
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
-            gpu.ShaderTextures[i] = (uint)(material.ShaderTextures[i] ?? defaults.White).Index;
-            gpu.ShaderArrays[i] = (uint)(material.ShaderArrays[i] ?? defaults.WhiteArray).Index;
+            gpu.ShaderTextures[i] = (uint)(material.Custom.Textures[i] ?? defaults.White).Index;
+            gpu.ShaderArrays[i] = (uint)(material.Custom.Arrays[i] ?? defaults.WhiteArray).Index;
         }
 
         WriteToon(ref gpu, material.Toon, defaults.White);
@@ -181,35 +181,35 @@ internal static class GpuMaterials
             Metallic = material.Metallic,
             Roughness = material.Roughness,
             AlphaCutoff = material.AlphaCutoff,
-            BaseColorTexture = (uint)(material.BaseColorTexture ?? defaults.White).Index,
-            NormalTexture = (uint)(material.NormalTexture ?? defaults.FlatNormal).Index,
-            SurfaceTexture = (uint)(material.SurfaceTexture ?? defaults.White).Index,
-            EmissiveTexture = (uint)(material.EmissiveTexture ?? defaults.White).Index,
+            BaseColorTexture = (uint)(material.Textures.BaseColor ?? defaults.White).Index,
+            NormalTexture = (uint)(material.Textures.Normal ?? defaults.FlatNormal).Index,
+            SurfaceTexture = (uint)(material.Textures.Surface ?? defaults.White).Index,
+            EmissiveTexture = (uint)(material.Textures.Emissive ?? defaults.White).Index,
             Clearcoat = material.Clearcoat,
         },
         Emissive = new Vector4(material.Emissive, 0f),
-        ShaderParameters = material.ShaderParameters,
+        ShaderParameters = material.Custom.Parameters,
         Flags = (uint)material.Flags,
-        HeightTexture = (uint)(material.HeightTexture ?? defaults.White).Index,
-        HeightDepth = material.HeightTexture is null ? 0f : MathF.Max(material.HeightDepth, 0f),
-        DetailColorTexture = (uint)(material.DetailColorTexture ?? defaults.Grey).Index,
-        DetailNormalTexture = (uint)(material.DetailNormalTexture ?? defaults.FlatNormal).Index,
-        DetailScale = material.DetailColorTexture is null && material.DetailNormalTexture is null
+        HeightTexture = (uint)(material.Height.Texture ?? defaults.White).Index,
+        HeightDepth = material.Height.Texture is null ? 0f : MathF.Max(material.Height.Depth, 0f),
+        DetailColorTexture = (uint)(material.Detail.Color ?? defaults.Grey).Index,
+        DetailNormalTexture = (uint)(material.Detail.Normal ?? defaults.FlatNormal).Index,
+        DetailScale = material.Detail.Color is null && material.Detail.Normal is null
             ? 0f
-            : material.DetailScale > 0f ? material.DetailScale : 1f,
-        Ior = MathF.Max(material.Ior, 1f),
+            : material.Detail.Scale > 0f ? material.Detail.Scale : 1f,
+        Ior = MathF.Max(material.Glass.Ior, 1f),
         Transmission = Transmission(material),
         Subsurface = Spread(material.Subsurface),
-        MaskTexture = (uint)(material.MaskTexture ?? defaults.White).Index,
-        OcclusionTexture = (uint)(material.OcclusionTexture ?? defaults.White).Index,
+        MaskTexture = (uint)(material.Weathering.Mask ?? defaults.White).Index,
+        OcclusionTexture = (uint)(material.Textures.Occlusion ?? defaults.White).Index,
         Layers = new GpuLayers
         {
-            WearRoughness = material.Wear.Roughness,
-            DirtRoughness = material.Dirt.Roughness,
-            Wear = Layer(material.Wear, material.MaskTexture is not null),
-            Dirt = Layer(material.Dirt, material.MaskTexture is not null),
+            WearRoughness = material.Weathering.Wear.Roughness,
+            DirtRoughness = material.Weathering.Dirt.Roughness,
+            Wear = Layer(material.Weathering.Wear, material.Weathering.Mask is not null),
+            Dirt = Layer(material.Weathering.Dirt, material.Weathering.Mask is not null),
         },
-        SoftEdge = float.IsFinite(material.SoftEdge) ? MathF.Max(material.SoftEdge, 0f) : 0f,
+        SoftEdge = float.IsFinite(material.Glass.SoftEdge) ? MathF.Max(material.Glass.SoftEdge, 0f) : 0f,
     };
 
     // A toon material's flag, bands or ramp, and rim. Plain bands, and a material that isn't toon, keep the white

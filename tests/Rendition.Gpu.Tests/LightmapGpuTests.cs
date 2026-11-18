@@ -152,9 +152,12 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         {
             BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f),
             Roughness = 0.8f,
-            MaskTexture = mask,
-            // Grey 0.5 times twice this is (1, 0.1, 0.1): red where it wears.
-            Wear = new MaterialLayer(new Vector3(1f, 0.1f, 0.1f), -1f, 1f),
+            Weathering = new MaterialWeathering
+            {
+                Mask = mask,
+                // Grey 0.5 times twice this is (1, 0.1, 0.1): red where it wears.
+                Wear = new MaterialLayer(new Vector3(1f, 0.1f, 0.1f), -1f, 1f),
+            },
         });
         try
         {
@@ -236,7 +239,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         {
             BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f),
             Roughness = 1f,
-            NormalTexture = normals,
+            Textures = new MaterialTextures { Normal = normals },
         });
         try
         {
@@ -524,9 +527,9 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         View = Matrix4x4.CreateLookAt(new Vector3(0, 0, 3), Vector3.Zero, Vector3.UnitY),
         Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
         CameraPosition = new Vector3(0, 0, 3),
-        EnvironmentIntensity = sky,
+        Environment = new EnvironmentSettings { Intensity = sky },
         Off = off,
-        BakedSpace = Room,
+        Baked = new BakedAreas { Space = Room },
         LocalLights = lights ?? [],
     };
 

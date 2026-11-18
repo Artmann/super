@@ -60,27 +60,26 @@ internal sealed class FrameMaker
             Projection = shot.Matrix(aspect),
             CameraPosition = shot.Eye,
             Time = request.Time,
-            DebugView = debugView,
+            Picture = new PictureSettings
+            {
+                DebugView = debugView,
+                Post = view.Effects.Post,
+                Transition = view.Effects.Transition,
+            },
             Lights = Lights(view.Lights.Suns),
             Bones = _draws.Bones,
             Shadows = FrameShadows(view, aspect),
-            Occlusion = view.Indirect.Occlusion,
-            Bounce = view.Indirect.Bounce,
-            Outlines = view.Effects.OutlineSettings,
+            ScreenSpace = new ScreenSpaceSettings
+            {
+                Occlusion = view.Indirect.Occlusion,
+                Bounce = view.Indirect.Bounce,
+                Outlines = view.Effects.OutlineSettings,
+            },
             LightProbes = view.Indirect.LightProbeVolume,
-            BakedSpace = view.Indirect.BakedSpace,
-            BakedChunks = view.Indirect.PlacedBakedChunks,
-            Post = view.Effects.Post,
-            Water = view.Surroundings.WaterSettings,
-            Puddles = view.Surroundings.PuddleSettings,
-            Wind = view.Surroundings.WindSettings,
-            Overlay = view.Ui is { } ui ? ui.Quads : [],
-            Particles = view.Effects.DrawnParticles,
-            Decals = _decals.Drawn,
-            Transition = view.Effects.Transition,
+            Baked = new BakedAreas { Space = view.Indirect.BakedSpace, Chunks = view.Indirect.PlacedBakedChunks },
+            Extras = Extras(view, off),
             Off = off,
             LocalLights = view.Lights.DrawnLights,
-            FogVolumes = off.HasFlag(RenderEffects.FogVolumes) || off.HasFlag(RenderEffects.VolumetricFog) ? default : view.Effects.DrawnFogVolumes,
         };
         _content = content;
         return WithSky(frame, view, off);
@@ -114,23 +113,44 @@ internal sealed class FrameMaker
         };
     }
 
-    /// <summary>The frame with the view's sky: the environment's brightness, the clear sky, the background and its haze, and the fog.</summary>
+    /// <summary>The frame with the view's sky: the environment's brightness, the clear sky, the background and its haze, and the weather: fog, water, puddles and wind.</summary>
     private FrameView WithSky(FrameView frame, View view, RenderEffects off)
     {
         var sky = view.Surroundings.SkySettings;
         return frame with
         {
-            EnvironmentIntensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,
-            Sky = ViewSky.FrameSky(view, off, _skyOf),
-            BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),
-            ShowEnvironment = sky is not null,
-            BackgroundFadeStart = sky?.HazeStart ?? 0f,
-            BackgroundFadeEnd = sky?.HazeEnd ?? 0f,
-            BackgroundFadeOrigin = ViewSky.HazeOrigin(sky, view.Shot),
-            BackgroundFadeColor = sky?.HazeColor ?? Vector3.Zero,
-            Fog = ViewSky.FrameFog(sky),
+            Environment = new EnvironmentSettings
+            {
+                Intensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,
+                Sky = ViewSky.FrameSky(view, off, _skyOf),
+                ShowAsBackground = sky is not null,
+            },
+            Background = new BackgroundSettings
+            {
+                Radiance = new Vector3(0.15f, 0.16f, 0.18f),
+                FadeStart = sky?.HazeStart ?? 0f,
+                FadeEnd = sky?.HazeEnd ?? 0f,
+                FadeOrigin = ViewSky.HazeOrigin(sky, view.Shot),
+                FadeColor = sky?.HazeColor ?? Vector3.Zero,
+            },
+            Weather = new WeatherSettings
+            {
+                Fog = ViewSky.FrameFog(sky),
+                Water = view.Surroundings.WaterSettings,
+                Puddles = view.Surroundings.PuddleSettings,
+                Wind = view.Surroundings.WindSettings,
+            },
         };
     }
+
+    /// <summary>What the frame draws besides its draws: the view's overlay, particles, decals and fog volumes.</summary>
+    private FrameExtras Extras(View view, RenderEffects off) => new()
+    {
+        Overlay = view.Ui is { } ui ? ui.Quads : [],
+        Particles = view.Effects.DrawnParticles,
+        Decals = _decals.Drawn,
+        FogVolumes = off.HasFlag(RenderEffects.FogVolumes) || off.HasFlag(RenderEffects.VolumetricFog) ? default : view.Effects.DrawnFogVolumes,
+    };
 
     /// <summary>The view's suns as the frame's lights, at most <see cref="MaxLights"/>, with one casting the shadows.</summary>
     private ReadOnlySpan<DirectionalLight> Lights(ReadOnlySpan<SunLight> suns)

@@ -26,7 +26,7 @@ internal sealed class BakeJobs(
     {
         var space = BakeChecks.Space(view, settings);
         BakeIds.CheckStaticDraws(draws);
-        BakeFiles.CheckChunks(view.BakedChunks);
+        BakeFiles.CheckChunks(view.Baked.Chunks);
         return space;
     }
 
@@ -45,7 +45,7 @@ internal sealed class BakeJobs(
         BakeChecks.Chunk(view, chunk, settings);
         long started = Stopwatch.GetTimestamp();
         BakeIds.CheckStaticDraws(draws);
-        BakeFiles.CheckChunks(view.BakedChunks);
+        BakeFiles.CheckChunks(view.Baked.Chunks);
         return ResolveChunk(view, draws, chunk, started);
     }
 
@@ -129,13 +129,13 @@ internal sealed class BakeJobs(
         // where each light is, so a light that moved between frames is known to be moving.
         var areaInputs = inputs.ResolveAreas(new BakeResolver(NoBakes.Instance), view, draws).Space!.Value;
 
-        var layout = LayOutSpace(draws, space, view.BakedChunks, settings);
+        var layout = LayOutSpace(draws, space, view.Baked.Chunks, settings);
         var lights = BakeLights.TakeSpace(view, space, inputs.Lights);
         var unassigned = new List<int>();
         var channels = BakeLights.AssignSpaceChannels(view, space, lights, unassigned);
         var bakeLights = CollectionsMarshal.AsSpan(lights.Lights);
         var baker = bakers.Prepared(space.Name, probes: true);
-        var area = new AreaJob(draws.ToArray(), bakeLights.ToArray(), false, layout, view.EnvironmentIntensity, true,
+        var area = new AreaJob(draws.ToArray(), bakeLights.ToArray(), false, layout, view.Environment.Intensity, true,
             probeSettings);
         var skipped = unassigned.ToArray();
         var quality = settings.Quality;
@@ -160,7 +160,7 @@ internal sealed class BakeJobs(
         if (ids.Count == 0)
         {
             throw new InvalidOperationException(
-                $"The baked chunk \"{view.BakedChunks[chunk].Name}\" owns no static draws, so there is nothing to bake. A static draw belongs to the chunk whose box holds its centre, unless the baked space's box touches it.");
+                $"The baked chunk \"{view.Baked.Chunks[chunk].Name}\" owns no static draws, so there is nothing to bake. A static draw belongs to the chunk whose box holds its centre, unless the baked space's box touches it.");
         }
 
         return new ResolvedChunk(chunk, chunkInputs, resolver, ids, started);
@@ -197,7 +197,7 @@ internal sealed class BakeJobs(
     /// </summary>
     public BakeJob ChunkJob(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings, ResolvedChunk resolved)
     {
-        var baked = view.BakedChunks[resolved.Chunk];
+        var baked = view.Baked.Chunks[resolved.Chunk];
         var chunkInputs = resolved.Inputs;
         var owned = MoveChunkDraws(draws, resolved, baked, out bool glows);
         var layout = LightmapLayout.BuildSingle(CollectionsMarshal.AsSpan(owned), meshes.TriangleArea, baked.TexelsPerMetre, GetsLightmap);
@@ -255,7 +255,7 @@ internal sealed class BakeJobs(
         /// </summary>
         public static CheckedSpace Space(in FrameView view, BakeSettings settings)
         {
-            if (view.BakedSpace is not { } space)
+            if (view.Baked.Space is not { } space)
             {
                 throw new InvalidOperationException("Bake needs a baked space in the frame; call view.Indirect.BakedLighting first.");
             }
@@ -282,7 +282,7 @@ internal sealed class BakeJobs(
         /// <summary>Checks that the frame has the chunk, and that it is baked at its own texel density.</summary>
         public static void Chunk(in FrameView view, int chunk, BakeSettings settings)
         {
-            var chunks = view.BakedChunks;
+            var chunks = view.Baked.Chunks;
             if (chunk < 0 || chunk >= chunks.Length)
             {
                 throw new ArgumentOutOfRangeException(nameof(chunk), chunk, string.Create(CultureInfo.InvariantCulture,

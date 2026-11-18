@@ -72,7 +72,7 @@ public sealed class ShaderReloadGpuTests(GpuFixture shared) : IDisposable
             {
                 BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f),
                 Roughness = 0.8f,
-                Shader = shader,
+                Custom = new CustomSurface { Shader = shader },
             });
             var (vertices, indices) = TestMeshes.Quad();
             var quad = new DrawItem

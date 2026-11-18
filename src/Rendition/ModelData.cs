@@ -43,7 +43,7 @@ public struct ModelMaterial
 }
 
 /// <summary>
-/// A surface shader a model's material is drawn with, by name, as <c>Material.Shader</c> is for a
+/// A surface shader a model's material is drawn with, by name, as <c>Material.Custom.Shader</c> is for a
 /// generated mesh. The game finds the shader and the textures by name when it loads the model.
 /// </summary>
 /// <param name="Name">The shader's file name without its extension, such as <c>puddles</c> for <c>Shaders/puddles.frag</c>.</param>
@@ -52,7 +52,7 @@ public struct ModelMaterial
 public sealed record ModelMaterialShader(string Name, Vector4[] Parameters, string[] Textures);
 
 /// <summary>
-/// Masks the cooker baked from a material's mesh, and the wear and dirt laid by them. See <see cref="Material.MaskTexture"/>.
+/// Masks the cooker baked from a material's mesh, and the wear and dirt laid by them. See <see cref="MaterialWeathering.Mask"/>.
 /// </summary>
 /// <param name="Texture">The mask texture's index in <see cref="ModelData.Textures"/>.</param>
 /// <param name="Wear">Worn edges, laid where the mask is convex.</param>
@@ -132,7 +132,7 @@ public sealed class ModelData
 
     /// <summary>
     /// For each material, its occlusion texture's index in <see cref="Textures"/>, or -1 for none: see
-    /// <see cref="Material.OcclusionTexture"/>. The second UV set reads it where the material has
+    /// <see cref="MaterialTextures.Occlusion"/>. The second UV set reads it where the material has
     /// <see cref="MaterialFlags.OcclusionOnUv2"/>. In the same order as <see cref="Materials"/>. Empty when no material
     /// has one; otherwise it must be as long as <see cref="Materials"/>. Read it with <see cref="OcclusionOf"/>.
     /// </summary>

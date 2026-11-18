@@ -14,7 +14,7 @@ public class ProbeSchedulerTests
         var view = new FrameView
         {
             Lights = [new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(3f), CastsShadow = true }],
-            EnvironmentIntensity = 1f,
+            Environment = new EnvironmentSettings { Intensity = 1f },
         };
         int before = Renderer.ProbeLightingKey(view, environmentVersion: 1, RenderEffects.None);
 

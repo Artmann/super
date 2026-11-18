@@ -204,9 +204,9 @@ public class ThinLensTests
     public void Changing_the_focus_does_not_capture_the_probes_again()
     {
         var sun = new[] { new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(3f), CastsShadow = true } };
-        var sharp = new FrameView { Lights = sun, EnvironmentIntensity = 1f };
+        var sharp = new FrameView { Lights = sun, Environment = new EnvironmentSettings { Intensity = 1f } };
         var blurred = sharp;
-        blurred.Post = new PostSettings { FocusDistance = 3f, Aperture = 1.4f, FocalLength = 85f };
+        blurred.Picture.Post = new PostSettings { FocusDistance = 3f, Aperture = 1.4f, FocalLength = 85f };
         blurred.Off = RenderEffects.DepthOfField;
 
         Assert.Equal(Renderer.ReflectionLightingHash(sharp, 1), Renderer.ReflectionLightingHash(blurred, 1));

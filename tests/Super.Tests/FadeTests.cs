@@ -69,8 +69,8 @@ public sealed class FadeTests
     [InlineData(float.NaN, "soft edge NaN must be 0 or more.")]
     public void A_negative_soft_edge_has_a_problem_that_says_so(float softEdge, string problem)
     {
-        Assert.Equal(problem, Material.SoftEdgeProblem(softEdge));
-        Assert.Null(Material.SoftEdgeProblem(0.25f));
+        Assert.Equal(problem, MaterialProblems.SoftEdge(softEdge));
+        Assert.Null(MaterialProblems.SoftEdge(0.25f));
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public sealed class FadeTests
             CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
 
             Assert.Equal("fade distance end 1.5 must not be before its start 2.5.", DistanceFade.Problem(new DistanceFade(2.5f, 1.5f)));
-            Assert.Equal("soft edge -0.5 must be 0 or more.", Material.SoftEdgeProblem(-0.5f));
+            Assert.Equal("soft edge -0.5 must be 0 or more.", MaterialProblems.SoftEdge(-0.5f));
         }
         finally
         {

@@ -299,7 +299,7 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu, ITestOutputHelper o
         off |= RenderEffects.AntiAliasing | RenderEffects.LightProbes | (bounce ? RenderEffects.None : RenderEffects.ScreenBounce);
         view.Off = off;
         // Lit by the environment alone, which is the light occlusion takes away.
-        view.EnvironmentIntensity = 1f;
+        view.Environment.Intensity = 1f;
         gpu.Renderer.OcclusionResolution = resolution;
         try
         {

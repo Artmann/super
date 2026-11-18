@@ -62,7 +62,7 @@ public sealed class UnderwaterShaftGpuTests(GpuFixture gpu, ITestOutputHelper ou
             | RenderEffects.AutoExposure | RenderEffects.Bloom;
         view.Lights = new DirectionalLight[] { new() { Direction = Vector3.UnitY, Radiance = new Vector3(3f), CastsShadow = true } };
         view.Shadows = new ShadowSettings { Center = new Vector3(0f, 0f, -8f), Radius = 20f, Cascades = 1 };
-        view.Water = new UnderwaterSettings
+        view.Weather.Water = new UnderwaterSettings
         {
             Absorption = new Vector3(0.03f, 0.02f, 0.02f),
             ShallowColor = new Vector3(0.3f, 0.6f, 0.8f),

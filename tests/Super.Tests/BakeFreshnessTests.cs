@@ -421,8 +421,7 @@ public sealed class BakeFreshnessTests
     {
         var frame = new FrameView
         {
-            BakedSpace = space,
-            BakedChunks = chunks,
+            Baked = new BakedAreas { Space = space, Chunks = chunks },
             Lights = suns,
             LocalLights = lights,
             Time = time,

@@ -59,7 +59,7 @@ internal sealed class FrameBakes(
     {
         lit = default;
         MaskSlots.Reset();
-        if (view.BakedSpace is null && view.BakedChunks.IsEmpty)
+        if (view.Baked.Space is null && view.Baked.Chunks.IsEmpty)
         {
             Forget();
             return false;
@@ -119,7 +119,7 @@ internal sealed class FrameBakes(
         Resolver.ChunkResident = _residency.Question;
         _residency.ClearNamed();
         var bakes = inputs.ResolveAreas(Resolver, view, draws);
-        if (bakes.SpaceFresh && !space.Load(Resolver.SpaceFile(view.BakedSpace!.Value.Name), bakes.Space!.Value))
+        if (bakes.SpaceFresh && !space.Load(Resolver.SpaceFile(view.Baked.Space!.Value.Name), bakes.Space!.Value))
         {
             // Its file is now unreadable, so the space is worked out again as unbaked: its Baked lights come back.
             _residency.ClearNamed();

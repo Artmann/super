@@ -478,7 +478,7 @@ checksum, and the PDB lists the build id of every assembly the code was compiled
 one new internal method in the renderer gave every cook library a new id and the Courtyard
 unwrapped and baked its masks again, for minutes. The unwrap step runs code that lives in the
 renderer, so its key takes `LightmapUnwrap.Version` instead: a hash of the files in
-`src/Rendition/Lightmaps` and of `Types.cs`, which the build writes into the assembly. An edit
+`src/Rendition/Lightmaps` and of `Vertex.cs`, which the build writes into the assembly. An edit
 anywhere else in the renderer leaves it alone. All of this only works because unchanged code
 builds to the same bytes: `Directory.Build.props` sets `EnableSourceControlManagerQueries` to
 false, since otherwise the SDK writes the git commit into every assembly and its PDB, and any
@@ -1615,12 +1615,12 @@ light, and baking it too would count that light twice and overexpose the scene. 
 small cube, `Sky`, holds the sharp studio without panels for light probe captures, for the
 same reason.
 
-`FrameView.ShowEnvironment` draws the reflection cube, times `EnvironmentIntensity`,
-as the background instead of the flat `BackgroundRadiance`, and the distance fade then
+`FrameView.Environment.ShowAsBackground` draws the reflection cube, times `Environment.Intensity`,
+as the background instead of the flat `Background.Radiance`, and the distance fade then
 mixes toward the cube in the direction of the view. A far hill melts into the sky just
 behind it rather than into one grey. Super's `view.Surroundings.Sky` turns it on; the studio and
-underwater views leave it off. A `BackgroundFadeColor` overrides both backgrounds, and
-`BackgroundFadeOrigin` measures the fade across the ground from that point instead of
+underwater views leave it off. A `Background.FadeColor` overrides both backgrounds, and
+`Background.FadeOrigin` measures the fade across the ground from that point instead of
 from the camera, so a tall tree fades no sooner than the ground it stands on.
 The direction used to look up the cube is still taken from the camera.
 
@@ -1630,7 +1630,7 @@ animated every frame costs the update's half millisecond each frame, with no wai
 
 ### The clear sky
 
-`FrameView.Sky.Turbidity` above zero swaps the bands above the horizon for a physical sky
+`FrameView.Environment.Sky.Turbidity` above zero swaps the bands above the horizon for a physical sky
 after Hillaire, "A Scalable and Production Ready Sky and Atmosphere Rendering Technique"
 (2020), in `Shaders/atmosphere.glsl`. Distances are kilometres: a planet of 6360 km with
 100 km of air, Rayleigh scattering falling off over 8 km, ozone in a tent 15 km either
@@ -1886,7 +1886,7 @@ matches the closed form to within one level of 255 in every part of the frame.
 
 #### Fog volumes
 
-`view.Effects.FogVolume` keeps up to 64 `FogVolumeDraw`s a frame in `FrameView.FogVolumes`, and
+`view.Effects.FogVolume` keeps up to 64 `FogVolumeDraw`s a frame in `FrameView.Extras.FogVolumes`, and
 `FogVolumePack` packs them into 128-byte std430 `GpuFogVolume`s: the inverse transform, the
 colour and density, the shape, edge fade, noise and 1/noise size, the wind with the radius
 of a sphere round the centre that holds the shape (√3/2 times the longest axis), and the
@@ -3010,7 +3010,7 @@ A decal is a box. `view.Effects.Decal` takes its matrix, a `Surface` made of tex
 `DecalBlend`, and refuses a box that can't be inverted, a weight outside 0 to 1, a surface
 shader and a 257th decal before anything is drawn. `DecalMaterials` turns each surface into
 a material of its own once (colour, normal and surface textures, no flags) and hands the
-renderer `FrameView.Decals`. It keeps those materials, with the frame each was last used,
+renderer `FrameView.Extras.Decals`. It keeps those materials, with the frame each was last used,
 until content unloads; past `MaxDecalMaterials` (512, twice what a frame can use) it lets go
 of every one the current frame didn't use, so a new `Surface` value each frame can't fill the
 material slots. `Renderer.DestroyMaterial` holds the slot until the frames in flight finish. `DecalBatch.Pack` checks them again and packs each one into a
@@ -3080,7 +3080,7 @@ What it doesn't do yet:
 ## Particles
 
 A particle is a plain 44-byte struct: middle, width, linear colour and opacity, a turn,
-a variant that picks its lumpy outline and a glow, its own light as a share of its colour. `FrameView.Particles` hands the renderer
+a variant that picks its lumpy outline and a glow, its own light as a share of its colour. `FrameView.Extras.Particles` hands the renderer
 up to `Particle.MaxPerFrame` (32,768) a frame; more are dropped. `ParticlePass` sorts
 them furthest first along the view direction on the CPU, into the frame's own
 host-visible vertex buffer, with scratch arrays made once, so nothing allocates. Each
@@ -3160,7 +3160,7 @@ same-sized images with the same mip count. Terrain uses this: one array of groun
 colours, one of their normal maps, a splat texture in a slot and thresholds in the
 parameters, as `examples/Terrain/Shaders/terrain.frag` shows. A game compiles
 the shader with `glslc`, with `src/Rendition/Shaders` on the include path, and passes
-the result to `Renderer.CreateSurfaceShader`, then sets `Material.Shader`. Importing
+the result to `Renderer.CreateSurfaceShader`, then sets `Material.Custom.Shader`. Importing
 `src/Shaders.targets` does the compiling. `src/Rendition.Sample/Shaders/glow_bands.frag`
 is a working example, shown by `--glow`.
 
@@ -3260,7 +3260,7 @@ on at location 4.
 
 ## Occlusion maps
 
-A material's occlusion texture (`Material.OcclusionTexture`) rides the channel the G-buffer
+A material's occlusion texture (`Material.Textures.Occlusion`) rides the channel the G-buffer
 already had for it: the alpha of RT1, which `lighting.frag` multiplies into the screen-space
 occlusion as `ao` before it darkens the environment, the probes and the bake and feeds
 `specularOcclusion`. Before, every surface wrote 1 there, or `WATER_SIDE` for puddle water,
@@ -3902,12 +3902,12 @@ frame draws depth of field, not at start. A resize or render scale change frees 
 next frame that draws it makes them again at the new size. `ThinLens.IsValid` answers what
 `Check` would, without throwing, so the frame asks it every time.
 
-`FrameView.Post` holds the look of the image: bloom, exposure, white balance, contrast and saturation,
+`FrameView.Picture.Post` holds the look of the image: bloom, exposure, white balance, contrast and saturation,
 then lift and gain after the curve, in the tonemap pass, then sharpening, vignette and film grain in the finish pass. Grain and
 dither also hide the steps an 8-bit screen would show in slow gradients.
 
 Transitions happen in the finish pass too, so they work on the display picture and not
-on HDR light. `FrameView.Transition` carries a style, an amount from 0 to 1, a colour, a
+on HDR light. `FrameView.Picture.Transition` carries a style, an amount from 0 to 1, a colour, a
 wipe direction, an iris centre, a softness and a hold number, and the pass gets all but
 the hold as 48 bytes of push constants (`TransitionConstants`). A fade mixes towards
 the colour. A dissolve, wipe or iris mixes from the `Held` target, a copy of the last
@@ -4179,7 +4179,7 @@ renderer is left ready for the next frame. `Capture` clears its read-back buffer
 
 ## Who owns a draw
 
-A frame's baked areas are its `BakedSpace` and its `BakedChunks`. `BakeAreas`
+A frame's baked areas are its `Baked.Space` and its `Baked.Chunks`. `BakeAreas`
 (`src/Rendition/Baking/BakeAreas.cs`) decides which one owns a static draw or a light, and
 returns `BakeAreas.Space` (-1), a chunk's index in the frame, or `BakeAreas.None` (-2). It is
 pure and allocates nothing, since it runs once per static draw and once per light each frame.
@@ -4311,7 +4311,7 @@ it casts a shadow, and its radiance when Baked.
 `Environment` is `Renderer.EnvironmentHash` for a space and zero for a chunk, whose sky and sun
 are applied live. `EnvironmentHash` hashes the bands and panels from the last `SetEnvironment`,
 kept as a hash when it's called, then the clear sky's turbidity as drawn (0 when off) and the
-`EnvironmentIntensity` of the last frame. It follows what they hold, not the version count the
+`Environment.Intensity` of the last frame. It follows what they hold, not the version count the
 light probes use, so setting the same environment again gives the same hash.
 
 `Settings` is 0 for a space or 1 for a chunk, the area's own `TexelsPerMetre` (from
@@ -5200,7 +5200,7 @@ material or change whether it is opaque to rays between a `TopLevel` call and th
 because `ForgetMaterial` frees into the slot of the frame submitted before. Nothing in `Render` does.
 
 The renderer builds a top-level structure only when something traces: the trace debug view
-(`FrameView.DebugView = DebugView.Trace`), or a frame with light probes to update on a GPU that
+(`FrameView.Picture.DebugView = DebugView.Trace`), or a frame with light probes to update on a GPU that
 can trace. It is built once in that frame and shared by both, before the GPU timer's first mark,
 so its build counts in no pass's time. A frame with neither builds nothing.
 
@@ -5249,7 +5249,7 @@ dirt or puddles. Later features include this file instead of copying it.
 
 ### The trace debug view
 
-`FrameView.DebugView = DebugView.Trace` shows what the acceleration structures hold. `Render`
+`FrameView.Picture.DebugView = DebugView.Trace` shows what the acceleration structures hold. `Render`
 collects the draws, builds the top-level structure after the uploads, and `TraceDebugPass` runs
 `trace_debug.comp` in place of the lighting, subsurface and transparent passes. It sends one ray
 per pixel from the near plane, through `inverseViewProjection`, and writes the hit's albedo, or

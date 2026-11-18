@@ -66,15 +66,15 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
                 return material;
             }
 
-            material.Shader = _modelShaders[shader.Name];
+            material.Custom.Shader = _modelShaders[shader.Name];
             for (int i = 0; i < shader.Parameters.Length; i++)
             {
-                material.ShaderParameters[i] = shader.Parameters[i];
+                material.Custom.Parameters[i] = shader.Parameters[i];
             }
 
             for (int i = 0; i < shader.Textures.Length; i++)
             {
-                material.ShaderTextures[i] = textures[shader.Textures[i]];
+                material.Custom.Textures[i] = textures[shader.Textures[i]];
             }
 
             return material;
@@ -116,35 +116,46 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
     {
         var material = SurfaceMaterials.MaterialOf(surface) with
         {
-            BaseColorTexture = ownedTexture ?? items.TextureFor(surface.ColorTexture, content),
-            NormalTexture = items.TextureFor(surface.NormalTexture, content),
-            SurfaceTexture = items.TextureFor(surface.SurfaceTexture, content),
-            HeightTexture = items.TextureFor(surface.Height?.Map, content),
-            HeightDepth = surface.Height?.Depth ?? 0f,
-            DetailColorTexture = items.TextureFor(surface.Detail?.ColorTexture, content),
-            DetailNormalTexture = items.TextureFor(surface.Detail?.NormalTexture, content),
-            DetailScale = (surface.Detail ?? new DetailMap()).Scale,
-            OcclusionTexture = items.TextureFor(surface.Occlusion?.Map, content),
+            Textures = TexturesOf(surface, ownedTexture, content),
+            Height = new MaterialHeight { Texture = items.TextureFor(surface.Height?.Map, content), Depth = surface.Height?.Depth ?? 0f },
+            Detail = new MaterialDetail
+            {
+                Color = items.TextureFor(surface.Detail?.ColorTexture, content),
+                Normal = items.TextureFor(surface.Detail?.NormalTexture, content),
+                Scale = (surface.Detail ?? new DetailMap()).Scale,
+            },
             Toon = surface.Toon is { } toon
                 ? new ToonShading { Steps = toon.Steps, Ramp = items.TextureFor(toon.Ramp, content), Rim = toon.Rim }
                 : null,
             Subsurface = surface.Subsurface,
-            Shader = surface.Shader is { } shader ? items.Require<ShaderOnGpu>(shader.Fragment.Index, content).Handle : null,
+            Custom = new CustomSurface
+            {
+                Shader = surface.Shader is { } shader ? items.Require<ShaderOnGpu>(shader.Fragment.Index, content).Handle : null,
+            },
         };
         var custom = surface.Shader ?? new SurfaceShader(default);
-        custom.Parameters.CopyTo(material.ShaderParameters);
+        custom.Parameters.CopyTo(material.Custom.Parameters);
         for (int i = 0; i < custom.Textures.Length; i++)
         {
-            material.ShaderTextures[i] = items.TextureFor(custom.Textures[i], content);
+            material.Custom.Textures[i] = items.TextureFor(custom.Textures[i], content);
         }
 
         for (int i = 0; i < custom.Arrays.Length; i++)
         {
-            material.ShaderArrays[i] = items.Require<TextureArrayOnGpu>(custom.Arrays[i].Index, content).Handle;
+            material.Custom.Arrays[i] = items.Require<TextureArrayOnGpu>(custom.Arrays[i].Index, content).Handle;
         }
 
         return material;
     }
+
+    /// <summary>A generated mesh's texture maps: its own colour texture when it has one, or its surface's.</summary>
+    private MaterialTextures TexturesOf(Surface surface, TextureHandle? ownedTexture, Content content) => new()
+    {
+        BaseColor = ownedTexture ?? items.TextureFor(surface.ColorTexture, content),
+        Normal = items.TextureFor(surface.NormalTexture, content),
+        Surface = items.TextureFor(surface.SurfaceTexture, content),
+        Occlusion = items.TextureFor(surface.Occlusion?.Map, content),
+    };
 
     /// <summary>Frees what an item made. A model from a file owns its materials and textures; a generated mesh owns one of each.</summary>
     private void Destroy(ItemOnGpu loaded)

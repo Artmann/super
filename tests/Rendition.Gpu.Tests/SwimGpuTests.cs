@@ -56,7 +56,7 @@ public sealed class SwimGpuTests(GpuFixture gpu)
         var view = gpu.View(DebugView.None);
         // No anti-aliasing, so one frame is the whole picture.
         view.Off = RenderEffects.AntiAliasing;
-        view.EnvironmentIntensity = 1f;
+        view.Environment.Intensity = 1f;
         return gpu.Renderer.Capture(view, draws, out _, out _);
     }
 

@@ -600,8 +600,8 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
     private LightBakeFile Bake(DrawItem[] draws, BakeSettings settings)
     {
         var view = gpu.View(DebugView.None);
-        view.BakedSpace = Room with { TexelsPerMetre = settings.TexelsPerMetre };
-        view.EnvironmentIntensity = 1f;
+        view.Baked.Space = Room with { TexelsPerMetre = settings.TexelsPerMetre };
+        view.Environment.Intensity = 1f;
         return LightBakeFile.Read(gpu.Renderer.Bake(view, draws, settings));
     }
 

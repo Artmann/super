@@ -101,9 +101,12 @@ internal sealed class DecalMaterials(Renderer renderer, UploadedItems items)
 
         var material = SurfaceMaterials.MaterialOf(surface) with
         {
-            BaseColorTexture = items.TextureFor(surface.ColorTexture, content),
-            NormalTexture = items.TextureFor(surface.NormalTexture, content),
-            SurfaceTexture = items.TextureFor(surface.SurfaceTexture, content),
+            Textures = new MaterialTextures
+            {
+                BaseColor = items.TextureFor(surface.ColorTexture, content),
+                Normal = items.TextureFor(surface.NormalTexture, content),
+                Surface = items.TextureFor(surface.SurfaceTexture, content),
+            },
             Flags = MaterialFlags.None,
         };
         var handle = renderer.CreateMaterial(material);

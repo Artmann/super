@@ -360,7 +360,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
             lamp.Position = new Vector3(0.5f, 1f, 0f);
             Render(draws, lamp, time: 0.1f);
             var view = gpu.View(DebugView.None);
-            view.BakedSpace = Room;
+            view.Baked.Space = Room;
             view.Time = 0.1f;
             view.LocalLights = new[] { lamp };
             byte[] bytes = gpu.Renderer.Bake(view, draws, new BakeSettings(20, BakeQuality.Preview));
@@ -440,7 +440,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         var error = Assert.Throws<ArgumentException>(() =>
         {
             var view = gpu.View(DebugView.None);
-            view.BakedSpace = Room with { TexelsPerMetre = 8 };
+            view.Baked.Space = Room with { TexelsPerMetre = 8 };
             gpu.Renderer.Bake(view, [], new BakeSettings(20));
         });
 
@@ -469,7 +469,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
             FrameView View(BakedSpace space, float time = 0f)
             {
                 var view = gpu.View(DebugView.None);
-                view.BakedSpace = space;
+                view.Baked.Space = space;
                 view.LocalLights = new[] { lamp };
                 view.Time = time;
                 return view;
@@ -551,8 +551,8 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
     {
         var view = gpu.View(DebugView.None);
         // The space is lit at the density the test bakes at, as a space must be.
-        view.BakedSpace = Room with { TexelsPerMetre = settings.TexelsPerMetre };
-        view.EnvironmentIntensity = sky;
+        view.Baked.Space = Room with { TexelsPerMetre = settings.TexelsPerMetre };
+        view.Environment.Intensity = sky;
         view.LocalLights = lights;
         return LightBakeFile.Read(gpu.Renderer.Bake(view, draws, settings));
     }
@@ -560,7 +560,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
     private void Render(DrawItem[] draws, LocalLight lamp, float time)
     {
         var view = gpu.View(DebugView.None);
-        view.BakedSpace = Room;
+        view.Baked.Space = Room;
         view.Time = time;
         view.LocalLights = new[] { lamp };
         gpu.Renderer.Render(view, draws);

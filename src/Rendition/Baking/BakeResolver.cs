@@ -85,8 +85,8 @@ public sealed class BakeResolver
         in FrameView frame, ReadOnlySpan<DrawItem> draws, Func<DetailHandle, BakeSphere> bounds, ulong environment,
         AnimatedLights animated)
     {
-        var space = frame.BakedSpace;
-        var chunks = frame.BakedChunks;
+        var space = frame.Baked.Space;
+        var chunks = frame.Baked.Chunks;
         if (space is null && chunks.IsEmpty)
         {
             _models.Clear();
@@ -173,7 +173,7 @@ public sealed class BakeResolver
         ulong lights = BakeInputHash.SpaceLights(_lights.SpaceLights(), _lights.SpaceSuns(frame.Lights, animated));
         var inputs = BakeInputHash.Space(
             ids, lights, space, environment, new BakeSettings(space.TexelsPerMetre),
-            _spaceDraws.PlacedChunks(frame.BakedChunks, _frame, _models));
+            _spaceDraws.PlacedChunks(frame.Baked.Chunks, _frame, _models));
         string file = _files.Space(space.Name);
         bool fresh = IsFresh(file, inputs, animated);
         _frame.SetSpace(inputs, fresh, _arrivals.Arrive(file, fresh, false, frame.Time));

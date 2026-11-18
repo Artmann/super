@@ -57,7 +57,7 @@ public sealed class TraceDebugTests(GpuFixture gpu)
         var green = gpu.Renderer.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0, 1, 0, 1),
-            BaseColorTexture = halfClear,
+            Textures = new MaterialTextures { BaseColor = halfClear },
             AlphaCutoff = 0.5f,
             Roughness = 0.8f,
         });
@@ -121,7 +121,7 @@ public sealed class TraceDebugTests(GpuFixture gpu)
         var textured = gpu.Renderer.CreateMaterial(new Material
         {
             BaseColor = Vector4.One,
-            BaseColorTexture = redGreen,
+            Textures = new MaterialTextures { BaseColor = redGreen },
             Roughness = 0.8f,
         });
 
@@ -169,7 +169,7 @@ public sealed class TraceDebugTests(GpuFixture gpu)
         View = Matrix4x4.CreateLookAt(new Vector3(0, 0, 3), Vector3.Zero, Vector3.UnitY),
         Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
         CameraPosition = new Vector3(0, 0, 3),
-        DebugView = DebugView.Trace,
+        Picture = new PictureSettings { DebugView = DebugView.Trace },
     };
 
     private static DrawItem Draw(MeshHandle mesh, MaterialHandle material, Matrix4x4 transform) =>

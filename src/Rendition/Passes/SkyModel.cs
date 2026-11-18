@@ -72,7 +72,7 @@ internal static class SkyModel
             return new SkySun(turbidity, Vector3.UnitY, Vector3.Zero, 1f);
         }
 
-        ref readonly var light = ref view.Lights[SunIndex(view.Lights, view.Sky.Moon)];
+        ref readonly var light = ref view.Lights[SunIndex(view.Lights, view.Environment.Sky.Moon)];
         float radius = view.Shadows.LightAngle * 0.5f;
         // 2 pi (1 - cos r), written with the half-angle sine so a small sun keeps its precision.
         float halfSine = MathF.Sin(radius * 0.5f);
@@ -103,7 +103,7 @@ internal static class SkyModel
 
         var lights = buffer.AsSpan(0, view.Lights.Length);
         view.Lights.CopyTo(lights);
-        ref var sun = ref lights[SunIndex(lights, view.Sky.Moon)];
+        ref var sun = ref lights[SunIndex(lights, view.Environment.Sky.Moon)];
         var direction = Vector3.Normalize(sun.Direction);
         sun.Radiance *= Atmosphere.SunTint(direction, Turbidity(view), view.Shadows.LightAngle * 0.5f);
         return view with { Lights = lights };
@@ -115,12 +115,12 @@ internal static class SkyModel
     /// captures never draw it.
     /// </summary>
     public static bool AirShows(in FrameView view, RenderEffects off) =>
-        !off.HasFlag(RenderEffects.AerialPerspective) && !(view.BackgroundFadeEnd > view.BackgroundFadeStart);
+        !off.HasFlag(RenderEffects.AerialPerspective) && !(view.Background.FadeEnd > view.Background.FadeStart);
 
-    private static float Turbidity(in FrameView view) => Math.Clamp(view.Sky.Turbidity, MinTurbidity, MaxTurbidity);
+    private static float Turbidity(in FrameView view) => Math.Clamp(view.Environment.Sky.Turbidity, MinTurbidity, MaxTurbidity);
 
     /// <summary>Whether the view draws the physical sky: a turbidity is set and no photographed sky takes over.</summary>
-    private static bool Physical(in FrameView view) => view.Sky.Turbidity > 0f && view.Sky.Image is null;
+    private static bool Physical(in FrameView view) => view.Environment.Sky.Turbidity > 0f && view.Environment.Sky.Image is null;
 
     /// <summary>
     /// A photographed sky and its sun, turned by <paramref name="rotation"/> about the up axis and brightened by
@@ -187,16 +187,16 @@ internal static class SkyModel
         float turbidity = Turbidity(view);
         var moon = Vector4.Zero;
         var moonRadiance = Vector4.Zero;
-        if (view.Sky.Moon != Vector3.Zero)
+        if (view.Environment.Sky.Moon != Vector3.Zero)
         {
-            var towards = Vector3.Normalize(view.Sky.Moon);
+            var towards = Vector3.Normalize(view.Environment.Sky.Moon);
             moon = new Vector4(towards, 1f);
             moonRadiance = new Vector4(MoonRadiance * Atmosphere.SunTint(towards, turbidity, MoonAngularRadius), 0f);
         }
 
         float dark = 1f - Atmosphere.SmoothStep(-StarsFull, -StarsAppear, MathF.Asin(Math.Clamp(sun.Y, -1f, 1f)));
-        bool stars = !view.Sky.HideStars && !off.HasFlag(RenderEffects.Stars);
-        var starry = new Vector4(stars ? StarBrightness * dark : 0f, view.Sky.StarRotation, 0f, 0f);
+        bool stars = !view.Environment.Sky.HideStars && !off.HasFlag(RenderEffects.Stars);
+        var starry = new Vector4(stars ? StarBrightness * dark : 0f, view.Environment.Sky.StarRotation, 0f, 0f);
         return (moon, moonRadiance, starry);
     }
 }

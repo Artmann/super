@@ -135,8 +135,8 @@ internal sealed class BackgroundBakes : IDisposable
         try
         {
             var job = want.Chunk < 0
-                ? _jobs.CreateSpaceJob(view, draws, new BakeSettings(view.BakedSpace!.Value.TexelsPerMetre, quality))
-                : _jobs.CreateChunkJob(view, draws, want.Chunk, new BakeSettings(view.BakedChunks[want.Chunk].TexelsPerMetre, quality));
+                ? _jobs.CreateSpaceJob(view, draws, new BakeSettings(view.Baked.Space!.Value.TexelsPerMetre, quality))
+                : _jobs.CreateChunkJob(view, draws, want.Chunk, new BakeSettings(view.Baked.Chunks[want.Chunk].TexelsPerMetre, quality));
             Slicer.Start(job, want, quality);
         }
         catch (Exception e) when (e is InvalidOperationException or ArgumentException)
@@ -236,7 +236,7 @@ internal sealed class BackgroundBakes : IDisposable
         /// </summary>
         private bool WantSpace(in FrameView view, BakeQueue queue, BakeFrame bakes)
         {
-            if (view.BakedSpace is not { } space || bakes.Space is not { } spaceInputs)
+            if (view.Baked.Space is not { } space || bakes.Space is not { } spaceInputs)
             {
                 return false;
             }
@@ -258,7 +258,7 @@ internal sealed class BackgroundBakes : IDisposable
         private bool WantChunks(in FrameView view, BakeQueue queue, BakeFrame bakes)
         {
             bool cancel = false;
-            var chunks = view.BakedChunks;
+            var chunks = view.Baked.Chunks;
             for (int c = 0; c < chunks.Length && c < bakes.Chunks.Count; c++)
             {
                 if (bakes.ChunkPending(c) || bakes.ChunkStaticDraws(c) == 0)

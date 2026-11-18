@@ -454,10 +454,10 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
         View = Matrix4x4.CreateLookAt(new Vector3(0f, TopDownHeight, 0f), Vector3.Zero, -Vector3.UnitZ),
         Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
         CameraPosition = new Vector3(0f, TopDownHeight, 0f),
-        EnvironmentIntensity = 0f,
+        Environment = new EnvironmentSettings { Intensity = 0f },
         Off = Off,
         LocalLights = lights,
-        BakedChunks = chunks,
+        Baked = new BakedAreas { Chunks = chunks },
         Shadows = new ShadowSettings { Radius = 0.1f, Cascades = 1 },
     };
 
@@ -472,7 +472,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
         var bakes = new Dictionary<string, LightBakeFile>();
         for (int c = 0; c < count; c++)
         {
-            bakes[view.BakedChunks[c].Name] = LightBakeFile.Read(
+            bakes[view.Baked.Chunks[c].Name] = LightBakeFile.Read(
                 gpu.Renderer.BakeChunk(view, draws, c, new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
         }
 
@@ -583,9 +583,9 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
         View = Matrix4x4.CreateLookAt(new Vector3(0, 0, 3), Vector3.Zero, Vector3.UnitY),
         Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
         CameraPosition = new Vector3(0, 0, 3),
-        EnvironmentIntensity = 0f,
+        Environment = new EnvironmentSettings { Intensity = 0f },
         Off = Off,
-        BakedSpace = Room,
+        Baked = new BakedAreas { Space = Room },
         LocalLights = lights,
         Lights = suns,
         Shadows = new ShadowSettings { Radius = 0.1f, Cascades = 1 },

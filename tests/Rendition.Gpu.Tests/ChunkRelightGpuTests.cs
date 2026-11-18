@@ -423,12 +423,10 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
             View = Matrix4x4.CreateLookAt(eye, centre, Vector3.TransformNormal(-Vector3.UnitZ, placed)),
             Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
             CameraPosition = eye,
-            EnvironmentIntensity = environment,
-            Sky = sky,
+            Environment = new EnvironmentSettings { Intensity = environment, Sky = sky },
             Off = TestEffects.OnlyBaked,
             Lights = suns,
-            BakedChunks = chunks ?? [],
-            BakedSpace = space,
+            Baked = new BakedAreas { Chunks = chunks ?? [], Space = space },
         };
     }
 

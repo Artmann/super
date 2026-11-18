@@ -300,9 +300,9 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         View = Matrix4x4.CreateLookAt(camera, camera with { Z = 0f }, Vector3.UnitY),
         Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
         CameraPosition = camera,
-        EnvironmentIntensity = sky,
+        Environment = new EnvironmentSettings { Intensity = sky },
         Off = off,
-        BakedSpace = Room,
+        Baked = new BakedAreas { Space = Room },
         Lights = suns,
         LightProbes = probes,
     };

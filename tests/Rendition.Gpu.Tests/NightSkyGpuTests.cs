@@ -49,11 +49,9 @@ public sealed class NightSkyGpuTests(GpuFixture gpu, ITestOutputHelper output)
             View = Matrix4x4.CreateLookAt(Vector3.Zero, Moon, Vector3.UnitY),
             Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
             CameraPosition = Vector3.Zero,
-            EnvironmentIntensity = 1f,
-            ShowEnvironment = true,
+            Environment = new EnvironmentSettings { Intensity = 1f, ShowAsBackground = true, Sky = sky },
             Lights = [new DirectionalLight { Direction = Sun, Radiance = new Vector3(5f) }],
-            Sky = sky,
-            Post = new PostSettings { Exposure = 3f },
+            Picture = new PictureSettings { Post = new PostSettings { Exposure = 3f } },
             Off = off | RenderEffects.AntiAliasing | RenderEffects.LightProbes | RenderEffects.Bloom,
         };
         for (int frame = 0; frame < 2; frame++)

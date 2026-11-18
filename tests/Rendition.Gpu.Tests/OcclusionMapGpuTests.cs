@@ -26,7 +26,7 @@ public sealed class OcclusionMapGpuTests(GpuFixture gpu)
         var plain = gpu.Renderer.CreateMaterial(Matte());
         var occluded = gpu.Renderer.CreateMaterial(Matte() with
         {
-            OcclusionTexture = occlusion,
+            Textures = new MaterialTextures { Occlusion = occlusion },
             Flags = onUv2 ? MaterialFlags.OcclusionOnUv2 : MaterialFlags.None,
         });
         var (vertices, indices) = TestMeshes.Quad();
@@ -72,7 +72,7 @@ public sealed class OcclusionMapGpuTests(GpuFixture gpu)
         // No anti-aliasing, so one frame is the whole picture; no light probes or screen-space occlusion, which shade
         // the quad themselves.
         view.Off = RenderEffects.AntiAliasing | RenderEffects.LightProbes | RenderEffects.AmbientOcclusion;
-        view.EnvironmentIntensity = 1f;
+        view.Environment.Intensity = 1f;
         return gpu.Renderer.Capture(view, [quad], out _, out _);
     }
 

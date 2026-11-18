@@ -51,7 +51,7 @@ internal sealed unsafe class ChunkRelight(ChunkBakePool pool, ReadableBakes read
         Active = false;
         Fading = false;
         _chunkCount = 0;
-        var chunks = view.BakedChunks;
+        var chunks = view.Baked.Chunks;
         var store = readable.Inner;
         if (chunks.IsEmpty || !readable.GivesLightmaps(store))
         {

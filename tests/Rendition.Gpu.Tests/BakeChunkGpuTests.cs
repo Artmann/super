@@ -482,7 +482,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     private byte[] BakeChunk(BakedChunk chunk, DrawItem[] draws, int index, int density, LocalLight[]? lights = null)
     {
         var view = gpu.View(DebugView.None);
-        view.BakedChunks = new[] { chunk };
+        view.Baked.Chunks = new[] { chunk };
         view.LocalLights = lights ?? [];
         return gpu.Renderer.BakeChunk(view, draws, index, new BakeSettings(density, BakeQuality.Preview));
     }
@@ -490,7 +490,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     private byte[] BakeChunks(BakedChunk[] chunks, DrawItem[] draws, LocalLight[] lights, int index)
     {
         var view = gpu.View(DebugView.None);
-        view.BakedChunks = chunks;
+        view.Baked.Chunks = chunks;
         view.LocalLights = lights;
         return gpu.Renderer.BakeChunk(view, draws, index, new BakeSettings(Density, BakeQuality.Preview));
     }

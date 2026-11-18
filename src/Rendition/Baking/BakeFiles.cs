@@ -136,13 +136,13 @@ public static class BakeFiles
         {
             throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
                 $"The frame places {chunks.Length} baked chunks, but at most {MaxChunks} fit."),
-                nameof(FrameView.BakedChunks));
+                nameof(FrameView.Baked));
         }
 
         for (int i = 0; i < chunks.Length; i++)
         {
-            CheckChunkTransform(i, chunks[i].Name, chunks[i].Transform, nameof(FrameView.BakedChunks));
-            CheckEdgeBlend(chunks[i].Name, chunks[i].EdgeBlend, chunks[i].Min, chunks[i].Max, nameof(FrameView.BakedChunks));
+            CheckChunkTransform(i, chunks[i].Name, chunks[i].Transform, nameof(FrameView.Baked));
+            CheckEdgeBlend(chunks[i].Name, chunks[i].EdgeBlend, chunks[i].Min, chunks[i].Max, nameof(FrameView.Baked));
         }
     }
 }

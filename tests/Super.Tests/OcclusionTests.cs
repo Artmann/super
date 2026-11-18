@@ -40,7 +40,7 @@ public class OcclusionTests
     {
         var frame = new FrameView();
 
-        Assert.Equal(new OcclusionSettings(0.6f, 0.9f), frame.Occlusion);
+        Assert.Equal(new OcclusionSettings(0.6f, 0.9f), frame.ScreenSpace.Occlusion);
     }
 
     [Theory, InlineData(-0.1f, 2f, "strength"), InlineData(2.1f, 2f, "strength"), InlineData(1f, 0f, "radius"), InlineData(1f, 8.5f, "radius")]

@@ -72,7 +72,7 @@ public sealed class DepthFirstGpuTests(GpuFixture gpu)
     {
         var view = gpu.View(DebugView.None);
         view.Off = off;
-        view.EnvironmentIntensity = 1f;
+        view.Environment.Intensity = 1f;
         return gpu.Renderer.Capture(view, draws, out _, out _);
     }
 

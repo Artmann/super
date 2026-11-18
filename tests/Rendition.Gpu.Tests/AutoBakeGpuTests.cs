@@ -161,7 +161,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         var quad = CreateQuad(gpu);
         var texture = gpu.Renderer.CreateTexture(TextureData.FromPixels(1, 1, TextureKind.Color, [128, 128, 128, 255]));
         var plain = new Material { BaseColor = Vector4.One, Roughness = 0.8f };
-        var wall = gpu.Renderer.CreateMaterial(plain with { BaseColorTexture = texture });
+        var wall = gpu.Renderer.CreateMaterial(plain with { Textures = plain.Textures with { BaseColor = texture } });
         try
         {
             var room = Room(gpu, quad, wall);
@@ -478,7 +478,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         view.LocalLights = [];
         view.Lights = [];
         g.Renderer.Render(view, room);
-        view.BakedSpace = new BakedSpace("auto-room", new Vector3(-6f, -3f, -6f), new Vector3(6f, 7f, 6f), 2f, texelsPerMetre);
+        view.Baked.Space = new BakedSpace("auto-room", new Vector3(-6f, -3f, -6f), new Vector3(6f, 7f, 6f), 2f, texelsPerMetre);
         view.LocalLights = new[]
         {
             new LocalLight

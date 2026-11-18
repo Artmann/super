@@ -176,7 +176,7 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
     private FrameView SunView(Vector3 towards)
     {
         var view = gpu.View(DebugView.None);
-        view.Sky = new AnalyticSky { Turbidity = 3f };
+        view.Environment.Sky = new AnalyticSky { Turbidity = 3f };
         view.Lights = new[]
         {
             new DirectionalLight
@@ -191,7 +191,7 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
     private FrameView RoomView(Vector3 towards)
     {
         var view = SunView(towards);
-        view.BakedSpace = Room;
+        view.Baked.Space = Room;
         return view;
     }
 

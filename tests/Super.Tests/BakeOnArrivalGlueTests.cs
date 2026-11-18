@@ -170,7 +170,7 @@ public sealed class BakeOnArrivalGlueTests : IDisposable
             resolver = new BakeResolver(new FreshWhen(pending)) { ChunkResident = (_, _) => false };
         }
 
-        var frame = new FrameView { BakedSpace = space, BakedChunks = chunks, Time = 1f };
+        var frame = new FrameView { Baked = new BakedAreas { Space = space, Chunks = chunks }, Time = 1f };
         return resolver.Resolve(frame, draws, _ => new BakeSphere(Vector3.Zero, 0.5f), 42, new AnimatedLights(TextWriter.Null));
     }
 
