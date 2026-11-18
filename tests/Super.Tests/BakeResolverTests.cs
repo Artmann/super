@@ -284,7 +284,7 @@ public sealed class BakeResolverTests
 
         var stale = At(10f);
         Assert.Equal(0f, stale.ChunkFade(0));
-        Assert.Empty(stale.FadingLocalLights);
+        Assert.Empty(stale.LightUse.FadingLocalLights);
         Assert.Empty(stale.DroppedLocalLights);
 
         // Saved, but still on its way to the GPU: drawn live, and the fade hasn't started.
@@ -292,24 +292,24 @@ public sealed class BakeResolverTests
         var pending = At(11f);
         Assert.True(pending.ChunkPending(0));
         Assert.Equal(0f, pending.ChunkFade(0));
-        Assert.Empty(pending.FadingLocalLights);
+        Assert.Empty(pending.LightUse.FadingLocalLights);
 
         // On the GPU at 20 s: the fade starts there, not when the bake was saved.
         resident = true;
         var arrived = At(20f);
         Assert.Equal(0f, arrived.ChunkFade(0));
-        Assert.Equal((0, 0f), Assert.Single(arrived.FadingLocalLights));
+        Assert.Equal((0, 0f), Assert.Single(arrived.LightUse.FadingLocalLights));
         Assert.Empty(arrived.DroppedLocalLights);
         Assert.Equal(LightMode.Baked, arrived.ModeOf(new LightKey(false, 1)));
 
         // Halfway, smoothstep gives a half too: 0.25 * (3 - 1).
         var half = At(20.5f);
         Assert.Equal(0.5f, half.ChunkFade(0), 1e-6f);
-        Assert.Equal((0, 0.5f), Assert.Single(half.FadingLocalLights));
+        Assert.Equal((0, 0.5f), Assert.Single(half.LightUse.FadingLocalLights));
 
         var whole = At(21f);
         Assert.Equal(1f, whole.ChunkFade(0));
-        Assert.Empty(whole.FadingLocalLights);
+        Assert.Empty(whole.LightUse.FadingLocalLights);
         Assert.Equal([0], whole.DroppedLocalLights);
     }
 
@@ -327,9 +327,9 @@ public sealed class BakeResolverTests
 
         // A quarter of the way through: 0.25² * (3 - 2 * 0.25) = 0.0625 * 2.5.
         Assert.Equal(0.15625f, quarter.SpaceFade, 1e-6f);
-        Assert.Single(quarter.FadingSuns);
-        Assert.Equal(0.15625f, quarter.FadingSuns[0].Fade, 1e-6f);
-        Assert.Equal(0.15625f, Assert.Single(quarter.FadingLocalLights).Fade, 1e-6f);
+        Assert.Single(quarter.LightUse.FadingSuns);
+        Assert.Equal(0.15625f, quarter.LightUse.FadingSuns[0].Fade, 1e-6f);
+        Assert.Equal(0.15625f, Assert.Single(quarter.LightUse.FadingLocalLights).Fade, 1e-6f);
         Assert.Empty(quarter.DroppedSuns);
         Assert.Empty(quarter.DroppedLocalLights);
     }
@@ -348,7 +348,7 @@ public sealed class BakeResolverTests
 
         Assert.Equal(1f, back.SpaceFade);
         Assert.Equal([0], back.DroppedLocalLights);
-        Assert.Empty(back.FadingLocalLights);
+        Assert.Empty(back.LightUse.FadingLocalLights);
     }
 
     [Fact]
@@ -390,7 +390,7 @@ public sealed class BakeResolverTests
         Assert.Equal(1f, arrived.SpaceFade);
         Assert.Equal([0], arrived.DroppedLocalLights);
         Assert.Equal([0], arrived.DroppedSuns);
-        Assert.Empty(arrived.FadingLocalLights);
+        Assert.Empty(arrived.LightUse.FadingLocalLights);
     }
 
     // The courtyard with a Baked sun and a Baked point light in it, at the time given.

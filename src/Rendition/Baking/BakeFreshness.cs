@@ -74,28 +74,21 @@ public sealed class BakeFrame
     /// <summary>A frame that names no baked area: nothing is hashed, nothing is fresh, and every light is real-time.</summary>
     internal static readonly BakeFrame None = new();
 
-    private readonly Dictionary<LightKey, LightMode> _modes = [];
-    private readonly List<BakeInputs> _chunks = [];
-    private readonly List<bool> _chunkFresh = [];
-    private readonly List<bool> _chunkPending = [];
-    private readonly List<string> _chunkFiles = [];
-    private readonly List<int> _chunkDraws = [];
-    private readonly List<int> _droppedLocalLights = [];
-    private readonly List<int> _droppedSuns = [];
-    private readonly List<float> _chunkFade = [];
-    private readonly List<(int Index, float Fade)> _fadingLocalLights = [];
-    private readonly List<(int Index, float Fade)> _fadingSuns = [];
-    private readonly List<int> _unslottedLights = [];
-
     internal BakeFrame()
     {
     }
+
+    /// <summary>The chunks' inputs, files and bake states, which the resolver fills.</summary>
+    internal FrameChunkBakes ChunkBakes { get; } = new();
+
+    /// <summary>How each light is used, which the resolver and the renderer fill.</summary>
+    internal FrameLightUse LightUse { get; } = new();
 
     /// <summary>The space's inputs, or null when the frame names no space.</summary>
     public BakeInputs? Space { get; private set; }
 
     /// <summary>Each chunk's inputs, in the frame's order.</summary>
-    public IReadOnlyList<BakeInputs> Chunks => _chunks;
+    public IReadOnlyList<BakeInputs> Chunks => ChunkBakes.Inputs;
 
     /// <summary>Whether the store holds a bake of the space made from <see cref="Space"/>.</summary>
     public bool SpaceFresh { get; private set; }
@@ -105,14 +98,14 @@ public sealed class BakeFrame
     /// the GPU. A chunk whose bake is fresh but still on its way is <see cref="ChunkPending"/> instead, and counts as
     /// unbaked until it arrives.
     /// </summary>
-    public IReadOnlyList<bool> ChunkFresh => _chunkFresh;
+    public IReadOnlyList<bool> ChunkFresh => ChunkBakes.Fresh;
 
     /// <summary>
     /// Whether chunk <paramref name="chunk"/>'s bake is fresh in the store but not yet all on the GPU: being read, or
     /// uploaded a little a frame. Until it arrives the chunk isn't <see cref="ChunkFresh"/>, so its Baked lights are
     /// drawn live. Always false for a frame resolved without a renderer, as by a <see cref="BakeResolver"/> of its own.
     /// </summary>
-    public bool ChunkPending(int chunk) => _chunkPending[chunk];
+    public bool ChunkPending(int chunk) => ChunkBakes.IsPending(chunk);
 
     /// <summary>
     /// How far the space's bake has faded in, from 0 to 1: 1 once it is all there, and 0 for a space that isn't
@@ -126,32 +119,26 @@ public sealed class BakeFrame
     /// How far chunk <paramref name="chunk"/>'s bake has faded in, from 0 to 1, as <see cref="SpaceFade"/> is for the
     /// space: 0 for a chunk that isn't <see cref="ChunkFresh"/>.
     /// </summary>
-    public float ChunkFade(int chunk) => _chunkFade[chunk];
-
-    // The Baked lights over a fresh bake that is still fading in, with how far it has faded: the frame keeps them,
-    // their radiance scaled by 1 minus that, instead of dropping them, so the area never goes darker than either end.
-    internal IReadOnlyList<(int Index, float Fade)> FadingLocalLights => _fadingLocalLights;
-
-    internal IReadOnlyList<(int Index, float Fade)> FadingSuns => _fadingSuns;
+    public float ChunkFade(int chunk) => ChunkBakes.FadeOf(chunk);
 
     /// <summary>
     /// How the light is used this frame: its own mode when the area that owns it has a fresh bake and it isn't
     /// moving, and <see cref="LightMode.Realtime"/> otherwise, as for a light this frame doesn't have.
     /// </summary>
-    public LightMode ModeOf(LightKey key) => _modes.TryGetValue(key, out var mode) ? mode : LightMode.Realtime;
+    public LightMode ModeOf(LightKey key) => LightUse.ModeOf(key);
 
     /// <summary>
     /// The indices, ascending, of the frame's point and spot lights that are Baked and over a fresh bake that has
     /// faded all the way in. One whose bake is still fading in stays in the frame, dimmed, though its
     /// <see cref="ModeOf"/> is already Baked.
     /// </summary>
-    public IReadOnlyList<int> DroppedLocalLights => _droppedLocalLights;
+    public IReadOnlyList<int> DroppedLocalLights => LightUse.DroppedLocalLights;
 
     /// <summary>
     /// The indices, ascending, of the frame's suns that are Baked and over a fresh space bake that has faded all the
     /// way in.
     /// </summary>
-    public IReadOnlyList<int> DroppedSuns => _droppedSuns;
+    public IReadOnlyList<int> DroppedSuns => LightUse.DroppedSuns;
 
     /// <summary>
     /// The <see cref="LocalLight.Key"/>, ascending, of each Mixed chunk light with a channel in its chunk's bake that
@@ -159,21 +146,17 @@ public sealed class BakeFrame
     /// a light keeps its real-time shadow only. Filled by the renderer as it draws the frame, and empty for a frame
     /// resolved without one. See "Shadow mask channels" in docs/design.md.
     /// </summary>
-    public IReadOnlyList<int> UnslottedLights => _unslottedLights;
-
-    internal List<int> Unslotted => _unslottedLights;
+    public IReadOnlyList<int> UnslottedLights => LightUse.Unslotted;
 
     /// <summary>
     /// The file chunk <paramref name="chunk"/>'s bake is in, <see cref="BakeFiles.Chunk"/> of its name and
     /// <c>Chunks[chunk].Combined</c>. The resolver keeps the names, so asking allocates nothing once a frame has
     /// seen them.
     /// </summary>
-    public string ChunkFile(int chunk) => _chunkFiles[chunk];
+    public string ChunkFile(int chunk) => ChunkBakes.FileOf(chunk);
 
     /// <summary>How many of the frame's static draws chunk <paramref name="chunk"/> owns. A chunk that owns none has nothing to bake.</summary>
-    public int ChunkStaticDraws(int chunk) => _chunkDraws[chunk];
-
-    internal List<BakeInputs> ChunkInputs => _chunks;
+    public int ChunkStaticDraws(int chunk) => ChunkBakes.StaticDraws(chunk);
 
     // Empties the frame for the resolver to fill again, keeping everything it allocated.
     internal void Reset()
@@ -181,18 +164,8 @@ public sealed class BakeFrame
         Space = null;
         SpaceFresh = false;
         SpaceFade = 0f;
-        _chunks.Clear();
-        _chunkFresh.Clear();
-        _chunkPending.Clear();
-        _chunkFiles.Clear();
-        _chunkDraws.Clear();
-        _chunkFade.Clear();
-        _modes.Clear();
-        _droppedLocalLights.Clear();
-        _droppedSuns.Clear();
-        _fadingLocalLights.Clear();
-        _fadingSuns.Clear();
-        _unslottedLights.Clear();
+        ChunkBakes.Clear();
+        LightUse.Clear();
     }
 
     internal void SetSpace(BakeInputs inputs, bool fresh, float fade)
@@ -200,44 +173,6 @@ public sealed class BakeFrame
         Space = inputs;
         SpaceFresh = fresh;
         SpaceFade = fresh ? fade : 0f;
-    }
-
-    internal void AddChunk(BakeInputs inputs, string file, int staticDraws, ChunkBakeState state)
-    {
-        var (fresh, pending, fade) = state;
-        _chunks.Add(inputs);
-        _chunkFresh.Add(fresh);
-        _chunkPending.Add(pending);
-        _chunkFiles.Add(file);
-        _chunkDraws.Add(staticDraws);
-        _chunkFade.Add(fresh ? fade : 0f);
-    }
-
-    internal void SetMode(LightKey key, LightMode mode) => _modes[key] = mode;
-
-    // A Baked light over a fresh bake: dropped once the bake is all there, kept dimmed while it fades in.
-    internal void DropLocalLight(int index, float fade)
-    {
-        if (fade >= 1f)
-        {
-            _droppedLocalLights.Add(index);
-        }
-        else
-        {
-            _fadingLocalLights.Add((index, fade));
-        }
-    }
-
-    internal void DropSun(int index, float fade)
-    {
-        if (fade >= 1f)
-        {
-            _droppedSuns.Add(index);
-        }
-        else
-        {
-            _fadingSuns.Add((index, fade));
-        }
     }
 }
 

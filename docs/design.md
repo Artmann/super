@@ -4374,7 +4374,9 @@ Otherwise it runs in this order:
    reads as Realtime. A fresh area's Baked lights are listed in `DroppedLocalLights` or
    `DroppedSuns`, by their index in the frame's lists, once its bake has faded all the way in
    (step 7). Until then they are listed in `FadingLocalLights` or `FadingSuns` with the area's
-   fade. A fresh chunk never frees the space's lights, and the space's freshness never frees a
+   fade. The frame keeps these lists in a `FrameLightUse` (`BakeFrame.LightUse`), and each
+   chunk's inputs, file and state in a `FrameChunkBakes` (`BakeFrame.ChunkBakes`); its public
+   members read from them. A fresh chunk never frees the space's lights, and the space's freshness never frees a
    chunk's.
 7. Each area's fade comes from `BakeArrivals.Arrive`, which keeps an `Arrival` per file name:
    whether the area was drawn live last frame, and when its bake arrived. The first frame that
@@ -4518,7 +4520,7 @@ at least 1x1), at most one irradiance page and one mask page, as many direction 
 irradiance ones, each plain page's size,
 each page's bytes against `TextureData.LevelSize`, and that every rect is on page 0. Its result,
 the bake or the exception's message, comes back through a `ConcurrentQueue`. A chunk that isn't
-resident is added to the frame with `BakeFrame.AddChunk` and a `ChunkBakeState` that says pending: it counts in
+resident is added to the frame with `FrameChunkBakes.Add` and a `ChunkBakeState` that says pending: it counts in
 `ChunkPending`, not `ChunkFresh`, and its Baked lights stay live, so a frame never draws half a
 bake. `Render` never waits on the worker.
 

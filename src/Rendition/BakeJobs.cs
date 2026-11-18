@@ -155,7 +155,7 @@ internal sealed class BakeJobs(
     private ResolvedChunk ResolveChunk(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, long started)
     {
         var resolver = new BakeResolver(NoBakes.Instance);
-        var chunkInputs = inputs.ResolveAreas(resolver, view, draws).ChunkInputs[chunk];
+        var chunkInputs = inputs.ResolveAreas(resolver, view, draws).ChunkBakes.InputsOf(chunk);
         var ids = new HashSet<ulong>(resolver.ChunkIds(chunk));
         if (ids.Count == 0)
         {

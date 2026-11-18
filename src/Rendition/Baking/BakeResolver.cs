@@ -160,7 +160,7 @@ public sealed class BakeResolver
             bool stored = IsFresh(file, inputs, animated);
             bool resident = stored && (ChunkResident is not { } isResident || isResident(file, inputs));
             bool pending = stored && !resident;
-            _frame.AddChunk(
+            _frame.ChunkBakes.Add(
                 inputs, file, ids.Count, new ChunkBakeState(resident, pending, _arrivals.Arrive(file, resident, pending, time)));
         }
     }

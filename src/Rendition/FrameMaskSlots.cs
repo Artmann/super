@@ -115,7 +115,7 @@ internal sealed class FrameMaskSlots
     {
         var slots = _slots.AsSpan(0, _spaceCount + _chunkCount);
         MaskSlots.Assign(Sun >= 0 ? 0 : -1, _spaceLights.AsSpan(0, _spaceCount),
-            _chunkLights.AsSpan(0, _chunkCount), slots, bakes.Unslotted);
+            _chunkLights.AsSpan(0, _chunkCount), slots, bakes.LightUse.Unslotted);
 
         for (int i = 0; i < _spaceCount; i++)
         {

@@ -155,10 +155,10 @@ internal sealed class BakeLightOwners
                 continue;
             }
 
-            frame.SetMode(new LightKey(false, locals[i].Key), locals[i].Mode);
+            frame.LightUse.SetMode(new LightKey(false, locals[i].Key), locals[i].Mode);
             if (locals[i].Mode == LightMode.Baked)
             {
-                frame.DropLocalLight(i, owner == BakeAreas.Space ? frame.SpaceFade : frame.ChunkFade(owner));
+                frame.LightUse.DropLocalLight(i, owner == BakeAreas.Space ? frame.SpaceFade : frame.ChunkFade(owner));
             }
         }
     }
@@ -171,10 +171,10 @@ internal sealed class BakeLightOwners
             var key = new LightKey(true, i);
             if (InBake(suns[i].Mode, key, animated))
             {
-                frame.SetMode(key, suns[i].Mode);
+                frame.LightUse.SetMode(key, suns[i].Mode);
                 if (suns[i].Mode == LightMode.Baked)
                 {
-                    frame.DropSun(i, frame.SpaceFade);
+                    frame.LightUse.DropSun(i, frame.SpaceFade);
                 }
             }
         }

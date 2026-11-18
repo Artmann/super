@@ -57,7 +57,7 @@ internal sealed class SpaceDraws
         {
             if (models.ChunkIds(c).Count > 0)
             {
-                _placedChunks.Add(BakeInputHash.PlacedChunk(chunks[c], frame.ChunkInputs[c].Draws));
+                _placedChunks.Add(BakeInputHash.PlacedChunk(chunks[c], frame.ChunkBakes.InputsOf(c).Draws));
             }
         }
 

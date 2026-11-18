@@ -30,15 +30,15 @@ internal sealed class BakedLightFilter
     {
         lit = default;
         if (bakes.DroppedSuns.Count == 0 && bakes.DroppedLocalLights.Count == 0
-            && bakes.FadingSuns.Count == 0 && bakes.FadingLocalLights.Count == 0)
+            && bakes.LightUse.FadingSuns.Count == 0 && bakes.LightUse.FadingLocalLights.Count == 0)
         {
             return false;
         }
 
         lit = view;
-        lit.Lights = BakeFreshness.Without(view.Lights, bakes.DroppedSuns, bakes.FadingSuns, DimSun, ref _keptSuns);
+        lit.Lights = BakeFreshness.Without(view.Lights, bakes.DroppedSuns, bakes.LightUse.FadingSuns, DimSun, ref _keptSuns);
         lit.LocalLights = BakeFreshness.Without(
-            view.LocalLights, bakes.DroppedLocalLights, bakes.FadingLocalLights, DimLocalLight, ref _keptLights);
+            view.LocalLights, bakes.DroppedLocalLights, bakes.LightUse.FadingLocalLights, DimLocalLight, ref _keptLights);
         return true;
     }
 }
