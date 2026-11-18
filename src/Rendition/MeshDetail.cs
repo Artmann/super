@@ -79,6 +79,18 @@ internal static class MeshDetail
     /// <summary>Merges vertices on a grid. The triangles that still have three corners are what's left.</summary>
     public static uint[] Simplify(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, float cellSize)
     {
+        var (clusterOf, middles) = Cluster(vertices, indices, cellSize);
+        var kept = NearestToMiddle(vertices, clusterOf, middles);
+        return Triangles(indices, clusterOf, kept);
+    }
+
+    /// <summary>
+    /// Puts each vertex the indices use in the cluster of its grid cell and facing, and returns each vertex's cluster
+    /// and the middle of each cluster.
+    /// </summary>
+    private static (Dictionary<uint, int> ClusterOf, Vector3[] Middles) Cluster(
+        ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, float cellSize)
+    {
         var cells = new Dictionary<(int X, int Y, int Z, int Facing), int>();
         var clusterOf = new Dictionary<uint, int>();
         var sums = new List<Vector3>();
@@ -91,9 +103,7 @@ internal static class MeshDetail
             }
 
             ref readonly var vertex = ref vertices[(int)index];
-            var cell = vertex.Position / cellSize;
-            int facing = (vertex.Normal.X < 0f ? 1 : 0) | (vertex.Normal.Y < 0f ? 2 : 0) | (vertex.Normal.Z < 0f ? 4 : 0);
-            var key = ((int)MathF.Floor(cell.X), (int)MathF.Floor(cell.Y), (int)MathF.Floor(cell.Z), facing);
+            var key = CellOf(vertex, cellSize);
             if (!cells.TryGetValue(key, out int cluster))
             {
                 cluster = sums.Count;
@@ -107,13 +117,32 @@ internal static class MeshDetail
             counts[cluster]++;
         }
 
-        // Each cluster becomes its real vertex nearest the middle, which brings its own UVs.
-        var kept = new uint[sums.Count];
-        var nearest = new float[sums.Count];
+        var middles = new Vector3[sums.Count];
+        for (int cluster = 0; cluster < middles.Length; cluster++)
+        {
+            middles[cluster] = sums[cluster] / counts[cluster];
+        }
+
+        return (clusterOf, middles);
+    }
+
+    // The grid cell a vertex is in, and which way along each axis it faces.
+    private static (int X, int Y, int Z, int Facing) CellOf(in Vertex vertex, float cellSize)
+    {
+        var cell = vertex.Position / cellSize;
+        int facing = (vertex.Normal.X < 0f ? 1 : 0) | (vertex.Normal.Y < 0f ? 2 : 0) | (vertex.Normal.Z < 0f ? 4 : 0);
+        return ((int)MathF.Floor(cell.X), (int)MathF.Floor(cell.Y), (int)MathF.Floor(cell.Z), facing);
+    }
+
+    /// <summary>Each cluster becomes its real vertex nearest the middle, which brings its own UVs.</summary>
+    private static uint[] NearestToMiddle(ReadOnlySpan<Vertex> vertices, Dictionary<uint, int> clusterOf, Vector3[] middles)
+    {
+        var kept = new uint[middles.Length];
+        var nearest = new float[middles.Length];
         Array.Fill(nearest, float.MaxValue);
         foreach (var (index, cluster) in clusterOf)
         {
-            float distance = Vector3.DistanceSquared(vertices[(int)index].Position, sums[cluster] / counts[cluster]);
+            float distance = Vector3.DistanceSquared(vertices[(int)index].Position, middles[cluster]);
             if (distance < nearest[cluster] || (distance == nearest[cluster] && index < kept[cluster]))
             {
                 nearest[cluster] = distance;
@@ -121,6 +150,12 @@ internal static class MeshDetail
             }
         }
 
+        return kept;
+    }
+
+    /// <summary>The triangles whose corners are still in three clusters, each once, made of the kept vertices.</summary>
+    private static uint[] Triangles(ReadOnlySpan<uint> indices, Dictionary<uint, int> clusterOf, uint[] kept)
+    {
         var simpler = new List<uint>();
         var seen = new HashSet<(int, int, int)>();
         for (int i = 0; i + 2 < indices.Length; i += 3)

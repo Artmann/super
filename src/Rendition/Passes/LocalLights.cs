@@ -113,37 +113,8 @@ internal sealed class LocalLights
         var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(projection, screenHeight);
         Parallel = projection.M34 == 0f;
 
-        int kept = 0;
-        int shadowed = 0;
-        float nearest = cover?.Near ?? float.MaxValue;
-        float furthest = cover?.Far ?? float.MinValue;
-        for (int i = 0; i < lights.Length; i++)
-        {
-            ref readonly var light = ref lights[i];
-            if (light.Range <= 0f || !frustum.CanSee(light.Position, light.Range))
-            {
-                continue;
-            }
-
-            var seen = Vector3.Transform(light.Position, view);
-            float depth = -seen.Z;
-            nearest = MathF.Min(nearest, depth - light.Range);
-            furthest = MathF.Max(furthest, depth + light.Range);
-
-            // How many pixels the light's reach spans on screen, from its middle to its edge.
-            float pixels = light.Range * (pixelsPerUnit + pixelsAtOneUnit / MathF.Max(seen.Length(), light.Range));
-            _pixels[kept] = pixels;
-            if (shadows && light.CastsShadow)
-            {
-                _shadowed[shadowed] = kept;
-                _priority[shadowed] = -pixels; // Biggest first.
-                shadowed++;
-            }
-
-            _kept[kept++] = i;
-        }
-
-        LightCount = kept;
+        var camera = new LightCamera(view, frustum, pixelsAtOneUnit, pixelsPerUnit);
+        var (shadowed, nearest, furthest) = KeepSeen(lights, camera, shadows, cover);
         if (Parallel)
         {
             (NearDepth, FarDepth) = (nearest, MathF.Max(furthest, nearest + 0.01f));
@@ -156,8 +127,64 @@ internal sealed class LocalLights
 
         ChooseSizes(lights, shadowed);
         PlaceTiles(lights, shadowed, gpuTiles);
+        WriteLights(lights, frustum, gpuLights, shadows, maskChannels);
+    }
 
-        for (int k = 0; k < kept; k++)
+    /// <summary>What <see cref="KeepSeen"/> needs to know of the camera.</summary>
+    private readonly record struct LightCamera(Matrix4x4 View, DetailView Frustum, float PixelsAtOneUnit, float PixelsPerUnit);
+
+    /// <summary>
+    /// Keeps the lights whose reach the camera sees, with how big each looks, and lists those that cast a shadow. Sets
+    /// <see cref="LightCount"/>, and returns how many cast a shadow and the depths the kept lights reach, widened to
+    /// <paramref name="cover"/>.
+    /// </summary>
+    private (int Shadowed, float Nearest, float Furthest) KeepSeen(
+        ReadOnlySpan<LocalLight> lights, in LightCamera camera, bool shadows, (float Near, float Far)? cover)
+    {
+        int kept = 0;
+        int shadowed = 0;
+        float nearest = cover?.Near ?? float.MaxValue;
+        float furthest = cover?.Far ?? float.MinValue;
+        for (int i = 0; i < lights.Length; i++)
+        {
+            ref readonly var light = ref lights[i];
+            if (light.Range <= 0f || !camera.Frustum.CanSee(light.Position, light.Range))
+            {
+                continue;
+            }
+
+            var seen = Vector3.Transform(light.Position, camera.View);
+            float depth = -seen.Z;
+            nearest = MathF.Min(nearest, depth - light.Range);
+            furthest = MathF.Max(furthest, depth + light.Range);
+
+            // How many pixels the light's reach spans on screen, from its middle to its edge.
+            float pixels = light.Range
+                * (camera.PixelsPerUnit + camera.PixelsAtOneUnit / MathF.Max(seen.Length(), light.Range));
+            _pixels[kept] = pixels;
+            if (shadows && light.CastsShadow)
+            {
+                _shadowed[shadowed] = kept;
+                _priority[shadowed] = -pixels; // Biggest first.
+                shadowed++;
+            }
+
+            _kept[kept++] = i;
+        }
+
+        LightCount = kept;
+        return (shadowed, nearest, furthest);
+    }
+
+    // Writes the kept lights for the GPU, then the rest that have a range, and sets ProbeLightCount.
+    private void WriteLights(
+        ReadOnlySpan<LocalLight> lights,
+        in DetailView frustum,
+        Span<GpuLocalLight> gpuLights,
+        bool shadows,
+        IReadOnlyDictionary<int, int>? maskChannels)
+    {
+        for (int k = 0; k < LightCount; k++)
         {
             ref readonly var light = ref lights[_kept[k]];
             gpuLights[k] = ToGpu(light, _sizes[k] > 0 ? _sizeKeys[k] : -1f, shadows && light.CastsShadow, maskChannels);
@@ -165,7 +192,7 @@ internal sealed class LocalLights
 
         // Light probes behind the camera still see the lights the view misses, so those follow, with no shadow tile.
         // Traced probe updates still trace their shadows, so they are marked as casting one.
-        int all = kept;
+        int all = LightCount;
         for (int i = 0; i < lights.Length; i++)
         {
             ref readonly var light = ref lights[i];
@@ -256,20 +283,7 @@ internal sealed class LocalLights
     /// </summary>
     private void PlaceTiles(ReadOnlySpan<LocalLight> lights, int shadowed, Span<GpuShadowTile> gpuTiles)
     {
-        int count = 0;
-        for (int s = 0; s < shadowed; s++)
-        {
-            int k = _shadowed[s];
-            if (_sizes[k] > 0)
-            {
-                _bySize[count] = k;
-                _priority[count] = -_sizes[k];
-                count++;
-            }
-        }
-
-        _priority.AsSpan(0, count).Sort(_bySize.AsSpan(0, count));
-
+        int count = SortBySize(shadowed);
         long offset = 0;
         int tiles = 0;
         for (int t = 0; t < count; t++)
@@ -302,6 +316,25 @@ internal sealed class LocalLights
         }
 
         TileCount = tiles;
+    }
+
+    // Puts the shadowed lights that got a tile size in _bySize, biggest first, and returns how many.
+    private int SortBySize(int shadowed)
+    {
+        int count = 0;
+        for (int s = 0; s < shadowed; s++)
+        {
+            int k = _shadowed[s];
+            if (_sizes[k] > 0)
+            {
+                _bySize[count] = k;
+                _priority[count] = -_sizes[k];
+                count++;
+            }
+        }
+
+        _priority.AsSpan(0, count).Sort(_bySize.AsSpan(0, count));
+        return count;
     }
 
     /// <summary>The radius the shaders use: the light's own, or the default when it's 0 or not a size.</summary>
