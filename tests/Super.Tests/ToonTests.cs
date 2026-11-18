@@ -91,8 +91,8 @@ public class ToonTests
     [Fact]
     public void An_outlined_surface_sets_the_outline_flag()
     {
-        Assert.Equal(MaterialFlags.Outline, SceneRenderer.FlagsOf(new Surface { Outline = true }) & MaterialFlags.Outline);
-        Assert.Equal(MaterialFlags.None, SceneRenderer.FlagsOf(new Surface()) & MaterialFlags.Outline);
+        Assert.Equal(MaterialFlags.Outline, SurfaceMaterials.FlagsOf(new Surface { Outline = true }) & MaterialFlags.Outline);
+        Assert.Equal(MaterialFlags.None, SurfaceMaterials.FlagsOf(new Surface()) & MaterialFlags.Outline);
     }
 
     [Fact]

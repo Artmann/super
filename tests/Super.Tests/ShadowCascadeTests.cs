@@ -112,7 +112,7 @@ public class ShadowCascadeTests
         view.Sun(Vector3.UnitY, Vector3.One);
         view.Sun(Vector3.UnitX, Vector3.One, shadows: true);
 
-        Assert.Equal(1, SceneRenderer.ShadowSun(view.Suns));
+        Assert.Equal(1, FrameMaker.ShadowSun(view.Suns));
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class ShadowCascadeTests
         view.Sun(Vector3.UnitY, Vector3.One);
         view.Sun(Vector3.UnitX, Vector3.One);
 
-        Assert.Equal(0, SceneRenderer.ShadowSun(view.Suns));
+        Assert.Equal(0, FrameMaker.ShadowSun(view.Suns));
     }
 
     [Fact]
@@ -214,7 +214,7 @@ public class ShadowCascadeTests
         view.Begin(0f);
         view.Shadows(7f, 3, contact: 0.4f);
 
-        Assert.Equal(0.4f, SceneRenderer.FrameShadows(view, 16f / 9f).ContactLength);
+        Assert.Equal(0.4f, FrameMaker.FrameShadows(view, 16f / 9f).ContactLength);
     }
 
     [Fact]
@@ -224,11 +224,11 @@ public class ShadowCascadeTests
         view.Begin(0f);
         view.Shadows(7f, 3, contact: 0f);
 
-        Assert.Equal(0f, SceneRenderer.FrameShadows(view, 1f).ContactLength);
+        Assert.Equal(0f, FrameMaker.FrameShadows(view, 1f).ContactLength);
 
         view.Begin(0f);
 
-        Assert.Equal(0.25f, SceneRenderer.FrameShadows(view, 1f).ContactLength);
+        Assert.Equal(0.25f, FrameMaker.FrameShadows(view, 1f).ContactLength);
     }
 
     [Theory]

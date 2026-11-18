@@ -66,7 +66,7 @@ public sealed class SkyImageTests
         var view = new View();
         view.Sky(new SkySettings { Image = image, Rotation = 0.75f, Exposure = -1.5f });
 
-        var sky = SceneRenderer.FrameSky(view, RenderEffects.None, named => new SkyImageHandle(named == image ? 7 : -1));
+        var sky = ViewSky.FrameSky(view, RenderEffects.None, named => new SkyImageHandle(named == image ? 7 : -1));
 
         Assert.Equal(new SkyImageHandle(7), sky.Image);
         Assert.Equal(0.75f, sky.Rotation);

@@ -12,25 +12,6 @@ namespace Super;
 /// </summary>
 internal static class BakeIdentity
 {
-    /// <summary>What a frame reuses for every static draw, so giving ids makes no garbage.</summary>
-    internal sealed class Scratch
-    {
-        private BakeSphere[] _spheres = new BakeSphere[16];
-
-        public StableHasher Hasher { get; } = new();
-
-        /// <summary>Room for <paramref name="count"/> spheres, kept from the last call.</summary>
-        public Span<BakeSphere> Spheres(int count)
-        {
-            if (_spheres.Length < count)
-            {
-                _spheres = new BakeSphere[Math.Max(count, _spheres.Length * 2)];
-            }
-
-            return _spheres.AsSpan(0, count);
-        }
-    }
-
     /// <summary>
     /// The instance hash. The model's identity covers its meshes and materials, so the part number is all a part adds.
     /// <paramref name="chunk"/> is the name of the chunk that owns the draw, or null for none: the renderer finds a copy's
@@ -68,32 +49,25 @@ internal static class BakeIdentity
     /// <summary>
     /// Sets the bake id of each shown part of a static draw. <paramref name="partBounds"/> holds every part of the model,
     /// shown or not, in the model's units; <paramref name="mask"/> picks the shown ones, in order, as
-    /// <see cref="SceneRenderer.AddShown"/> copied them.
+    /// <see cref="MeshMaskParts.AddShown"/> copied them.
     /// </summary>
     public static void Assign(
-        Span<DrawItem> shown,
-        MeshMask? mask,
-        ReadOnlySpan<BakeSphere> partBounds,
-        ulong model,
-        Vector3? tint,
-        in Matrix4x4 transform,
-        BakedSpace? space,
-        ReadOnlySpan<BakedChunk> chunks,
-        Scratch scratch)
+        Span<DrawItem> shown, MeshMask? mask, ReadOnlySpan<BakeSphere> partBounds, in BakeIdDraw draw, in BakeIdAreas areas)
     {
-        var spheres = scratch.Spheres(shown.Length);
+        var spheres = areas.Scratch.Spheres(shown.Length);
         int s = 0;
         for (int p = 0; p < partBounds.Length; p++)
         {
             if (mask is null || mask.Shows(p))
             {
-                spheres[s++] = BakeAreas.Transform(partBounds[p], transform);
+                spheres[s++] = BakeAreas.Transform(partBounds[p], draw.Transform);
             }
         }
 
-        int owner = BakeAreas.OwnerOfModel(spheres, space, chunks);
-        var placed = owner >= 0 ? Relative(transform, chunks[owner].Transform) : transform;
-        ulong instance = Instance(scratch.Hasher, model, tint, placed, owner >= 0 ? chunks[owner].Name : null);
+        var chunks = areas.Chunks;
+        int owner = BakeAreas.OwnerOfModel(spheres, areas.Space, chunks);
+        var placed = owner >= 0 ? Relative(draw.Transform, chunks[owner].Transform) : draw.Transform;
+        ulong instance = Instance(areas.Scratch.Hasher, draw.Model, draw.Tint, placed, owner >= 0 ? chunks[owner].Name : null);
 
         s = 0;
         for (int p = 0; p < partBounds.Length; p++)
@@ -162,6 +136,15 @@ internal static class BakeIdentity
 
     private static void AddMesh(StableHasher hasher, GeneratedMesh mesh, IReadOnlyList<object> items, Func<string, byte[]> shaderBytes)
     {
+        AddGeometry(hasher, mesh);
+        AddSurfaceValues(hasher, mesh.Surface, items);
+        AddShaderInputs(hasher, mesh.Surface, items, shaderBytes);
+        AddLaterLooks(hasher, mesh.Surface, items);
+    }
+
+    // The mesh's vertices and indices, whether it may be simplified, and the texture it owns.
+    private static void AddGeometry(StableHasher hasher, GeneratedMesh mesh)
+    {
         hasher.Add(mesh.Vertices.Length);
         foreach (ref readonly var vertex in mesh.Vertices.AsSpan())
         {
@@ -186,8 +169,11 @@ internal static class BakeIdentity
         {
             hasher.Add(0);
         }
+    }
 
-        var surface = mesh.Surface;
+    // The surface's own values and the textures it names directly.
+    private static void AddSurfaceValues(StableHasher hasher, Surface surface, IReadOnlyList<object> items)
+    {
         hasher.Add(surface.Color).Add(surface.Roughness).Add(surface.Metallic);
         AddTexture(hasher, surface.ColorTexture, items);
         AddTexture(hasher, surface.NormalTexture, items);
@@ -203,6 +189,11 @@ internal static class BakeIdentity
         hasher.Add(surface.Puddles ? 1 : 0).Add(surface.Foliage ? 1 : 0);
         hasher.Add(surface.Translucency).Add(surface.Wind);
         hasher.Add(surface.Subsurface.Radius).Add(surface.Subsurface.Color).Add(surface.Subsurface.Transmission);
+    }
+
+    // The surface shader, by its compiled bytes, and the parameters, textures and texture arrays it reads.
+    private static void AddShaderInputs(StableHasher hasher, Surface surface, IReadOnlyList<object> items, Func<string, byte[]> shaderBytes)
+    {
         if (surface.Shader is { } shader)
         {
             string shaderName = ((ShaderItem)items[shader.Index - 1]).Name;
@@ -235,8 +226,6 @@ internal static class BakeIdentity
                 AddTexture(hasher, layer);
             }
         }
-
-        AddLaterLooks(hasher, surface, items);
     }
 
     // What a surface has gained since bakes were first committed: occlusion, toon shading and outlines. Each adds to the
@@ -289,5 +278,40 @@ internal static class BakeIdentity
         {
             hasher.Add(0);
         }
+    }
+}
+
+/// <summary>What a static draw is, for its bake ids: the model's identity, the tint and where it is in the world.</summary>
+internal readonly record struct BakeIdDraw(ulong Model, Vector3? Tint, Matrix4x4 Transform);
+
+/// <summary>
+/// The frame's baked space and chunks, which a static draw's ids are made relative to, and the scratch the ids are
+/// worked out with.
+/// </summary>
+internal readonly ref struct BakeIdAreas(BakedSpace? space, ReadOnlySpan<BakedChunk> chunks, BakeIdScratch scratch)
+{
+    public BakedSpace? Space { get; } = space;
+
+    public ReadOnlySpan<BakedChunk> Chunks { get; } = chunks;
+
+    public BakeIdScratch Scratch { get; } = scratch;
+}
+
+/// <summary>What a frame reuses for every static draw, so giving bake ids makes no garbage.</summary>
+internal sealed class BakeIdScratch
+{
+    private BakeSphere[] _spheres = new BakeSphere[16];
+
+    public StableHasher Hasher { get; } = new();
+
+    /// <summary>Room for <paramref name="count"/> spheres, kept from the last call.</summary>
+    public Span<BakeSphere> Spheres(int count)
+    {
+        if (_spheres.Length < count)
+        {
+            _spheres = new BakeSphere[Math.Max(count, _spheres.Length * 2)];
+        }
+
+        return _spheres.AsSpan(0, count);
     }
 }

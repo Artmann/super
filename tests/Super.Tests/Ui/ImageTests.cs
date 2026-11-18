@@ -208,7 +208,7 @@ public class ImageTests
     {
         var (png, pixels) = Ramp();
 
-        var data = SceneRenderer.LoadImage(Load(png));
+        var data = ItemReads.LoadImage(Load(png));
 
         Assert.Equal(TextureFormat.Rgba8, data.Format);
         Assert.Equal([256, 64, 16, 4], data.Mips.Select(mip => mip.Length));

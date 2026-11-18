@@ -96,7 +96,7 @@ public sealed class Content
     internal bool Streaming { get; set; }
 
     /// <summary>Reads a surface shader's SPIR-V by name, for the bake identities of models that use it. Tests swap it.</summary>
-    internal Func<string, byte[]> ShaderBytes { get; set; } = SceneRenderer.LoadShader;
+    internal Func<string, byte[]> ShaderBytes { get; set; } = ItemReads.LoadShader;
 
     /// <summary>Set by tests, to keep a loading screen up for as long as they need it.</summary>
     internal bool Held { get; set; }

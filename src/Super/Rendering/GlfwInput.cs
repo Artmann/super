@@ -30,15 +30,15 @@ internal static class GlfwInput
     }
 
     /// <summary>Scales a cursor position from window coordinates to framebuffer pixels, which is where the interface lays itself out.</summary>
-    public static Vector2 ToFramebuffer(double x, double y, int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight)
+    public static Vector2 ToFramebuffer(double x, double y, (int Width, int Height) window, (int Width, int Height) framebuffer)
     {
-        if (windowWidth == 0 || windowHeight == 0)
+        if (window.Width == 0 || window.Height == 0)
         {
             return new Vector2((float)x, (float)y);
         }
 
         return new Vector2(
-            (float)(x * framebufferWidth / windowWidth),
-            (float)(y * framebufferHeight / windowHeight));
+            (float)(x * framebuffer.Width / window.Width),
+            (float)(y * framebuffer.Height / window.Height));
     }
 }

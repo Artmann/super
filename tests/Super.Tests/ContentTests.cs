@@ -347,7 +347,7 @@ public class ContentTests
         var content = new Content(files);
         var texture = content.Texture("textures/tiny.png");
 
-        return SceneRenderer.LoadTexture((TextureItem)content.Items[texture.Index - 1]);
+        return ItemReads.LoadTexture((TextureItem)content.Items[texture.Index - 1]);
     }
 
     [Fact]
@@ -412,7 +412,7 @@ public class ContentTests
         ref readonly var draw = ref view.Drawn[^1];
         var shown = new DrawItem[1];
         BakeSphere[] bounds = [new(Vector3.Zero, 0.5f)];
-        SceneRenderer.Dress(shown, in draw, default, bounds, content, view.BakedSpace, view.PlacedBakedChunks, new BakeIdentity.Scratch());
+        DressedDraws.Dress(shown, in draw, default, bounds, new DressContext(content, new BakeIdAreas(view.BakedSpace, view.PlacedBakedChunks, new BakeIdScratch())));
     }
 
     [Fact]

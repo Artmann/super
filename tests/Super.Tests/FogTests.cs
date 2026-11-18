@@ -133,9 +133,9 @@ public class FogTests
     [Fact]
     public void A_sky_without_fog_settings_has_no_fog()
     {
-        Assert.Equal(0f, SceneRenderer.FrameFog(new SkySettings()).Density);
-        Assert.Equal(0f, SceneRenderer.FrameFog(null).Density);
-        Assert.Equal(0.004f, SceneRenderer.FrameFog(new SkySettings { Fog = new FogSettings(0.004f) }).Density);
+        Assert.Equal(0f, ViewSky.FrameFog(new SkySettings()).Density);
+        Assert.Equal(0f, ViewSky.FrameFog(null).Density);
+        Assert.Equal(0.004f, ViewSky.FrameFog(new SkySettings { Fog = new FogSettings(0.004f) }).Density);
     }
 
     [Theory]

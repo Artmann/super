@@ -26,7 +26,7 @@ public class BakeIdentityTests
     /// <summary>Where a draw sits inside a chunk: a little turned, off its centre, on the 0.1 mm grid.</summary>
     private static readonly Matrix4x4 InChunk = Matrix4x4.CreateRotationY(0.3f) * Matrix4x4.CreateTranslation(1.5f, 0.25f, -0.75f);
 
-    private readonly BakeIdentity.Scratch _scratch = new();
+    private readonly BakeIdScratch _scratch = new();
 
     /// <summary>
     /// The parts of the view's last draw as the renderer would hand them over, each a sphere of half a metre round the
@@ -38,8 +38,8 @@ public class BakeIdentityTests
         bounds ??= Enumerable.Repeat(new BakeSphere(Vector3.Zero, 0.5f), parts).ToArray();
         var model = Enumerable.Range(0, bounds.Length).Select(p => new DrawItem { Detail = new DetailHandle(p) }).ToArray();
         var shown = Array.Empty<DrawItem>();
-        int count = SceneRenderer.AddShown(model, draw.Meshes, ref shown, 0);
-        SceneRenderer.Dress(shown.AsSpan(0, count), in draw, default, bounds, content, view.BakedSpace, view.PlacedBakedChunks, _scratch);
+        int count = MeshMaskParts.AddShown(model, draw.Meshes, ref shown, 0);
+        DressedDraws.Dress(shown.AsSpan(0, count), in draw, default, bounds, new DressContext(content, new BakeIdAreas(view.BakedSpace, view.PlacedBakedChunks, _scratch)));
         return shown[..count];
     }
 
