@@ -2,12 +2,6 @@
   "version": 1,
   "findings": [
     {
-      "kind": "high-complexity",
-      "name": "Rendition.Vulkan.TraceScene.Collect",
-      "file": "src/Rendition/Vulkan/TraceScene.cs",
-      "metric": 13
-    },
-    {
       "kind": "long-method",
       "name": "Archer.Clearing.Clearing",
       "file": "examples/Archer/Clearing.cs",
@@ -183,123 +177,9 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Passes.FsrPass.Record",
-      "file": "src/Rendition/Passes/FsrPass.cs",
-      "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.MotionHistory.Begin",
-      "file": "src/Rendition/Passes/Motion.cs",
-      "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.OverlayPass.OverlayPass",
-      "file": "src/Rendition/Passes/OverlayPass.cs",
-      "metric": 42
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.ParticlePass.ParticlePass",
-      "file": "src/Rendition/Passes/ParticlePass.cs",
-      "metric": 47
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.ProbeTracePass.ProbeTracePass",
-      "file": "src/Rendition/Passes/ProbeTracePass.cs",
-      "metric": 45
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.ProbeTracePass.Record",
-      "file": "src/Rendition/Passes/ProbeTracePass.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.ShadowPass.ShadowPass",
-      "file": "src/Rendition/Passes/ShadowPass.cs",
-      "metric": 42
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.SkySh.SkySh",
-      "file": "src/Rendition/Passes/SkySh.cs",
-      "metric": 45
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.TransparentPlan.Build",
-      "file": "src/Rendition/Passes/TransparentPlan.cs",
-      "metric": 47
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
       "metric": 108
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.GpuTexture.CreateStaging",
-      "file": "src/Rendition/Vulkan/GpuTexture.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.GpuTexture.GpuTexture/9",
-      "file": "src/Rendition/Vulkan/GpuTexture.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.GpuTexture.RecordUpload",
-      "file": "src/Rendition/Vulkan/GpuTexture.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.ProbeVolume.ProbeVolume",
-      "file": "src/Rendition/Vulkan/ProbeVolume.cs",
-      "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.RenderTarget.RenderTarget",
-      "file": "src/Rendition/Vulkan/RenderTarget.cs",
-      "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.TraceScene.Collect",
-      "file": "src/Rendition/Vulkan/TraceScene.cs",
-      "metric": 77
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.UploadQueue.Record",
-      "file": "src/Rendition/Vulkan/UploadQueue.cs",
-      "metric": 52
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.VolumetricFogVolume.CreateVolume",
-      "file": "src/Rendition/Vulkan/VolumetricFogVolume.cs",
-      "metric": 48
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.VulkanContext.CreateDevice",
-      "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 139
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.VulkanContext.VulkanContext",
-      "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 54
     },
     {
       "kind": "long-method",
@@ -387,162 +267,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.Passes.DepthOfFieldPass.Record",
-      "file": "src/Rendition/Passes/DepthOfFieldPass.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.FsrPass.Record",
-      "file": "src/Rendition/Passes/FsrPass.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.GBufferPass.Record",
-      "file": "src/Rendition/Passes/GBufferPass.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.LocalLights.Prepare",
-      "file": "src/Rendition/Passes/LocalLights.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.Motion.OfVertex",
-      "file": "src/Rendition/Passes/Motion.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.Motion.Place",
-      "file": "src/Rendition/Passes/Motion.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.OverlayPass.Record",
-      "file": "src/Rendition/Passes/OverlayPass.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.ParticlePass.SortBackToFront",
-      "file": "src/Rendition/Passes/ParticlePass.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.ProbeCapturePass.Record",
-      "file": "src/Rendition/Passes/ProbeCapturePass.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.ProbeSunShadow.Record",
-      "file": "src/Rendition/Passes/ProbeSunShadow.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.ProbeTracePass.Record",
-      "file": "src/Rendition/Passes/ProbeTracePass.cs",
-      "metric": 10
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.SceneDraws.Draw",
-      "file": "src/Rendition/Passes/SceneDraws.cs",
-      "metric": 12
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.SceneDraws.Record",
-      "file": "src/Rendition/Passes/SceneDraws.cs",
-      "metric": 10
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.ShadowPass.Record",
-      "file": "src/Rendition/Passes/ShadowPass.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.ShadowPass.RecordInto",
-      "file": "src/Rendition/Passes/ShadowPass.cs",
-      "metric": 9
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.ShadowPass.RecordTiles",
-      "file": "src/Rendition/Passes/ShadowPass.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.TraceDebugPass.Record",
-      "file": "src/Rendition/Passes/TraceDebugPass.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.TransparentPass.Record",
-      "file": "src/Rendition/Passes/TransparentPass.cs",
-      "metric": 12
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.TransparentPlan.Build",
-      "file": "src/Rendition/Passes/TransparentPlan.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Passes.Wind.Sway",
-      "file": "src/Rendition/Passes/Wind.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.ProbeGrid.Weight",
-      "file": "src/Rendition/Passes/ProbeGrid.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Vulkan.GpuAllocation.GpuAllocation",
-      "file": "src/Rendition/Vulkan/GpuMemory.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Vulkan.GpuTexture.GpuTexture/9",
-      "file": "src/Rendition/Vulkan/GpuTexture.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Vulkan.GpuTexture.RecordRows",
-      "file": "src/Rendition/Vulkan/GpuTexture.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Vulkan.ProbeVolume.RecordInvalidate",
-      "file": "src/Rendition/Vulkan/ProbeVolume.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Vulkan.RayTracing.RayTracing",
-      "file": "src/Rendition/Vulkan/RayTracing.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Rendition.Vulkan.VulkanExtensions.Transition",
       "file": "src/Rendition/Vulkan/VulkanExtensions.cs",
       "metric": 10
@@ -551,7 +275,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 3633
+      "metric": 3631
     },
     {
       "kind": "large-file",
@@ -621,48 +345,6 @@
     },
     {
       "kind": "large-type",
-      "name": "Rendition.Passes.BloomPass",
-      "file": "src/Rendition/Passes/BloomPass.cs",
-      "metric": 22
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Passes.DepthOfFieldPass",
-      "file": "src/Rendition/Passes/DepthOfFieldPass.cs",
-      "metric": 28
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Passes.FrameUniforms",
-      "file": "src/Rendition/Passes/FrameUniforms.cs",
-      "metric": 66
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Passes.GBuffer",
-      "file": "src/Rendition/Passes/GBuffer.cs",
-      "metric": 41
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Passes.LocalLights",
-      "file": "src/Rendition/Passes/LocalLights.cs",
-      "metric": 30
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Passes.ShadowPass",
-      "file": "src/Rendition/Passes/ShadowPass.cs",
-      "metric": 29
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.ProbeCascades",
-      "file": "src/Rendition/Passes/ProbeCascades.cs",
-      "metric": 22
-    },
-    {
-      "kind": "large-type",
       "name": "Rendition.ProbeScheduler",
       "file": "src/Rendition/Passes/ProbeScheduler.cs",
       "metric": 39
@@ -678,66 +360,6 @@
       "name": "Rendition.TextureData",
       "file": "src/Rendition/TextureData.cs",
       "metric": 41
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Vulkan.Fsr.UpscaleDispatchDescription",
-      "file": "src/Rendition/Vulkan/Fsr.cs",
-      "metric": 23
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Vulkan.GpuTexture",
-      "file": "src/Rendition/Vulkan/GpuTexture.cs",
-      "metric": 21
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Vulkan.InstanceBuffer",
-      "file": "src/Rendition/Vulkan/InstanceBuffer.cs",
-      "metric": 21
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Vulkan.ProbeVolume",
-      "file": "src/Rendition/Vulkan/ProbeVolume.cs",
-      "metric": 61
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Vulkan.RayTracing",
-      "file": "src/Rendition/Vulkan/RayTracing.AccelerationStructures.cs",
-      "metric": 46
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Vulkan.ReflectionProbes",
-      "file": "src/Rendition/Vulkan/ReflectionProbes.cs",
-      "metric": 28
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Vulkan.ResourceTable",
-      "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 68
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Vulkan.ResourceTable.GpuMaterial",
-      "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 33
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Vulkan.VolumetricFogVolume",
-      "file": "src/Rendition/Vulkan/VolumetricFogVolume.cs",
-      "metric": 30
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Vulkan.VulkanContext",
-      "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 42
     },
     {
       "kind": "large-type",
@@ -765,20 +387,6 @@
     }
   ],
   "cycles": [
-    {
-      "members": [
-        "Rendition.ProbeCascades",
-        "Rendition.ScrollResult"
-      ]
-    },
-    {
-      "members": [
-        "Rendition.Vulkan.GpuAllocation",
-        "Rendition.Vulkan.GpuMemory",
-        "Rendition.Vulkan.LivePipeline",
-        "Rendition.Vulkan.VulkanContext"
-      ]
-    },
     {
       "members": [
         "Super.Cook.CacheFolder",
