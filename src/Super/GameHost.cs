@@ -231,7 +231,7 @@ internal sealed class GameHost<TGame> : IDisposable
 
         // Before Update, so this tick's audio is what was asked for up to the last frame. A sound started in this
         // Update is handed over at this tick's Draw and mixed from the next tick.
-        if (Audio.Manual)
+        if (Audio.Device.Manual)
         {
             Audio.Advance(Time.TickSeconds);
         }
@@ -374,7 +374,7 @@ internal sealed class GameHost<TGame> : IDisposable
         // Before the services go, so the audio thread is stopped while everything it reads is still there.
         try
         {
-            Audio.Close();
+            Audio.Device.Close();
         }
         finally
         {

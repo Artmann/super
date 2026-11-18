@@ -31,14 +31,26 @@ internal sealed class SoundClip
     private readonly float[]? _samples;
     private readonly Func<ISampleReader>? _decoder;
 
-    private SoundClip(string path, int sampleRate, int channels, double seconds, float[]? samples, Func<ISampleReader>? decoder)
+    /// <summary>A decoded clip, as long as its samples.</summary>
+    private SoundClip(string path, int sampleRate, int channels, float[] samples)
+        : this(path, sampleRate, channels, (double)(samples.Length / channels) / sampleRate)
+    {
+        _samples = samples;
+    }
+
+    /// <summary>A streamed clip, which opens a new reader from <paramref name="decoder"/> each time it plays.</summary>
+    private SoundClip(string path, int sampleRate, int channels, double seconds, Func<ISampleReader> decoder)
+        : this(path, sampleRate, channels, seconds)
+    {
+        _decoder = decoder;
+    }
+
+    private SoundClip(string path, int sampleRate, int channels, double seconds)
     {
         Path = path;
         SampleRate = sampleRate;
         Channels = channels;
         Seconds = seconds;
-        _samples = samples;
-        _decoder = decoder;
     }
 
     public string Path { get; }
@@ -77,7 +89,7 @@ internal sealed class SoundClip
     /// </summary>
     internal static SoundClip Streaming(string path, int sampleRate, int channels, double seconds, Func<ISampleReader> open)
     {
-        return new SoundClip(path, sampleRate, channels, seconds, null, open);
+        return new SoundClip(path, sampleRate, channels, seconds, open);
     }
 
     /// <summary>An empty decoded-clip reader, for a voice to hold so that rebinding it to a clip later allocates nothing.</summary>
@@ -105,12 +117,11 @@ internal sealed class SoundClip
             double seconds = (double)first.Frames / format.SampleRate;
             if (seconds > MaxDecodedSeconds)
             {
-                return new SoundClip(path, format.SampleRate, format.Channels, seconds, null, open);
+                return new SoundClip(path, format.SampleRate, format.Channels, seconds, open);
             }
 
             float[] samples = DecodeAll(first, format.Channels);
-            seconds = (double)(samples.Length / format.Channels) / format.SampleRate;
-            return new SoundClip(path, format.SampleRate, format.Channels, seconds, samples, null);
+            return new SoundClip(path, format.SampleRate, format.Channels, samples);
         }
         catch (Exception e) when (e is not ContentException)
         {

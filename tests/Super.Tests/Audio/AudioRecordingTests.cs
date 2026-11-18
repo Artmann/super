@@ -64,10 +64,10 @@ public sealed class AudioRecordingTests : IDisposable
         string wav = Path.Combine(_folder, name);
         using var run = Start();
         AudioService audio = run.Game.Audio;
-        audio.StartRecording(wav);
-        audio.StartAmbience(run.Game.Content.Ambience("wood.ambience.json"), 1);
+        audio.Device.StartRecording(wav);
+        audio.Ambiences.Start(run.Game.Content.Ambience("wood.ambience.json"), 1);
         run.Ticks(ticks);
-        audio.StopRecording();
+        audio.Device.StopRecording();
         return wav;
     }
 
@@ -160,7 +160,7 @@ public sealed class AudioRecordingTests : IDisposable
     {
         string path = Path.Combine(_folder, "odd-rate.wav");
         using var run = Start();
-        run.Game.Audio.StartRecording(path);
+        run.Game.Audio.Device.StartRecording(path);
 
         // 44 ticks a second is 1090.909... frames a tick, which never lands on a whole frame.
         for (int tick = 0; tick < 44 * 5; tick++)
@@ -168,7 +168,7 @@ public sealed class AudioRecordingTests : IDisposable
             run.Game.Audio.Advance(1f / 44);
         }
 
-        run.Game.Audio.StopRecording();
+        run.Game.Audio.Device.StopRecording();
         Assert.Equal(Mixer.SampleRate * 5, WavReader.Parse(File.ReadAllBytes(path)).Frames);
     }
 
@@ -192,12 +192,12 @@ public sealed class AudioRecordingTests : IDisposable
     {
         using var run = Start();
         AudioService audio = run.Game.Audio;
-        audio.StartRecording(Path.Combine(_folder, "a.wav"));
+        audio.Device.StartRecording(Path.Combine(_folder, "a.wav"));
 
-        var thrown = Assert.Throws<InvalidOperationException>(() => audio.StartRecording(Path.Combine(_folder, "b.wav")));
+        var thrown = Assert.Throws<InvalidOperationException>(() => audio.Device.StartRecording(Path.Combine(_folder, "b.wav")));
         Assert.Equal("The audio is already being recorded.", thrown.Message);
-        audio.StopRecording();
-        audio.StopRecording();
+        audio.Device.StopRecording();
+        audio.Device.StopRecording();
     }
 
     [Fact]
@@ -221,7 +221,7 @@ public sealed class AudioRecordingTests : IDisposable
     {
         using var run = Start();
         string other = Path.Combine(_folder, "other.wav");
-        run.Game.Audio.StartRecording(other);
+        run.Game.Audio.Device.StartRecording(other);
         string video = Path.Combine(_folder, "clip.mp4");
         using var capture = new GameCapture(run.Game.Audio);
         capture.StartRecording(video, TicksPerSecond);
@@ -231,7 +231,7 @@ public sealed class AudioRecordingTests : IDisposable
         Assert.Equal("The audio is already being recorded.", thrown.Message);
         Assert.False(capture.IsRecording);
         capture.StopRecording();
-        run.Game.Audio.StopRecording();
+        run.Game.Audio.Device.StopRecording();
         Assert.Equal([other], Directory.GetFiles(_folder));
     }
 

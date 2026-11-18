@@ -70,7 +70,7 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
         }
         finally
         {
-            EndSync(ref _loops, ref _lastLoops, completed, audio, static (audio, left) => audio.StopLoop(left.Voice));
+            EndSync(ref _loops, ref _lastLoops, completed, audio, static (audio, left) => audio.Loops.Stop(left.Voice));
         }
     }
 
@@ -87,22 +87,22 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
             return Restart(entity, loop, sound, placed, at);
         }
 
-        if (audio.WasDropped(loop.Voice))
+        if (audio.Loops.WasDropped(loop.Voice))
         {
             // The voice limit dropped it. It comes back once the mixer has a slot free; until then nothing is
             // sent for it, so a full mixer isn't asked again every frame.
-            return audio.TryClaimVoice() ? Restart(entity, loop, sound, placed, at) : loop;
+            return audio.Loops.TryClaimVoice() ? Restart(entity, loop, sound, placed, at) : loop;
         }
 
         if (placed && loop.At != at)
         {
-            audio.Move(loop.Voice, at);
+            audio.Loops.Move(loop.Voice, at);
             loop.At = at;
         }
 
         if (loop.Volume != sound.Volume)
         {
-            audio.ChangeVolume(loop.Voice, sound.Volume);
+            audio.Loops.ChangeVolume(loop.Voice, sound.Volume);
             loop.Volume = sound.Volume;
         }
 
@@ -142,7 +142,7 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
     private PlayingLoop Restart(Entity entity, PlayingLoop loop, Sound sound, bool placed, Vector3 at)
     {
         // Written back first, so a throw below leaves the entity tracked with no voice, not with a stopped one.
-        audio.StopLoop(loop.Voice);
+        audio.Loops.Stop(loop.Voice);
         loop.Voice = NoId;
         _lastLoops[entity] = loop;
         return StartLoop(sound, placed, at);
@@ -152,7 +152,15 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
     {
         return new PlayingLoop
         {
-            Voice = audio.StartLoop(sound.Clip, sound.Volume, sound.Channel, placed ? at : null, sound.Near, sound.Far),
+            Voice = audio.Loops.Start(new SoundLoop
+            {
+                Clip = sound.Clip,
+                Volume = sound.Volume,
+                Channel = sound.Channel,
+                At = placed ? at : null,
+                Near = sound.Near,
+                Far = sound.Far,
+            }),
             Clip = sound.Clip,
             Channel = sound.Channel,
             Volume = sound.Volume,
@@ -178,7 +186,7 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
         }
         finally
         {
-            EndSync(ref _ambiences, ref _lastAmbiences, completed, audio, static (audio, left) => audio.StopAmbience(left.Id));
+            EndSync(ref _ambiences, ref _lastAmbiences, completed, audio, static (audio, left) => audio.Ambiences.Stop(left.Id));
         }
     }
 
@@ -198,7 +206,7 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
         if (playing.Id == NoId || playing.Value != ambience.Value)
         {
             // Written back first, so a throw below leaves the entity tracked with no ambience, not with a stopped one.
-            audio.StopAmbience(playing.Id);
+            audio.Ambiences.Stop(playing.Id);
             playing.Id = NoId;
             _lastAmbiences[entity] = playing;
             return StartAmbience(ambience);
@@ -206,7 +214,7 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
 
         if (playing.Volume != ambience.Volume)
         {
-            audio.ChangeAmbienceVolume(playing.Id, ambience.Volume);
+            audio.Ambiences.ChangeVolume(playing.Id, ambience.Volume);
             playing.Volume = ambience.Volume;
         }
 
@@ -237,6 +245,6 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
 
     private PlayingAmbience StartAmbience(Ambience ambience)
     {
-        return new PlayingAmbience { Id = audio.StartAmbience(ambience.Value, ambience.Volume), Value = ambience.Value, Volume = ambience.Volume };
+        return new PlayingAmbience { Id = audio.Ambiences.Start(ambience.Value, ambience.Volume), Value = ambience.Value, Volume = ambience.Volume };
     }
 }

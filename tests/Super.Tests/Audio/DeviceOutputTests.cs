@@ -36,8 +36,8 @@ public class DeviceOutputTests
         using var run = HeadlessGame.Create<Silent>(1, services => services.AddContentFiles(new MemoryContent().Add("click.wav", Constant(0.2))));
         AudioService audio = run.Game.Audio;
 
-        Assert.False(audio.UseDevice(TextWriter.Null, () => "forced"));
-        Assert.True(audio.Manual);
+        Assert.False(audio.Device.Open(TextWriter.Null, () => "forced"));
+        Assert.True(audio.Device.Manual);
 
         // 0.2 s is six ticks: still playing after five, gone after seven, because each tick mixed its own share.
         // Ticking needs no Draw in between, since each tick's Advance hands over what's queued.
@@ -56,7 +56,7 @@ public class DeviceOutputTests
         var audio = new AudioService(new Content(new MemoryContent()), seed: 1);
         var log = new StringWriter();
 
-        audio.UseDevice(log, () => "forced");
+        audio.Device.Open(log, () => "forced");
 
         // WriteLine ends the line with Environment.NewLine, which is "\r\n" on Windows.
         Assert.Equal("No sound device (forced); playing silently." + Environment.NewLine, log.ToString());
@@ -73,7 +73,7 @@ public class DeviceOutputTests
         audio.Advance(0.1f);
         Assert.False(reader.Disposed);
 
-        audio.Close();
+        audio.Device.Close();
 
         Assert.True(reader.Disposed);
     }
@@ -323,23 +323,23 @@ public sealed class AudioThreadTests
     public void AFailedFinishStillGivesTheDeviceBack()
     {
         (AudioService audio, _) = Make();
-        audio.UseOutput(new StandInSpeakers(), TextWriter.Null);
+        audio.Device.UseOutput(new StandInSpeakers(), TextWriter.Null);
         try
         {
             var stream = new AudioRecordingTests.FlakyStream();
-            audio.StartRecording(new AudioRecording(stream));
-            Assert.True(audio.Manual);
+            audio.Device.StartRecording(new AudioRecording(stream));
+            Assert.True(audio.Device.Manual);
             stream.Failing = true;
 
-            Assert.Throws<IOException>(audio.StopRecording);
+            Assert.Throws<IOException>(audio.Device.StopRecording);
 
-            Assert.False(audio.Manual);
-            audio.StartRecording(new AudioRecording(new MemoryStream()));
-            audio.StopRecording();
+            Assert.False(audio.Device.Manual);
+            audio.Device.StartRecording(new AudioRecording(new MemoryStream()));
+            audio.Device.StopRecording();
         }
         finally
         {
-            audio.Close();
+            audio.Device.Close();
         }
     }
 
@@ -347,18 +347,18 @@ public sealed class AudioThreadTests
     public void RecordingLeavesADevicePausedBeforeItPaused()
     {
         (AudioService audio, _) = Make();
-        audio.UseOutput(new StandInSpeakers(), TextWriter.Null);
+        audio.Device.UseOutput(new StandInSpeakers(), TextWriter.Null);
         try
         {
-            audio.PauseDevice();
-            audio.StartRecording(new AudioRecording(new MemoryStream()));
-            audio.StopRecording();
+            audio.Device.Pause();
+            audio.Device.StartRecording(new AudioRecording(new MemoryStream()));
+            audio.Device.StopRecording();
 
-            Assert.True(audio.Manual);
+            Assert.True(audio.Device.Manual);
         }
         finally
         {
-            audio.Close();
+            audio.Device.Close();
         }
     }
 
@@ -366,16 +366,16 @@ public sealed class AudioThreadTests
     public void OnTheThreadAdvanceThrows()
     {
         (AudioService audio, _) = Make();
-        audio.UseOutput(new StandInSpeakers(), TextWriter.Null);
+        audio.Device.UseOutput(new StandInSpeakers(), TextWriter.Null);
         try
         {
-            Assert.False(audio.Manual);
+            Assert.False(audio.Device.Manual);
             var problem = Assert.Throws<InvalidOperationException>(() => audio.Advance(0.1f));
             Assert.Equal("The audio can only be advanced by hand when the game drives it, as in tests.", problem.Message);
         }
         finally
         {
-            audio.Close();
+            audio.Device.Close();
         }
     }
 
@@ -383,7 +383,7 @@ public sealed class AudioThreadTests
     public void OnTheThreadPlayingThrows()
     {
         (AudioService audio, _) = Make();
-        audio.UseOutput(new StandInSpeakers(), TextWriter.Null);
+        audio.Device.UseOutput(new StandInSpeakers(), TextWriter.Null);
         try
         {
             var problem = Assert.Throws<InvalidOperationException>(() => audio.Playing);
@@ -391,7 +391,7 @@ public sealed class AudioThreadTests
         }
         finally
         {
-            audio.Close();
+            audio.Device.Close();
         }
     }
 
@@ -400,7 +400,7 @@ public sealed class AudioThreadTests
     {
         (AudioService audio, Content content) = Make();
         var speakers = new StandInSpeakers();
-        audio.UseOutput(speakers, TextWriter.Null);
+        audio.Device.UseOutput(speakers, TextWriter.Null);
         try
         {
             audio.Play(content.Sound("bang.wav"));
@@ -412,7 +412,7 @@ public sealed class AudioThreadTests
         }
         finally
         {
-            audio.Close();
+            audio.Device.Close();
         }
     }
 
@@ -421,19 +421,19 @@ public sealed class AudioThreadTests
     {
         (AudioService audio, _) = Make();
         var speakers = new StandInSpeakers { Hold = TimeSpan.FromMilliseconds(100) };
-        audio.UseOutput(speakers, TextWriter.Null);
+        audio.Device.UseOutput(speakers, TextWriter.Null);
         try
         {
             Assert.True(speakers.Entered.Wait(Cap), "The thread never started a block.");
 
-            audio.PauseDevice();
+            audio.Device.Pause();
 
             Assert.False(speakers.Inside);
-            Assert.True(audio.Manual);
+            Assert.True(audio.Device.Manual);
         }
         finally
         {
-            audio.Close();
+            audio.Device.Close();
         }
     }
 
@@ -442,27 +442,27 @@ public sealed class AudioThreadTests
     {
         (AudioService audio, Content content) = Make();
         var speakers = new StandInSpeakers();
-        audio.UseOutput(speakers, TextWriter.Null);
+        audio.Device.UseOutput(speakers, TextWriter.Null);
         try
         {
-            WaitFor(() => audio.MixedFrames > 0, "the thread to mix");
-            audio.PauseDevice();
-            long paused = audio.MixedFrames;
+            WaitFor(() => audio.Mixing.Clock > 0, "the thread to mix");
+            audio.Device.Pause();
+            long paused = audio.Mixing.Clock;
 
             audio.Play(content.Sound("bang.wav"));
             audio.Advance(0.1f);
 
-            Assert.Equal(paused + 4800, audio.MixedFrames);
+            Assert.Equal(paused + 4800, audio.Mixing.Clock);
             Assert.Equal(0.1, Assert.Single(audio.Playing).Seconds, 1e-6);
 
-            audio.ResumeDevice();
+            audio.Device.Resume();
 
-            Assert.False(audio.Manual);
-            WaitFor(() => audio.MixedFrames > paused + 4800, "the thread to mix again");
+            Assert.False(audio.Device.Manual);
+            WaitFor(() => audio.Mixing.Clock > paused + 4800, "the thread to mix again");
         }
         finally
         {
-            audio.Close();
+            audio.Device.Close();
         }
     }
 
@@ -473,7 +473,7 @@ public sealed class AudioThreadTests
         SoundRef broken = content.AddClip(SoundClip.Streaming("broken.ogg", Mixer.SampleRate, 1, 20, () => throw new InvalidDataException("can't open")));
         var audio = new AudioService(content, seed: 1);
         var log = new SharedLog();
-        audio.UseOutput(new StandInSpeakers(), log);
+        audio.Device.UseOutput(new StandInSpeakers(), log);
         try
         {
             audio.Play(broken);
@@ -483,7 +483,7 @@ public sealed class AudioThreadTests
         }
         finally
         {
-            audio.Close();
+            audio.Device.Close();
         }
 
         Assert.Equal("A sound failed and stopped (1 so far): can't open" + Environment.NewLine, log.Text);
@@ -530,18 +530,18 @@ public sealed class AudioThreadTests
     {
         (AudioService audio, _) = Make();
         var speakers = new StandInSpeakers { Hold = TimeSpan.FromMilliseconds(100) };
-        audio.UseOutput(speakers, TextWriter.Null);
+        audio.Device.UseOutput(speakers, TextWriter.Null);
         Assert.True(speakers.Entered.Wait(Cap), "The thread never started a block.");
 
         Thread thread = Assert.IsType<Thread>(speakers.Caller);
 
         // Close lands while the thread holds a block; when it returns, the thread has ended, not only finished the block.
-        audio.Close();
+        audio.Device.Close();
 
         Assert.False(thread.IsAlive);
         Assert.False(speakers.Inside);
         Assert.True(speakers.Disposed);
-        Assert.True(audio.Manual);
+        Assert.True(audio.Device.Manual);
     }
 
     [Fact]
@@ -549,7 +549,7 @@ public sealed class AudioThreadTests
     {
         (AudioService audio, Content content) = Make();
         var log = new SharedLog();
-        audio.UseOutput(new FailingSpeakers(), log);
+        audio.Device.UseOutput(new FailingSpeakers(), log);
         try
         {
             WaitFor(() => log.Text.Length > 0, "the thread to stop playing");
@@ -564,16 +564,16 @@ public sealed class AudioThreadTests
                 }
 
                 Frame(audio);
-                long sent = audio.CommandsQueued;
-                WaitFor(() => audio.CommandsTaken == sent, "the thread to take the frame's commands");
+                long sent = audio.Commands.Written;
+                WaitFor(() => audio.Commands.Taken == sent, "the thread to take the frame's commands");
             }
 
-            Assert.Equal(0, audio.DroppedCommands);
-            Assert.False(audio.Manual);
+            Assert.Equal(0, audio.Commands.Dropped);
+            Assert.False(audio.Device.Manual);
         }
         finally
         {
-            audio.Close();
+            audio.Device.Close();
         }
 
         Assert.Equal("Sound stopped: OpenAL error InvalidOperation while queueing sound" + Environment.NewLine, log.Text);
@@ -584,7 +584,7 @@ public sealed class AudioThreadTests
     {
         (AudioService audio, _) = Make();
         var speakers = new DrySpeakers();
-        audio.UseOutput(speakers, TextWriter.Null);
+        audio.Device.UseOutput(speakers, TextWriter.Null);
         try
         {
             WaitFor(() => speakers.Starts == 1, "the speakers to start");
@@ -592,9 +592,9 @@ public sealed class AudioThreadTests
             Assert.Equal(DeviceOutput.Blocks, speakers.LargestPass);
 
             // A pause leaves the speakers to run dry; Resume has to fill them all and start them again.
-            audio.PauseDevice();
+            audio.Device.Pause();
             speakers.RunDry();
-            audio.ResumeDevice();
+            audio.Device.Resume();
 
             WaitFor(() => speakers.Starts == 2, "the speakers to start again");
             Assert.Equal(2 * DeviceOutput.Blocks, speakers.Queued);
@@ -602,7 +602,7 @@ public sealed class AudioThreadTests
         }
         finally
         {
-            audio.Close();
+            audio.Device.Close();
         }
     }
 
@@ -611,7 +611,7 @@ public sealed class AudioThreadTests
     {
         (AudioService audio, _) = Make();
         var log = new StringWriter();
-        if (!audio.UseDevice(log))
+        if (!audio.Device.Open(log))
         {
             // No sound card here: there's nothing to check, and the log says why.
             Assert.StartsWith("No sound device (", log.ToString());
@@ -620,12 +620,12 @@ public sealed class AudioThreadTests
 
         try
         {
-            Assert.False(audio.Manual);
-            WaitFor(() => audio.MixedFrames > 0, "the device to take a block");
+            Assert.False(audio.Device.Manual);
+            WaitFor(() => audio.Mixing.Clock > 0, "the device to take a block");
         }
         finally
         {
-            audio.Close();
+            audio.Device.Close();
         }
     }
 }
