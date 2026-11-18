@@ -5,6 +5,12 @@ using Super;
 namespace Hamlet;
 
 /// <summary>
+/// A pitched roof's size for <see cref="MeshBuilder.PitchedRoof"/>: half the span between the walls, how high the
+/// ridge rises above them, how long the ridge is, how far the roof hangs over the walls, and how thick it is.
+/// </summary>
+internal readonly record struct RoofShape(float HalfSpan, float Rise, float Length, float Overhang, float Thickness);
+
+/// <summary>
 /// Gathers many shapes into one mesh with one surface, each moved into place first. A
 /// building is a handful of these, one per material, so it draws in a few calls however
 /// many boxes it's made of.
@@ -79,11 +85,12 @@ internal sealed class MeshBuilder
 
     /// <summary>
     /// The two slopes of a pitched roof with its ridge along x, sitting on walls whose tops
-    /// are at height zero and run from -halfSpan to +halfSpan in z. They hang over the walls
+    /// are at height zero and run from -HalfSpan to +HalfSpan in z. They hang over the walls
     /// by the overhang at the eaves and at both ends.
     /// </summary>
-    public void PitchedRoof(float halfSpan, float rise, float length, float overhang, float thickness, Matrix4x4 frame)
+    public void PitchedRoof(RoofShape roof, Matrix4x4 frame)
     {
+        var (halfSpan, rise, length, overhang, thickness) = roof;
         float angle = MathF.Atan2(rise, halfSpan);
         float run = halfSpan + overhang;
         float slope = run / MathF.Cos(angle) + thickness;

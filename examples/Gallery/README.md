@@ -29,8 +29,10 @@ rooms:
 At the end of the corridor a tinted glass screen closes off an open courtyard.
 
 Everything except the two statues is built in code from boxes, cylinders and spheres in
-`Building.cs`, with flat matte materials: light-grey plaster with a faint noise and a few
-strong colours. The glowing discs and panels use a small surface shader,
+`Building.cs`, placed by `GalleryShapes.cs`, with flat matte materials: light-grey plaster with
+a faint noise from `PlasterNoise.cs` and a few strong colours. `GalleryPlan.cs` says where the
+sun is and where the openings, the statues and the lamps stand. `LampRoom.cs` and `Chapel.cs` draw
+what moves in those rooms. The glowing discs and panels use a small surface shader,
 `Shaders/glow.frag`, because a `Surface` has no emissive colour of its own. The glow
 doesn't light anything; the point lights under the lamps do. Reflection probes run no surface
 shader, so the discs don't glow in them, though the light under each does.
@@ -40,7 +42,8 @@ Each room, the corridor and the courtyard has a reflection probe boxed to its wa
 
 The camera walks a slow, fixed tour from `Tour.cs`, worked out from time alone, so the same
 tick always gives the same picture. Press F to fly it yourself: W, A, S and D move, E and
-Q go up and down, and the mouse looks around. F again goes back to the tour.
+Q go up and down, and the mouse looks around. F again goes back to the tour. `FlyCamera.cs`
+does both.
 
 ## Baked lighting
 
@@ -60,6 +63,8 @@ The current lighting shows in the bottom-left corner. The keys switch between:
 | 1 | Live lighting | Every light live, and bounced light from the live light probes, as if nothing were baked (`Graphics.Baking.BakedLighting` off) |
 | 2 | Baked lighting | The bake: lightmaps on the building and its probes for everything else. The default |
 | 3 | Direct light only | No bake and no bounced light (`BakedLighting` and `LightProbes` off) |
+
+The keys and their panel come from `examples/Shared/LightingSwitch.cs`, which the Hamlet shares.
 
 Each light has the mode that suits it:
 

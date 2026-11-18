@@ -24,8 +24,8 @@ public sealed class Tour
         Add(Look(new(0f, 1.8f, 17f), new(0f, 1.6f, 0f)), 0f, 3f);
         Add(Look(new(-2.6f, 1.7f, 9.4f), new(0.6f, 1.2f, -24f)), 6f, 3f, "entrance");
 
-        Room(-4.8f, Look(new(-2.7f, 1.6f, -4.8f), GalleryGame.BustAt + new Vector3(0f, 0.25f, 0f)), "colour");
-        Room(-14.7f, Look(new(-2.7f, 1.9f, -14.4f), GalleryGame.WhaleAt + new Vector3(0f, 0.5f, 0f)), "whale");
+        Room(-4.8f, Look(new(-2.7f, 1.6f, -4.8f), GalleryPlan.BustAt + new Vector3(0f, 0.25f, 0f)), "colour");
+        Room(-14.7f, Look(new(-2.7f, 1.9f, -14.4f), GalleryPlan.WhaleAt + new Vector3(0f, 0.5f, 0f)), "whale");
         Room(-25f, Look(new(-2.7f, 1.7f, -25.6f), new(-10f, 0.9f, -24f)), "lamps");
         Room(-36f, Look(new(-2.7f, 1.6f, -36f), new(-9.5f, 2.2f, -36f)), "chapel");
 

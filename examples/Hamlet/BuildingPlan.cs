@@ -100,9 +100,9 @@ internal readonly record struct Opening(float Along, float Width, float Bottom, 
 
 /// <summary>
 /// Collects a building's meshes, one per material, and its lamps and windows, and turns
-/// them into a <see cref="BuildingPlan"/>.
+/// them into a <see cref="BuildingPlan"/>, uploading the meshes to <paramref name="content"/>.
 /// </summary>
-internal sealed class PlanBuilder(Palette palette)
+internal sealed class PlanBuilder(Content content, Palette palette)
 {
     private readonly List<Lamp> _lamps = [];
     private readonly List<Window> _windows = [];
@@ -199,7 +199,7 @@ internal sealed class PlanBuilder(Palette palette)
     /// Uploads the meshes and gathers everything into a plan. Every part but the glowing
     /// ones is drawn static into the building's bake, so it's made static, with lightmap UVs.
     /// </summary>
-    public BuildingPlan Build(Content content, string name, Vector3 min, Vector3 max, Vector3 door, Vector3 inside)
+    public BuildingPlan Build(string name, Vector3 min, Vector3 max, Vector3 door, Vector3 inside)
     {
         var parts = new List<Part>();
         void Add(MeshBuilder mesh, Surface surface, PartTint tint)

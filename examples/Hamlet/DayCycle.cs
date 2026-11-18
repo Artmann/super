@@ -67,6 +67,12 @@ internal static class DayCycle
             Fog = new FogSettings(0.0018f, 0f, 0.08f, 0.35f),
         });
 
+        Expose(view, elevation, indoors);
+    }
+
+    /// <summary>The post-processing for a sun at <paramref name="elevation"/>, opened up by <paramref name="indoors"/> stops.</summary>
+    private static void Expose(View view, float elevation, float indoors)
+    {
         // Night is far darker than day; the camera opens up to see by lamplight and moonlight. The air dims the light
         // well before sunset, so it starts opening while the sun is still a little way up.
         // By day it stops down a little, so sunlight stands out from the sky's light in the shade.

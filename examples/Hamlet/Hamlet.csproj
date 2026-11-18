@@ -12,6 +12,11 @@
     <InternalsVisibleTo Include="Hamlet.Tests" />
   </ItemGroup>
 
+  <!-- Keys 1, 2 and 3 for live, baked and direct lighting, shared with the Gallery. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\LightingSwitch.cs" Link="LightingSwitch.cs" />
+  </ItemGroup>
+
   <!-- The glow shader for bulbs, lit windows and the forge's coals. -->
   <Import Project="..\..\src\Shaders.targets" />
 
