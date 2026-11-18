@@ -555,18 +555,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Ecs.SoundSync.Check",
-      "file": "src/Super.Ecs/Audio/SoundSync.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Ecs.SoundSync.SyncSounds",
-      "file": "src/Super.Ecs/Audio/SoundSync.cs",
-      "metric": 17
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Ecs.ViewExtensions.Models",
       "file": "src/Super.Ecs/ViewExtensions.cs",
       "metric": 16
@@ -1074,12 +1062,6 @@
       "name": "Super.Cook.Tool.Program.CookAll",
       "file": "tools/Super.Cook.Tool/Program.cs",
       "metric": 26
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Ecs.SoundSync.SyncSounds",
-      "file": "src/Super.Ecs/Audio/SoundSync.cs",
-      "metric": 23
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2310,18 +2292,6 @@
       "name": "Super.Cook.Tool.Program.CookOne",
       "file": "tools/Super.Cook.Tool/Program.cs",
       "metric": 55
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Ecs.SoundSync.SyncAmbiences",
-      "file": "src/Super.Ecs/Audio/SoundSync.cs",
-      "metric": 54
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Ecs.SoundSync.SyncSounds",
-      "file": "src/Super.Ecs/Audio/SoundSync.cs",
-      "metric": 70
     },
     {
       "kind": "long-method",
