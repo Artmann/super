@@ -83,23 +83,23 @@ public static class Ease
     public static float Apply(Easing easing, float amount)
     {
         float t = Math.Clamp(amount, 0f, 1f);
-        switch (easing)
+        return easing switch
         {
-            case Easing.Linear:
-                return t;
-            case Easing.BackInOut:
-                return BackInOut(t);
-            case Easing.ElasticInOut:
-                return ElasticInOut(t);
-            case Easing.BounceIn:
-                return 1f - Bounce(1f - t);
-            case Easing.BounceOut:
-                return Bounce(t);
-            case Easing.BounceInOut:
-                return t < 0.5f ? (1f - Bounce(1f - 2f * t)) / 2f : (1f + Bounce(2f * t - 1f)) / 2f;
-        }
+            Easing.Linear => t,
+            Easing.BackInOut => BackInOut(t),
+            Easing.ElasticInOut => ElasticInOut(t),
+            Easing.BounceIn => 1f - Bounce(1f - t),
+            Easing.BounceOut => Bounce(t),
+            Easing.BounceInOut => BounceInOut(t),
+            _ => FromInCurve(easing, t),
+        };
+    }
 
-        // The rest are an In curve, turned around for Out and joined to itself for InOut.
+    /// <summary>
+    /// The easings that are an In curve, turned around for Out and joined to itself for InOut.
+    /// </summary>
+    private static float FromInCurve(Easing easing, float t)
+    {
         var (family, side) = Split(easing);
         return side switch
         {
@@ -128,16 +128,42 @@ public static class Ease
     private static float In(Easing family, float t) => family switch
     {
         Easing.In => t * t * t,
-        Easing.SineIn => 1f - MathF.Cos(t * MathF.PI / 2f),
         Easing.QuadIn => t * t,
         Easing.QuartIn => t * t * t * t,
         Easing.QuintIn => t * t * t * t * t,
+        _ => CurvedIn(family, t),
+    };
+
+    /// <summary>The In curves that are not a plain power of the time.</summary>
+    private static float CurvedIn(Easing family, float t) => family switch
+    {
+        Easing.SineIn => 1f - MathF.Cos(t * MathF.PI / 2f),
         Easing.ExpoIn => t <= 0f ? 0f : MathF.Pow(2f, 10f * t - 10f),
         Easing.CircIn => 1f - MathF.Sqrt(1f - t * t),
         Easing.BackIn => (Back + 1f) * t * t * t - Back * t * t,
-        Easing.ElasticIn => t <= 0f ? 0f : t >= 1f ? 1f : -MathF.Pow(2f, 10f * t - 10f) * MathF.Sin((10f * t - 10.75f) * ElasticPeriod),
+        Easing.ElasticIn => ElasticIn(t),
         _ => throw new ArgumentOutOfRangeException(nameof(family), family, "There is no such easing."),
     };
+
+    private static float ElasticIn(float t)
+    {
+        if (t <= 0f)
+        {
+            return 0f;
+        }
+
+        if (t >= 1f)
+        {
+            return 1f;
+        }
+
+        return -MathF.Pow(2f, 10f * t - 10f) * MathF.Sin((10f * t - 10.75f) * ElasticPeriod);
+    }
+
+    private static float BounceInOut(float t)
+    {
+        return t < 0.5f ? (1f - Bounce(1f - 2f * t)) / 2f : (1f + Bounce(2f * t - 1f)) / 2f;
+    }
 
     private static float BackInOut(float t)
     {
