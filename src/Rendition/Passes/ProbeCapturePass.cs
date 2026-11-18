@@ -20,22 +20,31 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
     /// <summary>How far, in the probe's cascade spacings, a draw can be and still be drawn round it.</summary>
     public const float ReachSpacings = 16f;
 
-    private const uint IrradianceBinding = 11;
-    private const uint DepthBinding = 12;
-    private const uint SunShadowBinding = 14;
+    // Where probes.glsl finds the light probes' atlases, and where the capture finds its sun shadow map, in set 2.
+    internal const uint IrradianceBinding = 11;
+    internal const uint DepthBinding = 12;
+    internal const uint SunShadowBinding = 14;
+
+    /// <summary>The bindings of set 2 that both this pass and <see cref="ReflectionCapturePass"/> read.</summary>
+    internal static readonly DescriptorSetLayoutBinding[] AtlasBindings =
+    [
+        new(IrradianceBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
+        new(DepthBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
+        new(SunShadowBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
+    ];
 
     // Only what probe_capture.vert reads: position, normal and UV. Handing it the scene's other
     // attributes would make the validation layers warn that they go unused.
-    private static readonly VertexInputAttributeDescription[] CaptureAttributes =
+    internal static readonly VertexInputAttributeDescription[] CaptureAttributes =
     [
         SceneDraws.VertexAttributes[0],
         SceneDraws.VertexAttributes[1],
         SceneDraws.VertexAttributes[3],
     ];
 
-    // Must match the push block in probe_capture.vert and probe_capture.frag.
+    // Must match the push block in probe_capture.vert, probe_capture.frag and reflection_capture.frag.
     [StructLayout(LayoutKind.Sequential)]
-    private struct ProbeConstants
+    internal struct ProbeConstants
     {
         public Vector4 Probe;
     }
@@ -47,8 +56,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
     private readonly DescriptorSet _set;
     private readonly PipelineLayout _layout;
     private readonly LivePipeline? _pipeline;
-    private readonly List<PipelineVariants> _pipelines = [];
-    private readonly List<DrawBatch> _batches = [];
+    private readonly CubeCapture _faces;
 
     // The draws kept for each probe of the batch: _kept[_starts[p] .. _starts[p + 1]).
     private readonly List<int> _kept = [];
@@ -61,17 +69,14 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
         _resources = resources;
         var api = context.Api;
 
-        _setLayout = context.CreateSetLayout(
-        [
-            new(IrradianceBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-            new(DepthBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-            new(SunShadowBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-        ]);
+        _setLayout = context.CreateSetLayout(AtlasBindings);
         _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 3));
         _set = context.AllocateSet(_pool, _setLayout);
         _layout = context.CreatePipelineLayout(
             [frameSetLayout, resources.Layout, _setLayout],
             new PushConstantRange(SceneDraws.PushStages, 0, (uint)(sizeof(SceneDraws.DrawConstants) + sizeof(ProbeConstants))));
+        List<PipelineVariants> pipelines = [];
+        _faces = new CubeCapture(context, resources, _layout, pipelines, new Extent2D(ProbeVolume.FaceSize, ProbeVolume.FaceSize));
 
         if (!context.Multiview)
         {
@@ -91,7 +96,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
             ViewMask = 0x3F,
         };
         _pipeline = PipelineFactory.Create(context, description);
-        _pipelines.Add(new PipelineVariants(_pipeline, _pipeline));
+        pipelines.Add(new PipelineVariants(_pipeline, _pipeline));
     }
 
     /// <summary>
@@ -156,26 +161,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
         for (int p = 0; p < positions.Length; p++)
         {
             int start = _kept.Count;
-            long probeTriangles = 0;
-            float reach = spacings[p] * ReachSpacings;
-            for (int i = 0; i < draws.Length; i++)
-            {
-                ref readonly var draw = ref draws[i];
-                if (!Captures(draw, _resources.GetFlags(draw.Material)))
-                {
-                    continue;
-                }
-
-                if (DrawSelection.TryBounds(draw, details, out var center, out float radius)
-                    && Vector3.Distance(center, positions[p]) - radius > reach)
-                {
-                    continue;
-                }
-
-                _kept.Add(i);
-                probeTriangles += draw.IndexCount / 3;
-            }
-
+            long probeTriangles = _faces.Keep(draws, details, positions[p], spacings[p] * ReachSpacings, _kept);
             if (p > 0 && triangles + probeTriangles > maxTriangles)
             {
                 _kept.RemoveRange(start, _kept.Count - start);
@@ -218,42 +204,11 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
             PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit,
             AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.DepthStencilAttachmentWriteBit, layerCount: layers);
 
-        var extent = new Extent2D(ProbeVolume.FaceSize, ProbeVolume.FaceSize);
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _set };
         int[] order = System.Buffers.ArrayPool<int>.Shared.Rent(Math.Max(_kept.Count, 1));
         for (int p = 0; p < probes; p++)
         {
-            var color = new RenderingAttachmentInfo
-            {
-                SType = StructureType.RenderingAttachmentInfo,
-                ImageView = volume.SlotColorView(p),
-                ImageLayout = ImageLayout.ColorAttachmentOptimal,
-                LoadOp = AttachmentLoadOp.Clear,
-                StoreOp = AttachmentStoreOp.Store,
-                ClearValue = new ClearValue(new ClearColorValue(0f, 0f, 0f, ProbeVolume.SkyMark)),
-            };
-            var depth = new RenderingAttachmentInfo
-            {
-                SType = StructureType.RenderingAttachmentInfo,
-                ImageView = volume.SlotDepthView(p),
-                ImageLayout = ImageLayout.DepthAttachmentOptimal,
-                LoadOp = AttachmentLoadOp.Clear,
-                StoreOp = AttachmentStoreOp.DontCare,
-                ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(0f, 0)), // Reversed-Z far plane.
-            };
-            var rendering = new RenderingInfo
-            {
-                SType = StructureType.RenderingInfo,
-                RenderArea = new Rect2D(default, extent),
-                LayerCount = 1,
-                ViewMask = 0x3F,
-                ColorAttachmentCount = 1,
-                PColorAttachments = &color,
-                PDepthAttachment = &depth,
-            };
-
-            api.CmdBeginRendering(cmd, &rendering);
-            api.SetFullViewport(cmd, extent);
+            _faces.Begin(cmd, volume.SlotColorView(p), volume.SlotDepthView(p), new Vector4(0f, 0f, 0f, ProbeVolume.SkyMark));
             api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 3, sets, 0, null);
             var probe = new ProbeConstants { Probe = new Vector4(_positions[p], 1f) };
             api.CmdPushConstants(cmd, _layout, SceneDraws.PushStages, (uint)sizeof(SceneDraws.DrawConstants), (uint)sizeof(ProbeConstants), &probe);
@@ -266,15 +221,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
                 kept[i] = _kept[start + i];
             }
 
-            SceneDraws.Batch(draws, kept, keepOrder: false, _batches);
-            var bound = new SceneDraws.Bound();
-            foreach (var batch in _batches)
-            {
-                // No wind: a probe sees things at rest.
-                var constants = SceneDraws.Constants(draws[kept[batch.First]], 0);
-                SceneDraws.Draw(api, cmd, _layout, _pipelines, _resources, draws, kept.Slice(batch.First, batch.Count), meshes, instances, constants, null, ref bound);
-            }
-
+            _faces.Draw(cmd, draws, kept, meshes, instances);
             api.CmdEndRendering(cmd);
         }
 

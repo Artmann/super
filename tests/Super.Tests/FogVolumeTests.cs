@@ -251,11 +251,11 @@ public class FogVolumeTests
     {
         var clear = new FogSettings(0f);
 
-        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(clear, 0, RenderEffects.None, false, null));
-        Assert.Equal(new Vector4(48f, 1f, 0.6f, 0f), VolumetricFog.Pack(clear, 1, RenderEffects.None, false, null));
+        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(clear, 0, RenderEffects.None, null));
+        Assert.Equal(new Vector4(48f, 1f, 0.6f, 0f), VolumetricFog.Pack(clear, 1, RenderEffects.None, null));
 
         // The scene's fog switched off leaves the volumes.
-        Assert.Equal(new Vector4(48f, 1f, 0.6f, 0f), VolumetricFog.Pack(new FogSettings(0.01f), 1, RenderEffects.Fog, false, null));
+        Assert.Equal(new Vector4(48f, 1f, 0.6f, 0f), VolumetricFog.Pack(new FogSettings(0.01f), 1, RenderEffects.Fog, null));
     }
 
     [Theory]
@@ -263,15 +263,7 @@ public class FogVolumeTests
     [InlineData(RenderEffects.VolumetricFog)]
     public void Fog_volumes_off_leaves_clear_air_clear(RenderEffects off)
     {
-        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(new FogSettings(0f), 3, off, false, null));
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData(30f)]
-    public void Fog_volumes_are_not_drawn_into_probes(float? underwaterReach)
-    {
-        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(new FogSettings(0f), 3, RenderEffects.None, true, underwaterReach));
+        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(new FogSettings(0f), 3, off, null));
     }
 
     private sealed class Vector3Comparer(float tolerance) : IEqualityComparer<Vector3>
@@ -288,8 +280,8 @@ public class FogVolumeTests
         var noSky = SceneRenderer.FrameFog(null);
         var skyWithoutFog = SceneRenderer.FrameFog(new SkySettings());
 
-        Assert.Equal(48f, VolumetricFog.Pack(noSky, 1, RenderEffects.None, false, null).X);
-        Assert.Equal(48f, VolumetricFog.Pack(skyWithoutFog, 1, RenderEffects.None, false, null).X);
+        Assert.Equal(48f, VolumetricFog.Pack(noSky, 1, RenderEffects.None, null).X);
+        Assert.Equal(48f, VolumetricFog.Pack(skyWithoutFog, 1, RenderEffects.None, null).X);
         Assert.Equal(0f, noSky.Density);
         Assert.Equal(0f, skyWithoutFog.Density);
     }
@@ -302,7 +294,7 @@ public class FogVolumeTests
         var frame = SceneRenderer.FrameFog(new SkySettings { Fog = fog });
 
         Assert.Equal(fog, frame);
-        Assert.Equal(0f, VolumetricFog.Pack(frame, 1, RenderEffects.None, false, null).X);
+        Assert.Equal(0f, VolumetricFog.Pack(frame, 1, RenderEffects.None, null).X);
     }
 
     private static ArgumentException ThrowsUnderSwedish(FogVolumeSettings settings)

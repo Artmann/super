@@ -138,10 +138,7 @@ public sealed class ScreenReflectionGpuTests(GpuFixture gpu)
             {
                 BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 1f, Emissive = new Vector3(1f, 0f, 0f),
             });
-            _mirror = gpu.Renderer.CreateMaterial(new Material
-            {
-                BaseColor = new Vector4(1f, 1f, 1f, 1f), Metallic = 1f, Roughness = 0.05f,
-            });
+            _mirror = gpu.CreateMirror();
             var quad = new DrawItem { Mesh = _mesh, IndexCount = (uint)indices.Length, Transform = Matrix4x4.Identity };
             Draws =
             [

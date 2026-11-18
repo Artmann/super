@@ -3,9 +3,13 @@ using System.Text;
 
 namespace Super.Profiling;
 
-/// <summary>One measured frame, in milliseconds.</summary>
+/// <summary>
+/// One measured frame, in milliseconds: its parts, the GPU time the renderer read back during it, how many times it
+/// stopped until the GPU had nothing left to do, and how many reflection probe captures it drew.
+/// </summary>
 internal readonly record struct ProfiledFrame(
-    int Ticks, double Update, double Draw, double Render, double Waiting, long AllocatedBytes)
+    int Ticks, double Update, double Draw, double Render, double Waiting, long AllocatedBytes, double Gpu = 0.0, int IdleWaits = 0,
+    int ReflectionCaptures = 0)
 {
     public double Total => Update + Draw + Render;
 }
@@ -36,14 +40,36 @@ internal static class ProfileReport
     private const int StacksShown = 8;
     private const int StackDepthShown = 14;
 
+    /// <summary>How many of the slowest frames the report lists.</summary>
+    private const int SlowestShown = 5;
+
     public static string Write(ProfileRun run)
     {
         var text = new StringBuilder();
         WriteSummary(text, run);
+        WriteSlowest(text, run.Frames);
         WriteGpu(text, run);
         WriteModels(text, run.Models ?? [], run.DrawnTriangles);
         WriteFunctions(text, run.Stacks);
         WriteStacks(text, run.Stacks);
+        return text.ToString();
+    }
+
+    /// <summary>
+    /// Every measured frame on a line of its own, comma-separated with a header, for a spreadsheet or a graph of the
+    /// frame times. GPU times arrive a frame or two late, as the GPU finishes after the CPU.
+    /// </summary>
+    public static string WriteFrames(IReadOnlyList<ProfiledFrame> frames)
+    {
+        var text = new StringBuilder();
+        Line(text, "frame,ticks,frame_ms,update_ms,draw_ms,render_ms,waiting_ms,gpu_ms,idle_waits,reflection_captures");
+        for (int i = 0; i < frames.Count; i++)
+        {
+            var frame = frames[i];
+            Formatted(text,
+                $"{i},{frame.Ticks},{frame.Total:0.000},{frame.Update:0.000},{frame.Draw:0.000},{frame.Render:0.000},{frame.Waiting:0.000},{frame.Gpu:0.000},{frame.IdleWaits},{frame.ReflectionCaptures}");
+        }
+
         return text.ToString();
     }
 
@@ -84,6 +110,30 @@ internal static class ProfileReport
         Formatted(text, $"  Allocated {frames.Average(frame => frame.AllocatedBytes),7:N0} bytes per frame");
         Line(text);
         WriteLimit(text, total - waiting, run.GpuMilliseconds.Values.Sum());
+        Line(text);
+    }
+
+    /// <summary>
+    /// The slowest frames, with what each did that a smooth frame doesn't: stop until the GPU was idle, or capture a
+    /// reflection probe. A frame that stopped for the GPU is a hitch the player feels.
+    /// </summary>
+    private static void WriteSlowest(StringBuilder text, IReadOnlyList<ProfiledFrame> frames)
+    {
+        int waits = frames.Sum(frame => frame.IdleWaits);
+        int captures = frames.Sum(frame => frame.ReflectionCaptures);
+        Formatted(text, $"Stopped until the GPU was idle {waits} times in {frames.Count} frames. Reflection probe captures: {captures}.");
+        Line(text, "Slowest frames:");
+        var slowest = Enumerable.Range(0, frames.Count)
+            .OrderByDescending(i => frames[i].Total)
+            .ThenBy(i => i)
+            .Take(SlowestShown);
+        foreach (int i in slowest)
+        {
+            var frame = frames[i];
+            Formatted(text,
+                $"  frame {i,4}  {frame.Total,7:0.0} ms  GPU {frame.Gpu,6:0.0} ms  {frame.IdleWaits} idle waits  {frame.ReflectionCaptures} reflection captures");
+        }
+
         Line(text);
     }
 

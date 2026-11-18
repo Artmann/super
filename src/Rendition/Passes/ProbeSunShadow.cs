@@ -17,12 +17,13 @@ namespace Rendition.Passes;
 internal sealed class ProbeSunShadow : IDisposable
 {
     /// <summary>Texels across the map. Probes keep only soft light, so a coarse map is plenty.</summary>
-    public const int Resolution = 2048;
+    public const uint Resolution = 2048;
 
     /// <summary>The most frames between two drawings of the map.</summary>
     public const int RedrawFrames = 240;
 
     private readonly RenderTarget _target;
+    private readonly uint _resolution;
     private readonly Func<MaterialHandle, MaterialFlags> _flagsOf;
     private DrawItem[] _casters = [];
     private Vector3 _direction;
@@ -32,10 +33,12 @@ internal sealed class ProbeSunShadow : IDisposable
     private bool _drawn;
     private bool _ready;
 
-    public ProbeSunShadow(VulkanContext context, Func<MaterialHandle, MaterialFlags> flagsOf)
+    /// <summary>Makes the map, <paramref name="resolution"/> texels across: <see cref="Resolution"/> unless told otherwise.</summary>
+    public ProbeSunShadow(VulkanContext context, Func<MaterialHandle, MaterialFlags> flagsOf, uint resolution = Resolution)
     {
+        _resolution = resolution;
         _target = new RenderTarget(
-            context, GBuffer.DepthFormat, new Extent2D(Resolution, Resolution), ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
+            context, GBuffer.DepthFormat, new Extent2D(resolution, resolution), ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
         _flagsOf = flagsOf;
     }
 
@@ -75,7 +78,7 @@ internal sealed class ProbeSunShadow : IDisposable
             _drawnFrame = frame;
             _drawn = true;
             Redraw = true;
-            Matrix = ShadowPass.CreateMatrix(direction, camera, radius, radius, Resolution);
+            Matrix = ShadowPass.CreateMatrix(direction, camera, radius, radius, (int)_resolution);
         }
     }
 
@@ -98,7 +101,7 @@ internal sealed class ProbeSunShadow : IDisposable
                 ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, readStages, read, depthStages, depthAccess);
             int count = Casters(draws, _flagsOf, ref _casters);
             shadows.RecordInto(cmd, frameSet, _casters.AsSpan(0, count), meshes, details, instances, _target.View,
-                new Extent2D(Resolution, Resolution), cascade: -1, still: true);
+                new Extent2D(_resolution, _resolution), cascade: -1, still: true);
             api.Transition(cmd, _target.Image, ImageAspectFlags.DepthBit,
                 ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, depthStages, AccessFlags2.DepthStencilAttachmentWriteBit, readStages, read);
             _ready = true;

@@ -70,7 +70,7 @@ component on its entity instead. See [Audio](audio.md).
 | `view.LightProbes(min, max, spacing)` | A box of light probes of your own, finer than the ones the renderer keeps round the camera, whose probes win inside it. `--debug-view probes` shows its probes and those of the finest box round the camera, not the coarser ones. See [Rendering](rendering.md#bounced-light) |
 | `view.BakedLighting(name, min, max, probeSpacing, texelsPerMetre)` | Names the one place this frame whose lighting is baked, with lightmaps of `texelsPerMetre` texels a metre (20 unless given). `--bake` bakes it, and once its bake is fresh its surfaces are lit from their lightmap, and anything moving inside it from the bake's probes before the live ones. See [Baked lighting](rendering.md#baked-lighting) |
 | `view.BakedChunk(name, transform, min, max, texelsPerMetre, edgeBlend)` | Places a piece of the world that is baked once and reused wherever it stands, each copy relit by the frame's sky and suns. Up to 256 a frame. `edgeBlend`, 0.5 metres by default, blends the chunk's light into the live light over that far in from its four sides; 0 gives a hard edge. See [Baked lighting](rendering.md#baked-lighting) |
-| `view.ReflectionProbe(key, position, boxMin, boxMax, blend)` | A photograph of the scene from one spot, which shiny surfaces and glass in its box reflect. Up to 4 a frame. See [Rendering](rendering.md#reflections) |
+| `view.ReflectionProbe(key, position, boxMin, boxMax, blend, priority, update, version)` | A photograph of the scene from one spot, which shiny surfaces and glass in its box reflect, taken during play without stopping the game. Up to 64 a frame; where boxes overlap, the higher priority, then the smaller box, goes first. `update` says when it's taken again: when the light changes (the default), when `version` changes, or always. See [Rendering](rendering.md#reflections) |
 | `view.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
 | `view.Puddles(level, band)` | Lets water stand below `level` on materials that ask for puddles, damp for `band` metres above. See [Rendering](rendering.md#puddles) |
 | `view.Wind(direction, strength, gustiness)` | A breeze that sways grass and leaves on materials that ask for wind, leaning grass 1 m tall `strength` metres downwind, with gusts from 0 for steady to 1. See [Rendering](rendering.md#wind) |
@@ -484,7 +484,7 @@ Decals have some limits:
   roughness and opacity. Its detail textures, height map and world variation are ignored.
 - On strongly bumped surfaces, the fade by angle follows the bumps, so near the limit it
   fades in specks.
-- Reflection probes see decals, but moving or adding one doesn't photograph them again. Light probes don't see them, so a decal doesn't tint bounced light.
+- Reflection probes and light probes don't see decals, so a decal shows in no reflection probe and doesn't tint bounced light.
 
 ## Fog volumes
 

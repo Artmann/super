@@ -110,13 +110,11 @@ internal static class SkyModel
     }
 
     /// <summary>
-    /// Whether the physical sky's air fades far surfaces: not with Graphics.AerialPerspective off, not in a probe's
-    /// capture, which leaves out the haze too, and not in a view with a haze of its own, which takes over even while
-    /// Graphics.Haze hides it.
+    /// Whether the physical sky's air fades far surfaces: not with Graphics.AerialPerspective off, and not in a view with a
+    /// haze of its own, which takes over even while Graphics.Haze hides it. Reflection probe captures never draw it.
     /// </summary>
-    public static bool AirShows(in FrameView view, RenderEffects off, bool capturingProbe) =>
-        !off.HasFlag(RenderEffects.AerialPerspective) && !capturingProbe
-        && !(view.BackgroundFadeEnd > view.BackgroundFadeStart);
+    public static bool AirShows(in FrameView view, RenderEffects off) =>
+        !off.HasFlag(RenderEffects.AerialPerspective) && !(view.BackgroundFadeEnd > view.BackgroundFadeStart);
 
     private static float Turbidity(in FrameView view) => Math.Clamp(view.Sky.Turbidity, MinTurbidity, MaxTurbidity);
 
@@ -175,13 +173,12 @@ internal static class SkyModel
     /// radiance, dimmed by the air as the sun is, so it reddens low and sinks behind the horizon; and the stars, x how
     /// bright and y how far they have turned. A gradient sky has neither. The stars fade in as the sun goes from
     /// <see cref="StarsAppear"/> to <see cref="StarsFull"/> below the horizon, and are left out with
-    /// <see cref="RenderEffects.Stars"/> off, with <see cref="AnalyticSky.HideStars"/> and in probe captures, which
-    /// leave out the discs too.
+    /// <see cref="RenderEffects.Stars"/> off and with <see cref="AnalyticSky.HideStars"/>. Reflection probe captures fill
+    /// their sky without the discs or the stars.
     /// </summary>
-    public static (Vector4 Moon, Vector4 MoonRadiance, Vector4 Stars) Night(
-        in FrameView view, Vector3 sun, RenderEffects off, bool capturingProbe)
+    public static (Vector4 Moon, Vector4 MoonRadiance, Vector4 Stars) Night(in FrameView view, Vector3 sun, RenderEffects off)
     {
-        if (!Physical(view) || capturingProbe)
+        if (!Physical(view))
         {
             return default;
         }

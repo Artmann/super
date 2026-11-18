@@ -5,7 +5,8 @@ Plaster rooms along one corridor, lit by a sun, the sky,
 [reflection probes](../../docs/rendering.md#reflections) and point lights, and by a
 [bake](../../docs/rendering.md#baked-lighting) of all of them that ships with it. Keys 1, 2
 and 3 switch between live lighting, the bake, and direct light alone, so you can see what each
-adds.
+adds. L puts the chapel's lantern out and lights it again, and C dims the sky; the reflection
+probes take new pictures over the next few frames without stopping the game.
 
 ```
 dotnet run -c Release --project examples/Gallery
@@ -31,7 +32,11 @@ Everything except the two statues is built in code from boxes, cylinders and sph
 `Building.cs`, with flat matte materials: light-grey plaster with a faint noise and a few
 strong colours. The glowing discs and panels use a small surface shader,
 `Shaders/glow.frag`, because a `Surface` has no emissive colour of its own. The glow
-doesn't light anything; the point lights under the lamps do.
+doesn't light anything; the point lights under the lamps do. Reflection probes run no surface
+shader, so the discs don't glow in them, though the light under each does.
+
+Each room, the corridor and the courtyard has a reflection probe boxed to its walls, placed in
+`ReflectionProbes.cs`.
 
 The camera walks a slow, fixed tour from `Tour.cs`, worked out from time alone, so the same
 tick always gives the same picture. Press F to fly it yourself: W, A, S and D move, E and
@@ -106,6 +111,15 @@ Each room's hold is halfway through at these ticks, which make repeatable shots:
 
 ```
 dotnet run -c Release --project examples/Gallery -- --seed 1 --ticks 1065 --size 1280x720 --screenshot colour.png
+```
+
+Two scripts press a key 30 frames into a profile from a room's tick, to measure the reflection
+probes catching up during play: `dim` dims the sky in the colour room, which photographs every
+probe again, and `lantern` puts the chapel's lantern out.
+
+```
+dotnet run -c Release --project examples/Gallery -- --seed 1 --script dim --ticks 1065 --frames 120 --profile dim.txt
+dotnet run -c Release --project examples/Gallery -- --seed 1 --script lantern --ticks 2415 --frames 120 --profile lantern.txt
 ```
 
 ## Models

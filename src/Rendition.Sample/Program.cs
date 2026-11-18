@@ -67,7 +67,7 @@ unsafe
     OverlayQuad[] overlay = OverlayQuads(OverlayQuad.For(renderer.CreateTexture(Checkerboard())));
 
     DrawItem[] draws;
-    DrawItem[] probeDraws = [];
+    bool placeProbe = false;
     OrbitCamera camera;
     float shadowRadius = 5f;
     float shadowHeight = 0.5f;
@@ -86,7 +86,7 @@ unsafe
         };
         var model = ModelData.Read(modelPath);
         draws = [.. renderer.CreateModel(model), floor];
-        probeDraws = [floor];
+        placeProbe = true;
 
         // Frames the model by its size, so a person and a car both fill the window.
         var size = Vector3.Zero;
@@ -285,23 +285,19 @@ unsafe
                 : null,
         };
 
-        // The car sees the floor and the shadow it casts there. It leaves itself out of
-        // the picture, because the probe sits inside it. The room has a floor but no real
-        // walls, so the box only needs to be accurate at the bottom.
-        if (probeDraws.Length > 0)
+        // The car sees the floor and the shadow it casts there. The probe sits inside it, and sees out through the backs
+        // of its one-sided faces, which a capture leaves out. The room has a floor but no real walls, so the box only
+        // needs to be accurate at the bottom. A later frame draws the picture.
+        if (placeProbe)
         {
-            renderer.CaptureReflectionProbe(
-                new ReflectionProbe
-                {
-                    Position = new Vector3(0f, 0.6f, 0f),
-                    BoxMin = new Vector3(-200f, -0.02f, -200f),
-                    BoxMax = new Vector3(200f, 200f, 200f),
-                    BlendDistance = 0.01f,
-                },
-                view,
-                probeDraws,
-                draws);
-            probeDraws = [];
+            renderer.AddReflectionProbe(new ReflectionProbe
+            {
+                Position = new Vector3(0f, 0.6f, 0f),
+                BoxMin = new Vector3(-200f, -0.02f, -200f),
+                BoxMax = new Vector3(200f, 200f, 200f),
+                BlendDistance = 0.01f,
+            });
+            placeProbe = false;
         }
 
         if (screenshotPath is not null && frame == screenshotFrame)

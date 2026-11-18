@@ -164,6 +164,16 @@ internal sealed unsafe class VulkanContext : IDisposable
     /// <summary>How many times <see cref="SubmitAndWait"/> has run, so tests can check a frame never waits.</summary>
     internal int SubmitAndWaitCount { get; private set; }
 
+    /// <summary>How many times <see cref="WaitIdle"/> has run, so a profile can tell a frame that stopped for the GPU.</summary>
+    public int WaitIdleCount { get; private set; }
+
+    /// <summary>Waits until the GPU has finished everything it was given. Not for use during a frame.</summary>
+    public void WaitIdle()
+    {
+        WaitIdleCount++;
+        Api.DeviceWaitIdle(Device).Check();
+    }
+
     /// <summary>Records and runs one-off GPU work, then waits for it. Not for use during a frame.</summary>
     public void SubmitAndWait(Action<CommandBuffer> record)
     {

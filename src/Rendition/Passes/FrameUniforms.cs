@@ -14,19 +14,16 @@ internal struct GpuLight
     public Vector4 Radiance;
 }
 
+/// <summary>One reflection probe as the shaders read it. Must match ReflectionProbe in Shaders/light_data.glsl.</summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct GpuReflectionProbe
 {
     /// <summary>xyz is where it was captured; w is the distance over which it fades out.</summary>
     public Vector4 Position;
+
+    /// <summary>xyz: the box's near corner; w: the probe's cube in the cube array.</summary>
     public Vector4 BoxMin;
     public Vector4 BoxMax;
-}
-
-[InlineArray(FrameUniforms.MaxProbes)]
-internal struct GpuReflectionProbeArray
-{
-    private GpuReflectionProbe _first;
 }
 
 [InlineArray(FrameUniforms.MaxLights)]
@@ -52,7 +49,6 @@ internal struct ProbeCascadeOriginArray
 internal struct FrameUniforms
 {
     public const int MaxLights = 8;
-    public const int MaxProbes = 4;
 
     public Matrix4x4 ViewProjection;
     public Matrix4x4 InverseViewProjection;
@@ -215,6 +211,8 @@ internal struct FrameUniforms
     public float Time;
     public int FrameNumber;
     public int HistoryValid;
+
+    /// <summary>How many reflection probes the view sees, at the front of the frame's probe list.</summary>
     public int ProbeCount;
     public int ShowEnvironment;
     public int ShadowCascades;
@@ -241,10 +239,15 @@ internal struct FrameUniforms
     /// </summary>
     public float PreviousTime;
     public GpuLightArray Lights;
-    public GpuReflectionProbeArray Probes;
 
     /// <summary>World to the light probes' own sun shadow map, which covers the largest cascade. See ProbeSunShadow.</summary>
     public Matrix4x4 ProbeSunMatrix;
+
+    /// <summary>
+    /// World to the sun shadow map round the box of the reflection probe this frame captures, or zero when it captures
+    /// none or no sun casts a shadow. See ReflectionCapturePass.
+    /// </summary>
+    public Matrix4x4 ReflectionSunMatrix;
 }
 
 /// <summary>One point or spot light as the shaders read it. Must match LocalLight in Shaders/light_data.glsl.</summary>
