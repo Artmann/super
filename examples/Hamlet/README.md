@@ -61,6 +61,7 @@ The current lighting shows in the bottom-left corner. The keys switch between:
 | P | Light probes | Draws the live light probes over the scene, on and off; works in any lighting. Watch the cart's light move between chunks |
 | R | A new village | The next seed |
 
+Keys 1, 2 and 3 and their panel come from `examples/Shared/LightingSwitch.cs`, which the Gallery shares.
 P sets `Graphics.DebugView` to `DebugView.Probes` and back to `None`. `--script live` presses key 1 and `--script probes` presses P, so a screenshot shows live lighting or the probes. `--debug-view probes` on the
 command line shows the same view from the start, and while it names a view, P changes nothing.
 

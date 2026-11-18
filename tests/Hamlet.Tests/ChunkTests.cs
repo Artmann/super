@@ -1,4 +1,5 @@
 using System.Numerics;
+using Examples;
 using Rendition;
 using Super;
 using Super.Testing;
@@ -200,11 +201,11 @@ public sealed class ChunkTests
     public void TheLiveScriptSwitchesToLiveLighting()
     {
         using var run = Start(1);
-        Assert.Equal(HamletGame.Lighting.Baked, run.Game.CurrentLighting);
+        Assert.Equal(LightingMode.Baked, run.Game.CurrentLighting);
 
         run.Play(run.Game.Scripts["live"]);
         run.Ticks(4);
 
-        Assert.Equal(HamletGame.Lighting.Live, run.Game.CurrentLighting);
+        Assert.Equal(LightingMode.Live, run.Game.CurrentLighting);
     }
 }

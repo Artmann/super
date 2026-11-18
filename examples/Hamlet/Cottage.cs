@@ -44,12 +44,30 @@ internal static class Cottage
     private const float DoorAlong = -0.8f;
     private const float GardenDepth = 3.6f;
     private const float GardenHalfWidth = 3.6f;
+    private const float OuterX = HalfWidth + Thickness;
+    private const float OuterZ = HalfDepth + Thickness;
+    private const float Front = OuterZ + GardenDepth;
 
     public static BuildingPlan Build(Content content, Palette palette, CottageLayout layout)
     {
-        var b = new PlanBuilder(palette);
-        float outerX = HalfWidth + Thickness;
-        float outerZ = HalfDepth + Thickness;
+        var b = new PlanBuilder(content, palette);
+        Shell(b);
+        Inside(b, layout);
+        Garden(b);
+
+        return b.Build(
+            "cottage",
+            new Vector3(-GardenHalfWidth, -1.5f, -OuterZ - 0.4f),
+            new Vector3(GardenHalfWidth, CeilingTop + Rise + 0.3f, Front),
+            new Vector3(DoorAlong, 0f, Front + 1f),
+            new Vector3(DoorAlong, FloorTop, HalfDepth - 0.4f));
+    }
+
+    /// <summary>The footing, the floor, the walls with their door and windows, the ceiling and the roof.</summary>
+    private static void Shell(PlanBuilder b)
+    {
+        float outerX = OuterX;
+        float outerZ = OuterZ;
         float wallMiddleX = HalfWidth + Thickness * 0.5f;
         float wallMiddleZ = HalfDepth + Thickness * 0.5f;
 
@@ -73,9 +91,13 @@ internal static class Cottage
         // A flat ceiling, the gable ends above it, and the roof.
         b.Plaster.Span(new Vector3(-outerX, WallTop, -outerZ), new Vector3(outerX, CeilingTop, outerZ), Matrix4x4.Identity);
         b.Plaster.Gable(outerZ, Rise, outerX * 2f, Matrix4x4.CreateTranslation(0f, CeilingTop, 0f));
-        b.Roof.PitchedRoof(outerZ, Rise, outerX * 2f, 0.4f, 0.14f, Matrix4x4.CreateTranslation(0f, CeilingTop, 0f));
+        b.Roof.PitchedRoof(new RoofShape(outerZ, Rise, outerX * 2f, 0.4f, 0.14f), Matrix4x4.CreateTranslation(0f, CeilingTop, 0f));
         b.Wood.Box(new Vector3(outerX * 2f + 0.9f, 0.16f, 0.16f), new Vector3(0f, CeilingTop + Rise + 0.12f, 0f));
+    }
 
+    /// <summary>The painted back wall, the open door, the furniture as the layout says, and the lamp.</summary>
+    private static void Inside(PlanBuilder b, CottageLayout layout)
+    {
         // The back wall's inside, painted, beside its window.
         b.Accent.Span(new Vector3(-HalfWidth, FloorTop, -HalfDepth), new Vector3(0.95f, WallTop, -HalfDepth + 0.015f), Matrix4x4.Identity);
         b.Accent.Span(new Vector3(1.85f, FloorTop, -HalfDepth), new Vector3(HalfWidth, WallTop, -HalfDepth + 0.015f), Matrix4x4.Identity);
@@ -89,24 +111,20 @@ internal static class Cottage
         Furniture(b, layout.Shelf, Shelf);
 
         b.HangingLamp(new Vector3(0.2f, 2.3f, -0.3f), WallTop, new Vector3(4.2f, 2.6f, 1.25f), 7f);
+    }
 
-        // The garden: a low wall round the front with a gate in line with the door.
+    /// <summary>The garden: a low wall round the front with a gate in line with the door, and a path to it.</summary>
+    private static void Garden(PlanBuilder b)
+    {
         float wallHeight = 0.85f;
-        float front = outerZ + GardenDepth;
+        float outerZ = OuterZ;
+        float front = Front;
         float gate = 1.2f;
         b.Stone.Span(new Vector3(-GardenHalfWidth, -0.8f, outerZ - 0.1f), new Vector3(-GardenHalfWidth + 0.3f, wallHeight, front), Matrix4x4.Identity);
         b.Stone.Span(new Vector3(GardenHalfWidth - 0.3f, -0.8f, outerZ - 0.1f), new Vector3(GardenHalfWidth, wallHeight, front), Matrix4x4.Identity);
         b.Stone.Span(new Vector3(-GardenHalfWidth, -0.8f, front - 0.3f), new Vector3(DoorAlong - gate * 0.5f, wallHeight, front), Matrix4x4.Identity);
         b.Stone.Span(new Vector3(DoorAlong + gate * 0.5f, -0.8f, front - 0.3f), new Vector3(GardenHalfWidth, wallHeight, front), Matrix4x4.Identity);
         b.Floor.Span(new Vector3(DoorAlong - 0.45f, -0.3f, outerZ), new Vector3(DoorAlong + 0.45f, 0.06f, front), Matrix4x4.Identity);
-
-        return b.Build(
-            content,
-            "cottage",
-            new Vector3(-GardenHalfWidth, -1.5f, -outerZ - 0.4f),
-            new Vector3(GardenHalfWidth, CeilingTop + Rise + 0.3f, front),
-            new Vector3(DoorAlong, 0f, front + 1f),
-            new Vector3(DoorAlong, FloorTop, HalfDepth - 0.4f));
     }
 
     /// <summary>

@@ -1,4 +1,5 @@
 using System.Numerics;
+using Examples;
 using Rendition;
 using Super;
 using Super.Ui;
@@ -16,24 +17,8 @@ namespace Hamlet;
 /// </summary>
 public sealed class HamletGame(GameRandom random, Input input, Content content, Graphics graphics) : IGame
 {
-    /// <summary>The lighting modes that keys 1, 2 and 3 switch between.</summary>
-    public enum Lighting
-    {
-        /// <summary>Key 1: every light live and bounced light from the live probes, as if nothing were baked.</summary>
-        Live,
-
-        /// <summary>Key 2: the chunks' bakes where they are fresh.</summary>
-        Baked,
-
-        /// <summary>Key 3: direct light only, with no bake and no bounced light.</summary>
-        Direct,
-    }
-
     /// <summary>The lightmap density of every building's bake.</summary>
     internal const int TexelsPerMetre = 10;
-
-    private static readonly Color Muted = new(0.8f, 0.82f, 0.86f);
-    private static readonly Color Panel = new(0.06f, 0.07f, 0.09f, 0.72f);
 
     /// <summary>
     /// The first building's first draw key. Building i's parts are drawn under the keys from
@@ -50,7 +35,7 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
     private const int CartLightKey = 99_000;
     private const int PaneKeys = 32;
 
-    private Palette _palette = null!;
+    private readonly LightingSwitch _lighting = new(input, graphics);
     private Kinds _kinds = null!;
     private Village _village = null!;
     private Ground _ground = null!;
@@ -61,13 +46,12 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
     private int _villages;
     private float _previousSeconds;
     private float _seconds;
-    private Lighting _lighting = Lighting.Baked;
 
     /// <summary>The village now shown.</summary>
     internal Village Village => _village;
 
     /// <summary>The lighting now on.</summary>
-    internal Lighting CurrentLighting => _lighting;
+    internal LightingMode CurrentLighting => _lighting.Current;
 
     /// <summary>
     /// Scripts for <c>--script</c>: <c>live</c> presses key 1, so a shot shows live lighting; <c>probes</c> presses P,
@@ -81,36 +65,17 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
 
     public void Load()
     {
-        _palette = new Palette(content);
-        _kinds = new Kinds(content, _palette);
-        _cart = new Cart(content, _palette);
-        _pane = content.Mesh(Shapes.Quad(Vector2.One, _palette.Pane));
+        var palette = new Palette(content);
+        _kinds = new Kinds(content, palette);
+        _cart = new Cart(content, palette);
+        _pane = content.Mesh(Shapes.Quad(Vector2.One, palette.Pane));
         Build(random.Seed);
-        UseLighting(_lighting);
-    }
-
-    /// <summary>Switches the graphics settings to <paramref name="lighting"/>.</summary>
-    private void UseLighting(Lighting lighting)
-    {
-        _lighting = lighting;
-        graphics.Baking.BakedLighting = lighting == Lighting.Baked;
-        graphics.Lighting.LightProbes = lighting != Lighting.Direct;
+        _lighting.Use(_lighting.Current);
     }
 
     public void Update(GameTime time)
     {
-        if (input.Pressed(Key.D1))
-        {
-            UseLighting(Lighting.Live);
-        }
-        else if (input.Pressed(Key.D2))
-        {
-            UseLighting(Lighting.Baked);
-        }
-        else if (input.Pressed(Key.D3))
-        {
-            UseLighting(Lighting.Direct);
-        }
+        _lighting.Update();
 
         // The live light probes drawn over the scene, to watch the cart's light move between chunks.
         if (input.Pressed(Key.P))
@@ -162,45 +127,31 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
             BuildingDrawing.Draw(view, building, _pane, BuildingGlow.At(building, seconds, elevation), inside: pose.Indoors > 0.5f && building.Index == _tour.Cottage.Index);
         }
 
-        // The cart moves, so it stays out of the bakes and is lit by the probes like the rest of what moves.
+        DrawCart(view, seconds, elevation);
+    }
+
+    /// <summary>The lighting modes in the bottom-left corner, with the current one in bold, and whether P shows the probes.</summary>
+    public UiView? Ui => _lighting.Panel(modes =>
+    {
+        var probes = new Text("P  Light probes");
+        modes.Add(graphics.DebugView == DebugView.Probes ? probes.Bold() : probes.Foreground(LightingSwitch.Muted));
+    });
+
+    /// <summary>
+    /// The cart, with its lantern lit at dusk. The cart moves, so it stays out of the bakes and is lit by the probes
+    /// like the rest of what moves.
+    /// </summary>
+    private void DrawCart(View view, float seconds, float elevation)
+    {
         var cart = Cart.Placement(_village, seconds);
         _cart.Draw(view, CartKey, cart, seconds, _cartColor);
         float cartLamp = 1f - DayCycle.Smooth(-0.06f, 0.02f, elevation);
         if (cartLamp > 0.01f)
         {
             var lantern = Vector3.Transform(Cart.Lantern, cart);
-            float flicker = Flicker(seconds, 7f);
+            float flicker = BuildingGlow.Wavering(seconds, 7f);
             view.Lights.Spot(
                 CartLightKey, new SpotLight(lantern, -Vector3.UnitY, Palette.Lamplight * 3f * cartLamp * flicker, 8f) { InnerAngle = 0.6f, OuterAngle = 1.35f, Mode = LightMode.Realtime });
-        }
-    }
-
-    /// <summary>The lighting modes in the bottom-left corner, with the current one in bold.</summary>
-    public UiView? Ui
-    {
-        get
-        {
-            var modes = new VStack(HorizontalAlignment.Leading, 4f);
-            foreach (var (lighting, key, name) in new[]
-            {
-                (Lighting.Live, 1, "Live lighting"),
-                (Lighting.Baked, 2, "Baked lighting"),
-                (Lighting.Direct, 3, "Direct light only"),
-            })
-            {
-                var text = new Text($"{key}  {name}");
-                modes.Add(lighting == _lighting ? text.Bold() : text.Foreground(Muted));
-            }
-
-            var probes = new Text("P  Light probes");
-            modes.Add(graphics.DebugView == DebugView.Probes ? probes.Bold() : probes.Foreground(Muted));
-
-            return modes
-                .Padding(12f)
-                .Background(Panel)
-                .CornerRadius(8f)
-                .Padding(20f)
-                .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.BottomLeading);
         }
     }
 
@@ -322,11 +273,11 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
     {
         public static BuildingGlow At(Building building, float seconds, float elevation) => new(
             1f - DayCycle.Smooth(building.Dusk - 0.04f, building.Dusk + 0.04f, elevation),
-            HamletGame.Flicker(seconds, building.Phase),
+            Wavering(seconds, building.Phase),
             1f + 0.18f * MathF.Sin(seconds * 9f + building.Phase) + 0.1f * MathF.Sin(seconds * 21f + building.Phase * 1.3f));
-    }
 
-    /// <summary>A lamp's flame wavering, about 1, different for every building.</summary>
-    private static float Flicker(float seconds, float phase) =>
-        1f + 0.07f * MathF.Sin(seconds * 11f + phase) + 0.05f * MathF.Sin(seconds * 23f + phase * 1.7f);
+        /// <summary>A lamp's flame wavering, about 1, different for every <paramref name="phase"/>.</summary>
+        public static float Wavering(float seconds, float phase) =>
+            1f + 0.07f * MathF.Sin(seconds * 11f + phase) + 0.05f * MathF.Sin(seconds * 23f + phase * 1.7f);
+    }
 }
