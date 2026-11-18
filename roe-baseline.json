@@ -2463,12 +2463,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Spline.Nearest",
-      "file": "src/Super/Spline.cs",
-      "metric": 68
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Spline.Spline",
       "file": "src/Super/Spline.cs",
       "metric": 54
@@ -3581,7 +3575,7 @@
       "kind": "large-type",
       "name": "Super.Spline",
       "file": "src/Super/Spline.cs",
-      "metric": 43
+      "metric": 46
     },
     {
       "kind": "large-type",
