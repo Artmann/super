@@ -366,7 +366,7 @@ internal static class TextureCompression
         if (format == TextureFormat.Bc7)
         {
             mips = EachLevel(texture, (pixels, width, height, level) => level > 0 && cutoff > 0f && cutoff <= 1f
-                ? CutoutEncoder.Encode(pixels, width, height, cutoff, partner is null ? null : TextureData.PartnerAlpha(partner, texture, level))
+                ? CutoutEncoder.Encode(pixels, width, height, cutoff, partner is null ? null : CutoutCoverage.PartnerAlpha(partner, texture, level))
                 : Bc7Encoder.Encode(pixels, width, height));
         }
         else

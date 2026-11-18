@@ -50,7 +50,7 @@ public class TextureDataTests
     [Fact]
     public void Roughness_is_left_as_it_is_where_the_normals_agree()
     {
-        Assert.Equal(0.5f, TextureData.WidenedRoughness(0.5f, 1f));
+        Assert.Equal(0.5f, RoughnessWidening.Widened(0.5f, 1f));
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class TextureDataTests
         // Normals averaging to 0.9 long: kappa = (3 * 0.9 - 0.9^3) / (1 - 0.9^2) = 1.971 / 0.19 = 10.374.
         // GGX alpha 0.25 for roughness 0.5, so alpha^2 = 0.0625, plus 2 / kappa = 0.1928, is 0.2553.
         // Its square root is the new alpha, 0.5053, and roughness is the root of that, 0.7108.
-        Assert.Equal(0.7108f, TextureData.WidenedRoughness(0.5f, 0.9f), 0.001f);
+        Assert.Equal(0.7108f, RoughnessWidening.Widened(0.5f, 0.9f), 0.001f);
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class TextureDataTests
         byte[] rough = [0, 128, 0, 255];
         var surface = TextureData.FromPixels(2, 2, TextureKind.Linear, [.. rough, .. rough, .. rough, .. rough]);
 
-        var widened = TextureData.WidenRoughness(surface, normal);
+        var widened = RoughnessWidening.Widen(surface, normal);
 
         Assert.Equal(surface.Mips[0], widened.Mips[0]);
         // Length 0.707: kappa = (2.121 - 0.354) / 0.5 = 3.536 and 2 / kappa = 0.566. Roughness 128/255 = 0.502 is alpha
@@ -110,21 +110,21 @@ public class TextureDataTests
     {
         var filtered = TextureData.FromPixels(128, 128, TextureKind.Color, Threads());
 
-        var kept = TextureData.KeepAlphaCoverage(filtered, 0.5f);
+        var kept = CutoutCoverage.Keep(filtered, 0.5f);
 
-        double top = TextureData.AlphaCoverage(filtered, 0, 0.5f);
+        double top = CutoutCoverage.Of(filtered, 0, 0.5f);
         Assert.InRange(top, 0.01, 0.03);
         for (int level = 1; level < kept.Mips.Length; level++)
         {
             // A level's share moves in whole pixels, so it can be off by half of one, or 1% where pixels are many.
             int pixels = Math.Max(128 >> level, 1) * Math.Max(128 >> level, 1);
-            double share = TextureData.AlphaCoverage(kept, level, 0.5f);
+            double share = CutoutCoverage.Of(kept, level, 0.5f);
             Assert.True(Math.Abs(share - top) <= Math.Max(0.01, 0.5 / pixels),
                 $"level {level} keeps {share:F4} of its pixels, against {top:F4} at the top");
         }
 
         // Filtering alone thins the threads away: by the 16x16 level fewer than half as many pixels pass.
-        Assert.True(TextureData.AlphaCoverage(filtered, 3, 0.5f) < top / 2, $"filtered kept {TextureData.AlphaCoverage(filtered, 3, 0.5f):F4}");
+        Assert.True(CutoutCoverage.Of(filtered, 3, 0.5f) < top / 2, $"filtered kept {CutoutCoverage.Of(filtered, 3, 0.5f):F4}");
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public class TextureDataTests
     {
         var filtered = TextureData.FromPixels(128, 128, TextureKind.Color, Threads());
 
-        var kept = TextureData.KeepAlphaCoverage(filtered, 0.5f);
+        var kept = CutoutCoverage.Keep(filtered, 0.5f);
 
         Assert.Equal(filtered.Mips[0], kept.Mips[0]);
         Assert.NotEqual(filtered.Mips[3], kept.Mips[3]);

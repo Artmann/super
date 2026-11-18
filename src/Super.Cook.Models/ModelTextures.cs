@@ -26,7 +26,7 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
     /// file links to that isn't there is a warning. One named in the settings
     /// (<paramref name="namedBy"/> is the material) is an error, since it's a mistake in them.
     /// With an <paramref name="alphaCutoff"/> above 0, the smaller levels keep the share of
-    /// pixels whose alpha passes it, as <see cref="TextureData.KeepAlphaCoverage(TextureData, float)"/> does. With a
+    /// pixels whose alpha passes it, as <see cref="CutoutCoverage.Keep(TextureData, float)"/> does. With a
     /// <paramref name="partner"/> too, they keep the share whose alpha times the partner's passes, as
     /// <see cref="CutoutPartner"/> explains.
     /// </summary>
@@ -139,7 +139,7 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
     /// <summary>
     /// Makes the surface texture's smaller levels rougher where the normal map's bumps are too
     /// small to see at that level, so the material doesn't turn shiny in the distance. See
-    /// <see cref="TextureData.WidenRoughness"/>. Each surface texture is widened once, by the
+    /// <see cref="RoughnessWidening.Widen"/>. Each surface texture is widened once, by the
     /// first normal map it's used with.
     /// </summary>
     public void WidenRoughness(int surface, int normal)
@@ -149,7 +149,7 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
             return;
         }
 
-        _textures[surface] = TextureData.WidenRoughness(_textures[surface], _textures[normal]);
+        _textures[surface] = RoughnessWidening.Widen(_textures[surface], _textures[normal]);
     }
 
     /// <summary>The bytes of a texture's file and of its alpha file, or null after saying which is missing.</summary>

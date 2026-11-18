@@ -76,7 +76,7 @@ internal static class CutoutEncoder
         for (int i = 0; i < thresholds.Length; i++)
         {
             byte partner = partnerAlpha?[i] ?? 255;
-            thresholds[i] = partnerAlpha is null ? threshold : TextureData.ProductThreshold(cutoff, partner);
+            thresholds[i] = partnerAlpha is null ? threshold : CutoutCoverage.ProductThreshold(cutoff, partner);
             centres[i] = partner == 0 ? double.NaN : cutoff * 255.0 * 255.0 / partner;
         }
 

@@ -52,7 +52,7 @@ public sealed class TextureCompressionTests
             }
         }
 
-        var kept = TextureData.KeepAlphaCoverage(TextureData.FromPixels(size, size, TextureKind.Color, pixels), cutoff);
+        var kept = CutoutCoverage.Keep(TextureData.FromPixels(size, size, TextureKind.Color, pixels), cutoff);
         TextureData[] textures = [kept];
         TextureCompression.Compress(textures, [new ModelMaterial
         {
