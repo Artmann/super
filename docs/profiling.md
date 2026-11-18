@@ -74,8 +74,9 @@ dotnet run -c Release --project MyColony -- --seed 42 --ticks 6000 --size 1920x1
 A `.nettrace` file lands next to the report. Open it in
 [PerfView](https://github.com/microsoft/perfview) to dig further.
 
-For a live figure while playing, show [`GameStats`](interfaces.md#showing-how-the-game-runs)
-in a panel. Vsync is off unless the game or `--vsync` turns it on, so the figure is the frame
+For live figures while playing, press F3 for the engine's
+[stats panel](interfaces.md#showing-how-the-game-runs): frame rate, CPU and GPU time with the
+slowest passes, draw calls, triangles and GPU memory. Vsync is off unless the game or `--vsync` turns it on, so the figure is the frame
 rate the machine can reach.
 To see what an effect costs, turn it off in [`Graphics`](rendering.md#graphics-settings) and
 profile again: its pass drops to nothing in the GPU list. Light clusters, Subsurface and the particles in Glass and particles have switches too (`LocalLights`, `Subsurface` and `Particles`), though glass stays in that pass.

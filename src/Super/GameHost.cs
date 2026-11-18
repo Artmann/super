@@ -320,7 +320,13 @@ internal sealed class GameHost<TGame> : IDisposable
     private UiView? Interface()
     {
         var ui = Stopped is { } error ? StoppedPanel.For(error) : ((IGame)Game).Ui;
-        return ShowsBakes ? BakeOverlay.Over(ui, BakeProgress) : ui;
+        if (!ShowsBakes && !Stats.Shown)
+        {
+            return ui;
+        }
+
+        var stats = Stats.Shown ? StatsOverlay.Panel(Stats.Latest, Gpu.Name) : null;
+        return BakeOverlay.Over(ui, ShowsBakes ? BakeProgress : null, stats);
     }
 
     /// <summary>A frame without any of the game's code, for when Draw or Ui is what broke.</summary>

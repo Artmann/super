@@ -29,7 +29,8 @@ internal sealed record GameArguments(
     bool Bake = false,
     bool BakeCheck = false,
     Rendition.BakeQuality BakeQuality = Rendition.BakeQuality.Final,
-    string? GraphicsProfile = null)
+    string? GraphicsProfile = null,
+    bool Stats = false)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -58,6 +59,7 @@ internal sealed record GameArguments(
         ["--upscaler"] = (parsed, reader) => parsed with { Upscaler = UpscalerName(reader.Value()) },
         ["--debug-view"] = (parsed, reader) => parsed with { DebugView = DebugViewName(reader.Value()) },
         ["--vsync"] = (parsed, _) => parsed with { Vsync = true },
+        ["--stats"] = (parsed, _) => parsed with { Stats = true },
         ["--no-materials"] = (parsed, _) => parsed with { NoMaterials = true },
         ["--no-trace"] = (parsed, _) => parsed with { NoTrace = true },
         ["--bake"] = (parsed, _) => parsed with { Bake = true },
@@ -141,6 +143,12 @@ internal sealed record GameArguments(
         if (Vsync && Captures)
         {
             throw new ArgumentException("--vsync only works when playing in a window, so it can't run with --screenshot, --record or --profile.");
+        }
+
+        // The panel's drawing and measuring would land in the profile's own figures.
+        if (Stats && ProfilePath is not null)
+        {
+            throw new ArgumentException("--stats can't run with --profile, which measures the frames itself and writes what it found to its report.");
         }
     }
 

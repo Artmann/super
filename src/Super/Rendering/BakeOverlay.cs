@@ -35,14 +35,14 @@ internal static class BakeOverlay
     }
 
     /// <summary>
-    /// The game's interface with the line over it at the bottom left, which the pointer passes through. The game's view
-    /// stays the first child of the same stack whether a bake runs or not, so it keeps its state as bakes come and go.
-    /// Null when there is neither.
+    /// The game's interface with the line over it at the bottom left and the engine's stats panel, when there is one,
+    /// which the pointer passes through. The game's view stays the first child of the same stack whether a bake runs
+    /// or the panel shows, so it keeps its state as they come and go. Null when there is none of them.
     /// </summary>
-    public static UiView? Over(UiView? game, BakeProgress? progress)
+    public static UiView? Over(UiView? game, BakeProgress? progress, UiView? stats = null)
     {
         string? text = Text(progress);
-        if (game is null && text is null)
+        if (game is null && text is null && stats is null)
         {
             return null;
         }
@@ -51,6 +51,7 @@ internal static class BakeOverlay
         {
             game,
             text is null ? null : Line(text),
+            stats,
         };
     }
 

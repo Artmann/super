@@ -580,6 +580,18 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public (int Drawn, int Kept) ShadowTiles { get; private set; }
 
+    /// <summary>
+    /// The model draw calls the last frame recorded, while <see cref="MeasureGpu"/> is on: one for each batch of
+    /// copies of a model part, in the camera, shadow, reflection and probe passes together.
+    /// </summary>
+    public int DrawCalls { get; private set; }
+
+    /// <summary>
+    /// GPU memory the renderer holds: the bytes in use, and the bytes taken from the device, which also counts the
+    /// free room in its memory blocks.
+    /// </summary>
+    public (long Used, long Reserved) GpuMemoryBytes => ((long)_context.Memory.UsedBytes, (long)_context.Memory.ReservedBytes);
+
     private DrawItem[] _cameraDraws = [];
     // Which draw each camera draw came from, and the placed chunk each camera draw is relit as, -1 for none. Only
     // filled on frames that relight a chunk.
@@ -3794,7 +3806,9 @@ public sealed unsafe class Renderer : IDisposable
         bool timed = ResetFrame(frame);
         var camera = FrameCameraOf(view, antiAliased);
         int cameraCount = WriteFrameData(frame, view, draws, camera);
+        long issued = DrawCallCount.Issued;
         var cmd = RecordCommands(frame, view, imageIndex, new FrameDraws(_cameraDraws.AsSpan(0, cameraCount), draws), timed);
+        DrawCalls = MeasureGpu ? (int)(DrawCallCount.Issued - issued) : 0;
         var renderFinished = _swapchain.RenderFinished[imageIndex];
         Submit(frame, cmd, renderFinished);
         Present(view, imageIndex, renderFinished);

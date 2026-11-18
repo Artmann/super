@@ -57,6 +57,53 @@ public sealed class QualityGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void The_suns_cascades_add_their_draw_calls_to_the_frames()
+    {
+        int errors = gpu.ValidationErrors;
+        var panel = Panel(new Vector3(0f, 0f, 0f));
+        try
+        {
+            // Every effect is off but the sun's shadows, so nothing else draws the panel.
+            var shadowsOnly = RenderEffects.All & ~RenderEffects.SunShadows;
+            int unshadowed = DrawCalls(panel, RenderEffects.All, maxCascades: 4);
+            int one = DrawCalls(panel, shadowsOnly, maxCascades: 1);
+            int four = DrawCalls(panel, shadowsOnly, maxCascades: 4);
+
+            // The panel is one draw for the camera, and one more for each cascade it sits in.
+            Assert.True(unshadowed > 0, "The camera draws the panel.");
+            Assert.Equal(unshadowed + 1, one);
+            Assert.Equal(unshadowed + 4, four);
+        }
+        finally
+        {
+            gpu.Renderer.MaxShadowCascades = 4;
+            gpu.Renderer.DestroyMesh(panel.Mesh);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_new_mesh_counts_in_the_gpu_memory_used()
+    {
+        var before = gpu.Renderer.GpuMemoryBytes;
+        var panel = Panel(new Vector3(0f, 0f, 0f));
+        try
+        {
+            var after = gpu.Renderer.GpuMemoryBytes;
+
+            // The panel's 65 by 65 vertices and 64 by 64 by 6 indices, at the least.
+            long bytes = 65L * 65 * System.Runtime.CompilerServices.Unsafe.SizeOf<Vertex>() + 64L * 64 * 6 * sizeof(uint);
+            Assert.True(after.Used - before.Used >= bytes, $"The memory used grew by {after.Used - before.Used} bytes for a {bytes} byte mesh.");
+            Assert.True(after.Reserved >= after.Used, $"{after.Reserved} bytes reserved hold {after.Used} in use.");
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(panel.Mesh);
+        }
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(5)]
@@ -74,6 +121,21 @@ public sealed class QualityGpuTests(GpuFixture gpu)
         return Measure(panel, RenderEffects.All & ~RenderEffects.SunShadows).Shadows;
     }
 
+    private int DrawCalls(DrawItem panel, RenderEffects off, int maxCascades)
+    {
+        gpu.Renderer.MaxShadowCascades = maxCascades;
+        gpu.Renderer.MeasureGpu = true;
+        try
+        {
+            gpu.Renderer.Render(View(off), [panel]);
+            return gpu.Renderer.DrawCalls;
+        }
+        finally
+        {
+            gpu.Renderer.MeasureGpu = false;
+        }
+    }
+
     private long CameraTriangles(DrawItem panel, float detail)
     {
         gpu.Renderer.MeshDetailScale = detail;
@@ -83,11 +145,26 @@ public sealed class QualityGpuTests(GpuFixture gpu)
     // Draws one frame of the panel under a sun that asks for four cascades, and returns the triangles it drew.
     private (long Camera, long Shadows) Measure(DrawItem panel, RenderEffects off)
     {
+        gpu.Renderer.MeasureGpu = true;
+        try
+        {
+            gpu.Renderer.Render(View(off), [panel]);
+            return gpu.Renderer.DrawnTriangles;
+        }
+        finally
+        {
+            gpu.Renderer.MeasureGpu = false;
+        }
+    }
+
+    // The camera looking at the panel under a sun that asks for four cascades.
+    private static FrameView View(RenderEffects off)
+    {
         DirectionalLight[] sun =
         [
             new() { Direction = Vector3.Normalize(new Vector3(0.4f, 1f, 0.6f)), Radiance = Vector3.One, CastsShadow = true },
         ];
-        var view = new FrameView
+        return new FrameView
         {
             Width = Size,
             Height = Size,
@@ -99,17 +176,6 @@ public sealed class QualityGpuTests(GpuFixture gpu)
             // Culling and simpler models stay on: they're what these tests measure.
             Off = off & ~(RenderEffects.Culling | RenderEffects.SimplerModels),
         };
-
-        gpu.Renderer.MeasureGpu = true;
-        try
-        {
-            gpu.Renderer.Render(view, [panel]);
-            return gpu.Renderer.DrawnTriangles;
-        }
-        finally
-        {
-            gpu.Renderer.MeasureGpu = false;
-        }
     }
 
     // A two-metre square facing the camera, cut into 64 by 64 quads, so it has simpler versions to fall back to.

@@ -53,6 +53,42 @@ internal sealed unsafe class GpuMemory(VulkanContext context) : IDisposable
 
     private readonly List<Pool> _pools = [];
 
+    // Bytes in allocations too large for a block, which each have their own memory.
+    private ulong _dedicated;
+
+    /// <summary>Bytes handed out and still in use, in the blocks and in allocations of their own.</summary>
+    public ulong UsedBytes
+    {
+        get
+        {
+            ulong used = _dedicated;
+            foreach (var pool in _pools)
+            {
+                foreach (var block in pool.Blocks)
+                {
+                    used += block.Arena.Used;
+                }
+            }
+
+            return used;
+        }
+    }
+
+    /// <summary>Bytes taken from the device: every block whole, and the allocations of their own.</summary>
+    public ulong ReservedBytes
+    {
+        get
+        {
+            ulong reserved = _dedicated;
+            foreach (var pool in _pools)
+            {
+                reserved += (ulong)pool.Blocks.Count * BlockSize;
+            }
+
+            return reserved;
+        }
+    }
+
     public GpuAllocation AllocateBuffer(in MemoryRequirements requirements, MemoryPropertyFlags properties) =>
         Allocate(requirements, properties, images: false);
 
@@ -64,6 +100,7 @@ internal sealed unsafe class GpuMemory(VulkanContext context) : IDisposable
         if (allocation.Pool < 0)
         {
             context.Api.FreeMemory(context.Device, allocation.Memory, null);
+            _dedicated -= allocation.Size;
             return;
         }
 
@@ -91,6 +128,7 @@ internal sealed unsafe class GpuMemory(VulkanContext context) : IDisposable
         if (requirements.Size > BlockSize)
         {
             var memory = AllocateRaw(requirements.Size, memoryType, hostVisible, out byte* mapped);
+            _dedicated += requirements.Size;
             return new GpuAllocation(memory, 0, requirements.Size, mapped, -1, -1);
         }
 

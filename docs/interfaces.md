@@ -300,10 +300,50 @@ works with no files around.
 
 ## Showing how the game runs
 
-Ask for `GameStats` in your constructor and read `Latest`, which updates twice a second.
-It holds the frame rate, frame time, bytes allocated per frame on the game's thread, heap
-size and garbage collections. Work done for the interface isn't counted, so a stats panel
-doesn't report itself. Reef's panel is in
+Every game has a stats panel built in. Press F3 in the window to show or hide it, or start
+with it on with `--stats` from [the command line](command-line.md), which works with
+`--screenshot` and `--record` too. It sits in the top right corner over the game's interface
+and never takes the mouse.
+
+![The Courtyard without the panel and with it](media/render-stats.webp)
+
+From the top, the panel shows:
+
+- The frame rate and how long a frame takes.
+- CPU: how long a frame kept the game's thread busy, which is the frame less the time spent
+  waiting for the GPU and the display.
+- GPU: how long a frame kept the GPU busy, with the five slowest passes under it. A GPU that
+  can't time its passes leaves these out.
+- Draw calls: the models drawn in the newest frame, over every pass, shadows included.
+- Triangles: what the camera drew after culling and detail, and under it what the shadows
+  drew. A still light's kept shadow isn't drawn again, so it isn't counted.
+- Shadow tiles: the point and spot light shadows drawn this frame and those kept from
+  earlier ones, when the scene has any.
+- GPU memory: what the renderer uses of what it has taken from the device. It takes memory
+  in 64 MB blocks, so the second figure is the larger.
+- Heap: the size of the garbage collected heap and the bytes allocated a frame on the
+  game's thread.
+- Collections: garbage collections since the game started.
+- The frame's size and the GPU's name.
+
+The times are averages over half a second, and the counts are the newest frame's. Timing
+the GPU costs a little, so the renderer is only measured while the panel is shown. F3 is
+the engine's, so the game never sees it.
+
+A game can show the panel from a menu of its own by setting `GameStats.Shown`:
+
+```csharp
+class DebugMenu(GameStats stats)
+{
+    public void ShowStats(bool on) => stats.Shown = on;
+}
+```
+
+To draw your own panel instead, ask for `GameStats` in your constructor and read `Latest`,
+which updates twice a second. It holds the frame rate, frame time, bytes allocated per frame
+on the game's thread, heap size and garbage collections, and in `Render` the renderer's
+figures above, while `Shown` is on. Work done for the interface isn't counted, so a stats
+panel doesn't report itself. Reef's panel is in
 [StatsPanel.cs](../examples/Reef/StatsPanel.cs).
 
 These numbers come from the real clock, so only show them. If they reach `Update`, a seed

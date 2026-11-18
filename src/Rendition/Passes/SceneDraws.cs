@@ -499,9 +499,24 @@ internal static unsafe class SceneDraws
 
             api.CmdPushConstants(cmd, layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
             api.CmdDrawIndexed(cmd, draw.IndexCount, (uint)copies, draw.FirstIndex, 0, (uint)firstInstance);
+            DrawCallCount.Add();
         }
     }
 
     [ThreadStatic]
     private static List<DrawBatch>? _batches;
+}
+
+/// <summary>
+/// Counts the scene's draw calls, which are recorded on several threads at once. A frame's draw calls are the
+/// difference in <see cref="Issued"/> across its recording.
+/// </summary>
+internal static class DrawCallCount
+{
+    private static long _issued;
+
+    /// <summary>Every draw call issued so far, by every renderer in the process.</summary>
+    public static long Issued => Interlocked.Read(ref _issued);
+
+    public static void Add() => Interlocked.Increment(ref _issued);
 }
