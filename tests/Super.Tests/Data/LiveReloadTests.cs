@@ -93,6 +93,13 @@ public class LiveReloadTests
         }
     }
 
+    /// <summary>The content, with <paramref name="starts"/> recording the cooks it starts.</summary>
+    internal static Content CookedBy(Content content, CookStarts starts)
+    {
+        content.Data.Live.StartCook = starts.Start;
+        return content;
+    }
+
     /// <summary>
     /// A game's folders on disk, as a build leaves them: sources, the cooked content folder, and
     /// optionally content.dev.json beside it.
@@ -297,7 +304,7 @@ public class LiveReloadTests
     {
         using var game = new TempGame(dev: true, "art");
         var starts = new CookStarts();
-        var content = new Content(game.Folder) { Data = { Live = { StartCook = starts.Start } } };
+        var content = CookedBy(new Content(game.Folder), starts);
 
         content.Data.Live.GoLive();
         try
@@ -335,7 +342,7 @@ public class LiveReloadTests
     {
         using var game = new TempGame(dev: false);
         var starts = new CookStarts();
-        var content = new Content(game.Folder) { Data = { Live = { StartCook = starts.Start } } };
+        var content = CookedBy(new Content(game.Folder), starts);
 
         content.Data.Live.GoLive();
 
@@ -348,7 +355,7 @@ public class LiveReloadTests
     {
         using var game = new TempGame(dev: true);
         var starts = new CookStarts();
-        var content = new Content(game.Folder) { Data = { Live = { StartCook = starts.Start } } };
+        var content = CookedBy(new Content(game.Folder), starts);
         content.Data.Live.GoLive();
         var cook = Assert.Single(starts.Calls).Cook;
         Assert.False(cook.Disposed);
@@ -364,7 +371,7 @@ public class LiveReloadTests
     {
         using var game = new TempGame(dev: true);
         var starts = new CookStarts();
-        var content = new Content(game.Folder) { Data = { Live = { StartCook = starts.Start } } };
+        var content = CookedBy(new Content(game.Folder), starts);
 
         content.Data.Live.GoLive();
         content.Data.Live.GoLive();
@@ -395,7 +402,7 @@ public class LiveReloadTests
     public void Memory_content_never_goes_live()
     {
         var starts = new CookStarts();
-        var content = new Content(new MemoryContent()) { Data = { Live = { StartCook = starts.Start } } };
+        var content = CookedBy(new Content(new MemoryContent()), starts);
 
         content.Data.Live.GoLive();
 
@@ -490,7 +497,7 @@ public sealed class BesideProgramTests
         try
         {
             var starts = new LiveReloadTests.CookStarts();
-            var content = new Content(new CookedFolder(beside)) { Data = { Live = { StartCook = starts.Start } } };
+            var content = LiveReloadTests.CookedBy(new Content(new CookedFolder(beside)), starts);
 
             content.Data.Live.GoLive();
 

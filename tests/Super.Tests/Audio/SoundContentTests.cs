@@ -7,6 +7,9 @@ public class SoundContentTests
 {
     private static byte[] Wav(float first = 0.25f) => TestWav.Make(48000, 1, [first, 0.5f, -0.5f], asFloat: false);
 
+    // The ambience a file holds, as the content read it.
+    private static AmbienceDefinition AmbienceAt(Content content, string name) => content.Sounds.AmbienceOf(content.Sounds.Ambience(name));
+
     private const string Forest = """
         {
           "layers": [
@@ -68,7 +71,7 @@ public class SoundContentTests
     {
         var content = new Content(ForestFiles(Forest));
 
-        AmbienceDefinition forest = content.Sounds.AmbienceOf(content.Sounds.Ambience("sounds/forest.ambience.json"));
+        AmbienceDefinition forest = AmbienceAt(content, "sounds/forest.ambience.json");
 
         Assert.Equal(2, forest.Layers.Length);
         Assert.Equal(0.6f, forest.Layers[0].Volume);
@@ -95,7 +98,7 @@ public class SoundContentTests
             """;
         var content = new Content(files);
 
-        AmbienceDefinition ambience = content.Sounds.AmbienceOf(content.Sounds.Ambience("sounds/a.ambience.json"));
+        AmbienceDefinition ambience = AmbienceAt(content, "sounds/a.ambience.json");
 
         Assert.Equal(1f, ambience.Layers[0].Volume);
         Assert.Equal(0f, ambience.Scattered[0].PitchVariation);
@@ -116,7 +119,7 @@ public class SoundContentTests
         files["sounds/forest.ambience.json"] = """{ "layers": [ { "file": "ambient/rain.wav", "volume": 1 } ] }""";
         var content = new Content(files);
 
-        AmbienceDefinition forest = content.Sounds.AmbienceOf(content.Sounds.Ambience("sounds/forest.ambience.json"));
+        AmbienceDefinition forest = AmbienceAt(content, "sounds/forest.ambience.json");
 
         Assert.Equal("sounds/ambient/rain.wav", forest.Layers[0].Clip.Path);
         Assert.Empty(forest.Scattered);
@@ -129,7 +132,7 @@ public class SoundContentTests
         files["sounds/forest/forest.ambience.json"] = """{ "layers": [ { "file": "../shared/rain.wav" } ] }""";
         var content = new Content(files);
 
-        AmbienceDefinition forest = content.Sounds.AmbienceOf(content.Sounds.Ambience("sounds/forest/forest.ambience.json"));
+        AmbienceDefinition forest = AmbienceAt(content, "sounds/forest/forest.ambience.json");
 
         Assert.Equal("sounds/shared/rain.wav", forest.Layers[0].Clip.Path);
     }
@@ -141,7 +144,7 @@ public class SoundContentTests
         files["sounds/forest.ambience.json"] = """{ "layers": [ { "file": "ambient\\rain.wav" } ] }""";
         var content = new Content(files);
 
-        AmbienceDefinition forest = content.Sounds.AmbienceOf(content.Sounds.Ambience("sounds/forest.ambience.json"));
+        AmbienceDefinition forest = AmbienceAt(content, "sounds/forest.ambience.json");
 
         Assert.Equal("sounds/ambient/rain.wav", forest.Layers[0].Clip.Path);
     }
@@ -190,7 +193,7 @@ public class SoundContentTests
             """;
         var content = new Content(files);
 
-        AmbienceDefinition ambience = content.Sounds.AmbienceOf(content.Sounds.Ambience("sounds/a.ambience.json"));
+        AmbienceDefinition ambience = AmbienceAt(content, "sounds/a.ambience.json");
 
         Assert.Equal(0f, ambience.Layers[0].Volume);
         Assert.Equal(0.01f, ambience.Scattered[0].MinSeconds);
