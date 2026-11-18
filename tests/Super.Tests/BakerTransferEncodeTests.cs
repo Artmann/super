@@ -11,7 +11,7 @@ public sealed class BakerTransferEncodeTests
         // A page of 2 x 1 texels. The first holds a sun's transfer summed by luminance, S = (2, 0.5, -0.4, 0.3), and its
         // colour summed apart, T = (0.8, 0.2, 0.1): red-ish light. The second is a texel nothing reached.
         float[] sun = [2f, 0.5f, -0.4f, 0.3f];
-        var transfer = new float[2 * Baker.TransferFloats];
+        var transfer = new float[2 * BakeGpu.TransferFloats];
         for (int c = 0; c < 4; c++)
         {
             transfer[12 + c] = sun[c];

@@ -134,14 +134,14 @@ internal sealed class BakeJobs(
         var unassigned = new List<int>();
         var channels = BakeLights.AssignSpaceChannels(view, space, lights, unassigned);
         var bakeLights = CollectionsMarshal.AsSpan(lights.Lights);
-        var (baker, volume) = bakers.Prepared(space.Name, probes: true);
+        var baker = bakers.Prepared(space.Name, probes: true);
         var area = new AreaJob(draws.ToArray(), bakeLights.ToArray(), false, layout, view.EnvironmentIntensity, true,
             probeSettings);
         var skipped = unassigned.ToArray();
         var quality = settings.Quality;
         var environment = bakers.Environment;
-        return new BakeJob(baker, context, BakeFiles.Space(space.Name), space.Name, areaInputs, settings, area,
-            environment.Sky, environment.Sampler, volume,
+        return new BakeJob(baker, new BakeJobInfo(BakeFiles.Space(space.Name), space.Name, areaInputs, settings), area,
+            (environment.Sky, environment.Sampler),
             result =>
             {
                 var report = new LightBakeReport(skipped, result.InvalidShare, result.Passes, Stopwatch.GetElapsedTime(started));
@@ -213,14 +213,14 @@ internal sealed class BakeJobs(
 
         // No sky and no sun in the plain light: the transfer carries them, for whatever sky the chunk is placed under.
         bool plainLight = lights.Lights.Count > 0 || glows;
-        var (baker, _) = bakers.Prepared(baked.Name, probes: false);
+        var baker = bakers.Prepared(baked.Name, probes: false);
         var area = new AreaJob(owned.ToArray(), bakeLights, true, layout, 0f, plainLight, null);
         var skipped = unassigned.ToArray();
         var quality = settings.Quality;
         long started = resolved.Started;
         var environment = bakers.Environment;
-        return new BakeJob(baker, context, BakeFiles.Chunk(baked.Name, chunkInputs.Combined), baked.Name, chunkInputs, settings,
-            area, environment.Sky, environment.Sampler, null,
+        var info = new BakeJobInfo(BakeFiles.Chunk(baked.Name, chunkInputs.Combined), baked.Name, chunkInputs, settings);
+        return new BakeJob(baker, info, area, (environment.Sky, environment.Sampler),
             result =>
             {
                 var report = new LightBakeReport(skipped, result.InvalidShare, result.Passes, Stopwatch.GetElapsedTime(started));

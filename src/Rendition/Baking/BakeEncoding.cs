@@ -15,7 +15,7 @@ internal static class BakeEncoding
     /// The dilation averages ten floats a texel, irradiance rgb, direction xyz and mask xyzw, so a chunk's twenty floats
     /// of transfer go through it in this many runs.
     /// </summary>
-    internal const int TransferRuns = Baker.TransferFloats / TransferRunFloats;
+    internal const int TransferRuns = BakeGpu.TransferFloats / TransferRunFloats;
 
     private const int TransferRunFloats = 10;
 
@@ -170,7 +170,7 @@ internal static class BakeEncoding
                 continue;
             }
 
-            int from = t * Baker.TransferFloats + run * TransferRunFloats;
+            int from = t * BakeGpu.TransferFloats + run * TransferRunFloats;
             for (int c = 0; c < 3; c++)
             {
                 irradiance[t * 4 + c] = Finite(transfer[from + c]);
@@ -198,7 +198,7 @@ internal static class BakeEncoding
         for (int t = 0; t < count; t++)
         {
             filled[t] = a[t * 4 + 3] > 0.5f;
-            int to = t * Baker.TransferFloats + run * TransferRunFloats;
+            int to = t * BakeGpu.TransferFloats + run * TransferRunFloats;
             for (int c = 0; c < 3; c++)
             {
                 transfer[to + c] = a[t * 4 + c];
@@ -244,7 +244,7 @@ internal static class BakeEncoding
                 int here = row * traced.Width + column;
                 if (x < side && y < side && traced.Filled[here])
                 {
-                    EncodeTransferTexel(transfer.AsSpan(here * Baker.TransferFloats, Baker.TransferFloats), sh, tint, y * side + x);
+                    EncodeTransferTexel(transfer.AsSpan(here * BakeGpu.TransferFloats, BakeGpu.TransferFloats), sh, tint, y * side + x);
                 }
             }
         }

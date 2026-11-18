@@ -699,7 +699,7 @@ public sealed unsafe class Renderer : IDisposable
         _retired.AfterLastSubmitted.FreedMeshes.Add(live);
 
         // A background bake still tracing it would read freed buffers.
-        BackgroundBakes.StopIfReads(job => job.Uses(mesh));
+        BackgroundBakes.StopIfReads(job => job.Area.Uses(mesh));
 
         // Its structures read its buffers, and its handle may go to another mesh, so they go with it.
         _tracing?.Forget(mesh);
@@ -790,7 +790,7 @@ public sealed unsafe class Renderer : IDisposable
     // Whether a material of one of the job's draws names the texture in this slot.
     private bool BakeReadsTexture(BakeJob job, int slot)
     {
-        foreach (ref readonly var draw in job.Draws)
+        foreach (ref readonly var draw in job.Area.Draws.AsSpan())
         {
             if (!_resources.IsLive(draw.Material))
             {
@@ -815,7 +815,7 @@ public sealed unsafe class Renderer : IDisposable
         // The slot may go to a material with a different opaque flag, so no structure may keep using it, and a
         // background bake tracing those structures can't go on.
         var material = new MaterialHandle(slot);
-        BackgroundBakes.StopIfReads(job => job.Uses(material));
+        BackgroundBakes.StopIfReads(job => job.Area.Uses(material));
         _tracing?.ForgetMaterial(material);
         _resources.MarkMaterialDying(slot);
         _retired.AfterLastSubmitted.FreedMaterials.Add(slot);
@@ -1505,7 +1505,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             // Structures bake each part's opaque flag in, so ones drawn in this material are rebuilt when next traced.
             // A background bake's held top level still points at the old ones, so it stops first.
-            BackgroundBakes.StopIfReads(job => job.Uses(handle));
+            BackgroundBakes.StopIfReads(job => job.Area.Uses(handle));
             _tracing!.ForgetMaterial(handle);
         }
     }

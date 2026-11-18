@@ -2566,7 +2566,12 @@ so the chunk path needs the check too. `--bake` prints the message as one line a
 stage. `SetUpTexels(cmd, layout, draws)` records it: for every texel of every page in a
 `LightmapLayout`, it finds the world position, geometric normal and shading normal of the
 surface under it, and whether the texel is valid. [The path tracer](#the-path-tracer) traces light from these. The
-baker owns its images, pipelines and descriptor sets; none of the frame's bindings change.
+baker owns its images, pipelines and descriptor sets; none of the frame's bindings change. Its parts are separate
+types in `src/Rendition/Baking`: `TexelPages` holds the pages and which bake has claimed them, `TexelDraw` draws the
+static draws into them (through `TileResolve` without conservative rasterization), `TexelValidity` marks the valid
+texels, `BakeTracePass` traces the paths and reads back their sums (`SumsReadBack`), and `BakeProbePass` traces the
+probes. The three ray-traced compute shaders share `BakeComputePass` for their layouts and pass loop, and the sizes
+and formats they share are on `BakeGpu`.
 
 Each page has four 2048 square images: position (`rgba32f`, w is the number of the rectangle
 covering the texel, from 1, and 0 where nothing does), geometric normal and shading normal
@@ -2604,7 +2609,7 @@ even in the cosine and turned by a hash of the texel. It traces them with `trace
 the same acceleration structures the frame uses: `SetUpTexels` builds a top-level structure from
 all the draws with `TraceScene.Collect` and `Renderer.TraceFlagsOf`, so walls that aren't baked
 still count. A ray that hits the back of a one-sided surface means the texel is enclosed; when
-more than half do (`Baker.InvalidShare`), the texel is invalid. A texel nothing covers is
+more than half do (`BakeGpu.InvalidShare`), the texel is invalid. A texel nothing covers is
 invalid too. The validity shader binds its own set 0 and the resource table as set 1.
 
 ## The path tracer
@@ -2625,7 +2630,7 @@ numbers come from a hash of its place and the pass, so a bake of the same scene 
 settings gives the same file.
 
 Each pass first adds the light reaching the texel straight from the lights. Then a path starts
-1 mm (`Baker.TraceLift`) along the texel's geometric normal and goes out cosine-weighted,
+1 mm (`BakeGpu.TraceLift`) along the texel's geometric normal and goes out cosine-weighted,
 through the same acceleration structures and material tables as the frame (`trace.glsl`). At
 each surface it meets, the path adds the surface's emission, takes the surface's diffuse colour
 into its throughput, adds the light reaching that surface from the lights, and bounces. It
@@ -2753,7 +2758,7 @@ column i % 64 and row i / 64. The live atlases are five layers sized by `ProbeQu
 can't share their layout, and `probes.glsl` reads both.
 
 `bake_probes.comp` traces what a live capture draws: each probe's six 16² cube faces. Probes go
-in batches of 64 (`Baker.ProbesPerBatch`), each a row of six faces in a 96 × 1024 `rgba32f` sum.
+in batches of 64 (`BakeGpu.ProbesPerBatch`), each a row of six faces in a 96 × 1024 `rgba32f` sum.
 One pass sends four paths through every face texel, one through the centre of each quarter, with
 `pathFrom` from `bake_paths.glsl`, so they meet the same first surfaces each pass and the bounces
 after them differ. The texel keeps radiance, the paths' mean light divided by π, and the mean
@@ -2773,7 +2778,7 @@ here as it is at a lightmap texel, since the frame draws it live; its light stil
 a bounce through `pathFrom`. `Baked` lights, emission and the sky count in full.
 
 The fold is the live one. The baker keeps a `ProbeVolume` of its own at `ProbeQuality.Low`, made by
-`PreparedBakers.Prepare` (`Baker.EnsureProbeVolume`), and
+`PreparedBakers.Prepare` (`BakeProbePass.EnsureVolume`), and
 for each group of up to `FaceSlots` (8) probes copies their faces into `FacesImage`, one slot each,
 calls `ProbeVolume.RecordFold` per slot, and `RecordStagingReadBack` copies the staging slots to a
 host buffer. So the tiles, borders, depth moments and inside marks come from `probe_fold.comp`
@@ -2816,13 +2821,13 @@ step that finds it done records what follows on the caller's thread and rethrows
 `CpuBusy` says whether the work still runs, and `WaitForCpu` waits for it, which `Bake` and `BakeChunk` do. The steps,
 in order:
 
-1. Texel setup. The job takes the baker's pages (`Baker.ClaimPages`), builds a top-level structure from its draws and
-   records texel setup against it (`Baker.BuildScene`, `Baker.RecordTexels`).
+1. Texel setup. The job takes the baker's pages (`TexelPages.Claim`), builds a top-level structure from its draws and
+   records texel setup against it (`BakeTracePass.BuildHeldScene`, `Baker.RecordTexels`).
 2. For each page, its paths a slice of passes at a time. The first slice makes the region's sums, writes the page's
-   trace set and clears the sums. The step that traces the last pass also copies the sums, positions and validity into
-   a host-visible buffer (`Baker.RecordSumsReadBack`) and returns `AwaitGpu`.
+   trace set and clears the sums (`PageTrace`). The step that traces the last pass also copies the sums, positions and
+   validity into a host-visible buffer (`BakeTracePass.RecordReadBack`) and returns `AwaitGpu`.
 3. The next step frees the sum targets, creates the filter run (`Baker.CreateFilter`) and returns `AwaitCpu` while the
-   thread pool reads that buffer (`Baker.ReadSumsBack`) and fills the filter's upload. The step that finds it done
+   thread pool reads that buffer (`SumsReadBack.Read`) and fills the filter's upload. The step that finds it done
    records the filter (`BakeFilter.Record`) and returns `AwaitGpu`.
 4. The step after that reads the filtered page on the thread pool, and keeps it. A chunk's page then runs both halves
    of its transfer through the same filter run, each read back and the next filled on the thread pool
@@ -2834,6 +2839,12 @@ in order:
 
 `ReadsBack` says whether the next step reads what the last one copied, so the caller must wait for that submit first.
 
+The job keeps the stages in a table of steps over `BakeStage`, each step giving a `BakeStep`: what it asks of the
+caller and the stage after it. `BakeJobKit` holds what every step works with (the baker, the area and its layout, the
+pool, lights and held scene, and the work done), `BakePageSteps` runs the pages and keeps what they leave in
+`PageResults`, `BakeProbeSteps` runs the probes into `ProbeAtlases`, and `BakeCpuWork` runs the thread pool's part.
+`BakeJobInfo` names what the job makes: its file, the area's name, its inputs and its settings.
+
 `Finish` encodes and crops the pages, encodes a chunk's transfer, and makes the file's bytes. It needs no GPU, so a
 background bake can call it off the render thread. `Progress` goes from 0 to 1 by the texel and probe paths traced,
 and only reaches 1 at `Done`.
@@ -2843,7 +2854,7 @@ The file is the same however the passes are sliced, so a job stepped one pass at
 a submit started. The sums add up across submits in the same order. The steps hand over through the same readbacks the
 waiting baker used, and the filter, fold and encoding are unchanged.
 
-The job owns its descriptor pool (`Baker.CreateJobPool`, with room for all of its sets), its lights buffer, its sums, its
+The job owns its descriptor pool (`BakeJobPools.Create`, with room for all of its sets), its lights buffer, its sums, its
 filter run, its probe targets and its readback buffers. Its top-level structure is held through
 `RayTracing.TopLevel(cmd, instances, out release)`, so a `Render` between steps doesn't recycle it. The baker's pages,
 probe volume and the top-level build's scratch are shared, so one job runs at a time. A second job's setup throws
