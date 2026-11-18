@@ -176,8 +176,9 @@ internal sealed class LightProbes(VulkanContext context, EnvironmentMap environm
         else
         {
             var capture = sources.Scene;
-            _sun!.Record(context.Api, cmd, capture.Shadows, frameSet, draws, capture.Meshes, capture.Details, instances);
-            _updatePass.Record(cmd, Volume, frameSet, draws, capture.Meshes, instances);
+            var geometry = new SceneGeometry(draws, capture.Meshes, capture.Details, instances);
+            _sun!.Record(context.Api, cmd, capture.Shadows, frameSet, geometry);
+            _updatePass.Record(cmd, Volume, frameSet, geometry);
             Volume.BeginFolds(cmd);
             var spacings = Batch.Spacings;
             for (int i = 0; i < batch.Count; i++)

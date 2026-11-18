@@ -2191,7 +2191,7 @@ public sealed unsafe class Renderer : IDisposable
         int shadowCount = 0;
         for (int cascade = 0; cascade < _shadowCascades; cascade++)
         {
-            float texelsPerUnit = _shadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
+            float texelsPerUnit = _shadowPass.Resolution / (2f * ShadowCascades.CascadeRadius(view.Shadows, cascade));
             var shadow = new DetailView(
                 _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, DetailError(ShadowDetailError), cull: Culls);
             _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _meshStore.DetailSlots, _shadowDraws[cascade], _windReach, fades: _fadeRules);
@@ -2646,7 +2646,7 @@ public sealed unsafe class Renderer : IDisposable
             for (int cascade = 0; cascade < _shadowCascades; cascade++)
             {
                 var casters = _shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]);
-                _shadowPass.Record(cmd, frameSet, casters, _meshStore.MeshSlots, _meshStore.DetailSlots, instances, cascade);
+                _shadowPass.Record(cmd, frameSet, new SceneGeometry(casters, _meshStore.MeshSlots, _meshStore.DetailSlots, instances), cascade);
             }
 
             _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
@@ -2675,7 +2675,7 @@ public sealed unsafe class Renderer : IDisposable
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
                 kept, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
                 DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
-            _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileDraws, _tileRanges.AsSpan(0, _tileCount), _meshStore.MeshSlots, _meshStore.DetailSlots, instances);
+            _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileRanges.AsSpan(0, _tileCount), new SceneGeometry(_tileDraws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances));
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
                 ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess);
         }
@@ -2770,8 +2770,8 @@ public sealed unsafe class Renderer : IDisposable
         instances.History = _motion;
         instances.Lightmaps = _frameBakes.SpaceLightmaps;
         bool late = _decalPass.Count > 0 && SceneDraws.AnyIn(draws, _resources, ScenePass.OpaqueAfterDecals);
-        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances, DepthFirstView,
-            late ? ScenePass.OpaqueTakingDecals : ScenePass.Opaque);
+        _gBufferPass.Record(cmd, targets, frameSet, new SceneGeometry(draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances),
+            late ? ScenePass.OpaqueTakingDecals : ScenePass.Opaque, DepthFirstView);
         bool decalsDrawn = RecordDecals(cmd, targets, frameSet);
         if (late)
         {
@@ -2893,7 +2893,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
             ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances, pass: ScenePass.OpaqueAfterDecals);
+        _gBufferPass.Record(cmd, targets, frameSet, new SceneGeometry(draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances), ScenePass.OpaqueAfterDecals);
     }
 
     /// <summary>
@@ -3139,7 +3139,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
         uniforms->LightCount = count;
-        _shadowCascades = Math.Min(ShadowPass.CascadeCount(view.Shadows), MaxShadowCascades);
+        _shadowCascades = Math.Min(ShadowCascades.CascadeCount(view.Shadows), MaxShadowCascades);
         uniforms->ShadowCascades = _shadowCascades;
         bool castsShadow = false;
         uniforms->ShadowDepthScales = Vector4.One;
@@ -3151,7 +3151,7 @@ public sealed unsafe class Renderer : IDisposable
             if (casts)
             {
                 uniforms->ShadowRadii = FitCascades(view, direction, casters, out uniforms->ShadowFade, out uniforms->ShadowDepthScales);
-                uniforms->ShadowFade.W = ShadowPass.ContactLength(view.Shadows, _off);
+                uniforms->ShadowFade.W = ShadowCascades.ContactLength(view.Shadows, _off);
                 for (int cascade = 0; cascade < _shadowCascades; cascade++)
                 {
                     uniforms->ShadowMatrices[cascade] = _shadowMatrices[cascade];
@@ -3309,19 +3309,19 @@ public sealed unsafe class Renderer : IDisposable
     {
         var radii = Vector4.Zero;
         depthScales = Vector4.One;
-        float? spread = ShadowPass.Spread(view.Projection);
+        float? spread = ShadowCascades.Spread(view.Projection);
         Matrix4x4.Invert(view.View, out var world);
         var eye = world.Translation;
         var forward = Vector3.Normalize(-new Vector3(world.M31, world.M32, world.M33));
         float start = 0f;
         for (int cascade = 0; cascade < _shadowCascades; cascade++)
         {
-            float radius = ShadowPass.CascadeRadius(view.Shadows, cascade);
+            float radius = ShadowCascades.CascadeRadius(view.Shadows, cascade);
             var center = view.Shadows.Center;
             float reach = radius;
             if (spread is { } opening)
             {
-                (float along, start) = ShadowPass.FitSlice(start, radius, opening);
+                (float along, start) = ShadowCascades.FitSlice(start, radius, opening);
                 center = eye + forward * along;
 
                 // Reach towards the sun at least as far as a cascade round the target would,
@@ -3330,12 +3330,12 @@ public sealed unsafe class Renderer : IDisposable
 
                 // And far enough to take in whatever stands up-sun of it, like a tree out of
                 // frame whose shade falls on a wall in it.
-                reach = ShadowPass.CasterReach(center, radius, direction, reach, casters);
+                reach = ShadowCascades.CasterReach(center, radius, direction, reach, casters);
             }
 
-            _shadowMatrices[cascade] = ShadowPass.CreateMatrix(direction, center, radius, reach, _shadowPass.Resolution);
+            _shadowMatrices[cascade] = ShadowCascades.CreateMatrix(direction, center, radius, reach, _shadowPass.Resolution);
             radii[cascade] = radius;
-            depthScales[cascade] = ShadowPass.DepthScale(radius, reach);
+            depthScales[cascade] = ShadowCascades.DepthScale(radius, reach);
         }
 
         // The last slice ends where shadows do, and they fade out over its last part rather

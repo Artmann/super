@@ -227,9 +227,8 @@ internal sealed unsafe class TransparentPass : IDisposable
         int index = step.First;
         var constants = SceneDraws.Constants(glass.Draws[index], cascade: 0, _resources.Materials.SwayOf, glass.Details);
         constants.Tint.W = step.Refracts ? 1f : 0f;
-        SceneDraws.Draw(
-            _context.Api, cmd, _layout, _pipelines, _resources, glass.Draws, MemoryMarshal.CreateReadOnlySpan(ref index, 1),
-            glass.Meshes, glass.Instances, constants, solids: null, ref drawn);
+        var copies = new SceneCopies(glass.Draws, MemoryMarshal.CreateReadOnlySpan(ref index, 1), glass.Meshes, glass.Instances);
+        SceneDraws.Draw(new SceneTarget(_context.Api, cmd, _layout), new ScenePipelines(_pipelines, _resources), copies, constants, ref drawn);
     }
 
     /// <summary>Finds the glass among the draws, with how far each is and where it lands on screen.</summary>

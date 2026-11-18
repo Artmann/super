@@ -284,57 +284,43 @@ internal static unsafe class SceneDraws
     }
 
     /// <summary>
-    /// Draws the items that belong in <paramref name="pass"/>, with copies that look the
+    /// Draws the items of <paramref name="geometry"/> that belong in the options' pass, with copies that look the
     /// same as one instanced draw. Solid things and shadows are drawn in any order, which
-    /// brings copies together. A pass with one entry in <paramref name="pipelines"/> draws
-    /// everything with it. Otherwise each material picks its surface shader. Materials
-    /// without cut-out holes, that aren't dithered and aren't glass, use <paramref name="solids"/> when it's
-    /// given, picked the same way. Each copy's matrix goes into <paramref name="instances"/>. Materials that sway in the wind
-    /// sway from the lowest point of their part, which <paramref name="details"/> holds.
-    /// With <paramref name="still"/> nothing sways, for views that must not follow the wind.
-    /// With <paramref name="depthFirst"/>, the batches it pays for are drawn twice: first all of them for their depth
-    /// alone, then with the rest to be shaded, where only their pixels that show are.
+    /// brings copies together. <paramref name="pipelines"/> says which pipeline each material draws with; materials
+    /// without cut-out holes, that aren't dithered and aren't glass, use its solid pipelines when it has them. Each copy's
+    /// matrix goes into the geometry's instance buffer. Materials that sway in the wind sway from the lowest point of
+    /// their part, which the geometry's details hold, unless <paramref name="options"/> keeps everything still, and
+    /// with its depth first the batches that pays for are drawn twice.
     /// </summary>
-    public static void Record(
-        Vk api,
-        CommandBuffer cmd,
-        PipelineLayout layout,
-        List<PipelineVariants> pipelines,
-        ResourceTable resources,
-        ReadOnlySpan<DrawItem> draws,
-        List<Mesh?> meshes,
-        List<PartDetail> details,
-        InstanceBuffer instances,
-        ScenePass pass,
-        List<PipelineVariants>? solids = null,
-        int cascade = 0,
-        bool still = false,
-        DepthFirst? depthFirst = null)
+    public static void Record(in SceneTarget target, in ScenePipelines pipelines, in SceneGeometry geometry, in SceneDrawOptions options)
     {
+        var draws = geometry.Draws;
+        var resources = pipelines.Resources;
         int[] pooled = ArrayPool<int>.Shared.Rent(draws.Length);
-        var order = pooled.AsSpan(0, Belonging(draws, resources, pass, pooled));
+        var order = pooled.AsSpan(0, Belonging(draws, resources, options.Pass, pooled));
         var batches = _batches ??= [];
-        Batch(draws, order, keepOrder: pass == ScenePass.Transparent, batches);
+        Batch(draws, order, keepOrder: options.Pass == ScenePass.Transparent, batches);
 
         // Each batch's copies go into the instance buffer once, however many times the batch is drawn.
         int[] firsts = ArrayPool<int>.Shared.Rent(batches.Count);
         for (int i = 0; i < batches.Count; i++)
         {
-            firsts[i] = AddCopies(draws, order.Slice(batches[i].First, batches[i].Count), instances);
+            firsts[i] = AddCopies(draws, order.Slice(batches[i].First, batches[i].Count), geometry.Instances);
         }
 
         var ready = new ReadyBatches
         {
-            Draws = draws, Order = order, Batches = batches, Firsts = firsts, Resources = resources, Details = details,
-            Cascade = cascade, Still = still, To = new Recorder(api, cmd, layout, meshes),
+            Draws = draws, Order = order, Batches = batches, Firsts = firsts, Resources = resources, Details = geometry.Details,
+            Cascade = options.Cascade, Still = options.Still, To = new Recorder(target, geometry.Meshes),
         };
 
         // With depth first there are two rounds: the depth of the batches it pays for, then every batch shaded.
+        var depthFirst = options.DepthFirst;
         bool[]? ahead = depthFirst is null ? null : ready.IssueDepth(depthFirst);
         for (int i = 0; i < batches.Count; i++)
         {
             bool shown = ahead is not null && ahead[i];
-            ready.Issue(i, PipelineFor(ready.First(i), pipelines, resources, shown ? depthFirst!.Shown : solids));
+            ready.Issue(i, PipelineFor(ready.First(i), pipelines.Shaded, resources, shown ? depthFirst!.Shown : pipelines.Solids));
         }
 
         if (ahead is not null)
@@ -452,27 +438,17 @@ internal static unsafe class SceneDraws
     /// draw with <paramref name="constants"/>.
     /// </summary>
     public static void Draw(
-        Vk api,
-        CommandBuffer cmd,
-        PipelineLayout layout,
-        List<PipelineVariants> pipelines,
-        ResourceTable resources,
-        ReadOnlySpan<DrawItem> draws,
-        ReadOnlySpan<int> copies,
-        List<Mesh?> meshes,
-        InstanceBuffer instances,
-        DrawConstants constants,
-        List<PipelineVariants>? solids,
-        ref Bound bound)
+        in SceneTarget target, in ScenePipelines pipelines, in SceneCopies copies, DrawConstants constants, ref Bound bound)
     {
-        ref readonly var draw = ref draws[copies[0]];
-        var to = new Recorder(api, cmd, layout, meshes) { Bound = bound };
-        to.Issue(PipelineFor(draw, pipelines, resources, solids), draw, copies.Length, AddCopies(draws, copies, instances), constants);
+        ref readonly var draw = ref copies.Draws[copies.Indices[0]];
+        var to = new Recorder(target, copies.Meshes) { Bound = bound };
+        var pipeline = PipelineFor(draw, pipelines.Shaded, pipelines.Resources, pipelines.Solids);
+        to.Issue(pipeline, draw, copies.Indices.Length, AddCopies(copies.Draws, copies.Indices, copies.Instances), constants);
         bound = to.Bound;
     }
 
     // Issues instanced draws into a command buffer, binding a pipeline or a mesh only when it changes.
-    private struct Recorder(Vk api, CommandBuffer cmd, PipelineLayout layout, List<Mesh?> meshes)
+    private struct Recorder(SceneTarget target, List<Mesh?> meshes)
     {
         public Bound Bound = new();
 
@@ -482,6 +458,7 @@ internal static unsafe class SceneDraws
         /// </summary>
         public void Issue(Pipeline pipeline, in DrawItem draw, int copies, int firstInstance, DrawConstants constants)
         {
+            var (api, cmd, layout) = target;
             if (pipeline.Handle != Bound.Pipeline.Handle)
             {
                 api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);
