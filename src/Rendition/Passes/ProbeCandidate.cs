@@ -74,6 +74,18 @@ internal readonly struct ProbeCandidate(byte tier, long age, float distance, int
         return distance;
     }
 
+    /// <summary>How many candidates at the front of a sorted span have a tier before <paramref name="tier"/>.</summary>
+    public static int Ahead(ReadOnlySpan<ProbeCandidate> sorted, byte tier)
+    {
+        int count = 0;
+        while (count < sorted.Length && sorted[count].Tier < tier)
+        {
+            count++;
+        }
+
+        return count;
+    }
+
     /// <summary>Keeps the best <paramref name="budget"/> candidates offered so far in a heap whose root is the worst of them.</summary>
     public static void Offer(ProbeCandidate[] heap, ref int size, int budget, in ProbeCandidate candidate)
     {

@@ -45,13 +45,49 @@ internal sealed unsafe class DecalPass : IDisposable
         _set = context.AllocateSet(_pool, _setLayout);
         _layout = context.CreatePipelineLayout([frameSetLayout, resources.Layout, _setLayout]);
 
+        // Only the cube's far faces are drawn, so each pixel is shaded once, even with the camera inside the box.
+        _pipeline = PipelineFactory.Create(context, new PipelineDescription
+        {
+            VertexShader = "decal.vert",
+            FragmentShader = "decal.frag",
+            Layout = _layout,
+            ColorFormats = [GBuffer.BaseColorFormat, GBuffer.NormalFormat],
+            VertexBindings = [new(0, (uint)sizeof(GpuDecal), VertexInputRate.Instance)],
+            VertexAttributes = InstanceAttributes(),
+            Blends = Blends,
+            CullMode = CullModeFlags.FrontBit,
+        });
+    }
+
+    // The colour blends over the base colour by the decal's alpha, leaving metallic in alpha alone.
+    // The normal target is written whole: the shader has already mixed in what was there.
+    private static readonly PipelineColorBlendAttachmentState[] Blends =
+    [
+        new PipelineColorBlendAttachmentState
+        {
+            BlendEnable = true,
+            SrcColorBlendFactor = BlendFactor.SrcAlpha,
+            DstColorBlendFactor = BlendFactor.OneMinusSrcAlpha,
+            ColorBlendOp = BlendOp.Add,
+            SrcAlphaBlendFactor = BlendFactor.Zero,
+            DstAlphaBlendFactor = BlendFactor.One,
+            AlphaBlendOp = BlendOp.Add,
+            ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit | ColorComponentFlags.BBit,
+        },
+        new PipelineColorBlendAttachmentState
+        {
+            BlendEnable = false,
+            ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit
+                | ColorComponentFlags.BBit | ColorComponentFlags.ABit,
+        },
+    ];
+
+    // Each decal is one instance: its box's matrix and the inverse, a row to a location, then its weights and material.
+    private static VertexInputAttributeDescription[] InstanceAttributes()
+    {
         uint box = (uint)Marshal.OffsetOf<GpuDecal>(nameof(GpuDecal.Box));
         uint inverse = (uint)Marshal.OffsetOf<GpuDecal>(nameof(GpuDecal.Inverse));
-        ReadOnlySpan<VertexInputBindingDescription> vertexBindings =
-        [
-            new(0, (uint)sizeof(GpuDecal), VertexInputRate.Instance),
-        ];
-        ReadOnlySpan<VertexInputAttributeDescription> attributes =
+        return
         [
             new(0, 0, Format.R32G32B32A32Sfloat, box),
             new(1, 0, Format.R32G32B32A32Sfloat, box + 16),
@@ -64,42 +100,6 @@ internal sealed unsafe class DecalPass : IDisposable
             new(8, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<GpuDecal>(nameof(GpuDecal.Weights))),
             new(9, 0, Format.R32Uint, (uint)Marshal.OffsetOf<GpuDecal>(nameof(GpuDecal.Material))),
         ];
-
-        // The colour blends over the base colour by the decal's alpha, leaving metallic in alpha alone.
-        // The normal target is written whole: the shader has already mixed in what was there.
-        ReadOnlySpan<PipelineColorBlendAttachmentState> blends =
-        [
-            new PipelineColorBlendAttachmentState
-            {
-                BlendEnable = true,
-                SrcColorBlendFactor = BlendFactor.SrcAlpha,
-                DstColorBlendFactor = BlendFactor.OneMinusSrcAlpha,
-                ColorBlendOp = BlendOp.Add,
-                SrcAlphaBlendFactor = BlendFactor.Zero,
-                DstAlphaBlendFactor = BlendFactor.One,
-                AlphaBlendOp = BlendOp.Add,
-                ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit | ColorComponentFlags.BBit,
-            },
-            new PipelineColorBlendAttachmentState
-            {
-                BlendEnable = false,
-                ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit
-                    | ColorComponentFlags.BBit | ColorComponentFlags.ABit,
-            },
-        ];
-
-        // Only the cube's far faces are drawn, so each pixel is shaded once, even with the camera inside the box.
-        _pipeline = PipelineFactory.Create(context, new PipelineDescription
-        {
-            VertexShader = "decal.vert",
-            FragmentShader = "decal.frag",
-            Layout = _layout,
-            ColorFormats = [GBuffer.BaseColorFormat, GBuffer.NormalFormat],
-            VertexBindings = vertexBindings,
-            VertexAttributes = attributes,
-            Blends = blends,
-            CullMode = CullModeFlags.FrontBit,
-        });
     }
 
     /// <summary>How many decals the last <see cref="Prepare"/> packed.</summary>
@@ -112,15 +112,7 @@ internal sealed unsafe class DecalPass : IDisposable
         var writes = stackalloc WriteDescriptorSet[2];
         for (int i = 0; i < 2; i++)
         {
-            writes[i] = new WriteDescriptorSet
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = _set,
-                DstBinding = (uint)i,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                PImageInfo = &images[i],
-            };
+            writes[i] = Descriptors.ImageWrite(_set, (uint)i, DescriptorType.CombinedImageSampler, &images[i]);
         }
 
         _context.Api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);

@@ -89,9 +89,6 @@ public sealed class ModelData
     private const byte OcclusionSection = 1;
     private const byte ToonSection = 2;
 
-    private const byte TextureInside = 0;
-    private const byte TextureByHash = 1;
-
     public required Vertex[] Vertices { get; init; }
     public required uint[] Indices { get; init; }
     public required ModelPart[] Parts { get; init; }
@@ -275,80 +272,15 @@ public sealed class ModelData
         writer.Write(Version);
 
         // Part names, then the rig, come first, so a game can read either without the geometry and textures.
-        writer.Write(MeshNames.Length);
-        foreach (string meshName in MeshNames)
-        {
-            writer.Write(meshName);
-        }
-
-        writer.Write(Skeleton is not null);
-        if (Skeleton is { } skeleton)
-        {
-            writer.Write(skeleton.Count);
-            foreach (string name in skeleton.Names)
-            {
-                writer.Write(name);
-            }
-
-            WriteArray(writer, skeleton.Parents);
-            WriteArray(writer, skeleton.Rest);
-            WriteArray(writer, skeleton.InverseBind);
-            WriteArray(writer, new[] { skeleton.RootTransform });
-            WriteArray(writer, skeleton.Bounds ?? []);
-        }
-
-        writer.Write(Clips.Length);
-        foreach (var clip in Clips)
-        {
-            clip.Write(writer);
-        }
-
-        WriteArray(writer, Vertices);
-        WriteArray(writer, Indices);
-        WriteArray(writer, Parts);
-        WriteArray(writer, Materials);
-        writer.Write(MaterialShaders.Length);
-        foreach (var shader in MaterialShaders)
-        {
-            writer.Write(shader is not null);
-            if (shader is not null)
-            {
-                writer.Write(shader.Name);
-                WriteArray(writer, shader.Parameters);
-                writer.Write(shader.Textures.Length);
-                foreach (string texture in shader.Textures)
-                {
-                    writer.Write(texture);
-                }
-            }
-        }
-
-        writer.Write(MaterialMasks.Length);
-        foreach (var masks in MaterialMasks)
-        {
-            writer.Write(masks is not null);
-            if (masks is not null)
-            {
-                writer.Write(masks.Texture);
-                WriteArray(writer, new[] { masks.Wear, masks.Dirt });
-            }
-        }
-
-        writer.Write(Textures.Length);
-        foreach (var texture in Textures)
-        {
-            if (share is null)
-            {
-                writer.Write(TextureInside);
-                texture.WriteBody(writer);
-            }
-            else
-            {
-                writer.Write(TextureByHash);
-                writer.Write(share(texture));
-            }
-        }
-
+        ModelFile.WriteNames(writer, MeshNames);
+        ModelFile.WriteRig(writer, Skeleton, Clips);
+        ModelFile.WriteArray(writer, Vertices);
+        ModelFile.WriteArray(writer, Indices);
+        ModelFile.WriteArray(writer, Parts);
+        ModelFile.WriteArray(writer, Materials);
+        ModelFile.WriteShaders(writer, MaterialShaders);
+        ModelFile.WriteMasks(writer, MaterialMasks);
+        ModelFile.WriteTextures(writer, Textures, share);
         WriteSections(writer);
     }
 
@@ -359,13 +291,13 @@ public sealed class ModelData
         if (MaterialOcclusion.Length != 0)
         {
             writer.Write(OcclusionSection);
-            WriteArray(writer, MaterialOcclusion);
+            ModelFile.WriteArray(writer, MaterialOcclusion);
         }
 
         if (MaterialToon.Length != 0)
         {
             writer.Write(ToonSection);
-            WriteArray(writer, MaterialToon.Select(toon => toon is { } t ? new StoredToon(t.Steps, t.Ramp, t.Rim) : default).ToArray());
+            ModelFile.WriteArray(writer, MaterialToon.Select(toon => toon is { } t ? new StoredToon(t.Steps, t.Ramp, t.Rim) : default).ToArray());
         }
     }
 
@@ -378,11 +310,11 @@ public sealed class ModelData
         {
             if (section == OcclusionSection)
             {
-                occlusion = ReadArray<int>(reader);
+                occlusion = ModelFile.ReadArray<int>(reader);
             }
             else if (section == ToonSection)
             {
-                toon = [.. ReadArray<StoredToon>(reader).Select(s => s.Steps > 0 ? new ModelMaterialToon(s.Steps, s.Ramp, s.Rim) : (ModelMaterialToon?)null)];
+                toon = [.. ModelFile.ReadArray<StoredToon>(reader).Select(s => s.Steps > 0 ? new ModelMaterialToon(s.Steps, s.Ramp, s.Rim) : (ModelMaterialToon?)null)];
             }
             else
             {
@@ -412,54 +344,15 @@ public sealed class ModelData
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
         ReadHeader(reader, name);
-        string[] meshNames = ReadNames(reader);
-        var (skeleton, clips) = ReadRigBody(reader);
-        var vertices = ReadArray<Vertex>(reader);
-        var indices = ReadArray<uint>(reader);
-        var parts = ReadArray<ModelPart>(reader);
-        var materials = ReadArray<ModelMaterial>(reader);
-        var shaders = new ModelMaterialShader?[reader.ReadInt32()];
-        for (int i = 0; i < shaders.Length; i++)
-        {
-            if (reader.ReadBoolean())
-            {
-                string shaderName = reader.ReadString();
-                var parameters = ReadArray<Vector4>(reader);
-                shaders[i] = new ModelMaterialShader(shaderName, parameters, ReadNames(reader));
-            }
-        }
-
-        var masks = new ModelMaterialMasks?[reader.ReadInt32()];
-        for (int i = 0; i < masks.Length; i++)
-        {
-            if (reader.ReadBoolean())
-            {
-                int maskTexture = reader.ReadInt32();
-                var layers = ReadArray<MaterialLayer>(reader);
-                masks[i] = new ModelMaterialMasks(maskTexture, layers[0], layers[1]);
-            }
-        }
-
-        var textures = new TextureData[reader.ReadInt32()];
-        for (int i = 0; i < textures.Length; i++)
-        {
-            byte form = reader.ReadByte();
-            if (form == TextureInside)
-            {
-                textures[i] = TextureData.ReadBody(reader);
-            }
-            else if (form == TextureByHash)
-            {
-                string reference = reader.ReadString();
-                textures[i] = texture?.Invoke(reference) ?? throw new InvalidDataException(
-                    $"{name} keeps its textures in the cooked content beside it, so read it through Content, or cook it with super-cook file.");
-            }
-            else
-            {
-                throw new InvalidDataException($"{name} is damaged: texture {i} has the unknown form {form}. Cook it again.");
-            }
-        }
-
+        string[] meshNames = ModelFile.ReadNames(reader);
+        var (skeleton, clips) = ModelFile.ReadRig(reader);
+        var vertices = ModelFile.ReadArray<Vertex>(reader);
+        var indices = ModelFile.ReadArray<uint>(reader);
+        var parts = ModelFile.ReadArray<ModelPart>(reader);
+        var materials = ModelFile.ReadArray<ModelMaterial>(reader);
+        var shaders = ModelFile.ReadShaders(reader);
+        var masks = ModelFile.ReadMasks(reader);
+        var textures = ModelFile.ReadTextures(reader, name, texture);
         var (occlusion, toon) = ReadSections(stream, reader, name);
         return new ModelData
         {
@@ -497,8 +390,8 @@ public sealed class ModelData
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
         ReadHeader(reader, name);
-        meshNames = ReadNames(reader);
-        return ReadRigBody(reader);
+        meshNames = ModelFile.ReadNames(reader);
+        return ModelFile.ReadRig(reader);
     }
 
     /// <summary>
@@ -509,7 +402,7 @@ public sealed class ModelData
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
         ReadHeader(reader, name);
-        return ReadNames(reader);
+        return ModelFile.ReadNames(reader);
     }
 
     private static void ReadHeader(BinaryReader reader, string name)
@@ -520,55 +413,4 @@ public sealed class ModelData
         }
     }
 
-    private static string[] ReadNames(BinaryReader reader)
-    {
-        var names = new string[reader.ReadInt32()];
-        for (int i = 0; i < names.Length; i++)
-        {
-            names[i] = reader.ReadString();
-        }
-
-        return names;
-    }
-
-    private static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRigBody(BinaryReader reader)
-    {
-        Skeleton? skeleton = null;
-        if (reader.ReadBoolean())
-        {
-            var names = new string[reader.ReadInt32()];
-            for (int i = 0; i < names.Length; i++)
-            {
-                names[i] = reader.ReadString();
-            }
-
-            var parents = ReadArray<int>(reader);
-            var rest = ReadArray<JointPose>(reader);
-            var inverseBind = ReadArray<Matrix4x4>(reader);
-            var root = ReadArray<Matrix4x4>(reader)[0];
-            var bounds = ReadArray<JointBounds>(reader);
-            skeleton = new Skeleton(names, parents, rest, inverseBind, root, bounds.Length == names.Length ? bounds : null);
-        }
-
-        var clips = new AnimationClip[reader.ReadInt32()];
-        for (int i = 0; i < clips.Length; i++)
-        {
-            clips[i] = AnimationClip.Read(reader);
-        }
-
-        return (skeleton, clips);
-    }
-
-    private static void WriteArray<T>(BinaryWriter writer, T[] items) where T : unmanaged
-    {
-        writer.Write(items.Length);
-        writer.Write(MemoryMarshal.AsBytes(items.AsSpan()));
-    }
-
-    private static T[] ReadArray<T>(BinaryReader reader) where T : unmanaged
-    {
-        var items = new T[reader.ReadInt32()];
-        reader.BaseStream.ReadExactly(MemoryMarshal.AsBytes(items.AsSpan()));
-        return items;
-    }
 }

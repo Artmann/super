@@ -22,23 +22,7 @@ public static class FoliageNormals
             return;
         }
 
-        var min = new Vector3(float.MaxValue);
-        var max = new Vector3(float.MinValue);
-        foreach (ref readonly var vertex in leaves)
-        {
-            min = Vector3.Min(min, vertex.Position);
-            max = Vector3.Max(max, vertex.Position);
-        }
-
-        var center = (min + max) * 0.5f;
-
-        // A flat crown, such as a single card, has no depth on one axis. A floor on the
-        // radii keeps the division finite and points those normals along the thin axis.
-        var radii = (max - min) * 0.5f;
-        float floor = MathF.Max(MathF.Max(radii.X, MathF.Max(radii.Y, radii.Z)) * 1e-3f, 1e-6f);
-        radii = Vector3.Max(radii, new Vector3(floor));
-        var inverseSquared = Vector3.One / (radii * radii);
-
+        var (center, inverseSquared) = Egg(leaves);
         foreach (ref var vertex in leaves)
         {
             // The gradient of the egg shape at this point is its outward normal.
@@ -57,5 +41,26 @@ public static class FoliageNormals
 
             vertex.Tangent = new Vector4(Vector3.Normalize(tangent), vertex.Tangent.W);
         }
+    }
+
+    // The middle of the egg shape that fills the leaves' bounds, and one over the square of its radii.
+    private static (Vector3 Center, Vector3 InverseSquared) Egg(ReadOnlySpan<Vertex> leaves)
+    {
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+        foreach (ref readonly var vertex in leaves)
+        {
+            min = Vector3.Min(min, vertex.Position);
+            max = Vector3.Max(max, vertex.Position);
+        }
+
+        var center = (min + max) * 0.5f;
+
+        // A flat crown, such as a single card, has no depth on one axis. A floor on the
+        // radii keeps the division finite and points those normals along the thin axis.
+        var radii = (max - min) * 0.5f;
+        float floor = MathF.Max(MathF.Max(radii.X, MathF.Max(radii.Y, radii.Z)) * 1e-3f, 1e-6f);
+        radii = Vector3.Max(radii, new Vector3(floor));
+        return (center, Vector3.One / (radii * radii));
     }
 }

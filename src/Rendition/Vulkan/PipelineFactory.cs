@@ -101,6 +101,20 @@ internal sealed class LivePipeline(VulkanContext context, Pipeline handle, Func<
 
 internal static unsafe class PipelineFactory
 {
+    private static readonly PipelineInputAssemblyStateCreateInfo TriangleList = new()
+    {
+        SType = StructureType.PipelineInputAssemblyStateCreateInfo,
+        Topology = PrimitiveTopology.TriangleList,
+    };
+
+    // One viewport and scissor, both set while drawing.
+    private static readonly PipelineViewportStateCreateInfo OneViewport = new()
+    {
+        SType = StructureType.PipelineViewportStateCreateInfo,
+        ViewportCount = 1,
+        ScissorCount = 1,
+    };
+
     public static LivePipeline Create(VulkanContext context, in PipelineDescription description)
     {
         var handle = Build(context, description);
@@ -230,27 +244,12 @@ internal static unsafe class PipelineFactory
     {
         var api = context.Api;
         var vertexModule = LoadShader(context, description.VertexShader);
-        ShaderModule fragmentModule = default;
-        if (description.FragmentCode is { } code)
-        {
-            fragmentModule = CreateModule(context, code.Bytes);
-        }
-        else if (description.FragmentShader is { } fragmentShader)
-        {
-            fragmentModule = LoadShader(context, fragmentShader);
-        }
-
+        var fragmentModule = LoadFragment(context, description);
         bool hasFragment = fragmentModule.Handle != 0;
         nint entryPoint = SilkMarshal.StringToPtr("main");
 
         var stages = stackalloc PipelineShaderStageCreateInfo[2];
-        stages[0] = new PipelineShaderStageCreateInfo
-        {
-            SType = StructureType.PipelineShaderStageCreateInfo,
-            Stage = ShaderStageFlags.VertexBit,
-            Module = vertexModule,
-            PName = (byte*)entryPoint,
-        };
+        stages[0] = Stage(ShaderStageFlags.VertexBit, vertexModule, entryPoint);
         // Always given: for a shader without the constant it changes nothing.
         uint cutOuts = Convert.ToUInt32(!description.Solid);
         var cutOutsEntry = new SpecializationMapEntry(0, 0, sizeof(uint));
@@ -261,27 +260,93 @@ internal static unsafe class PipelineFactory
             DataSize = sizeof(uint),
             PData = &cutOuts,
         };
-        stages[1] = new PipelineShaderStageCreateInfo
+        stages[1] = Stage(ShaderStageFlags.FragmentBit, fragmentModule, entryPoint);
+        stages[1].PSpecializationInfo = &specialization;
+
+        var pipeline = CreateGraphics(context, description, stages, hasFragment ? 2u : 1u);
+
+        SilkMarshal.Free(entryPoint);
+        api.DestroyShaderModule(context.Device, vertexModule, null);
+        if (hasFragment)
         {
-            SType = StructureType.PipelineShaderStageCreateInfo,
-            Stage = ShaderStageFlags.FragmentBit,
-            Module = fragmentModule,
-            PName = (byte*)entryPoint,
-            PSpecializationInfo = &specialization,
+            api.DestroyShaderModule(context.Device, fragmentModule, null);
+        }
+
+        return pipeline;
+    }
+
+    // No module (a null handle) for a pass that only writes depth.
+    private static ShaderModule LoadFragment(VulkanContext context, in PipelineDescription description)
+    {
+        if (description.FragmentCode is { } code)
+        {
+            return CreateModule(context, code.Bytes);
+        }
+
+        if (description.FragmentShader is { } fragmentShader)
+        {
+            return LoadShader(context, fragmentShader);
+        }
+
+        return default;
+    }
+
+    private static PipelineShaderStageCreateInfo Stage(ShaderStageFlags stage, ShaderModule module, nint entryPoint) => new()
+    {
+        SType = StructureType.PipelineShaderStageCreateInfo,
+        Stage = stage,
+        Module = module,
+        PName = (byte*)entryPoint,
+    };
+
+    // How the description's triangles become pixels, and how those pixels land in the depth and colour targets.
+    private static Pipeline CreateGraphics(
+        VulkanContext context, in PipelineDescription description, PipelineShaderStageCreateInfo* stages, uint stageCount)
+    {
+        bool hasDepth = description.DepthFormat != Format.Undefined && !description.IgnoreDepth;
+        var conservative = new PipelineRasterizationConservativeStateCreateInfoEXT
+        {
+            SType = StructureType.PipelineRasterizationConservativeStateCreateInfoExt,
+            ConservativeRasterizationMode = ConservativeRasterizationModeEXT.OverestimateExt,
+        };
+        var rasterizer = Rasterizer(context, description, hasDepth, &conservative);
+        var multisample = new PipelineMultisampleStateCreateInfo
+        {
+            SType = StructureType.PipelineMultisampleStateCreateInfo,
+            RasterizationSamples = description.Samples == 0 ? SampleCountFlags.Count1Bit : description.Samples,
+        };
+        var depthStencil = DepthStencil(description, hasDepth);
+
+        int colorCount = description.ColorFormats.Length;
+        var blendAttachments = stackalloc PipelineColorBlendAttachmentState[colorCount];
+        FillBlends(description, new Span<PipelineColorBlendAttachmentState>(blendAttachments, colorCount));
+        var blend = new PipelineColorBlendStateCreateInfo
+        {
+            SType = StructureType.PipelineColorBlendStateCreateInfo,
+            AttachmentCount = (uint)colorCount,
+            PAttachments = blendAttachments,
         };
 
-        bool hasDepth = description.DepthFormat != Format.Undefined && !description.IgnoreDepth;
-        var inputAssembly = new PipelineInputAssemblyStateCreateInfo
+        var createInfo = new GraphicsPipelineCreateInfo
         {
-            SType = StructureType.PipelineInputAssemblyStateCreateInfo,
-            Topology = PrimitiveTopology.TriangleList,
+            SType = StructureType.GraphicsPipelineCreateInfo,
+            StageCount = stageCount,
+            PStages = stages,
+            PRasterizationState = &rasterizer,
+            PMultisampleState = &multisample,
+            PDepthStencilState = &depthStencil,
+            PColorBlendState = &blend,
+            Layout = description.Layout,
         };
-        var viewport = new PipelineViewportStateCreateInfo
-        {
-            SType = StructureType.PipelineViewportStateCreateInfo,
-            ViewportCount = 1,
-            ScissorCount = 1,
-        };
+        return CreateWithSharedState(context, description, createInfo);
+    }
+
+    private static PipelineRasterizationStateCreateInfo Rasterizer(
+        VulkanContext context,
+        in PipelineDescription description,
+        bool hasDepth,
+        PipelineRasterizationConservativeStateCreateInfoEXT* conservative)
+    {
         var rasterizer = new PipelineRasterizationStateCreateInfo
         {
             SType = StructureType.PipelineRasterizationStateCreateInfo,
@@ -291,11 +356,6 @@ internal static unsafe class PipelineFactory
             FrontFace = FrontFace.CounterClockwise,
             LineWidth = 1f,
         };
-        var conservative = new PipelineRasterizationConservativeStateCreateInfoEXT
-        {
-            SType = StructureType.PipelineRasterizationConservativeStateCreateInfoExt,
-            ConservativeRasterizationMode = ConservativeRasterizationModeEXT.OverestimateExt,
-        };
         if (description.Conservative)
         {
             if (!context.ConservativeRasterization)
@@ -303,33 +363,45 @@ internal static unsafe class PipelineFactory
                 throw new InvalidOperationException("Conservative rasterization needs VK_EXT_conservative_rasterization, which this device lacks.");
             }
 
-            rasterizer.PNext = &conservative;
+            rasterizer.PNext = conservative;
         }
 
-        var multisample = new PipelineMultisampleStateCreateInfo
-        {
-            SType = StructureType.PipelineMultisampleStateCreateInfo,
-            RasterizationSamples = description.Samples == 0 ? SampleCountFlags.Count1Bit : description.Samples,
-        };
-        var depthStencil = new PipelineDepthStencilStateCreateInfo
-        {
-            SType = StructureType.PipelineDepthStencilStateCreateInfo,
-            DepthTestEnable = hasDepth,
-            DepthWriteEnable = hasDepth && description.WritesDepth,
-            DepthCompareOp = description.DepthCompare,
-        };
+        return rasterizer;
+    }
 
-        int colorCount = description.ColorFormats.Length;
-        var blendAttachments = stackalloc PipelineColorBlendAttachmentState[colorCount];
-        for (int i = 0; i < colorCount; i++)
+    // The description's vertex layout. The caller pins its spans.
+    private static PipelineVertexInputStateCreateInfo VertexInput(
+        in PipelineDescription description,
+        VertexInputBindingDescription* bindings,
+        VertexInputAttributeDescription* attributes) => new()
+    {
+        SType = StructureType.PipelineVertexInputStateCreateInfo,
+        VertexBindingDescriptionCount = (uint)description.VertexBindings.Length,
+        PVertexBindingDescriptions = bindings,
+        VertexAttributeDescriptionCount = (uint)description.VertexAttributes.Length,
+        PVertexAttributeDescriptions = attributes,
+    };
+
+    private static PipelineDepthStencilStateCreateInfo DepthStencil(in PipelineDescription description, bool hasDepth) => new()
+    {
+        SType = StructureType.PipelineDepthStencilStateCreateInfo,
+        DepthTestEnable = hasDepth,
+        DepthWriteEnable = hasDepth && description.WritesDepth,
+        DepthCompareOp = description.DepthCompare,
+    };
+
+    // The description's own blend states, or else premultiplied blending when it is transparent and none when not.
+    private static void FillBlends(in PipelineDescription description, Span<PipelineColorBlendAttachmentState> blends)
+    {
+        for (int i = 0; i < blends.Length; i++)
         {
             if (!description.Blends.IsEmpty)
             {
-                blendAttachments[i] = description.Blends[i];
+                blends[i] = description.Blends[i];
                 continue;
             }
 
-            blendAttachments[i] = new PipelineColorBlendAttachmentState
+            blends[i] = new PipelineColorBlendAttachmentState
             {
                 BlendEnable = description.Transparent,
                 SrcColorBlendFactor = BlendFactor.One,
@@ -342,13 +414,15 @@ internal static unsafe class PipelineFactory
                     | ColorComponentFlags.BBit | ColorComponentFlags.ABit,
             };
         }
+    }
 
-        var blend = new PipelineColorBlendStateCreateInfo
-        {
-            SType = StructureType.PipelineColorBlendStateCreateInfo,
-            AttachmentCount = (uint)colorCount,
-            PAttachments = blendAttachments,
-        };
+    // Adds what every graphics pipeline shares (triangle lists, one viewport and scissor set while drawing) and the
+    // description's vertex layout and target formats, then creates the pipeline.
+    private static Pipeline CreateWithSharedState(
+        VulkanContext context, in PipelineDescription description, GraphicsPipelineCreateInfo createInfo)
+    {
+        var inputAssembly = TriangleList;
+        var viewport = OneViewport;
         var dynamicStates = stackalloc DynamicState[] { DynamicState.Viewport, DynamicState.Scissor };
         var dynamicState = new PipelineDynamicStateCreateInfo
         {
@@ -356,52 +430,27 @@ internal static unsafe class PipelineFactory
             DynamicStateCount = 2,
             PDynamicStates = dynamicStates,
         };
+        createInfo.PInputAssemblyState = &inputAssembly;
+        createInfo.PViewportState = &viewport;
+        createInfo.PDynamicState = &dynamicState;
 
         Pipeline pipeline;
         fixed (Format* colorFormats = description.ColorFormats)
         fixed (VertexInputBindingDescription* bindings = description.VertexBindings)
         fixed (VertexInputAttributeDescription* attributes = description.VertexAttributes)
         {
-            var vertexInput = new PipelineVertexInputStateCreateInfo
-            {
-                SType = StructureType.PipelineVertexInputStateCreateInfo,
-                VertexBindingDescriptionCount = (uint)description.VertexBindings.Length,
-                PVertexBindingDescriptions = bindings,
-                VertexAttributeDescriptionCount = (uint)description.VertexAttributes.Length,
-                PVertexAttributeDescriptions = attributes,
-            };
+            var vertexInput = VertexInput(description, bindings, attributes);
             var rendering = new PipelineRenderingCreateInfo
             {
                 SType = StructureType.PipelineRenderingCreateInfo,
                 ViewMask = description.ViewMask,
-                ColorAttachmentCount = (uint)colorCount,
+                ColorAttachmentCount = (uint)description.ColorFormats.Length,
                 PColorAttachmentFormats = colorFormats,
                 DepthAttachmentFormat = description.DepthFormat,
             };
-            var createInfo = new GraphicsPipelineCreateInfo
-            {
-                SType = StructureType.GraphicsPipelineCreateInfo,
-                PNext = &rendering,
-                StageCount = hasFragment ? 2u : 1u,
-                PStages = stages,
-                PVertexInputState = &vertexInput,
-                PInputAssemblyState = &inputAssembly,
-                PViewportState = &viewport,
-                PRasterizationState = &rasterizer,
-                PMultisampleState = &multisample,
-                PDepthStencilState = &depthStencil,
-                PColorBlendState = &blend,
-                PDynamicState = &dynamicState,
-                Layout = description.Layout,
-            };
-            api.CreateGraphicsPipelines(context.Device, default, 1, &createInfo, null, &pipeline).Check();
-        }
-
-        SilkMarshal.Free(entryPoint);
-        api.DestroyShaderModule(context.Device, vertexModule, null);
-        if (hasFragment)
-        {
-            api.DestroyShaderModule(context.Device, fragmentModule, null);
+            createInfo.PNext = &rendering;
+            createInfo.PVertexInputState = &vertexInput;
+            context.Api.CreateGraphicsPipelines(context.Device, default, 1, &createInfo, null, &pipeline).Check();
         }
 
         return pipeline;
@@ -428,13 +477,7 @@ internal static unsafe class PipelineFactory
         var createInfo = new ComputePipelineCreateInfo
         {
             SType = StructureType.ComputePipelineCreateInfo,
-            Stage = new PipelineShaderStageCreateInfo
-            {
-                SType = StructureType.PipelineShaderStageCreateInfo,
-                Stage = ShaderStageFlags.ComputeBit,
-                Module = module,
-                PName = (byte*)entryPoint,
-            },
+            Stage = Stage(ShaderStageFlags.ComputeBit, module, entryPoint),
             Layout = layout,
         };
 

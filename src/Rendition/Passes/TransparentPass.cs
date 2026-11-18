@@ -100,15 +100,8 @@ internal sealed unsafe class TransparentPass : IDisposable
         {
             for (int i = 0; i < images.Length; i++)
             {
-                writes[i] = new WriteDescriptorSet
-                {
-                    SType = StructureType.WriteDescriptorSet,
-                    DstSet = _environmentSet,
-                    DstBinding = firstBinding + (uint)i,
-                    DescriptorCount = 1,
-                    DescriptorType = DescriptorType.CombinedImageSampler,
-                    PImageInfo = &infos[i],
-                };
+                writes[i] = Descriptors.ImageWrite(
+                    _environmentSet, firstBinding + (uint)i, DescriptorType.CombinedImageSampler, &infos[i]);
             }
 
             _context.Api.UpdateDescriptorSets(_context.Device, (uint)images.Length, writes, 0, null);
@@ -142,20 +135,50 @@ internal sealed unsafe class TransparentPass : IDisposable
             return;
         }
 
-        var api = _context.Api;
-
         // Glass binds the scene copy even when none of it bends, as with ghosts, so the copy
         // needs a readable layout on frames that don't make one. Its contents go unread.
         if (glassCount > 0 && !_steps.Exists(step => step.Kind == TransparentStepKind.Copy))
         {
-            api.Transition(cmd, targets.SceneColor.Image, ImageAspectFlags.ColorBit,
+            _context.Api.Transition(cmd, targets.SceneColor.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal,
                 PipelineStageFlags2.FragmentShaderBit, AccessFlags2.None,
                 PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit, mipCount: targets.SceneColor.Mips);
         }
 
-        Begin(cmd, targets);
-        var glassSets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _environmentSet };
+        TransparentTargets.Begin(_context.Api, cmd, targets);
+        RecordSteps(
+            cmd,
+            targets,
+            frameSet,
+            new GlassDraws(draws, meshes, details, instances),
+            new ParticleDraws(particles, frameIndex, particleCamera));
+        _context.Api.CmdEndRendering(cmd);
+    }
+
+    private enum Binding
+    {
+        None,
+        Particles,
+        Glass,
+    }
+
+    /// <summary>What drawing a piece of glass needs.</summary>
+    private readonly ref struct GlassDraws(
+        ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, List<PartDetail> details, InstanceBuffer instances)
+    {
+        public readonly ReadOnlySpan<DrawItem> Draws = draws;
+        public readonly List<Mesh?> Meshes = meshes;
+        public readonly List<PartDetail> Details = details;
+        public readonly InstanceBuffer Instances = instances;
+    }
+
+    /// <summary>What drawing a run of particles needs.</summary>
+    private readonly record struct ParticleDraws(ParticlePass Pass, int FrameIndex, ParticlePass.CameraConstants Camera);
+
+    // Records the plan's steps in order, inside rendering begun on the targets, binding each kind's state as it changes.
+    private void RecordSteps(
+        CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, in GlassDraws glass, in ParticleDraws particles)
+    {
         var bound = Binding.None;
         var drawn = new SceneDraws.Bound();
         foreach (var step in _steps)
@@ -165,46 +188,48 @@ internal sealed unsafe class TransparentPass : IDisposable
                 case TransparentStepKind.Particles:
                     if (bound != Binding.Particles)
                     {
-                        particles.Bind(cmd, frameSet, frameIndex, particleCamera);
+                        particles.Pass.Bind(cmd, frameSet, particles.FrameIndex, particles.Camera);
                         bound = Binding.Particles;
                     }
 
-                    particles.Draw(cmd, step.First, step.Count);
+                    particles.Pass.Draw(cmd, step.First, step.Count);
                     break;
 
                 case TransparentStepKind.Copy:
-                    api.CmdEndRendering(cmd);
-                    CopyScene(cmd, targets);
-                    Begin(cmd, targets);
+                    _context.Api.CmdEndRendering(cmd);
+                    TransparentTargets.CopyScene(_context.Api, cmd, targets);
+                    TransparentTargets.Begin(_context.Api, cmd, targets);
                     bound = Binding.None;
                     break;
 
                 case TransparentStepKind.Glass:
                     if (bound != Binding.Glass)
                     {
-                        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 3, glassSets, 0, null);
+                        BindGlass(cmd, frameSet);
                         bound = Binding.Glass;
                         drawn = new SceneDraws.Bound();
                     }
 
-                    int index = step.First;
-                    var constants = SceneDraws.Constants(draws[index], cascade: 0, _resources.SwayOf, details);
-                    constants.Tint.W = step.Refracts ? 1f : 0f;
-                    SceneDraws.Draw(
-                        api, cmd, _layout, _pipelines, _resources, draws, MemoryMarshal.CreateReadOnlySpan(ref index, 1),
-                        meshes, instances, constants, solids: null, ref drawn);
+                    DrawGlass(cmd, step, glass, ref drawn);
                     break;
             }
         }
-
-        api.CmdEndRendering(cmd);
     }
 
-    private enum Binding
+    private void BindGlass(CommandBuffer cmd, DescriptorSet frameSet)
     {
-        None,
-        Particles,
-        Glass,
+        var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _environmentSet };
+        _context.Api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 3, sets, 0, null);
+    }
+
+    private void DrawGlass(CommandBuffer cmd, TransparentStep step, in GlassDraws glass, ref SceneDraws.Bound drawn)
+    {
+        int index = step.First;
+        var constants = SceneDraws.Constants(glass.Draws[index], cascade: 0, _resources.SwayOf, glass.Details);
+        constants.Tint.W = step.Refracts ? 1f : 0f;
+        SceneDraws.Draw(
+            _context.Api, cmd, _layout, _pipelines, _resources, glass.Draws, MemoryMarshal.CreateReadOnlySpan(ref index, 1),
+            glass.Meshes, glass.Instances, constants, solids: null, ref drawn);
     }
 
     /// <summary>Finds the glass among the draws, with how far each is and where it lands on screen.</summary>
@@ -255,103 +280,6 @@ internal sealed unsafe class TransparentPass : IDisposable
                 new Vector3(transform.M31, transform.M32, transform.M33).LengthSquared())));
         return (Vector3.Transform(detail.Center, transform),
             (detail.Radius + MathF.Abs(draw.Swim.Amplitude)) * scale + wind.Pad(draw.Material));
-    }
-
-    private void Begin(CommandBuffer cmd, GBuffer targets)
-    {
-        var colorAttachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = targets.Hdr.View,
-            ImageLayout = ImageLayout.ColorAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Load,
-            StoreOp = AttachmentStoreOp.Store,
-        };
-        var depthAttachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = targets.Depth.View,
-            ImageLayout = ImageLayout.DepthReadOnlyOptimal,
-            LoadOp = AttachmentLoadOp.Load,
-            StoreOp = AttachmentStoreOp.None,
-        };
-        var rendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, targets.Extent),
-            LayerCount = 1,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &colorAttachment,
-            PDepthAttachment = &depthAttachment,
-        };
-
-        _context.Api.CmdBeginRendering(cmd, &rendering);
-        _context.Api.SetFullViewport(cmd, targets.Extent);
-    }
-
-    /// <summary>Copies Hdr into the scene copy, then halves it down the mips, each blurrier than the last.</summary>
-    private void CopyScene(CommandBuffer cmd, GBuffer targets)
-    {
-        var api = _context.Api;
-        var copy = targets.SceneColor;
-        const PipelineStageFlags2 colorStage = PipelineStageFlags2.ColorAttachmentOutputBit;
-        const AccessFlags2 colorWrite = AccessFlags2.ColorAttachmentWriteBit;
-        const PipelineStageFlags2 copyStage = PipelineStageFlags2.AllTransferBit;
-        const PipelineStageFlags2 sampledStage = PipelineStageFlags2.FragmentShaderBit;
-
-        api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal, colorStage, colorWrite,
-            copyStage, AccessFlags2.TransferReadBit);
-
-        // Glass drawn before may still be reading the last copy.
-        api.Transition(cmd, copy.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, sampledStage, AccessFlags2.None,
-            copyStage, AccessFlags2.TransferWriteBit, mipCount: copy.Mips);
-
-        var region = new ImageCopy
-        {
-            SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-            DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-            Extent = new Extent3D(targets.Extent.Width, targets.Extent.Height, 1),
-        };
-        api.CmdCopyImage(cmd, targets.Hdr.Image, ImageLayout.TransferSrcOptimal, copy.Image, ImageLayout.TransferDstOptimal, 1, &region);
-
-        int width = (int)targets.Extent.Width;
-        int height = (int)targets.Extent.Height;
-        for (uint mip = 1; mip < copy.Mips; mip++)
-        {
-            api.Transition(cmd, copy.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferDstOptimal, ImageLayout.TransferSrcOptimal, copyStage, AccessFlags2.TransferWriteBit,
-                copyStage, AccessFlags2.TransferReadBit, baseMip: mip - 1);
-
-            int nextWidth = Math.Max(1, width / 2);
-            int nextHeight = Math.Max(1, height / 2);
-            var blit = new ImageBlit
-            {
-                SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, mip - 1, 0, 1),
-                DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, mip, 0, 1),
-            };
-            blit.SrcOffsets[1] = new Offset3D(width, height, 1);
-            blit.DstOffsets[1] = new Offset3D(nextWidth, nextHeight, 1);
-            api.CmdBlitImage(cmd, copy.Image, ImageLayout.TransferSrcOptimal, copy.Image, ImageLayout.TransferDstOptimal, 1, &blit, Filter.Linear);
-            width = nextWidth;
-            height = nextHeight;
-        }
-
-        if (copy.Mips > 1)
-        {
-            api.Transition(cmd, copy.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal, copyStage, AccessFlags2.TransferReadBit,
-                sampledStage, AccessFlags2.ShaderSampledReadBit, mipCount: copy.Mips - 1);
-        }
-
-        api.Transition(cmd, copy.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal, copyStage, AccessFlags2.TransferWriteBit,
-            sampledStage, AccessFlags2.ShaderSampledReadBit, baseMip: copy.Mips - 1);
-
-        api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal, copyStage, AccessFlags2.TransferReadBit,
-            colorStage, colorWrite | AccessFlags2.ColorAttachmentReadBit);
     }
 
     public void Dispose()
