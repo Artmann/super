@@ -497,7 +497,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 165
+      "metric": 108
     },
     {
       "kind": "long-method",
@@ -1223,7 +1223,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 6169
+      "metric": 3633
     },
     {
       "kind": "large-file",
@@ -1397,7 +1397,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 475
+      "metric": 293
     },
     {
       "kind": "large-type",
