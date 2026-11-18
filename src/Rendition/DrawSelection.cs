@@ -313,6 +313,18 @@ internal static class DrawSelection
         return true;
     }
 
+    /// <summary>How many triangles the draws hold, for the triangle counts in profiles.</summary>
+    public static long Triangles(ReadOnlySpan<DrawItem> draws)
+    {
+        long indices = 0;
+        foreach (ref readonly var draw in draws)
+        {
+            indices += draw.IndexCount;
+        }
+
+        return indices / 3;
+    }
+
     /// <summary>
     /// About how many pixels a draw's ball covers in a view: the disc it shows as. A draw with no bounds, or with
     /// the eye inside its ball, may cover any number, so it gives infinity.
