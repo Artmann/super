@@ -132,7 +132,7 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
     /// </summary>
     private void SettleProbes(GameLoop host, float time)
     {
-        if (!host.Graphics.LightProbes)
+        if (!host.Graphics.Lighting.LightProbes)
         {
             return;
         }
@@ -228,8 +228,9 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
             debugView = graphics.DebugView;
         }
 
-        return (graphics.Off, hidden ? !takingShot : graphics.Vsync, graphics.ShadowResolution, graphics.ShadowCascades,
-            graphics.MeshDetail, graphics.RenderScale, graphics.Upscaler, graphics.ProbeQuality, graphics.ReflectionResolution,
-            graphics.OcclusionResolution, graphics.VolumetricFogCellSize, graphics.VolumetricFogSlices, debugView);
+        var (screen, shadowing, lighting, atmosphere) = (graphics.Screen, graphics.Shadowing, graphics.Lighting, graphics.Atmosphere);
+        return (GraphicsSwitches.Off(graphics), hidden ? !takingShot : screen.Vsync, shadowing.ShadowResolution, shadowing.ShadowCascades,
+            graphics.Drawing.MeshDetail, screen.RenderScale, screen.Upscaler, lighting.ProbeQuality, lighting.ReflectionResolution,
+            lighting.OcclusionResolution, atmosphere.VolumetricFogCellSize, atmosphere.VolumetricFogSlices, debugView);
     }
 }

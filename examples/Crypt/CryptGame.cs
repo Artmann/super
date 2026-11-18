@@ -200,7 +200,7 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
         _seconds = time.Tick / (float)time.TicksPerSecond;
         if (input.Pressed(Key.V))
         {
-            graphics.FogVolumes = !graphics.FogVolumes;
+            graphics.Atmosphere.FogVolumes = !graphics.Atmosphere.FogVolumes;
         }
     }
 

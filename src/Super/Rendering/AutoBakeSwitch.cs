@@ -4,7 +4,7 @@ namespace Super;
 /// Decides when <see cref="WindowPlay"/> hands the renderer a new background bake. It stays off until
 /// <see cref="TurnOn"/>, which only <see cref="WindowPlay.Run"/> calls, so screenshots, recordings and tests never
 /// bake by themselves. Once on, <see cref="Changed"/> says yes the first time and then only when
-/// <see cref="Graphics.BakeOnArrival"/> or <see cref="Graphics.BakeBudget"/> changes, since a new
+/// <see cref="GraphicsBaking.BakeOnArrival"/> or <see cref="GraphicsBaking.BakeBudget"/> changes, since a new
 /// <see cref="Rendition.AutoBake"/> would start its queue again.
 /// </summary>
 internal sealed class AutoBakeSwitch
@@ -20,7 +20,7 @@ internal sealed class AutoBakeSwitch
 
     /// <summary>
     /// Whether the renderer needs a new bake plan for <paramref name="graphics"/>: on, and either never applied or with a
-    /// different <see cref="Graphics.BakeOnArrival"/> or <see cref="Graphics.BakeBudget"/> than last time. A yes counts
+    /// different <see cref="GraphicsBaking.BakeOnArrival"/> or <see cref="GraphicsBaking.BakeBudget"/> than last time. A yes counts
     /// as applied.
     /// </summary>
     public bool Changed(Graphics graphics)
@@ -30,7 +30,7 @@ internal sealed class AutoBakeSwitch
             return false;
         }
 
-        var wanted = (graphics.BakeOnArrival, graphics.BakeBudget);
+        var wanted = (graphics.Baking.BakeOnArrival, graphics.Baking.BakeBudget);
         if (_applied == wanted)
         {
             return false;

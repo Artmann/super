@@ -43,7 +43,7 @@ public sealed class ViewSurroundings
     /// Lets water stand at <paramref name="level"/>, a height in metres, on every surface whose material asks for
     /// puddles. Whatever lies below it, counting the material's height map so hollows fill first, turns into a rippled
     /// mirror that darkens as it deepens, and for <paramref name="band"/> metres above it the surface is damp: darker
-    /// and smoother at the waterline, dry at the band's top. <see cref="Graphics.Puddles"/> turns it off. See
+    /// and smoother at the waterline, dry at the band's top. <see cref="GraphicsSurfaces.Puddles"/> turns it off. See
     /// docs/rendering.md.
     /// </summary>
     public void Puddles(float level, float band = Rendition.PuddleSettings.DefaultBand)
@@ -67,7 +67,7 @@ public sealed class ViewSurroundings
     /// asks for it, and its shadow with it. <paramref name="strength"/> is how far, in metres, it leans the tip of grass
     /// 1 m tall at a gust's peak: 0.1 is a breeze, 0.35 a fresh wind and 1 a gale. Gusts roll across the ground
     /// downwind; <paramref name="gustiness"/> runs from 0 for a steady wind to 1 for one that drops to a fifth of its
-    /// strength between them. <see cref="Graphics.Wind"/> turns it off. See docs/rendering.md.
+    /// strength between them. <see cref="GraphicsSurfaces.Wind"/> turns it off. See docs/rendering.md.
     /// </summary>
     public void Wind(Vector3 direction, float strength, float gustiness = Rendition.WindSettings.DefaultGustiness)
     {

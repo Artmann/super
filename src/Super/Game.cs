@@ -277,22 +277,22 @@ public static class Game
 
         if (arguments.Vsync)
         {
-            graphics.Vsync = true;
+            graphics.Screen.Vsync = true;
         }
 
         if (arguments.NoMaterials)
         {
-            graphics.Materials = false;
+            graphics.Surfaces.Materials = false;
         }
 
         if (arguments.RenderScale is { } renderScale)
         {
-            graphics.RenderScale = renderScale;
+            graphics.Screen.RenderScale = renderScale;
         }
 
         if (arguments.Upscaler is { } upscaler)
         {
-            graphics.Upscaler = upscaler;
+            graphics.Screen.Upscaler = upscaler;
         }
     }
 }

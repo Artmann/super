@@ -12,6 +12,9 @@ internal static class GraphicsProfile
         WriteIndented = true,
         Converters = { new JsonStringEnumConverter() },
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+
+        // The groups of settings can't be replaced, only filled in, so a profile's group is read into the one there.
+        PreferredObjectCreationHandling = JsonObjectCreationHandling.Populate,
     };
 
     /// <summary>
@@ -28,7 +31,7 @@ internal static class GraphicsProfile
             }
 
             return JsonSerializer.Deserialize<T>(json, Options)
-                ?? throw new InvalidDataException($"{source} is empty. A graphics profile is a JSON object such as {{ \"Bloom\": false }}.");
+                ?? throw new InvalidDataException($"{source} is empty. A graphics profile is a JSON object such as {{ \"Picture\": {{ \"Bloom\": false }} }}.");
         }
         catch (JsonException error)
         {
@@ -63,12 +66,25 @@ internal static class GraphicsProfile
     private static string OnTopOf<T>(T preset, JsonObject profile)
     {
         var merged = JsonSerializer.SerializeToNode(preset, Options)!.AsObject();
+        WriteOver(merged, profile);
+        return merged.ToJsonString();
+    }
+
+    // Writes each of the profile's settings over the preset's. A group in both is merged setting by setting, so a
+    // profile that sets one setting of a group keeps the preset's others.
+    private static void WriteOver(JsonObject preset, JsonObject profile)
+    {
         foreach (var (key, setting) in profile.ToList())
         {
             profile.Remove(key);
-            merged[key] = setting;
+            if (setting is JsonObject group && preset[key] is JsonObject presetGroup)
+            {
+                WriteOver(presetGroup, group);
+            }
+            else
+            {
+                preset[key] = setting;
+            }
         }
-
-        return merged.ToJsonString();
     }
 }

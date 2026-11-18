@@ -18,7 +18,7 @@ internal sealed class GameWindow : IDisposable
     /// <summary>
     /// Opens the window and the renderer, which starts with <paramref name="graphics"/>' vsync, shadow resolution,
     /// render scale and upscaler. Without a window, recordings and profiles wait for the display whatever
-    /// <see cref="Graphics.Vsync"/> says, and screenshots don't.
+    /// <see cref="GraphicsScreen.Vsync"/> says, and screenshots don't.
     /// </summary>
     public GameWindow(WindowSetup setup, Graphics graphics)
     {
@@ -32,11 +32,11 @@ internal sealed class GameWindow : IDisposable
             Width = width,
             Height = height,
             EnableValidation = setup.Validate,
-            DisableVsync = !graphics.Vsync && !hidden,
+            DisableVsync = !graphics.Screen.Vsync && !hidden,
             DisableRayTracing = setup.NoRayTracing,
-            ShadowResolution = graphics.ShadowResolution,
-            RenderScale = graphics.RenderScale,
-            Upscaler = graphics.Upscaler,
+            ShadowResolution = graphics.Shadowing.ShadowResolution,
+            RenderScale = graphics.Screen.RenderScale,
+            Upscaler = graphics.Screen.Upscaler,
             // A window someone looks at, run from source, swaps in shaders as they are saved; see WindowPlay.
             LiveShaders = !hidden && ShaderWatch.CanWatch(ShaderWatch.DefaultFolder),
         });

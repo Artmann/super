@@ -46,79 +46,84 @@ looks now, at the same seed and frame:
 ## Graphics settings
 
 Everything above is on by default. Vsync is off, so frames come as fast as the machine draws
-them; set `Vsync` to hold the frame rate at the display's, often 60, or `MaxFramesPerSecond`
-to cap it. A game that must run fast on modest hardware turns off what it doesn't need:
+them; set `Screen.Vsync` to hold the frame rate at the display's, often 60, or `Screen.MaxFramesPerSecond`
+to cap it. The settings come in groups: `Screen`, `Shadowing`, `Lighting`, `Atmosphere`, `Surfaces`,
+`Picture`, `Baking` and `Drawing`. A game that must run fast on modest hardware turns off what it doesn't need:
 
 ```csharp
 Game.StartWindowsGameLoop<MyGame>(new GameOptions
 {
     Title = "My game",
-    Graphics = new Graphics { AmbientOcclusion = false, Reflections = false, MaxFramesPerSecond = 144 },
+    Graphics = new Graphics
+    {
+        Lighting = { AmbientOcclusion = false, Reflections = false },
+        Screen = { MaxFramesPerSecond = 144 },
+    },
 });
 ```
 
-`Graphics.Fastest()` turns every effect that costs GPU time off, except point and spot lights and particles, and sets `MeshDetail` to 0.5, a start to turn back on only what
+`Graphics.Fastest()` turns every effect that costs GPU time off, except point and spot lights and particles, and sets `Drawing.MeshDetail` to 0.5, a start to turn back on only what
 the game needs. It keeps what costs nothing or saves time: the materials, the baked lighting, `Specular`,
 `EnvironmentLight`, `Emissive`, `ColorGrading`, `Culling`, `SimplerModels`, `DepthFirst` and `Fades`, whose small cost buys a picture without pops. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
 | Setting | Off, or set |
 |---|---|
-| `Vsync` | Off is the default: frames come as fast as the machine draws them, and fast movement may tear. On, each frame waits for the display. `--vsync` turns it on too |
-| `MaxFramesPerSecond` | The most frames drawn a second. 0, the default, is no limit. It saves power, and with vsync off it holds a steady rate |
-| `SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
-| `ShadowResolution` | How many texels across each of the sun's shadow maps is: 1024, 2048 (the default) or 4096. Each step up sharpens shadow edges for four times the memory. A change rebuilds the maps before the next frame, which waits for the GPU once |
-| `ShadowCascades` | How many of the sun's shadow maps are drawn, from 1 to 4, the default. Each map covers three times the ground of the one before, and each draws the scene again, so fewer save GPU time. The sun casts no shadow past the last map drawn, so with 2 its shadows reach about a ninth as far as with 4. A view that asks for fewer in `view.Lights.Shadows` keeps its number |
-| `MeshDetail` | How soon models switch to their simpler versions with distance, from 0.5 to 2. 1, the default, switches where the change is under a pixel. At 0.5 they switch twice as soon, which draws fewer triangles for a little blockiness far away, and at 2 half as soon. The sun's shadow maps follow it too |
-| `RenderScale` | How large the scene is drawn against the window, from 0.5 to 2 each way. 1, the default, draws it at the window's size with nothing resized. At 2 the scene has four times the pixels and is shrunk to fit, which smooths grass blades, railings and other thin things, for about four times the lighting and effects work. At 0.5 it has a quarter of the pixels and is stretched, which is much faster and softer. Below 1, meshes also switch to their simpler versions sooner, since they cover fewer scene pixels. A scene larger than the GPU can draw is shrunk to fit, keeping its shape. The interface, screenshots and recordings stay at the window's size. Anything else is refused. `--render-scale` sets it too. A change rebuilds the scene's targets before the next frame, which waits for the GPU once and restarts anti-aliasing |
-| `Upscaler` | What smooths edges when `AntiAliasing` is on: `Upscaler.Taa`, the default, or `Upscaler.Fsr`, which hands the frame to AMD FSR to rebuild at the window's size. See [upscaling](#upscaling). `--upscaler fsr` sets it too, and `Graphics.Fastest()` uses TAA |
-| `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Lights.Shadows`' `contact` only changes [how far they look](#shadows) |
-| `LightShadows` | Point and spot lights shine through walls |
-| `LocalLights` | Point and spot lights give no light: none is clustered, shadowed or lit onto the [light probes](#bounced-light), so the sun and the sky light the scene alone. Light a bake already holds stays, and no bake is redone. `BakedLighting` drops it too |
-| `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. A material's [occlusion map](#occlusion-maps) still darkens its own cracks. `view.Indirect.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion). The [screen bounce](#light-bounced-across-the-screen) goes with it |
-| `ScreenBounce` | Surfaces on screen no longer [light their neighbours](#light-bounced-across-the-screen): the floor under a red ball stays its own colour, and a glowing panel lights nothing round it unless the light probes see it. The light probes still bounce light. It saves about 0.6 ms of GPU time a frame at 1920 by 1080 on an RTX 4060 Ti. `view.Indirect.ScreenBounce` only changes how far and how much. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
-| `OcclusionHistory` | The [ambient occlusion](#ambient-occlusion) and the [screen bounce](#light-bounced-across-the-screen) are no longer averaged over the last frames. Each frame's grain is blurred away over a wider patch instead, so creases and the shade under things turn softer and small detail, such as the gap round a chest's lid, washes out. It saves about 0.1 ms of GPU time a frame at `OcclusionResolution.Half` and about 0.9 ms at `Full`, at 1600 by 900 on an RTX 4060 Ti, and four small images. `Graphics.Fastest()` turns it off |
-| `MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
-| `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.Indirect.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
-| `ProbeQuality` | How many [light probes](#bounced-light) follow the camera and how many are redrawn a frame. `High`, the default and the best look, keeps 32 × 16 × 32 probes in each of the four boxes and redraws 32 a frame, for about 170 MB. `Medium` keeps 24 × 12 × 24 and redraws 16, for about 73 MB. `Low` keeps 16 × 8 × 16 and redraws 8, for about 43 MB, so the boxes reach half as far, the bounce fills in more slowly at the start and is slower to follow lights that move. Anything else is refused. A change starts every probe again on the next frame, which waits for the GPU once. `Graphics.Fastest()` sets `Low`, so turning the probes back on stays cheap |
-| `Reflections` | Shiny surfaces, water and glass reflect only the sky: not what's on screen, and no [reflection probes](#reflections) are photographed |
-| `ReflectionResolution` | Not a switch: how many pixels look for what the screen shows in them each frame. At `Half`, the default, one pixel in four does, a different one each frame, and the pixels between take theirs from the ones round them on the same surface. Anti-aliasing blends the frames, so a still reflection looks the same as at `Full`, where every pixel looks every frame for up to four times the cost. `Full` keeps a reflection sharper while it moves fast, and is the one to pick with `AntiAliasing` off. Anything else is refused. A change rebuilds the scene's targets before the next frame, which waits for the GPU once. `GraphicsQuality.Ultra` sets `Full` |
-| `OcclusionResolution` | Not a switch: how many pixels work out their [ambient occlusion](#ambient-occlusion) each frame. At `Half`, the default, one pixel in four does, a different one each frame, and the pixels between take theirs from the ones round them at the same depth. Occlusion is soft, so the picture is hard to tell from `Full`, where every pixel works out its own for about two and a half times the cost of the effect. At `Full` each pixel looks in one direction a frame and the average over the last frames gathers them, so with `OcclusionHistory` off it looks in two and costs more. With `AntiAliasing` off nothing blends the frames, so pick `Full` there too. Anything else is refused. A change rebuilds the scene's targets before the next frame, which waits for the GPU once. `GraphicsQuality.Ultra` sets `Full` |
-| `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
-| `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
-| `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
-| `Haze` | Distant things keep their colours instead of fading into the sky between `SkySettings.HazeStart` and `HazeEnd`. The sky's own colour stays |
-| `AerialPerspective` | Under a [physical sky](#the-sky), far surfaces keep their colours instead of fading into the air with distance. A view with its own haze gets that either way. It costs almost nothing |
-| `Stars` | A [physical sky](#night) at night has no stars. The moon stays. They cost a little per sky pixel, so they stay on even in `Graphics.Fastest()` |
-| `Underwater` | `view.Surroundings.Water` is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
-| `VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps, and under water no shafts of light. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
-| `FogVolumes` | The [fog volumes](views.md#fog-volumes) a view places are left out, and only the scene's own fog fills the volumetric fog. They show only while `VolumetricFog` is on too. `Graphics.Fastest()` turns it off |
-| `VolumetricFogCellSize` | Not a switch: how many scene pixels across, each way, one cell of the [volumetric fog's](#volumetric-fog) grid covers, from 4 to 32. 8 is the default. Smaller cells show finer shafts and sharper edges on fog volumes; each halving costs about four times the memory and work. The size is after `RenderScale`. Anything else is refused. A change remakes the grid before the next frame, which waits for the GPU once and starts its history again. See [the grid's cost](#the-grids-cost) |
-| `VolumetricFogSlices` | Not a switch: how many slices deep the volumetric fog's grid is, from 16 to 128, out to `FogSettings.VolumetricDistance`. 64 is the default. More slices keep shafts and fog volumes sharp further out, for memory and work that grow with the count. Anything else is refused. A change remakes the grid like `VolumetricFogCellSize`. `GraphicsQuality.Ultra` sets 128 |
-| `AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
-| `DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
-| `Particles` | No [particles](views.md#particles) are drawn, and none is uploaded. The game can still emit them |
-| `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Effects.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
-| `Puddles` | Every surface is dry, whatever level `view.Surroundings.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
-| `Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever `view.Surroundings.Wind` sets, and so do their shadows |
-| `BakedLighting` | Every bake is ignored, so each [baked area](#baked-lighting) is lit live, as if it had never been baked: lights its bake holds are drawn again. It shows what a bake changes. A bake costs less than the live light it stands in for, so `Graphics.Fastest()` leaves it on |
-| `BakeOnArrival` | Areas with no bake, or a stale one, stay lit live instead of [baking as the game runs](#baking-without-a-build-step), and a running bake stops |
-| `BakeBudget` | Not a switch: the GPU milliseconds a [background bake](#baking-without-a-build-step) may take a frame, from 0.5 to 33. Null, the default, gives 4 from source and 2 in a published game |
-| `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, with no occlusion map, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut, glass stays see-through and puddles still wet the clay. `--no-materials` turns it off too |
-| `WearAndDirt` | Models' materials show only their own colour and shine, without the pale worn edges and dark hollows their [baked masks](#wear-and-dirt) lay on, and the masks aren't read |
-| `HeightMaps` | Surfaces with a height map are flat, shaded only by their normal maps: bricks no longer stand out from the mortar as the view moves. It saves up to 32 lookups on each near pixel of those surfaces. Puddles still sink into the grooves. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
-| `Specular` | No shine: every surface is lit as plain matte, with no highlights, no reflections and no clear coat, metals in their base colour, and glass lets light through without reflecting. It's for judging the diffuse light, not for speed |
-| `EnvironmentLight` | The sky gives the same flat colour from every side, its average, instead of brighter light from above and the sky's colours in reflections. Light probes still see the real sky. It shows what the direct light and the probes do alone |
-| `Subsurface` | Skin and wax are lit as plain matte, and light no longer shines through their thin parts. It saves two blurs across the picture. `Graphics.Fastest()` turns it off. See [skin and wax](#skin-and-wax) |
-| `Emissive` | No glows: lamps, screens and embers show only the light that falls on them, and no longer light the light probes. [Bakes](#baked-lighting) keep the glow they were made with. Ghosts still glow |
-| `Vignette` | The corners are as bright as the middle, whatever `PostSettings.Vignette` asks for |
-| `Grain` | No film grain, whatever `PostSettings.Grain` asks for |
-| `Sharpening` | No sharpening, whatever `PostSettings.Sharpen` asks for, and the finish pass skips that work |
-| `ColorGrading` | `PostSettings`' contrast, saturation, lift, gain, temperature and tint are all neutral. The exposure, the bloom and the tonemapper with its look stay |
-| `Culling` | Every model is drawn into the picture, each of the sun's cascades and each light's shadow tile, seen or not. It only costs time: it's there to check that culling hides nothing it shouldn't |
-| `SimplerModels` | Every model is drawn at full detail at any distance, whatever `MeshDetail` says, in the picture and the shadows. It only costs time: it's there to see what the simpler versions change |
-| `DepthFirst` | Large solid surfaces are no longer drawn twice, depth first and then shaded, so a surface drawn before the one that hides it is shaded for nothing. It only costs time: it's there to measure what drawing depth first saves. The picture is the same, but where two surfaces lie in the very same plane, where the other of the two may show |
-| `Fades` | Nothing [fades with distance](#fading-with-distance): a fade becomes a hard cut halfway through it, models swap to their simpler versions at once, so the swap can pop, and glass shows fully up to whatever is behind it, with no soft edge. It saves drawing a model twice while it swaps |
+| `Screen.Vsync` | Off is the default: frames come as fast as the machine draws them, and fast movement may tear. On, each frame waits for the display. `--vsync` turns it on too |
+| `Screen.MaxFramesPerSecond` | The most frames drawn a second. 0, the default, is no limit. It saves power, and with vsync off it holds a steady rate |
+| `Shadowing.SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
+| `Shadowing.ShadowResolution` | How many texels across each of the sun's shadow maps is: 1024, 2048 (the default) or 4096. Each step up sharpens shadow edges for four times the memory. A change rebuilds the maps before the next frame, which waits for the GPU once |
+| `Shadowing.ShadowCascades` | How many of the sun's shadow maps are drawn, from 1 to 4, the default. Each map covers three times the ground of the one before, and each draws the scene again, so fewer save GPU time. The sun casts no shadow past the last map drawn, so with 2 its shadows reach about a ninth as far as with 4. A view that asks for fewer in `view.Lights.Shadows` keeps its number |
+| `Drawing.MeshDetail` | How soon models switch to their simpler versions with distance, from 0.5 to 2. 1, the default, switches where the change is under a pixel. At 0.5 they switch twice as soon, which draws fewer triangles for a little blockiness far away, and at 2 half as soon. The sun's shadow maps follow it too |
+| `Screen.RenderScale` | How large the scene is drawn against the window, from 0.5 to 2 each way. 1, the default, draws it at the window's size with nothing resized. At 2 the scene has four times the pixels and is shrunk to fit, which smooths grass blades, railings and other thin things, for about four times the lighting and effects work. At 0.5 it has a quarter of the pixels and is stretched, which is much faster and softer. Below 1, meshes also switch to their simpler versions sooner, since they cover fewer scene pixels. A scene larger than the GPU can draw is shrunk to fit, keeping its shape. The interface, screenshots and recordings stay at the window's size. Anything else is refused. `--render-scale` sets it too. A change rebuilds the scene's targets before the next frame, which waits for the GPU once and restarts anti-aliasing |
+| `Screen.Upscaler` | What smooths edges when `AntiAliasing` is on: `Upscaler.Taa`, the default, or `Upscaler.Fsr`, which hands the frame to AMD FSR to rebuild at the window's size. See [upscaling](#upscaling). `--upscaler fsr` sets it too, and `Graphics.Fastest()` uses TAA |
+| `Shadowing.ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Lights.Shadows`' `contact` only changes [how far they look](#shadows) |
+| `Shadowing.LightShadows` | Point and spot lights shine through walls |
+| `Lighting.LocalLights` | Point and spot lights give no light: none is clustered, shadowed or lit onto the [light probes](#bounced-light), so the sun and the sky light the scene alone. Light a bake already holds stays, and no bake is redone. `BakedLighting` drops it too |
+| `Lighting.AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. A material's [occlusion map](#occlusion-maps) still darkens its own cracks. `view.Indirect.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion). The [screen bounce](#light-bounced-across-the-screen) goes with it |
+| `Lighting.ScreenBounce` | Surfaces on screen no longer [light their neighbours](#light-bounced-across-the-screen): the floor under a red ball stays its own colour, and a glowing panel lights nothing round it unless the light probes see it. The light probes still bounce light. It saves about 0.6 ms of GPU time a frame at 1920 by 1080 on an RTX 4060 Ti. `view.Indirect.ScreenBounce` only changes how far and how much. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
+| `Lighting.OcclusionHistory` | The [ambient occlusion](#ambient-occlusion) and the [screen bounce](#light-bounced-across-the-screen) are no longer averaged over the last frames. Each frame's grain is blurred away over a wider patch instead, so creases and the shade under things turn softer and small detail, such as the gap round a chest's lid, washes out. It saves about 0.1 ms of GPU time a frame at `OcclusionResolution.Half` and about 0.9 ms at `Full`, at 1600 by 900 on an RTX 4060 Ti, and four small images. `Graphics.Fastest()` turns it off |
+| `Lighting.MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
+| `Lighting.LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.Indirect.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
+| `Lighting.ProbeQuality` | How many [light probes](#bounced-light) follow the camera and how many are redrawn a frame. `High`, the default and the best look, keeps 32 × 16 × 32 probes in each of the four boxes and redraws 32 a frame, for about 170 MB. `Medium` keeps 24 × 12 × 24 and redraws 16, for about 73 MB. `Low` keeps 16 × 8 × 16 and redraws 8, for about 43 MB, so the boxes reach half as far, the bounce fills in more slowly at the start and is slower to follow lights that move. Anything else is refused. A change starts every probe again on the next frame, which waits for the GPU once. `Graphics.Fastest()` sets `Low`, so turning the probes back on stays cheap |
+| `Lighting.Reflections` | Shiny surfaces, water and glass reflect only the sky: not what's on screen, and no [reflection probes](#reflections) are photographed |
+| `Lighting.ReflectionResolution` | Not a switch: how many pixels look for what the screen shows in them each frame. At `Half`, the default, one pixel in four does, a different one each frame, and the pixels between take theirs from the ones round them on the same surface. Anti-aliasing blends the frames, so a still reflection looks the same as at `Full`, where every pixel looks every frame for up to four times the cost. `Full` keeps a reflection sharper while it moves fast, and is the one to pick with `AntiAliasing` off. Anything else is refused. A change rebuilds the scene's targets before the next frame, which waits for the GPU once. `GraphicsQuality.Ultra` sets `Full` |
+| `Lighting.OcclusionResolution` | Not a switch: how many pixels work out their [ambient occlusion](#ambient-occlusion) each frame. At `Half`, the default, one pixel in four does, a different one each frame, and the pixels between take theirs from the ones round them at the same depth. Occlusion is soft, so the picture is hard to tell from `Full`, where every pixel works out its own for about three times the cost of the effect. With `AntiAliasing` off nothing blends the frames, so pick `Full` there too. Anything else is refused. A change rebuilds the scene's targets before the next frame, which waits for the GPU once. `GraphicsQuality.Ultra` sets `Full` |
+| `Screen.AntiAliasing` | Edges show their pixels, and moving things stay sharp |
+| `Picture.Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
+| `Atmosphere.Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
+| `Atmosphere.Haze` | Distant things keep their colours instead of fading into the sky between `SkySettings.HazeStart` and `HazeEnd`. The sky's own colour stays |
+| `Atmosphere.AerialPerspective` | Under a [physical sky](#the-sky), far surfaces keep their colours instead of fading into the air with distance. A view with its own haze gets that either way. It costs almost nothing |
+| `Atmosphere.Stars` | A [physical sky](#night) at night has no stars. The moon stays. They cost a little per sky pixel, so they stay on even in `Graphics.Fastest()` |
+| `Atmosphere.Underwater` | `view.Surroundings.Water` is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
+| `Atmosphere.VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps, and under water no shafts of light. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
+| `Atmosphere.FogVolumes` | The [fog volumes](views.md#fog-volumes) a view places are left out, and only the scene's own fog fills the volumetric fog. They show only while `VolumetricFog` is on too. `Graphics.Fastest()` turns it off |
+| `Atmosphere.VolumetricFogCellSize` | Not a switch: how many scene pixels across, each way, one cell of the [volumetric fog's](#volumetric-fog) grid covers, from 4 to 32. 8 is the default. Smaller cells show finer shafts and sharper edges on fog volumes; each halving costs about four times the memory and work. The size is after `RenderScale`. Anything else is refused. A change remakes the grid before the next frame, which waits for the GPU once and starts its history again. See [the grid's cost](#the-grids-cost) |
+| `Atmosphere.VolumetricFogSlices` | Not a switch: how many slices deep the volumetric fog's grid is, from 16 to 128, out to `FogSettings.VolumetricDistance`. 64 is the default. More slices keep shafts and fog volumes sharp further out, for memory and work that grow with the count. Anything else is refused. A change remakes the grid like `VolumetricFogCellSize`. `GraphicsQuality.Ultra` sets 128 |
+| `Picture.AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
+| `Picture.DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
+| `Surfaces.Particles` | No [particles](views.md#particles) are drawn, and none is uploaded. The game can still emit them |
+| `Surfaces.Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Effects.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
+| `Surfaces.Puddles` | Every surface is dry, whatever level `view.Surroundings.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
+| `Surfaces.Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever `view.Surroundings.Wind` sets, and so do their shadows |
+| `Baking.BakedLighting` | Every bake is ignored, so each [baked area](#baked-lighting) is lit live, as if it had never been baked: lights its bake holds are drawn again. It shows what a bake changes. A bake costs less than the live light it stands in for, so `Graphics.Fastest()` leaves it on |
+| `Baking.BakeOnArrival` | Areas with no bake, or a stale one, stay lit live instead of [baking as the game runs](#baking-without-a-build-step), and a running bake stops |
+| `Baking.BakeBudget` | Not a switch: the GPU milliseconds a [background bake](#baking-without-a-build-step) may take a frame, from 0.5 to 33. Null, the default, gives 4 from source and 2 in a published game |
+| `Surfaces.Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, with no occlusion map, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut, glass stays see-through and puddles still wet the clay. `--no-materials` turns it off too |
+| `Surfaces.WearAndDirt` | Models' materials show only their own colour and shine, without the pale worn edges and dark hollows their [baked masks](#wear-and-dirt) lay on, and the masks aren't read |
+| `Surfaces.HeightMaps` | Surfaces with a height map are flat, shaded only by their normal maps: bricks no longer stand out from the mortar as the view moves. It saves up to 32 lookups on each near pixel of those surfaces. Puddles still sink into the grooves. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
+| `Lighting.Specular` | No shine: every surface is lit as plain matte, with no highlights, no reflections and no clear coat, metals in their base colour, and glass lets light through without reflecting. It's for judging the diffuse light, not for speed |
+| `Lighting.EnvironmentLight` | The sky gives the same flat colour from every side, its average, instead of brighter light from above and the sky's colours in reflections. Light probes still see the real sky. It shows what the direct light and the probes do alone |
+| `Surfaces.Subsurface` | Skin and wax are lit as plain matte, and light no longer shines through their thin parts. It saves two blurs across the picture. `Graphics.Fastest()` turns it off. See [skin and wax](#skin-and-wax) |
+| `Lighting.Emissive` | No glows: lamps, screens and embers show only the light that falls on them, and no longer light the light probes. [Bakes](#baked-lighting) keep the glow they were made with. Ghosts still glow |
+| `Picture.Vignette` | The corners are as bright as the middle, whatever `PostSettings.Vignette` asks for |
+| `Picture.Grain` | No film grain, whatever `PostSettings.Grain` asks for |
+| `Picture.Sharpening` | No sharpening, whatever `PostSettings.Sharpen` asks for, and the finish pass skips that work |
+| `Picture.ColorGrading` | `PostSettings`' contrast, saturation, lift, gain, temperature and tint are all neutral. The exposure, the bloom and the tonemapper with its look stay |
+| `Drawing.Culling` | Every model is drawn into the picture, each of the sun's cascades and each light's shadow tile, seen or not. It only costs time: it's there to check that culling hides nothing it shouldn't |
+| `Drawing.SimplerModels` | Every model is drawn at full detail at any distance, whatever `MeshDetail` says, in the picture and the shadows. It only costs time: it's there to see what the simpler versions change |
+| `Drawing.DepthFirst` | Large solid surfaces are no longer drawn twice, depth first and then shaded, so a surface drawn before the one that hides it is shaded for nothing. It only costs time: it's there to measure what drawing depth first saves. The picture is the same, but where two surfaces lie in the very same plane, where the other of the two may show |
+| `Drawing.Fades` | Nothing [fades with distance](#fading-with-distance): a fade becomes a hard cut halfway through it, models swap to their simpler versions at once, so the swap can pop, and glass shows fully up to whatever is behind it, with no soft edge. It saves drawing a model twice while it swaps |
 
 Tonemapping and glass have no switch. Without tonemapping, bright light clips to flat white, and
 without glass, windows would vanish rather than turn opaque, so neither shows anything useful.
@@ -186,20 +191,29 @@ own `Low` under 3 GB, `Medium` under 6 GB, `High` under 12 GB and `Ultra` from t
 gets `High`. It is a first guess for a player who hasn't chosen, not a measurement.
 
 `graphics.Save(path)` writes every setting but `DebugView` to a JSON profile, and
-`Graphics.Load(path)` reads one back. Choices are written by name, such as `"Upscaler": "Fsr"`. A
-profile written by hand can hold only what it changes, and the rest keep their defaults:
+`Graphics.Load(path)` reads one back. Each group of settings is an object of its own, and choices
+are written by name, such as `"Screen": { "Upscaler": "Fsr" }`. A profile written by hand can hold
+only what it changes, and the rest keep their defaults:
 
 ```json
-{ "VolumetricFog": false, "ShadowCascades": 2, "BakeOnArrival": false }
+{
+  "Atmosphere": { "VolumetricFog": false },
+  "Shadowing": { "ShadowCascades": 2 },
+  "Baking": { "BakeOnArrival": false }
+}
 ```
 
 A profile makes a custom preset of its own when `"Extends"` names one to start from instead of the
 defaults: `Low`, `Medium`, `High`, `Ultra` or `Fastest`, in any case. The rest of the profile is
-written over it, so this is `Low` with reflections back on and three cascades:
+written over it, setting by setting, so a group the profile names keeps the preset's other settings.
+This is `Low` with reflections back on and three cascades, and the rest of `Low`'s lighting, such as
+ambient occlusion off:
 
 ```json
-{ "Extends": "Low", "Reflections": true, "ShadowCascades": 3 }
+{ "Extends": "Low", "Lighting": { "Reflections": true }, "Shadowing": { "ShadowCascades": 3 } }
 ```
+
+A setting outside its group, such as `{ "Bloom": false }`, is a name the profile doesn't know.
 
 `Save` writes every setting and no `Extends`, so a saved profile keeps what it held even when a
 later version changes the presets. A profile that extends anything else is refused with a message naming the file.
@@ -209,9 +223,9 @@ A name the profile doesn't know, or a value a setting refuses, stops the load wi
 [command line](command-line.md): `low`, `medium`, `high`, `ultra`, `fastest`, `auto` for the
 recommended quality, or a path ending in `.json`.
 
-A background bake costs up to `BakeBudget` milliseconds a frame while it runs, 4 from source by
+A background bake costs up to `Baking.BakeBudget` milliseconds a frame while it runs, 4 from source by
 default, which shows on a slow GPU right after arriving somewhere new. `Low` and `Medium` give it
-less, and `BakeOnArrival = false` stops it.
+less, and `Baking.BakeOnArrival = false` stops it.
 
 ### The debug view from a game
 
@@ -232,7 +246,7 @@ close to one drawn at full size. It takes the place of TAA, so it also smooths e
 render scale of 1.
 
 ```csharp
-Graphics = new Graphics { Upscaler = Upscaler.Fsr, RenderScale = 0.67f },
+Graphics = new Graphics { Screen = { Upscaler = Upscaler.Fsr, RenderScale = 0.67f } },
 ```
 
 `--upscaler fsr` or `--upscaler taa` picks it from the command line. FSR is used only while
@@ -261,7 +275,7 @@ internal sealed class MyGame(Graphics graphics, Input input) : IGame
     {
         if (input.Pressed(Key.M))
         {
-            graphics.Materials = !graphics.Materials;
+            graphics.Surfaces.Materials = !graphics.Surfaces.Materials;
         }
     }
 }
@@ -338,7 +352,7 @@ shines in a cone, like a lantern's beam. The colour is how bright the light is a
 away. It dims with the square of the distance and fades smoothly to nothing at the
 range, so a small range is cheaper and keeps a candle's light on its own table. A spot
 is full inside its inner angle and fades out by its outer one. Both angles are measured
-from the direction, in radians, and the outer one must be under a right angle. `Graphics.LocalLights` turns them all off, see [graphics settings](#graphics-settings).
+from the direction, in radians, and the outer one must be under a right angle. `Graphics.Lighting.LocalLights` turns them all off, see [graphics settings](#graphics-settings).
 
 A light also has a radius, the size of its glowing part, 0.1 m unless you set
 `Radius`. No surface gets much brighter than it would be that far from the light. On
@@ -444,7 +458,7 @@ shadows gentle. The real sun is about 0.01, and something near that lets a canop
 metres up throw crisp dappled light, where the default blurs it into one soft patch.
 0 gives hard edges everywhere.
 
-Each map is 2048 texels across unless `Graphics.ShadowResolution` asks for 1024 or 4096, so
+Each map is 2048 texels across unless `Graphics.Shadowing.ShadowResolution` asks for 1024 or 4096, so
 a 7 m radius gives texels about 7 mm wide. That's too coarse for the last centimetre where
 a barrel stands on the floor, so the sun also has contact shadows. Each pixel looks towards
 the sun through what the camera sees, and darkens where something is in the way, which
@@ -456,7 +470,7 @@ view.Lights.Shadows(7f, cascades: 3, sunSize: 0.02f, contact: 0.3f);
 
 `contact` is how far each pixel looks, in metres. The default of 0.25 suits barrels, crates
 and people; a longer one reaches under bigger things and costs no more. 0 turns them off, as
-`Graphics.ContactShadows` does. They're drawn only inside the first cascade's radius, fading
+`Graphics.Shadowing.ContactShadows` does. They're drawn only inside the first cascade's radius, fading
 out over its last tenth, since further away a centimetre is less than a pixel. They can only
 see what's on screen, so something just out of frame or hidden behind another object casts
 none. Something more than 15 cm in front of a surface never counts, so a near object puts no
@@ -488,7 +502,7 @@ keeps the shade crisp: it stops at the edge of a step instead of spreading onto 
 one, and a small model keeps its creases. It works the same with anti-aliasing off. The
 cost is that the shade takes about eight frames to catch up when something moves, so the
 floor a figure just left stays dark for a moment, and a surface that has just come into
-view is softer for its first few frames. Turn `Graphics.OcclusionHistory` off to blur each
+view is softer for its first few frames. Turn `Graphics.Lighting.OcclusionHistory` off to blur each
 frame by itself instead, which is softer everywhere.
 
 ![The Crypt's statue in plain clay three times: before the change, with OcclusionHistory off, and with it on](media/occlusion-history.webp)
@@ -556,7 +570,7 @@ scene would have had without it.
 The probes sit in four nested boxes centred on the camera, 0.5, 1, 2 and 4 metres apart, so
 detail is finest close by and the far boxes still reach a long way. On a GPU that can
 [trace rays](#ray-tracing), each update sends 128 rays out from the probe, and 256, 512 or 1,024
-probes are updated a frame by [`Graphics.ProbeQuality`](#graphics-settings): `Low`, `Medium` or
+probes are updated a frame by [`Graphics.Lighting.ProbeQuality`](#graphics-settings): `Low`, `Medium` or
 `High`, the default. Nothing turns this on; it is used whenever the GPU can. Each traced update
 moves a probe a quarter of the way to what its rays saw, so a little noise averages away, but a
 big change, well above the probe's own noise, comes in whole, so a lamp turned on near the
@@ -621,8 +635,8 @@ lightmap instead, which is finer than any probe grid. Anything else inside the s
 character walking through it, reads the bake's own probes first. Where none of them can see it, it
 falls back to the box of probes, then to the probes round the camera, and last to the sky.
 
-`Graphics.LightProbes` turns all of this off and frees the probes' memory, about 170 MB at
-`High`. Switching it back on starts every probe again. `Graphics.ProbeQuality` trades the
+`Graphics.Lighting.LightProbes` turns all of this off and frees the probes' memory, about 170 MB at
+`High`. Switching it back on starts every probe again. `Graphics.Lighting.ProbeQuality` trades the
 probes' reach and speed for memory and GPU time; see [graphics settings](#graphics-settings).
 A [screenshot](command-line.md#screenshots) waits for the probes near the camera to be drawn,
 up to 2,048 frames, so it shows the bounce as it will be rather than still filling in.
@@ -636,7 +650,7 @@ finest box, so they read clearly from a few metres away while neighbours stay we
 leave the scene visible between them. A probe not drawn yet is a grey wireframe, and a probe
 left out for being inside a wall isn't shown. Where your box covers the finest box, only your
 box's probes are shown, as only they light that space. It works with or without tracing, and
-shows no spheres while `Graphics.LightProbes` is off. From code, set `FrameView.DebugView` to
+shows no spheres while `Graphics.Lighting.LightProbes` is off. From code, set `FrameView.DebugView` to
 `DebugView.Probes`. A game can switch it on while it runs, as the Hamlet does with P, by setting
 `Graphics.DebugView`; see [the debug view from a game](#the-debug-view-from-a-game). See [the
 command line](command-line.md).
@@ -746,7 +760,7 @@ content reloads, every bake is read again and each stale one is reported again.
 
 A frame with no bake, or only stale ones, looks exactly as it would without its baked areas, to
 the byte, and a frame that names none does no bake work at all.
-[`Graphics.BakedLighting`](#graphics-settings) off treats every bake as missing.
+[`Graphics.Baking.BakedLighting`](#graphics-settings) off treats every bake as missing.
 
 ### With a fresh bake
 
@@ -801,7 +815,7 @@ so the next frame that names it counts as its first, and a frame that names no a
 forgets every area. So a game that draws an extra view with no baked areas every frame, such as
 a minimap, between the frames that name them never sees a bake fade. Reflection probes are
 captured again once a fade ends, so they hold the whole bake. Game time that goes back ends a fade at
-once. Turning [`Graphics.BakedLighting`](#graphics-settings) back on counts as every bake on screen
+once. Turning [`Graphics.Baking.BakedLighting`](#graphics-settings) back on counts as every bake on screen
 arriving, so they fade in too. `BakeFadeSeconds` of 0 shows every bake at once; it must be from 0 to 10, or it throws
 `ArgumentOutOfRangeException` with the value.
 
@@ -989,7 +1003,7 @@ the game runs again. While an area bakes, a line in the bottom-left corner over 
 interface says `Baking cottage, 42%`, with `(3 more)` when other areas wait, or `Waiting to bake 2 areas` before one
 starts. It goes when nothing is left. The game's own interface keeps its state as the line comes and goes.
 
-`Graphics.BakeOnArrival`, on by default, switches this off; turning it off stops a running bake. `Graphics.BakeBudget`
+`Graphics.Baking.BakeOnArrival`, on by default, switches this off; turning it off stops a running bake. `Graphics.Baking.BakeBudget`
 is the GPU time a slice may take a frame, in milliseconds: null, the default, gives 4 from source and 2 published,
 and anything from 0.5 to 33 sets it. Anything else is refused, saying the range. A change shows from the next frame, and starts a running bake over.
 
@@ -1083,7 +1097,7 @@ At most 64 probes fit in a frame, and a sixty-fifth throws. Each probe takes abo
 GPU memory. Room for 8 is made at the start and doubles when it runs out, up to 64, which
 waits for the GPU once. The position must be inside the box, `boxMax` above `boxMin` on
 every axis, `blend` 0 or more, `priority` a finite number, `update` one of the three, and each
-key used once a frame. With `Graphics.Reflections` off, no probes are photographed and shiny
+key used once a frame. With `Graphics.Lighting.Reflections` off, no probes are photographed and shiny
 surfaces and glass reflect only the sky.
 
 ## The look of the picture
@@ -1174,7 +1188,7 @@ brighter or darker picture than the meter picks.
 
 When the scene gets brighter or darker the exposure follows at `AdaptationSpeed` stops a second,
 the way eyes adjust walking out of a cellar. The first frame starts at the metered brightness,
-not from black, and so does the first after `AutoExposure` or [`Graphics.AutoExposure`](#graphics-settings)
+not from black, and so does the first after `AutoExposure` or [`Graphics.Picture.AutoExposure`](#graphics-settings)
 is turned back on, or after time goes backwards, as when the game restarts. A speed must be above 0, or 0 for the
 default. A view refuses anything else; Rendition used on its own takes the default instead. The meter sees from about 1/256 to 65000 times a white of 1. Anything darker or
 brighter counts as the darkest or brightest it sees.
@@ -1228,7 +1242,7 @@ half-size pixel mixes the four pixels under it.
 
 A view refuses a negative or broken `FocusDistance`, `Aperture` or `FocalLength`, and a focus
 distance no further than the focal length while the aperture is open. Rendition used on its
-own draws no depth of field for those instead. [`Graphics.DepthOfField`](#graphics-settings)
+own draws no depth of field for those instead. [`Graphics.Picture.DepthOfField`](#graphics-settings)
 turns it off for every view, and `Graphics.Fastest()` turns it off. Probes never see it, so
 changing the focus never captures them again.
 
@@ -1256,7 +1270,7 @@ view.Surroundings.Sky(new SkySettings
 
 Haze fades things into the sky behind them, from nothing at `HazeStart` to all sky at
 `HazeEnd`, so the far edge of a world melts away instead of stopping. Leave both at
-zero for no haze. A negative brightness, or haze that ends nearer than it starts, throws. `Graphics.Haze` turns the fade off for every view, see [graphics settings](#graphics-settings).
+zero for no haze. A negative brightness, or haze that ends nearer than it starts, throws. `Graphics.Atmosphere.Haze` turns the fade off for every view, see [graphics settings](#graphics-settings).
 
 `HazeFromFocus` measures the haze across the ground from the point the camera looks at
 instead of from the camera. Use it with a far-off camera, such as an isometric one: from there everything on
@@ -1308,8 +1322,8 @@ glow, eight stops or so under noon, and never to black.
 
 Far surfaces fade into the air, bluer and paler with distance, as they would on a clear
 day: about a sixth of the way by a kilometre at turbidity 3. A view with its own haze,
-`HazeStart` and `HazeEnd`, gets that instead, and with `Graphics.Haze` off it gets neither.
-Reflections leave the fade out, as they leave out haze. `Graphics.AerialPerspective` turns the fade
+`HazeStart` and `HazeEnd`, gets that instead, and with `Graphics.Atmosphere.Haze` off it gets neither.
+Reflections leave the fade out, as they leave out haze. `Graphics.Atmosphere.AerialPerspective` turns the fade
 off for every view; it costs almost nothing, so it stays on even in `Graphics.Fastest()`.
 
 The disc shows in the background and in sharp reflections from the sky, but not in the
@@ -1339,7 +1353,7 @@ the blue cast the gradient's zenith gave the shade:
 Once the sun is down, a physical sky shows stars. They fade in as the sun goes from 2° to
 12° below the horizon and thin out low down, where the light comes through more air.
 `StarRotation` turns them about the straight-up point, in radians, so a day cycle can turn
-them once a day. `HideStars` leaves them out, for a cloudy night, and `Graphics.Stars` turns
+them once a day. `HideStars` leaves them out, for a cloudy night, and `Graphics.Atmosphere.Stars` turns
 them off for every view.
 
 `Moon` puts the moon in the sky, as a direction from the ground towards it. It is lit by
@@ -1430,7 +1444,7 @@ view.Surroundings.Sky(new SkySettings
 });
 ```
 
-![The Courtyard with Graphics.Fog off, and with fog of density 0.004 and falloff 0.15](media/fog.webp)
+![The Courtyard with Graphics.Atmosphere.Fog off, and with fog of density 0.004 and falloff 0.15](media/fog.webp)
 
 `Density` is how much light the air takes per metre at `Height`, so 0.004 hides about 4%
 of what is 10 m away and a third of what is 100 m away. Above `Height` the fog thins by e
@@ -1451,7 +1465,7 @@ which hides the edge of a world; fog is worked out along each line of sight and 
 depth inside it. A negative density, falloff or sun scatter throws, as does a height that
 isn't a number. Fog is drawn for the camera only: [light probes](#bounced-light) and
 [reflection probes](#reflections) capture clear air, so changing the fog captures nothing
-again and costs nothing but its pixels. `Graphics.Fog` turns it off.
+again and costs nothing but its pixels. `Graphics.Atmosphere.Fog` turns it off.
 
 #### Volumetric fog
 
@@ -1503,14 +1517,14 @@ The Forest example lies under low morning mist with the sun just over the trees,
 key switches the volumetric fog, so you can see the shafts come and go.
 
 The fog near the camera is kept in a grid of cells, one for every 8 by 8 pixels of the
-scene and 64 deep unless [`Graphics.VolumetricFogCellSize` and `VolumetricFogSlices`](#the-grids-cost)
+scene and 64 deep unless [`Graphics.Atmosphere.VolumetricFogCellSize` and `VolumetricFogSlices`](#the-grids-cost)
 say otherwise: one cell for the first metre, then thin cells that get deeper further out. Each frame lights
 every cell at a different point of its depth and keeps 90% of what the cell held last
 frame, so a light that moves or switches on takes a few frames to settle in the fog.
 Screenshots and recordings that fix the frame come out the same every time. The grid
 follows [`RenderScale`](#graphics-settings), not the window. Like the plain fog, it is
 drawn for the camera only. Under water the scene's fog is clear and the grid holds the
-water instead, with its [shafts of light](#water). `Graphics.VolumetricFog` turns it
+water instead, with its [shafts of light](#water). `Graphics.Atmosphere.VolumetricFog` turns it
 off, which gives the plain fog exactly, and `Graphics.Fastest()` turns it off.
 
 #### Fog volumes
@@ -1527,7 +1541,7 @@ fog and any volumes that overlap add up.
 The Crypt example lays a cold mist over its floor with one box volume, 0.8 m deep with a
 soft edge and drifting noise, and its V key switches the mist off.
 
-They need no scene fog. A scene with a density of 0, or with `Graphics.Fog` off, still
+They need no scene fog. A scene with a density of 0, or with `Graphics.Atmosphere.Fog` off, still
 makes the grid for its volumes. That also means they share the grid's limits:
 
 - They show only out to `FogSettings.VolumetricDistance`; past it a volume is cut off.
@@ -1537,14 +1551,14 @@ makes the grid for its volumes. That also means they share the grid's limits:
   water, out to its `ShaftDistance`.
 - A frame holds at most 64.
 
-`Graphics.FogVolumes` turns them off on their own, and `Graphics.VolumetricFog` turns
+`Graphics.Atmosphere.FogVolumes` turns them off on their own, and `Graphics.Atmosphere.VolumetricFog` turns
 them off with the rest of the volumetric fog. Each volume costs the grid's every cell a
 distance check against a sphere round it, and the cells inside it the shape test and,
 with `Noise`, three octaves of noise.
 
 ### The grid's cost
 
-The grid's memory and work grow with its cells. Halving `Graphics.VolumetricFogCellSize`
+The grid's memory and work grow with its cells. Halving `Graphics.Atmosphere.VolumetricFogCellSize`
 gives four times the cells, and doubling `VolumetricFogSlices` gives twice as many. The grid
 is three volumes of 8 bytes a cell. At 1600 by 900, with `RenderScale` 1:
 
@@ -1585,7 +1599,7 @@ view.Surroundings.Water(new UnderwaterSettings
 Leaving `Absorption` at zero means there's no water. The [Reef example](../examples/Reef)
 uses this. Red goes first, so colours fade towards blue and green with distance: at a red
 absorption of 0.075 an orange coral turns brown a few metres off. The Reef lowers it to 0.045
-so its coral keeps some warmth across the view. `Graphics.Underwater` turns the water off for every view, see [graphics settings](#graphics-settings).
+so its coral keeps some warmth across the view. `Graphics.Atmosphere.Underwater` turns the water off for every view, see [graphics settings](#graphics-settings).
 
 The shafts are the sun's caustics coming down through the water, brightest looking towards
 the sun. They are drawn in the [volumetric fog's](#volumetric-fog) grid, out to
@@ -1597,7 +1611,7 @@ shafts close by blur, the way a wide [`VolumetricDistance`](#the-grids-cost) doe
 
 ![The Reef with its shafts drawn the old way, marched per pixel, on the left, and in the volumetric fog's grid on the right: they look the same](media/reef-shafts.webp)
 
-The shafts need [`Graphics.VolumetricFog`](#graphics-settings). With it off, as in the
+The shafts need [`Graphics.Atmosphere.VolumetricFog`](#graphics-settings). With it off, as in the
 `Low` and `Medium` presets, the water has its colour and caustics but no shafts.
 
 ## Puddles
@@ -1634,7 +1648,7 @@ The water is drawn on the ground, but it is lit as if at the level: its reflecti
 from the water's surface, so the sides of the hollow don't get in their way, and the sky
 reflects in it wherever nothing on screen stands in the way. Anything in the puddle
 with the rule, such as a plank or a wheel's rim, is wet and mirror-smooth below the level
-too. Puddles still apply with [`Graphics.Materials`](#graphics-settings) off: the plain clay
+too. Puddles still apply with [`Graphics.Surfaces.Materials`](#graphics-settings) off: the plain clay
 gets wet at the height of its mesh, as there is no height map to sink it.
 
 The damp band is measured up from the water, so it is only a fringe where the ground rises
@@ -1643,7 +1657,7 @@ shallow hollow, a band wider than that gap darkens all of it. Give a narrower ba
 little less than the ground's height above the water, so the ground round the puddle stays dry
 and only the slope down into it darkens.
 
-Without a level, the rule does nothing. [`Graphics.Puddles`](#graphics-settings) turns
+Without a level, the rule does nothing. [`Graphics.Surfaces.Puddles`](#graphics-settings) turns
 it off, and `Graphics.Fastest()` turns it off. The Courtyard uses it for its puddle, on the
 mud, the flagstones, the plank, the deck, the barrel's hoops and the wheel, with water 4.5 cm
 below the yard and a band of 3.5 cm.
@@ -1691,7 +1705,7 @@ flips as the sine crosses zero, so the lean swings smoothly from one side to the
 float surge = MathF.Sin(seconds * MathF.Tau / 7f);
 view.Surroundings.Wind(surgeDirection * MathF.Sign(surge), 0.45f * MathF.Abs(surge), gustiness: 0.3f);
 ```
-[`Graphics.Wind`](#graphics-settings) turns it off, and
+[`Graphics.Surfaces.Wind`](#graphics-settings) turns it off, and
 `Graphics.Fastest()` turns it off. The Courtyard blows a breeze of 0.35 across its grass, with
 a share of 0.08 for the ivy and 0.4 for the tree's crown.
 
@@ -1739,7 +1753,7 @@ var water = new Surface { Color = new Vector3(0.35f, 0.55f, 0.6f), Roughness = 0
 
 ![The Glass example's pool where a stone runs into it: on the left with no soft edge, a hard line where the stone leaves the water; on the right with a soft edge of 0.2 m, the water fading out towards the stone](media/soft-edge-before-after.webp)
 
-[`Graphics.Fades`](#graphics-settings) turns all three off.
+[`Graphics.Drawing.Fades`](#graphics-settings) turns all three off.
 
 ## Motion vectors
 
@@ -2117,7 +2131,7 @@ the colour as it is, more pales it and less darkens it. This differs from the ru
 layer's own, from 0 to 1. Leave it out and the surface keeps its roughness under the layer.
 A rule may give only one of the two. It works with or without a graph, so a downloaded
 model's textures can wear too. A transparent material doesn't show wear and dirt, so the
-cook warns and ignores `bakeMasks` on one. [`Graphics.WearAndDirt`](#graphics-settings)
+cook warns and ignores `bakeMasks` on one. [`Graphics.Surfaces.WearAndDirt`](#graphics-settings)
 turns them off everywhere.
 
 The masks are baked into the material's second UV set, the one lighting uses, where every
@@ -2273,7 +2287,7 @@ A model sets it per material in its cook settings:
 Subsurface can't be combined with `clearcoat` or `foliage`. The renderer refuses such a
 material and the cook stops with an error naming it. Under water the light isn't spread.
 When no material in the world scatters light the blur doesn't run, so it costs nothing.
-`Graphics.Subsurface` turns it off, see [graphics settings](#graphics-settings). The [Wax](../examples/Wax) example puts each kind beside a plain twin.
+`Graphics.Surfaces.Subsurface` turns it off, see [graphics settings](#graphics-settings). The [Wax](../examples/Wax) example puts each kind beside a plain twin.
 
 ## Ghosts
 
@@ -2485,8 +2499,8 @@ mortar between bricks. Its red is multiplied into the light from the sky, the li
 probes and the bake, and dims reflections the same way, but not the sun's or a lamp's
 direct light, which casts its own shadows. It works alongside [ambient
 occlusion](#ambient-occlusion): that one finds the creases the camera sees between
-surfaces, and the map holds the fine ones painted into a surface. `Graphics.AmbientOcclusion`
-off leaves the map on, as it's part of the material; `Graphics.Materials` off, or
+surfaces, and the map holds the fine ones painted into a surface. `Graphics.Lighting.AmbientOcclusion`
+off leaves the map on, as it's part of the material; `Graphics.Surfaces.Materials` off, or
 `--no-materials`, turns it off with the rest.
 
 ```csharp

@@ -461,10 +461,10 @@ public class GameArgumentsTests
 
         Game.ApplyGraphicsArguments(graphics, arguments, gpu: null);
 
-        Assert.Equal(1024, graphics.ShadowResolution);
-        Assert.False(graphics.Reflections);
-        Assert.Equal(1f, graphics.RenderScale);
-        Assert.True(graphics.Vsync);
+        Assert.Equal(1024, graphics.Shadowing.ShadowResolution);
+        Assert.False(graphics.Lighting.Reflections);
+        Assert.Equal(1f, graphics.Screen.RenderScale);
+        Assert.True(graphics.Screen.Vsync);
     }
 
     [Fact]
@@ -475,9 +475,9 @@ public class GameArgumentsTests
 
         Game.ApplyGraphicsArguments(graphics, arguments, gpu: null);
 
-        Assert.Equal(2048, graphics.ShadowResolution);
-        Assert.True(graphics.Reflections);
-        Assert.False(graphics.Materials);
+        Assert.Equal(2048, graphics.Shadowing.ShadowResolution);
+        Assert.True(graphics.Lighting.Reflections);
+        Assert.False(graphics.Surfaces.Materials);
     }
 
     [Fact]
@@ -488,9 +488,9 @@ public class GameArgumentsTests
 
         Game.ApplyGraphicsArguments(graphics, arguments, new GpuInfo("Laptop GPU", GpuKind.Integrated, 1L << 30, false));
 
-        Assert.Equal(0.75f, graphics.RenderScale);
-        Assert.Equal(1024, graphics.ShadowResolution);
-        Assert.False(graphics.Reflections);
+        Assert.Equal(0.75f, graphics.Screen.RenderScale);
+        Assert.Equal(1024, graphics.Shadowing.ShadowResolution);
+        Assert.False(graphics.Lighting.Reflections);
     }
 
     [Fact]
@@ -500,13 +500,13 @@ public class GameArgumentsTests
         try
         {
             string path = Path.Combine(folder, "mine.json");
-            File.WriteAllText(path, """{ "Bloom": false, "ShadowCascades": 1 }""");
+            File.WriteAllText(path, """{ "Picture": { "Bloom": false }, "Shadowing": { "ShadowCascades": 1 } }""");
             var graphics = new Graphics();
 
             Game.ApplyGraphicsArguments(graphics, GameArguments.Parse(["--graphics", path]), gpu: null);
 
-            Assert.False(graphics.Bloom);
-            Assert.Equal(1, graphics.ShadowCascades);
+            Assert.False(graphics.Picture.Bloom);
+            Assert.Equal(1, graphics.Shadowing.ShadowCascades);
         }
         finally
         {

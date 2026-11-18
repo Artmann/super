@@ -11,68 +11,73 @@ public class GraphicsProfileTests
     // Every setting moved away from its default, so a copy or a round trip that drops one shows.
     private static Graphics Unusual() => new()
     {
-        Vsync = true,
-        MaxFramesPerSecond = 90,
-        SunShadows = false,
-        ShadowResolution = 4096,
-        ShadowCascades = 2,
-        MeshDetail = 1.5f,
-        RenderScale = 0.75f,
-        Upscaler = Upscaler.Fsr,
-        ContactShadows = false,
-        LightProbes = false,
-        ProbeQuality = ProbeQuality.Medium,
-        ReflectionResolution = ReflectionResolution.Full,
-        OcclusionResolution = OcclusionResolution.Full,
-        LightShadows = false,
-        AmbientOcclusion = false,
-        MultiscatterSpecular = false,
-        Reflections = false,
-        AntiAliasing = false,
-        Bloom = false,
-        Fog = false,
-        AutoExposure = false,
-        DepthOfField = false,
-        Decals = false,
-        VolumetricFog = false,
-        VolumetricFogCellSize = 16,
-        VolumetricFogSlices = 32,
-        Materials = false,
-        WearAndDirt = false,
-        Puddles = false,
-        Wind = false,
-        HeightMaps = false,
-        Specular = false,
-        EnvironmentLight = false,
-        Emissive = false,
-        Vignette = false,
-        Grain = false,
-        Sharpening = false,
-        ColorGrading = false,
-        Culling = false,
-        SimplerModels = false,
-        DepthFirst = false,
-        Fades = false,
-        Subsurface = false,
-        Particles = false,
-        LocalLights = false,
-        Haze = false,
-        AerialPerspective = false,
-        Stars = false,
-        Underwater = false,
-        FogVolumes = false,
-        ScreenBounce = false,
-        OcclusionHistory = false,
-        BakedLighting = false,
-        BakeOnArrival = false,
-        BakeBudget = 3f,
+        Screen = { Vsync = true, MaxFramesPerSecond = 90, RenderScale = 0.75f, Upscaler = Upscaler.Fsr, AntiAliasing = false },
+        Shadowing = { SunShadows = false, ShadowResolution = 4096, ShadowCascades = 2, ContactShadows = false, LightShadows = false },
+        Lighting =
+        {
+            LightProbes = false,
+            ProbeQuality = ProbeQuality.Medium,
+            ReflectionResolution = ReflectionResolution.Full,
+            OcclusionResolution = OcclusionResolution.Full,
+            AmbientOcclusion = false,
+            MultiscatterSpecular = false,
+            Reflections = false,
+            Specular = false,
+            EnvironmentLight = false,
+            Emissive = false,
+            LocalLights = false,
+            ScreenBounce = false,
+            OcclusionHistory = false,
+        },
+        Atmosphere =
+        {
+            Fog = false,
+            VolumetricFog = false,
+            VolumetricFogCellSize = 16,
+            VolumetricFogSlices = 32,
+            Haze = false,
+            AerialPerspective = false,
+            Stars = false,
+            Underwater = false,
+            FogVolumes = false,
+        },
+        Surfaces =
+        {
+            Decals = false,
+            Materials = false,
+            WearAndDirt = false,
+            Puddles = false,
+            Wind = false,
+            HeightMaps = false,
+            Subsurface = false,
+            Particles = false,
+        },
+        Picture =
+        {
+            Bloom = false,
+            AutoExposure = false,
+            DepthOfField = false,
+            Vignette = false,
+            Grain = false,
+            Sharpening = false,
+            ColorGrading = false,
+        },
+        Baking = { BakedLighting = false, BakeOnArrival = false, BakeBudget = 3f },
+        Drawing = { MeshDetail = 1.5f, Culling = false, SimplerModels = false, DepthFirst = false, Fades = false },
         DebugView = DebugView.Probes,
     };
 
-    private static PropertyInfo[] Settings() =>
+    // Every setting, as the group it's in and its place there.
+    private static (PropertyInfo Group, PropertyInfo Setting)[] Settings() =>
         typeof(Graphics).GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(property => property.CanWrite && property.Name != nameof(Graphics.DebugView))
+            .Where(group => group.Name != nameof(Graphics.DebugView))
+            .SelectMany(group => group.PropertyType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(setting => setting.CanWrite)
+                .Select(setting => (group, setting)))
             .ToArray();
+
+    private static object? Value(Graphics graphics, (PropertyInfo Group, PropertyInfo Setting) setting) =>
+        setting.Setting.GetValue(setting.Group.GetValue(graphics));
 
     [Fact]
     public void Unusual_moves_every_setting_away_from_its_default()
@@ -81,8 +86,8 @@ public class GraphicsProfileTests
         var defaults = new Graphics();
         var unusual = Unusual();
 
-        Assert.NotEmpty(Settings());
-        Assert.All(Settings(), property => Assert.NotEqual(property.GetValue(defaults), property.GetValue(unusual)));
+        Assert.Equal(55, Settings().Length);
+        Assert.All(Settings(), setting => Assert.NotEqual(Value(defaults, setting), Value(unusual, setting)));
     }
 
     [Fact]
@@ -92,7 +97,7 @@ public class GraphicsProfileTests
 
         graphics.Apply(Unusual());
 
-        Assert.All(Settings(), property => Assert.Equal(property.GetValue(Unusual()), property.GetValue(graphics)));
+        Assert.All(Settings(), setting => Assert.Equal(Value(Unusual(), setting), Value(graphics, setting)));
         Assert.Equal(DebugView.Trace, graphics.DebugView);
     }
 
@@ -101,7 +106,7 @@ public class GraphicsProfileTests
     {
         var read = Graphics.FromJson(Unusual().ToJson());
 
-        Assert.All(Settings(), property => Assert.Equal(property.GetValue(Unusual()), property.GetValue(read)));
+        Assert.All(Settings(), setting => Assert.Equal(Value(Unusual(), setting), Value(read, setting)));
         Assert.Equal(DebugView.None, read.DebugView);
     }
 
@@ -118,31 +123,41 @@ public class GraphicsProfileTests
     }
 
     [Fact]
+    public void A_profile_writes_each_group_as_an_object()
+    {
+        string json = new Graphics { Picture = { Bloom = false } }.ToJson();
+
+        Assert.Contains("\"Picture\": {", json);
+        Assert.Contains("\"Bloom\": false", json);
+    }
+
+    [Fact]
     public void A_profile_that_names_a_few_settings_keeps_the_defaults_for_the_rest()
     {
-        var read = Graphics.FromJson("""{ "Bloom": false, "ShadowCascades": 2 }""");
+        var read = Graphics.FromJson("""{ "Picture": { "Bloom": false }, "Shadowing": { "ShadowCascades": 2 } }""");
 
-        Assert.False(read.Bloom);
-        Assert.Equal(2, read.ShadowCascades);
-        Assert.True(read.Fog);
-        Assert.Equal(2048, read.ShadowResolution);
-        Assert.Equal(1f, read.MeshDetail);
+        Assert.False(read.Picture.Bloom);
+        Assert.True(read.Picture.Vignette);
+        Assert.Equal(2, read.Shadowing.ShadowCascades);
+        Assert.True(read.Atmosphere.Fog);
+        Assert.Equal(2048, read.Shadowing.ShadowResolution);
+        Assert.Equal(1f, read.Drawing.MeshDetail);
     }
 
     [Fact]
     public void A_profile_that_extends_a_preset_starts_from_it()
     {
-        var read = Graphics.FromJson("""{ "Extends": "Low", "Reflections": true, "ShadowCascades": 3 }""");
+        var read = Graphics.FromJson("""{ "Extends": "Low", "Lighting": { "Reflections": true }, "Shadowing": { "ShadowCascades": 3 } }""");
 
         // Low's own values, by hand: three quarters scale, 1024 shadows, half detail, ambient occlusion off.
-        Assert.Equal(0.75f, read.RenderScale);
-        Assert.Equal(1024, read.ShadowResolution);
-        Assert.Equal(0.5f, read.MeshDetail);
-        Assert.False(read.AmbientOcclusion);
-        Assert.False(read.VolumetricFog);
+        Assert.Equal(0.75f, read.Screen.RenderScale);
+        Assert.Equal(1024, read.Shadowing.ShadowResolution);
+        Assert.Equal(0.5f, read.Drawing.MeshDetail);
+        Assert.False(read.Lighting.AmbientOcclusion);
+        Assert.False(read.Atmosphere.VolumetricFog);
         // And the profile's, over them.
-        Assert.True(read.Reflections);
-        Assert.Equal(3, read.ShadowCascades);
+        Assert.True(read.Lighting.Reflections);
+        Assert.Equal(3, read.Shadowing.ShadowCascades);
     }
 
     [Theory]
@@ -154,17 +169,18 @@ public class GraphicsProfileTests
     {
         var read = Graphics.FromJson($$"""{ "Extends": "{{name}}" }""");
 
-        Assert.All(Settings(), property => Assert.Equal(property.GetValue(Graphics.For(quality)), property.GetValue(read)));
+        Assert.All(Settings(), setting => Assert.Equal(Value(Graphics.For(quality), setting), Value(read, setting)));
     }
 
     [Fact]
     public void A_profile_can_extend_fastest()
     {
-        var read = Graphics.FromJson("""{ "Extends": "Fastest", "Bloom": true }""");
+        var read = Graphics.FromJson("""{ "Extends": "Fastest", "Picture": { "Bloom": true } }""");
 
-        Assert.False(read.Fog);
-        Assert.Equal(0.5f, read.MeshDetail);
-        Assert.True(read.Bloom);
+        Assert.False(read.Atmosphere.Fog);
+        Assert.False(read.Picture.Vignette);
+        Assert.Equal(0.5f, read.Drawing.MeshDetail);
+        Assert.True(read.Picture.Bloom);
     }
 
     [Theory]
@@ -182,7 +198,8 @@ public class GraphicsProfileTests
     [Fact]
     public void A_profile_that_extends_a_preset_still_refuses_names_it_does_not_know()
     {
-        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Extends": "Low", "Blooom": false }""", "low.json"));
+        var error = Assert.Throws<InvalidDataException>(() =>
+            Graphics.FromJson("""{ "Extends": "Low", "Picture": { "Blooom": false } }""", "low.json"));
 
         Assert.StartsWith("low.json isn't a graphics profile: ", error.Message);
         Assert.Contains("Blooom", error.Message);
@@ -191,7 +208,8 @@ public class GraphicsProfileTests
     [Fact]
     public void A_profile_that_extends_a_preset_still_refuses_values_out_of_range()
     {
-        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Extends": "Low", "ShadowCascades": 6 }""", "low.json"));
+        var error = Assert.Throws<InvalidDataException>(() =>
+            Graphics.FromJson("""{ "Extends": "Low", "Shadowing": { "ShadowCascades": 6 } }""", "low.json"));
 
         Assert.StartsWith("low.json has a setting out of range: The sun can draw from 1 to 4 shadow cascades.", error.Message);
     }
@@ -199,16 +217,25 @@ public class GraphicsProfileTests
     [Fact]
     public void A_profile_with_a_setting_it_does_not_know_is_refused()
     {
-        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Blooom": false }""", "low.json"));
+        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Picture": { "Blooom": false } }""", "low.json"));
 
         Assert.StartsWith("low.json isn't a graphics profile: ", error.Message);
         Assert.Contains("Blooom", error.Message);
     }
 
     [Fact]
+    public void A_profile_with_a_setting_outside_its_group_is_refused()
+    {
+        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Bloom": false }""", "low.json"));
+
+        Assert.StartsWith("low.json isn't a graphics profile: ", error.Message);
+        Assert.Contains("Bloom", error.Message);
+    }
+
+    [Fact]
     public void A_profile_with_a_setting_out_of_range_is_refused()
     {
-        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "ShadowCascades": 6 }""", "low.json"));
+        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Shadowing": { "ShadowCascades": 6 } }""", "low.json"));
 
         Assert.StartsWith("low.json has a setting out of range: The sun can draw from 1 to 4 shadow cascades.", error.Message);
     }
@@ -232,7 +259,7 @@ public class GraphicsProfileTests
 
             var read = Graphics.Load(path);
 
-            Assert.All(Settings(), property => Assert.Equal(property.GetValue(Unusual()), property.GetValue(read)));
+            Assert.All(Settings(), setting => Assert.Equal(Value(Unusual(), setting), Value(read, setting)));
         }
         finally
         {
@@ -246,7 +273,7 @@ public class GraphicsProfileTests
         var high = Graphics.For(GraphicsQuality.High);
         var defaults = new Graphics();
 
-        Assert.All(Settings(), property => Assert.Equal(property.GetValue(defaults), property.GetValue(high)));
+        Assert.All(Settings(), setting => Assert.Equal(Value(defaults, setting), Value(high, setting)));
     }
 
     [Fact]
@@ -258,17 +285,18 @@ public class GraphicsProfileTests
             var lower = Graphics.For(qualities[i - 1]);
             var higher = Graphics.For(qualities[i]);
             string pair = $"{qualities[i - 1]} against {qualities[i]}";
+            var (higherOff, lowerOff) = (GraphicsSwitches.Off(higher), GraphicsSwitches.Off(lower));
 
-            Assert.True((higher.Off & ~lower.Off) == RenderEffects.None, $"{pair}: the higher turns off {higher.Off & ~lower.Off}.");
-            Assert.True(higher.ShadowResolution >= lower.ShadowResolution, pair);
-            Assert.True(higher.ShadowCascades >= lower.ShadowCascades, pair);
-            Assert.True(higher.MeshDetail >= lower.MeshDetail, pair);
-            Assert.True(higher.RenderScale >= lower.RenderScale, pair);
-            Assert.True(higher.ProbeQuality >= lower.ProbeQuality, pair);
-            Assert.True(higher.ReflectionResolution >= lower.ReflectionResolution, pair);
-            Assert.True(higher.OcclusionResolution >= lower.OcclusionResolution, pair);
-            Assert.True(higher.VolumetricFogCellSize <= lower.VolumetricFogCellSize, pair);
-            Assert.True(higher.VolumetricFogSlices >= lower.VolumetricFogSlices, pair);
+            Assert.True((higherOff & ~lowerOff) == RenderEffects.None, $"{pair}: the higher turns off {higherOff & ~lowerOff}.");
+            Assert.True(higher.Shadowing.ShadowResolution >= lower.Shadowing.ShadowResolution, pair);
+            Assert.True(higher.Shadowing.ShadowCascades >= lower.Shadowing.ShadowCascades, pair);
+            Assert.True(higher.Drawing.MeshDetail >= lower.Drawing.MeshDetail, pair);
+            Assert.True(higher.Screen.RenderScale >= lower.Screen.RenderScale, pair);
+            Assert.True(higher.Lighting.ProbeQuality >= lower.Lighting.ProbeQuality, pair);
+            Assert.True(higher.Lighting.ReflectionResolution >= lower.Lighting.ReflectionResolution, pair);
+            Assert.True(higher.Lighting.OcclusionResolution >= lower.Lighting.OcclusionResolution, pair);
+            Assert.True(higher.Atmosphere.VolumetricFogCellSize <= lower.Atmosphere.VolumetricFogCellSize, pair);
+            Assert.True(higher.Atmosphere.VolumetricFogSlices >= lower.Atmosphere.VolumetricFogSlices, pair);
         }
     }
 
@@ -276,16 +304,17 @@ public class GraphicsProfileTests
     public void Low_turns_down_what_costs_the_most()
     {
         var low = Graphics.For(GraphicsQuality.Low);
+        var off = GraphicsSwitches.Off(low);
 
-        Assert.Equal(0.75f, low.RenderScale);
-        Assert.Equal(1024, low.ShadowResolution);
-        Assert.Equal(2, low.ShadowCascades);
-        Assert.Equal(0.5f, low.MeshDetail);
-        Assert.Equal(1f, low.BakeBudget);
-        Assert.True(low.Off.HasFlag(RenderEffects.VolumetricFog));
-        Assert.True(low.Off.HasFlag(RenderEffects.Reflections));
-        Assert.True(low.Off.HasFlag(RenderEffects.AmbientOcclusion));
-        Assert.True(low.Off.HasFlag(RenderEffects.HeightMaps));
+        Assert.Equal(0.75f, low.Screen.RenderScale);
+        Assert.Equal(1024, low.Shadowing.ShadowResolution);
+        Assert.Equal(2, low.Shadowing.ShadowCascades);
+        Assert.Equal(0.5f, low.Drawing.MeshDetail);
+        Assert.Equal(1f, low.Baking.BakeBudget);
+        Assert.True(off.HasFlag(RenderEffects.VolumetricFog));
+        Assert.True(off.HasFlag(RenderEffects.Reflections));
+        Assert.True(off.HasFlag(RenderEffects.AmbientOcclusion));
+        Assert.True(off.HasFlag(RenderEffects.HeightMaps));
     }
 
     [Theory]
@@ -298,8 +327,8 @@ public class GraphicsProfileTests
         // They cost next to nothing, and without them the Courtyard's puddle is gone and its grass stands still.
         var graphics = Graphics.For(quality);
 
-        Assert.True(graphics.Puddles);
-        Assert.True(graphics.Wind);
+        Assert.True(graphics.Surfaces.Puddles);
+        Assert.True(graphics.Surfaces.Wind);
     }
 
     [Theory]
@@ -311,8 +340,8 @@ public class GraphicsProfileTests
     {
         var graphics = Graphics.For(quality);
 
-        Assert.False(graphics.Vsync);
-        Assert.Equal(0, graphics.MaxFramesPerSecond);
+        Assert.False(graphics.Screen.Vsync);
+        Assert.Equal(0, graphics.Screen.MaxFramesPerSecond);
     }
 
     [Fact]
@@ -353,7 +382,7 @@ public class GraphicsProfileTests
     [InlineData(5)]
     public void Shadow_cascades_outside_one_to_four_are_refused(int cascades)
     {
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { ShadowCascades = cascades });
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { Shadowing = { ShadowCascades = cascades } });
 
         Assert.StartsWith("The sun can draw from 1 to 4 shadow cascades.", error.Message);
     }
@@ -367,7 +396,7 @@ public class GraphicsProfileTests
         CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
         try
         {
-            var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { MeshDetail = detail });
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { Drawing = { MeshDetail = detail } });
 
             Assert.StartsWith("Mesh detail can be from 0.5 to 2.", error.Message);
         }
@@ -380,7 +409,7 @@ public class GraphicsProfileTests
     [Fact]
     public void Shadow_cascades_and_mesh_detail_reach_the_renderer()
     {
-        var graphics = new Graphics { ShadowCascades = 2, MeshDetail = 0.75f };
+        var graphics = new Graphics { Shadowing = { ShadowCascades = 2 }, Drawing = { MeshDetail = 0.75f } };
 
         var settings = WindowFrames.RendererSettings(graphics, hidden: false);
 

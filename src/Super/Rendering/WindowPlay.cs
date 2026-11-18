@@ -39,7 +39,7 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
                 ReloadSavedShaders(shaders);
                 PlayFrame(host, clock, realTime);
 
-                int limit = host.Graphics.MaxFramesPerSecond;
+                int limit = host.Graphics.Screen.MaxFramesPerSecond;
                 if (limit > 0)
                 {
                     fineSleep ??= FrameLimiter.FineSleep();
@@ -129,8 +129,8 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
         host.Content.Store.Files is CookedFolder { Dev: { Roots.Length: > 0 } dev } ? dev : null;
 
     /// <summary>
-    /// Hands the renderer what to bake by itself, from <see cref="Graphics.BakeOnArrival"/> and
-    /// <see cref="Graphics.BakeBudget"/>, the first time and whenever either changes. Unchanged, the renderer keeps the
+    /// Hands the renderer what to bake by itself, from <see cref="GraphicsBaking.BakeOnArrival"/> and
+    /// <see cref="GraphicsBaking.BakeBudget"/>, the first time and whenever either changes. Unchanged, the renderer keeps the
     /// same <see cref="Rendition.AutoBake"/>, since a new one would start its queue again. Called between frames, as
     /// setting it waits for the GPU the first time.
     /// </summary>
@@ -145,6 +145,6 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
         scene.Baking.BakeOnArrival(AutoBakePolicy.For(dev, scene.Renderer.CanTrace, host.Graphics));
 
         // From source, a GPU that can't trace says once why the lighting stays live; a player isn't told.
-        scene.Baking.SaysWhyNotBaking = host.Graphics.BakeOnArrival && !scene.Renderer.CanTrace && dev is not null;
+        scene.Baking.SaysWhyNotBaking = host.Graphics.Baking.BakeOnArrival && !scene.Renderer.CanTrace && dev is not null;
     }
 }

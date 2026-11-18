@@ -22,20 +22,20 @@ public class GraphicsTests
     {
         var graphics = new Graphics();
 
-        Assert.Equal(RenderEffects.None, graphics.Off);
-        Assert.False(graphics.Vsync);
-        Assert.Equal(0, graphics.MaxFramesPerSecond);
-        Assert.Equal(2048, graphics.ShadowResolution);
-        Assert.Equal(1f, graphics.RenderScale);
-        Assert.Equal(ProbeQuality.High, graphics.ProbeQuality);
-        Assert.Equal(ReflectionResolution.Half, graphics.ReflectionResolution);
-        Assert.Equal(OcclusionResolution.Half, graphics.OcclusionResolution);
+        Assert.Equal(RenderEffects.None, GraphicsSwitches.Off(graphics));
+        Assert.False(graphics.Screen.Vsync);
+        Assert.Equal(0, graphics.Screen.MaxFramesPerSecond);
+        Assert.Equal(2048, graphics.Shadowing.ShadowResolution);
+        Assert.Equal(1f, graphics.Screen.RenderScale);
+        Assert.Equal(ProbeQuality.High, graphics.Lighting.ProbeQuality);
+        Assert.Equal(ReflectionResolution.Half, graphics.Lighting.ReflectionResolution);
+        Assert.Equal(OcclusionResolution.Half, graphics.Lighting.OcclusionResolution);
     }
 
     [Fact]
     public void An_undefined_occlusion_resolution_is_refused()
     {
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { OcclusionResolution = (OcclusionResolution)7 });
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { Lighting = { OcclusionResolution = (OcclusionResolution)7 } });
 
         Assert.StartsWith("Occlusion resolution can be Half or Full.", error.Message);
         Assert.Equal("value", error.ParamName);
@@ -44,11 +44,11 @@ public class GraphicsTests
     [Fact]
     public void Only_ultra_works_out_occlusion_at_full_resolution()
     {
-        Assert.Equal(OcclusionResolution.Full, Graphics.For(GraphicsQuality.Ultra).OcclusionResolution);
-        Assert.Equal(OcclusionResolution.Half, Graphics.For(GraphicsQuality.High).OcclusionResolution);
-        Assert.Equal(OcclusionResolution.Half, Graphics.For(GraphicsQuality.Medium).OcclusionResolution);
-        Assert.Equal(OcclusionResolution.Half, Graphics.For(GraphicsQuality.Low).OcclusionResolution);
-        Assert.Equal(OcclusionResolution.Half, Graphics.Fastest().OcclusionResolution);
+        Assert.Equal(OcclusionResolution.Full, Graphics.For(GraphicsQuality.Ultra).Lighting.OcclusionResolution);
+        Assert.Equal(OcclusionResolution.Half, Graphics.For(GraphicsQuality.High).Lighting.OcclusionResolution);
+        Assert.Equal(OcclusionResolution.Half, Graphics.For(GraphicsQuality.Medium).Lighting.OcclusionResolution);
+        Assert.Equal(OcclusionResolution.Half, Graphics.For(GraphicsQuality.Low).Lighting.OcclusionResolution);
+        Assert.Equal(OcclusionResolution.Half, Graphics.Fastest().Lighting.OcclusionResolution);
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public class GraphicsTests
         var given = new Graphics();
         using var host = new GameHost<Settings>(1, 30, null, graphics: given);
 
-        host.Game.Graphics.OcclusionResolution = OcclusionResolution.Full;
+        host.Game.Graphics.Lighting.OcclusionResolution = OcclusionResolution.Full;
 
         Assert.Equal(OcclusionResolution.Full, WindowFrames.RendererSettings(host.Graphics, hidden: false).OcclusionResolution);
     }
@@ -65,7 +65,7 @@ public class GraphicsTests
     [Fact]
     public void An_undefined_reflection_resolution_is_refused()
     {
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { ReflectionResolution = (ReflectionResolution)7 });
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { Lighting = { ReflectionResolution = (ReflectionResolution)7 } });
 
         Assert.StartsWith("Reflection resolution can be Half or Full.", error.Message);
         Assert.Equal("value", error.ParamName);
@@ -74,11 +74,11 @@ public class GraphicsTests
     [Fact]
     public void Only_ultra_traces_reflections_at_full_resolution()
     {
-        Assert.Equal(ReflectionResolution.Full, Graphics.For(GraphicsQuality.Ultra).ReflectionResolution);
-        Assert.Equal(ReflectionResolution.Half, Graphics.For(GraphicsQuality.High).ReflectionResolution);
-        Assert.Equal(ReflectionResolution.Half, Graphics.For(GraphicsQuality.Medium).ReflectionResolution);
-        Assert.Equal(ReflectionResolution.Half, Graphics.For(GraphicsQuality.Low).ReflectionResolution);
-        Assert.Equal(ReflectionResolution.Half, Graphics.Fastest().ReflectionResolution);
+        Assert.Equal(ReflectionResolution.Full, Graphics.For(GraphicsQuality.Ultra).Lighting.ReflectionResolution);
+        Assert.Equal(ReflectionResolution.Half, Graphics.For(GraphicsQuality.High).Lighting.ReflectionResolution);
+        Assert.Equal(ReflectionResolution.Half, Graphics.For(GraphicsQuality.Medium).Lighting.ReflectionResolution);
+        Assert.Equal(ReflectionResolution.Half, Graphics.For(GraphicsQuality.Low).Lighting.ReflectionResolution);
+        Assert.Equal(ReflectionResolution.Half, Graphics.Fastest().Lighting.ReflectionResolution);
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public class GraphicsTests
         var given = new Graphics();
         using var host = new GameHost<Settings>(1, 30, null, graphics: given);
 
-        host.Game.Graphics.ReflectionResolution = ReflectionResolution.Full;
+        host.Game.Graphics.Lighting.ReflectionResolution = ReflectionResolution.Full;
 
         Assert.Equal(ReflectionResolution.Full, WindowFrames.RendererSettings(host.Graphics, hidden: false).ReflectionResolution);
     }
@@ -95,7 +95,7 @@ public class GraphicsTests
     [Fact]
     public void An_undefined_probe_quality_is_refused()
     {
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { ProbeQuality = (ProbeQuality)7 });
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { Lighting = { ProbeQuality = (ProbeQuality)7 } });
 
         Assert.StartsWith("Probe quality can be Low, Medium or High.", error.Message);
         Assert.Equal("value", error.ParamName);
@@ -106,8 +106,8 @@ public class GraphicsTests
     {
         var graphics = Graphics.Fastest();
 
-        Assert.Equal(ProbeQuality.Low, graphics.ProbeQuality);
-        Assert.True(graphics.Off.HasFlag(RenderEffects.LightProbes));
+        Assert.Equal(ProbeQuality.Low, graphics.Lighting.ProbeQuality);
+        Assert.True(GraphicsSwitches.Off(graphics).HasFlag(RenderEffects.LightProbes));
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public class GraphicsTests
         var given = new Graphics();
         using var host = new GameHost<Settings>(1, 30, null, graphics: given);
 
-        host.Game.Graphics.ProbeQuality = ProbeQuality.Medium;
+        host.Game.Graphics.Lighting.ProbeQuality = ProbeQuality.Medium;
 
         Assert.Equal(ProbeQuality.Medium, WindowFrames.RendererSettings(host.Graphics, hidden: false).ProbeQuality);
     }
@@ -164,7 +164,7 @@ public class GraphicsTests
     public void A_hidden_window_waits_for_the_display_except_for_a_screenshot(
         bool hidden, bool takingShot, bool vsync, bool expected)
     {
-        var graphics = new Graphics { Vsync = vsync };
+        var graphics = new Graphics { Screen = { Vsync = vsync } };
 
         Assert.Equal(expected, WindowFrames.RendererSettings(graphics, hidden, takingShot).Vsync);
     }
@@ -226,10 +226,10 @@ public class GraphicsTests
         {
             var graphics = new Graphics();
 
-            var error = Assert.Throws<ArgumentOutOfRangeException>(() => graphics.RenderScale = scale);
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => graphics.Screen.RenderScale = scale);
 
             Assert.Equal($"RenderScale must be from 0.5 to 2, not {shown}. (Parameter 'value')", error.Message);
-            Assert.Equal(1f, graphics.RenderScale);
+            Assert.Equal(1f, graphics.Screen.RenderScale);
         }
         finally
         {
@@ -243,9 +243,9 @@ public class GraphicsTests
     [InlineData(1.5f)]
     public void Render_scale_takes_any_value_from_half_to_two(float scale)
     {
-        var graphics = new Graphics { RenderScale = scale };
+        var graphics = new Graphics { Screen = { RenderScale = scale } };
 
-        Assert.Equal(scale, graphics.RenderScale);
+        Assert.Equal(scale, graphics.Screen.RenderScale);
     }
 
     [Fact]
@@ -254,7 +254,7 @@ public class GraphicsTests
         var given = new Graphics();
         using var host = new GameHost<Settings>(1, 30, null, graphics: given);
 
-        host.Game.Graphics.RenderScale = 1.5f;
+        host.Game.Graphics.Screen.RenderScale = 1.5f;
 
         // What the window hands the renderer before the next frame, which draws the scene this size.
         float scale = WindowFrames.RendererSettings(host.Graphics, hidden: false).RenderScale;
@@ -267,7 +267,7 @@ public class GraphicsTests
     [InlineData(8192)]
     public void Shadow_resolution_must_be_1024_2048_or_4096(int resolution)
     {
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { ShadowResolution = resolution });
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { Shadowing = { ShadowResolution = resolution } });
 
         Assert.StartsWith("Shadow maps can be 1024, 2048 or 4096 texels across.", error.Message);
         Assert.Equal("value", error.ParamName);
@@ -279,9 +279,9 @@ public class GraphicsTests
     [InlineData(4096)]
     public void Shadow_resolution_takes_each_of_the_three_sizes(int resolution)
     {
-        var graphics = new Graphics { ShadowResolution = resolution };
+        var graphics = new Graphics { Shadowing = { ShadowResolution = resolution } };
 
-        Assert.Equal(resolution, graphics.ShadowResolution);
+        Assert.Equal(resolution, graphics.Shadowing.ShadowResolution);
     }
 
     [Fact]
@@ -290,60 +290,61 @@ public class GraphicsTests
         var given = new Graphics();
         using var host = new GameHost<Settings>(1, 30, null, graphics: given);
 
-        host.Game.Graphics.ShadowResolution = 4096;
+        host.Game.Graphics.Shadowing.ShadowResolution = 4096;
 
         // What the window hands the renderer before the next frame.
         Assert.Equal(4096, WindowFrames.RendererSettings(host.Graphics, hidden: false).ShadowResolution);
     }
 
     [Theory]
-    [InlineData(nameof(Graphics.SunShadows), RenderEffects.SunShadows)]
-    [InlineData(nameof(Graphics.LightShadows), RenderEffects.LightShadows)]
-    [InlineData(nameof(Graphics.AmbientOcclusion), RenderEffects.AmbientOcclusion)]
-    [InlineData(nameof(Graphics.Reflections), RenderEffects.Reflections)]
-    [InlineData(nameof(Graphics.AntiAliasing), RenderEffects.AntiAliasing)]
-    [InlineData(nameof(Graphics.Bloom), RenderEffects.Bloom)]
-    [InlineData(nameof(Graphics.Materials), RenderEffects.Materials)]
-    [InlineData(nameof(Graphics.ContactShadows), RenderEffects.ContactShadows)]
-    [InlineData(nameof(Graphics.LightProbes), RenderEffects.LightProbes)]
-    [InlineData(nameof(Graphics.MultiscatterSpecular), RenderEffects.MultiscatterSpecular)]
-    [InlineData(nameof(Graphics.WearAndDirt), RenderEffects.WearAndDirt)]
-    [InlineData(nameof(Graphics.Fog), RenderEffects.Fog)]
-    [InlineData(nameof(Graphics.AutoExposure), RenderEffects.AutoExposure)]
-    [InlineData(nameof(Graphics.DepthOfField), RenderEffects.DepthOfField)]
-    [InlineData(nameof(Graphics.Decals), RenderEffects.Decals)]
-    [InlineData(nameof(Graphics.VolumetricFog), RenderEffects.VolumetricFog)]
-    [InlineData(nameof(Graphics.Puddles), RenderEffects.Puddles)]
-    [InlineData(nameof(Graphics.Wind), RenderEffects.Wind)]
-    [InlineData(nameof(Graphics.BakedLighting), RenderEffects.BakedLighting)]
-    [InlineData(nameof(Graphics.HeightMaps), RenderEffects.HeightMaps)]
-    [InlineData(nameof(Graphics.Specular), RenderEffects.Specular)]
-    [InlineData(nameof(Graphics.EnvironmentLight), RenderEffects.EnvironmentLight)]
-    [InlineData(nameof(Graphics.Emissive), RenderEffects.Emissive)]
-    [InlineData(nameof(Graphics.Vignette), RenderEffects.Vignette)]
-    [InlineData(nameof(Graphics.Grain), RenderEffects.Grain)]
-    [InlineData(nameof(Graphics.Sharpening), RenderEffects.Sharpening)]
-    [InlineData(nameof(Graphics.ColorGrading), RenderEffects.ColorGrading)]
-    [InlineData(nameof(Graphics.Culling), RenderEffects.Culling)]
-    [InlineData(nameof(Graphics.SimplerModels), RenderEffects.SimplerModels)]
-    [InlineData(nameof(Graphics.DepthFirst), RenderEffects.DepthFirst)]
-    [InlineData(nameof(Graphics.Fades), RenderEffects.Fades)]
-    [InlineData(nameof(Graphics.Subsurface), RenderEffects.Subsurface)]
-    [InlineData(nameof(Graphics.Particles), RenderEffects.Particles)]
-    [InlineData(nameof(Graphics.LocalLights), RenderEffects.LocalLights)]
-    [InlineData(nameof(Graphics.Haze), RenderEffects.Haze)]
-    [InlineData(nameof(Graphics.Underwater), RenderEffects.Underwater)]
-    [InlineData(nameof(Graphics.FogVolumes), RenderEffects.FogVolumes)]
-    [InlineData(nameof(Graphics.ScreenBounce), RenderEffects.ScreenBounce)]
-    [InlineData(nameof(Graphics.OcclusionHistory), RenderEffects.OcclusionHistory)]
-    [InlineData(nameof(Graphics.AerialPerspective), RenderEffects.AerialPerspective)]
-    [InlineData(nameof(Graphics.Stars), RenderEffects.Stars)]
-    public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
+    [InlineData(nameof(Graphics.Shadowing), nameof(GraphicsShadowing.SunShadows), RenderEffects.SunShadows)]
+    [InlineData(nameof(Graphics.Shadowing), nameof(GraphicsShadowing.LightShadows), RenderEffects.LightShadows)]
+    [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.AmbientOcclusion), RenderEffects.AmbientOcclusion)]
+    [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.Reflections), RenderEffects.Reflections)]
+    [InlineData(nameof(Graphics.Screen), nameof(GraphicsScreen.AntiAliasing), RenderEffects.AntiAliasing)]
+    [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.Bloom), RenderEffects.Bloom)]
+    [InlineData(nameof(Graphics.Surfaces), nameof(GraphicsSurfaces.Materials), RenderEffects.Materials)]
+    [InlineData(nameof(Graphics.Shadowing), nameof(GraphicsShadowing.ContactShadows), RenderEffects.ContactShadows)]
+    [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.LightProbes), RenderEffects.LightProbes)]
+    [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.MultiscatterSpecular), RenderEffects.MultiscatterSpecular)]
+    [InlineData(nameof(Graphics.Surfaces), nameof(GraphicsSurfaces.WearAndDirt), RenderEffects.WearAndDirt)]
+    [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.Fog), RenderEffects.Fog)]
+    [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.AutoExposure), RenderEffects.AutoExposure)]
+    [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.DepthOfField), RenderEffects.DepthOfField)]
+    [InlineData(nameof(Graphics.Surfaces), nameof(GraphicsSurfaces.Decals), RenderEffects.Decals)]
+    [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.VolumetricFog), RenderEffects.VolumetricFog)]
+    [InlineData(nameof(Graphics.Surfaces), nameof(GraphicsSurfaces.Puddles), RenderEffects.Puddles)]
+    [InlineData(nameof(Graphics.Surfaces), nameof(GraphicsSurfaces.Wind), RenderEffects.Wind)]
+    [InlineData(nameof(Graphics.Baking), nameof(GraphicsBaking.BakedLighting), RenderEffects.BakedLighting)]
+    [InlineData(nameof(Graphics.Surfaces), nameof(GraphicsSurfaces.HeightMaps), RenderEffects.HeightMaps)]
+    [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.Specular), RenderEffects.Specular)]
+    [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.EnvironmentLight), RenderEffects.EnvironmentLight)]
+    [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.Emissive), RenderEffects.Emissive)]
+    [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.Vignette), RenderEffects.Vignette)]
+    [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.Grain), RenderEffects.Grain)]
+    [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.Sharpening), RenderEffects.Sharpening)]
+    [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.ColorGrading), RenderEffects.ColorGrading)]
+    [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.Culling), RenderEffects.Culling)]
+    [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.SimplerModels), RenderEffects.SimplerModels)]
+    [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.DepthFirst), RenderEffects.DepthFirst)]
+    [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.Fades), RenderEffects.Fades)]
+    [InlineData(nameof(Graphics.Surfaces), nameof(GraphicsSurfaces.Subsurface), RenderEffects.Subsurface)]
+    [InlineData(nameof(Graphics.Surfaces), nameof(GraphicsSurfaces.Particles), RenderEffects.Particles)]
+    [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.LocalLights), RenderEffects.LocalLights)]
+    [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.Haze), RenderEffects.Haze)]
+    [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.Underwater), RenderEffects.Underwater)]
+    [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.FogVolumes), RenderEffects.FogVolumes)]
+    [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.ScreenBounce), RenderEffects.ScreenBounce)]
+    [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.OcclusionHistory), RenderEffects.OcclusionHistory)]
+    [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.AerialPerspective), RenderEffects.AerialPerspective)]
+    [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.Stars), RenderEffects.Stars)]
+    public void Each_switch_turned_off_leaves_out_only_its_own_effect(string group, string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
-        typeof(Graphics).GetProperty(setting)!.SetValue(graphics, false);
+        object settings = typeof(Graphics).GetProperty(group)!.GetValue(graphics)!;
+        settings.GetType().GetProperty(setting)!.SetValue(settings, false);
 
-        Assert.Equal(effect, graphics.Off);
+        Assert.Equal(effect, GraphicsSwitches.Off(graphics));
         Assert.True(RenderEffects.All.HasFlag(effect));
     }
 
@@ -361,41 +362,41 @@ public class GraphicsTests
             | RenderEffects.Puddles | RenderEffects.Wind | RenderEffects.HeightMaps | RenderEffects.Vignette
             | RenderEffects.Grain | RenderEffects.Sharpening | RenderEffects.Subsurface | RenderEffects.FogVolumes
             | RenderEffects.ScreenBounce | RenderEffects.OcclusionHistory,
-            graphics.Off);
-        Assert.True(graphics.Materials);
-        Assert.True(graphics.BakedLighting);
+            GraphicsSwitches.Off(graphics));
+        Assert.True(graphics.Surfaces.Materials);
+        Assert.True(graphics.Baking.BakedLighting);
 
         // These cost nothing, or turning them off costs time, so the fastest settings keep them.
-        Assert.True(graphics.Specular);
-        Assert.True(graphics.EnvironmentLight);
-        Assert.True(graphics.Emissive);
-        Assert.True(graphics.ColorGrading);
-        Assert.True(graphics.Culling);
-        Assert.True(graphics.SimplerModels);
-        Assert.True(graphics.DepthFirst);
-        Assert.True(graphics.Fades);
-        Assert.True(graphics.Particles);
-        Assert.True(graphics.LocalLights);
-        Assert.True(graphics.Haze);
-        Assert.True(graphics.AerialPerspective);
-        Assert.True(graphics.Stars);
-        Assert.True(graphics.Underwater);
-        Assert.False(graphics.Vsync);
+        Assert.True(graphics.Lighting.Specular);
+        Assert.True(graphics.Lighting.EnvironmentLight);
+        Assert.True(graphics.Lighting.Emissive);
+        Assert.True(graphics.Picture.ColorGrading);
+        Assert.True(graphics.Drawing.Culling);
+        Assert.True(graphics.Drawing.SimplerModels);
+        Assert.True(graphics.Drawing.DepthFirst);
+        Assert.True(graphics.Drawing.Fades);
+        Assert.True(graphics.Surfaces.Particles);
+        Assert.True(graphics.Lighting.LocalLights);
+        Assert.True(graphics.Atmosphere.Haze);
+        Assert.True(graphics.Atmosphere.AerialPerspective);
+        Assert.True(graphics.Atmosphere.Stars);
+        Assert.True(graphics.Atmosphere.Underwater);
+        Assert.False(graphics.Screen.Vsync);
 
         // Dropping the resolution would be a change the game can see, so it stays the game's choice.
-        Assert.Equal(1f, graphics.RenderScale);
+        Assert.Equal(1f, graphics.Screen.RenderScale);
     }
 
     [Fact]
     public void A_changed_upscaler_reaches_the_renderer_next_frame()
     {
-        var given = new Graphics { Upscaler = Upscaler.Taa };
+        var given = new Graphics { Screen = { Upscaler = Upscaler.Taa } };
         using var host = new GameHost<Settings>(1, 30, null, graphics: given);
 
-        host.Game.Graphics.Upscaler = Upscaler.Fsr;
+        host.Game.Graphics.Screen.Upscaler = Upscaler.Fsr;
         Assert.Equal(Upscaler.Fsr, WindowFrames.RendererSettings(host.Graphics, hidden: false).Upscaler);
 
-        host.Game.Graphics.Upscaler = Upscaler.Taa;
+        host.Game.Graphics.Screen.Upscaler = Upscaler.Taa;
         Assert.Equal(Upscaler.Taa, WindowFrames.RendererSettings(host.Graphics, hidden: false).Upscaler);
     }
 
@@ -404,10 +405,10 @@ public class GraphicsTests
     {
         var graphics = new Graphics();
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => graphics.MaxFramesPerSecond = -30);
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => graphics.Screen.MaxFramesPerSecond = -30);
 
         Assert.StartsWith("The frame limit can't be negative. Use 0 for no limit.", error.Message);
-        Assert.Equal(0, graphics.MaxFramesPerSecond);
+        Assert.Equal(0, graphics.Screen.MaxFramesPerSecond);
     }
 
     [Fact]
@@ -416,10 +417,10 @@ public class GraphicsTests
         var given = new Graphics();
         using var host = new GameHost<Settings>(1, 30, null, graphics: given);
 
-        host.Game.Graphics.Bloom = false;
+        host.Game.Graphics.Picture.Bloom = false;
 
         Assert.Same(given, host.Graphics);
-        Assert.Equal(RenderEffects.Bloom, host.Graphics.Off);
+        Assert.Equal(RenderEffects.Bloom, GraphicsSwitches.Off(host.Graphics));
     }
 
     [Theory]
@@ -432,14 +433,14 @@ public class GraphicsTests
         System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
         try
         {
-            var graphics = new Graphics { BakeBudget = 3f };
+            var graphics = new Graphics { Baking = { BakeBudget = 3f } };
 
-            var error = Assert.Throws<ArgumentOutOfRangeException>(() => graphics.BakeBudget = budget);
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => graphics.Baking.BakeBudget = budget);
 
             Assert.Equal(
                 $"BakeBudget must be from 0.5 to 33 milliseconds, not {shown}. Use null for the default. (Parameter 'value')",
                 error.Message);
-            Assert.Equal(3f, graphics.BakeBudget);
+            Assert.Equal(3f, graphics.Baking.BakeBudget);
         }
         finally
         {
@@ -452,10 +453,10 @@ public class GraphicsTests
     [InlineData(33f)]
     public void Bake_budget_takes_the_ends_of_its_range_and_null(float budget)
     {
-        var graphics = new Graphics { BakeBudget = budget };
-        Assert.Equal(budget, graphics.BakeBudget);
+        var graphics = new Graphics { Baking = { BakeBudget = budget } };
+        Assert.Equal(budget, graphics.Baking.BakeBudget);
 
-        graphics.BakeBudget = null;
-        Assert.Null(graphics.BakeBudget);
+        graphics.Baking.BakeBudget = null;
+        Assert.Null(graphics.Baking.BakeBudget);
     }
 }

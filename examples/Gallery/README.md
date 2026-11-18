@@ -57,7 +57,7 @@ The current lighting shows in the bottom-left corner. The keys switch between:
 
 | Key | Lighting | What's on |
 | --- | --- | --- |
-| 1 | Live lighting | Every light live, and bounced light from the live light probes, as if nothing were baked (`Graphics.BakedLighting` off) |
+| 1 | Live lighting | Every light live, and bounced light from the live light probes, as if nothing were baked (`Graphics.Baking.BakedLighting` off) |
 | 2 | Baked lighting | The bake: lightmaps on the building and its probes for everything else. The default |
 | 3 | Direct light only | No bake and no bounced light (`BakedLighting` and `LightProbes` off) |
 

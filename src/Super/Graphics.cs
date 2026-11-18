@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Rendition;
@@ -9,456 +8,36 @@ namespace Super;
 /// How the game is drawn: which effects are worth their GPU time, and how fast frames come.
 /// Set it in <see cref="GameOptions.Graphics"/>, or ask for it in a constructor and change
 /// it as the game runs, and the next frame follows. Every effect starts on, as the engine
-/// looks best, and vsync starts off, so frames come as fast as they are drawn. Each effect turned off skips its work on the GPU, not only its look.
+/// looks best, and vsync starts off, so frames come as fast as they are drawn. Each effect turned off skips its work on
+/// the GPU, not only its look. The settings come in groups: <see cref="Screen"/>, <see cref="Shadowing"/>,
+/// <see cref="Lighting"/>, <see cref="Atmosphere"/>, <see cref="Surfaces"/>, <see cref="Picture"/>,
+/// <see cref="Baking"/> and <see cref="Drawing"/>.
 /// </summary>
-public sealed partial class Graphics
+public sealed class Graphics
 {
-    /// <summary>
-    /// Waits for the display before showing each frame, so the picture never tears and the frame rate
-    /// stops at the display's, often 60. Off, the default, frames come as fast as the computer can draw
-    /// them, and fast movement may tear. <c>--vsync</c> turns it on. Only play in a window follows it:
-    /// recordings and profiles always wait for the display, and screenshots never do.
-    /// </summary>
-    public bool Vsync { get; set; }
+    /// <summary>How fast frames come, how large the scene is drawn and what smooths its edges.</summary>
+    public GraphicsScreen Screen { get; } = new();
 
-    /// <summary>
-    /// The most frames drawn in a second, or 0 for no limit. A limit saves power and keeps a
-    /// laptop cool, and with vsync off it's how to stop at a steady rate. Only play in a window
-    /// is limited; screenshots, recordings and profiles run at their own pace.
-    /// </summary>
-    public int MaxFramesPerSecond
-    {
-        get;
-        set => field = value >= 0
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value, "The frame limit can't be negative. Use 0 for no limit.");
-    }
+    /// <summary>The sun's shadows and the point and spot lights' shadows.</summary>
+    public GraphicsShadowing Shadowing { get; } = new();
 
-    /// <summary>
-    /// The sun's shadows. Off, nothing is drawn into the shadow maps, and sunlight is blocked only by nearby
-    /// surfaces, as ambient occlusion sees them. Often the most expensive effect.
-    /// </summary>
-    public bool SunShadows { get; set; } = true;
+    /// <summary>Point and spot lights, bounced light, ambient occlusion, reflections, shine and glow.</summary>
+    public GraphicsLighting Lighting { get; } = new();
 
-    /// <summary>
-    /// How many texels across each of the sun's shadow maps is: 1024, 2048 or 4096. Each step up
-    /// gives sharper shadow edges for four times the memory and more drawing. A change while the
-    /// game runs rebuilds the maps before the next frame.
-    /// </summary>
-    public int ShadowResolution
-    {
-        get;
-        set => field = value is 1024 or 2048 or 4096
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value, "Shadow maps can be 1024, 2048 or 4096 texels across.");
-    } = 2048;
+    /// <summary>Fog, haze, the physical sky, water and the volumetric fog.</summary>
+    public GraphicsAtmosphere Atmosphere { get; } = new();
 
-    /// <summary>
-    /// The most of the sun's shadow cascades drawn, from 1 to 4, whatever <see cref="ViewLights.Shadows"/> asks for. Each
-    /// cascade covers ground further out than the last and costs drawing the scene once more, so fewer are faster,
-    /// and the sun's shadows end sooner.
-    /// </summary>
-    public int ShadowCascades
-    {
-        get;
-        set => field = value is >= 1 and <= MaxShadowCascades
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value, "The sun can draw from 1 to 4 shadow cascades.");
-    } = MaxShadowCascades;
+    /// <summary>Materials, wear, height maps, puddles, wind, decals, subsurface light and particles.</summary>
+    public GraphicsSurfaces Surfaces { get; } = new();
 
-    private const int MaxShadowCascades = 4;
+    /// <summary>Bloom, exposure, depth of field, vignette, grain, sharpening and the colour grade.</summary>
+    public GraphicsPicture Picture { get; } = new();
 
-    /// <summary>
-    /// How long models keep their finer versions as they move away, from 0.5 to 2. At 1 a model switches to a simpler
-    /// version once that would stray by a pixel on screen. At 0.5 it may stray by two pixels, so it switches
-    /// sooner and fewer triangles are drawn; at 2 it keeps the finer one longer. Shadows follow in step.
-    /// </summary>
-    public float MeshDetail
-    {
-        get;
-        set => field = value is >= Renderer.MinMeshDetail and <= Renderer.MaxMeshDetail
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value, string.Create(CultureInfo.InvariantCulture,
-                $"Mesh detail can be from {Renderer.MinMeshDetail} to {Renderer.MaxMeshDetail}."));
-    } = 1f;
+    /// <summary>Reading bakes, and baking missing lighting in play.</summary>
+    public GraphicsBaking Baking { get; } = new();
 
-    /// <summary>
-    /// How large the scene is drawn against the window, from 0.5 to 2 each way; 1 draws it at the window's
-    /// size. At 2 it's drawn with four times the pixels and shrunk to fit, which smooths thin things such as
-    /// grass and railings, at about four times the cost of lighting and effects. At 0.5 it's drawn with a
-    /// quarter of the pixels and stretched, which is much faster and softer. The interface and screenshots
-    /// stay at the window's size. <c>--render-scale</c> sets it from the command line. A change while the
-    /// game runs rebuilds the scene's targets before the next frame.
-    /// </summary>
-    public float RenderScale
-    {
-        get;
-        set => field = Renderer.CheckRenderScale(value);
-    } = 1f;
-
-    /// <summary>
-    /// What smooths the scene's edges when <see cref="AntiAliasing"/> is on. <see cref="Upscaler.Taa"/> blends
-    /// each frame with the last. <see cref="Upscaler.Fsr"/> hands the frame to AMD FSR, which rebuilds it at the
-    /// window's size from the scene and its own history, so a <see cref="RenderScale"/> below 1 comes back
-    /// sharper than a stretch. FSR needs amd_fidelityfx_vk.dll next to the game and is used only at a render
-    /// scale of 1 or less; otherwise TAA is used. <c>--upscaler</c> sets it from the command line, and
-    /// <see cref="Fastest"/> uses TAA.
-    /// </summary>
-    public Upscaler Upscaler { get; set; } = Upscaler.Taa;
-
-    /// <summary>
-    /// The sun's contact shadows: the thin dark line where things meet the ground, found on screen, which
-    /// the shadow maps are too coarse to draw. Off, only the maps shade there. See <see cref="ViewLights.Shadows"/>.
-    /// </summary>
-    public bool ContactShadows { get; set; } = true;
-
-    /// <summary>
-    /// The light bounced off walls and floors by <see cref="ViewIndirect.LightProbes"/>. Off, nothing is drawn
-    /// into the probes and every surface takes its soft light from the sky, as with no probes at all.
-    /// </summary>
-    public bool LightProbes { get; set; } = true;
-
-    /// <summary>
-    /// How many light probes follow the camera, and how many are updated a frame, when <see cref="LightProbes"/> is on.
-    /// <see cref="Rendition.ProbeQuality.High"/>, the default, keeps the most and updates 32 a frame, for about 170 MB;
-    /// <see cref="Rendition.ProbeQuality.Medium"/> updates 16 for about 73 MB, and <see cref="Rendition.ProbeQuality.Low"/>
-    /// updates 8 for about 43 MB, so the bounce fills in and follows changes more slowly. A change while the game runs
-    /// starts every probe again on the next frame, which waits for the GPU once. <see cref="Fastest"/> sets Low.
-    /// </summary>
-    public ProbeQuality ProbeQuality
-    {
-        get;
-        set => field = Enum.IsDefined(value)
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value, "Probe quality can be Low, Medium or High.");
-    } = ProbeQuality.High;
-
-    /// <summary>
-    /// How many pixels trace their screen-space reflection each frame, when <see cref="Reflections"/> is on.
-    /// <see cref="Rendition.ReflectionResolution.Half"/>, the default, traces one pixel in four, a different one each
-    /// frame, and anti-aliasing blends the frames into a full picture; <see cref="Rendition.ReflectionResolution.Full"/>
-    /// traces every pixel every frame, which sharpens a reflection that moves fast and costs up to four times as much.
-    /// A change while the game runs rebuilds the renderer's targets on the next frame, which waits for the GPU once.
-    /// <see cref="GraphicsQuality.Ultra"/> sets Full.
-    /// </summary>
-    public ReflectionResolution ReflectionResolution
-    {
-        get;
-        set => field = Enum.IsDefined(value)
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value, "Reflection resolution can be Half or Full.");
-    } = ReflectionResolution.Half;
-
-    /// <summary>
-    /// How many pixels work out their ambient occlusion each frame, when <see cref="AmbientOcclusion"/> is on.
-    /// <see cref="Rendition.OcclusionResolution.Half"/>, the default, works out one pixel in four, a different one each
-    /// frame, and anti-aliasing blends the frames into a full picture; <see cref="Rendition.OcclusionResolution.Full"/>
-    /// works out every pixel every frame, which keeps the finest creases a little crisper and costs about three times
-    /// as much. A change while the game runs rebuilds the renderer's targets on the next frame, which waits for the
-    /// GPU once. <see cref="GraphicsQuality.Ultra"/> sets Full.
-    /// </summary>
-    public OcclusionResolution OcclusionResolution
-    {
-        get;
-        set => field = Enum.IsDefined(value)
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value, "Occlusion resolution can be Half or Full.");
-    } = OcclusionResolution.Half;
-
-    /// <summary>Point and spot light shadows. Off, those lights are blocked only by nearby surfaces, as the sun is without its shadows.</summary>
-    public bool LightShadows { get; set; } = true;
-
-    /// <summary>
-    /// Point and spot lights. Off, they light nothing: none is clustered, shadowed or lit onto the light probes, so the
-    /// scene looks as if they weren't there and the sun and sky light it alone. Light a bake already holds stays, and no
-    /// bake is redone; turn <see cref="BakedLighting"/> off too to drop it.
-    /// </summary>
-    public bool LocalLights { get; set; } = true;
-
-    /// <summary>Darkening in corners, creases and under things. Off, they're as bright as open ground.</summary>
-    public bool AmbientOcclusion { get; set; } = true;
-
-    /// <summary>
-    /// Light bounced from the surfaces on screen near each point, so a sunlit floor tints the wall beside it and a
-    /// glowing sign lights the bricks round it. Off, the soft light comes from the light probes and the sky alone. It
-    /// is found with the ambient occlusion, so it needs <see cref="AmbientOcclusion"/>. <c>View.ScreenBounce</c> sets
-    /// its strength and reach.
-    /// </summary>
-    public bool ScreenBounce { get; set; } = true;
-
-    /// <summary>
-    /// Averages the ambient occlusion and the screen bounce over the last frames, which smooths their grain without
-    /// blurring them, so the shading keeps to the creases of small things such as steps and mouldings. Off, each
-    /// frame's occlusion is blurred wide instead, which is softer and a little faster. It needs
-    /// <see cref="AmbientOcclusion"/>.
-    /// </summary>
-    public bool OcclusionHistory { get; set; } = true;
-
-    /// <summary>
-    /// Rough surfaces keeping the light that bounces between their tiny facets before it leaves. Off,
-    /// rough metals such as worn iron and brushed steel come out darker than they should. It costs
-    /// almost nothing.
-    /// </summary>
-    public bool MultiscatterSpecular { get; set; } = true;
-
-    /// <summary>Shiny surfaces and water mirroring what's on screen, and reflection probes. Off, they and glass reflect only the sky.</summary>
-    public bool Reflections { get; set; } = true;
-
-    /// <summary>Smoothing jagged edges over several frames. Off, edges show their pixels, and nothing blurs as the camera moves.</summary>
-    public bool AntiAliasing { get; set; } = true;
-
-    /// <summary>The glow round bright things, such as lamps, flames and the sun on water.</summary>
-    public bool Bloom { get; set; } = true;
-
-    /// <summary>
-    /// The height fog from <see cref="SkySettings.Fog"/>, which sets far things back in the air. Off, the air is
-    /// clear whatever the fog's density. Haze is not fog and stays.
-    /// </summary>
-    public bool Fog { get; set; } = true;
-
-    /// <summary>
-    /// Distant things fading into the sky behind them, from <see cref="SkySettings.HazeStart"/> to
-    /// <see cref="SkySettings.HazeEnd"/>. Off, they keep their colours however far they are. The sky's own colour stays.
-    /// </summary>
-    public bool Haze { get; set; } = true;
-
-    /// <summary>
-    /// The physical sky's air between the eye and far surfaces, from <see cref="SkySettings.Turbidity"/>: far hills
-    /// turn blue and pale, and glow warm towards a low sun. Off, they keep their colours however far they are. A scene
-    /// that sets its own haze gets that instead. It costs almost nothing.
-    /// </summary>
-    public bool AerialPerspective { get; set; } = true;
-
-    /// <summary>
-    /// The stars in a physical sky at night (<see cref="SkySettings.Turbidity"/>), fading in as the sky darkens after
-    /// sunset. Off, the night sky is its plain glow and the moon. They are drawn per pixel of the sky only, which
-    /// costs almost nothing.
-    /// </summary>
-    public bool Stars { get; set; } = true;
-
-    /// <summary>
-    /// The water set with <c>view.Water</c>. Off, the view is drawn as if the camera weren't under water: no absorption,
-    /// no caustics and no light shafts, and the sky shows.
-    /// </summary>
-    public bool Underwater { get; set; } = true;
-
-    /// <summary>
-    /// The fog volumes placed with <c>view.FogVolume</c>, such as mist in a room or a lamp's beam. Off, only the scene's
-    /// own fog fills the volumetric fog. They need <see cref="VolumetricFog"/>, and cost a little more for each volume
-    /// on screen.
-    /// </summary>
-    public bool FogVolumes { get; set; } = true;
-
-    /// <summary>
-    /// Metering the picture for <see cref="PostSettings.AutoExposure"/>, so the brightness follows what the
-    /// camera sees, as an eye does. Off, the fixed <see cref="PostSettings.Exposure"/> sets it, as for a view
-    /// that never asked. It costs a pass over the frame, so <see cref="Fastest"/> turns it off.
-    /// </summary>
-    public bool AutoExposure { get; set; } = true;
-
-    /// <summary>
-    /// Blurring what's nearer or further than <see cref="PostSettings.FocusDistance"/>, as a camera lens does,
-    /// for views whose <see cref="PostSettings.Aperture"/> opens the lens. Off, everything is sharp, as for a
-    /// view that never asked. It costs a few passes at half size, so <see cref="Fastest"/> turns it off.
-    /// </summary>
-    public bool DepthOfField { get; set; } = true;
-
-    /// <summary>
-    /// The stains, grime and damp laid onto surfaces with <see cref="ViewEffects.Decal"/>. Off, they aren't drawn and the
-    /// surfaces show as they are. It costs a copy of the normal target and a pass over the boxes' pixels, so
-    /// <see cref="Fastest"/> turns it off.
-    /// </summary>
-    public bool Decals { get; set; } = true;
-
-    /// <summary>Particles, such as dust, smoke, sparks and flames. Off, none is uploaded or drawn.</summary>
-    public bool Particles { get; set; } = true;
-
-    /// <summary>
-    /// Light spreading under the surface of skin and wax, from a material's <c>Subsurface</c>. Off, those surfaces are
-    /// lit as plain matte and light no longer shines through their thin parts, which saves two blurs across the picture.
-    /// <see cref="Fastest"/> turns it off.
-    /// </summary>
-    public bool Subsurface { get; set; } = true;
-
-    /// <summary>
-    /// Working out the fog near the camera in a volume that the sun's shadows and the point and spot lights
-    /// light up, so sunlight falls through it in shafts and lamps glow with halos. Off, the fog is the plain
-    /// height fog everywhere, exactly as without it. It costs two compute passes over a small grid, so
-    /// <see cref="Fastest"/> turns it off.
-    /// </summary>
-    public bool VolumetricFog { get; set; } = true;
-
-    /// <summary>
-    /// Scene pixels across one cell of the volumetric fog's grid, each way, from 4 to 32. Smaller cells show finer
-    /// shafts and sharper edges on fog volumes, and cost about four times as much each time the size halves. The
-    /// size is after <see cref="RenderScale"/>. At 8, the default, the grid takes about 35 MB at 1600 by 900, and
-    /// 16 cuts that to a quarter.
-    /// </summary>
-    public int VolumetricFogCellSize
-    {
-        get;
-        set => field = value is >= 4 and <= 32
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value, "A volumetric fog cell can be from 4 to 32 pixels across.");
-    } = 8;
-
-    /// <summary>
-    /// How many slices the volumetric fog's grid has in depth, from 16 to 128, out to
-    /// <see cref="Rendition.FogSettings.VolumetricDistance"/>. More slices keep shafts and fog volumes sharp further
-    /// out, and the cost grows with the count. <see cref="GraphicsQuality.Ultra"/> uses 128; the rest 64.
-    /// </summary>
-    public int VolumetricFogSlices
-    {
-        get;
-        set => field = value is >= 16 and <= 128
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value, "The volumetric fog can have from 16 to 128 slices.");
-    } = 64;
-
-    /// <summary>
-    /// Every surface's own colour, textures, normal maps and shine. Off, everything is the same light grey,
-    /// matte clay, shaped only by its mesh, so the lighting and the models can be judged without the
-    /// textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. It's
-    /// for looking, not for speed, so <see cref="Fastest"/> leaves it on.
-    /// </summary>
-    public bool Materials { get; set; } = true;
-
-    /// <summary>
-    /// Worn edges and dirt that models' materials lay by masks the cooker baked from their shape: paler,
-    /// rubbed edges, and darker hollows and feet. Off, those surfaces show only their own colour and shine,
-    /// and their masks aren't read.
-    /// </summary>
-    public bool WearAndDirt { get; set; } = true;
-
-    /// <summary>
-    /// Water and a damp band on surfaces whose material asks for puddles, below and just above the level set with
-    /// <see cref="ViewSurroundings.Puddles"/>. Off, every surface is dry. It costs a few noise lookups on each wet pixel, so
-    /// <see cref="Fastest"/> turns it off.
-    /// </summary>
-    public bool Puddles { get; set; } = true;
-
-    /// <summary>
-    /// Grass, leaves and anything else whose material sways in the wind set with <see cref="ViewSurroundings.Wind"/>, along with
-    /// their shadows. Off, everything stands still. It costs a little on each swaying vertex, in the picture and in
-    /// every shadow map, so <see cref="Fastest"/> turns it off.
-    /// </summary>
-    public bool Wind { get; set; } = true;
-
-    /// <summary>
-    /// The depth that materials' height maps give their surfaces, so bricks stand out from the mortar and stones from the
-    /// path as the view moves. Off, those surfaces are flat, shaded only by their normal maps, and the height maps aren't
-    /// stepped through. It costs up to 32 lookups on each near pixel, so <see cref="GraphicsQuality.Low"/> and
-    /// <see cref="Fastest"/> turn it off.
-    /// </summary>
-    public bool HeightMaps { get; set; } = true;
-
-    /// <summary>
-    /// Shine: highlights from the lights, reflections, metal and the clear coat. Off, every surface is lit as plain
-    /// matte, metals in their base colour, and glass lets light through with no reflection. It's for looking, not for
-    /// speed, so <see cref="Fastest"/> leaves it on.
-    /// </summary>
-    public bool Specular { get; set; } = true;
-
-    /// <summary>
-    /// The soft light and reflections that the sky gives from each direction. Off, the sky gives the same flat colour
-    /// from every side, its average, which shows what the direct light and the probes do alone. The light probes still
-    /// see the real sky. It's for looking, so <see cref="Fastest"/> leaves it on.
-    /// </summary>
-    public bool EnvironmentLight { get; set; } = true;
-
-    /// <summary>
-    /// Surfaces that give their own light, such as lamps, screens and embers. Off, they show only the light that falls on
-    /// them, and they no longer light the probes. Bakes keep the glow they were made with. It's for looking, so
-    /// <see cref="Fastest"/> leaves it on.
-    /// </summary>
-    public bool Emissive { get; set; } = true;
-
-    /// <summary>
-    /// The darkening towards the picture's corners set with <see cref="PostSettings.Vignette"/>. Off, the corners are as
-    /// bright as the middle. <see cref="Fastest"/> turns it off.
-    /// </summary>
-    public bool Vignette { get; set; } = true;
-
-    /// <summary>
-    /// The film grain set with <see cref="PostSettings.Grain"/>. Off, the picture is clean. <see cref="Fastest"/> turns it
-    /// off.
-    /// </summary>
-    public bool Grain { get; set; } = true;
-
-    /// <summary>
-    /// The sharpening set with <see cref="PostSettings.Sharpen"/>, which wins back the detail anti-aliasing softens. Off,
-    /// the finish pass skips it. <see cref="Fastest"/> turns it off.
-    /// </summary>
-    public bool Sharpening { get; set; } = true;
-
-    /// <summary>
-    /// The colour grade set in <see cref="PostSettings"/>: contrast, saturation, lift, gain and white balance. Off, they're
-    /// all neutral. The exposure, the bloom and the tonemapper with its look stay, as the picture needs them. It costs
-    /// almost nothing, so <see cref="Fastest"/> leaves it on.
-    /// </summary>
-    public bool ColorGrading { get; set; } = true;
-
-    /// <summary>
-    /// Light read from the bakes made with <c>--bake</c> for the areas set with <see cref="ViewIndirect.BakedLighting"/> and
-    /// <see cref="ViewIndirect.BakedChunk"/>. Off, every bake is ignored and each area is lit live, as if it had never been
-    /// baked, which shows what the bake changes. A bake costs less than the live light it stands in for, so
-    /// <see cref="Fastest"/> leaves it on.
-    /// </summary>
-    public bool BakedLighting { get; set; } = true;
-
-    /// <summary>
-    /// Bakes missing lighting as it appears, where the GPU can trace. From source: spaces and chunks, Preview then
-    /// Final. Published: chunks only, Preview. Only play in a window bakes this way; screenshots, recordings, profiles
-    /// and <c>--bake</c> never do. See "Baking without a build step" in docs/rendering.md.
-    /// </summary>
-    public bool BakeOnArrival { get; set; } = true;
-
-    /// <summary>
-    /// GPU milliseconds a frame for background bakes, from 0.5 to 33. Null: 4 from source, 2 in a published game. More
-    /// finishes a bake sooner and costs frame rate while it runs.
-    /// </summary>
-    public float? BakeBudget
-    {
-        get;
-        set => field = value is null or (>= MinBakeBudget and <= MaxBakeBudget)
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), string.Create(CultureInfo.InvariantCulture,
-                $"BakeBudget must be from {MinBakeBudget} to {MaxBakeBudget} milliseconds, not {value}. Use null for the default."));
-    }
-
-    private const float MinBakeBudget = 0.5f;
-    private const float MaxBakeBudget = 33f;
-
-    /// <summary>
-    /// Leaving out models the camera, the sun's cascades and the lights' shadow tiles can't see. Off, every model is drawn
-    /// into each of them, which only costs time: it's there to check that culling hides nothing it shouldn't. Every
-    /// preset leaves it on.
-    /// </summary>
-    public bool Culling { get; set; } = true;
-
-    /// <summary>
-    /// Models switching to their simpler versions as they move away, as <see cref="MeshDetail"/> tunes. Off, every model
-    /// is drawn at full detail at any distance, which only costs time: it's there to check what the simpler versions
-    /// change. Every preset leaves it on.
-    /// </summary>
-    public bool SimplerModels { get; set; } = true;
-
-    /// <summary>
-    /// Drawing the depth of large solid surfaces before shading anything, so each pixel is shaded once, by the surface
-    /// that shows. Off, surfaces drawn before the ones that hide them are shaded too, which only costs time: it's
-    /// there to measure what the extra pass saves. The picture is the same either way, but where two surfaces lie in
-    /// the very same plane, where the other of the two may show. Every preset leaves it on.
-    /// </summary>
-    public bool DepthFirst { get; set; } = true;
-
-    /// <summary>
-    /// Things fading out smoothly with distance, from <see cref="Surface.FadeDistance"/> and a model's own fade, models
-    /// cross-fading into their simpler versions instead of popping, and glass fading where it meets the ground, from
-    /// <see cref="Surface.SoftEdge"/>. Off, a fade is a hard cut halfway through it, a simpler version swaps in at once
-    /// and glass ends in a hard line. It costs little: fading things skip the early depth test, and a model near a swap
-    /// is drawn twice. Every preset leaves it on.
-    /// </summary>
-    public bool Fades { get; set; } = true;
+    /// <summary>Mesh detail, culling, simpler models, the depth-first pass and fades.</summary>
+    public GraphicsDrawing Drawing { get; } = new();
 
     /// <summary>
     /// What the frame shows: the lit scene, the default, or a look inside the renderer such as
@@ -478,49 +57,10 @@ public sealed partial class Graphics
     public static Graphics For(GraphicsQuality quality) => quality switch
     {
         GraphicsQuality.Low => Low(),
-        GraphicsQuality.Medium => new Graphics
-        {
-            RenderScale = 0.85f,
-            ShadowCascades = 3,
-            MeshDetail = 0.75f,
-            ProbeQuality = ProbeQuality.Medium,
-            DepthOfField = false,
-            VolumetricFog = false,
-            BakeBudget = 2f,
-        },
+        GraphicsQuality.Medium => Medium(),
         GraphicsQuality.High => new Graphics(),
-        GraphicsQuality.Ultra => new Graphics
-        {
-            ShadowResolution = 4096,
-            MeshDetail = 1.5f,
-            ReflectionResolution = ReflectionResolution.Full,
-            OcclusionResolution = OcclusionResolution.Full,
-            VolumetricFogSlices = 128,
-        },
+        GraphicsQuality.Ultra => Ultra(),
         _ => throw new ArgumentOutOfRangeException(nameof(quality), quality, "Graphics quality can be Low, Medium, High or Ultra."),
-    };
-
-    private static Graphics Low() => new()
-    {
-        RenderScale = 0.75f,
-        ShadowResolution = 1024,
-        ShadowCascades = 2,
-        MeshDetail = 0.5f,
-        ContactShadows = false,
-        LightShadows = false,
-        LightProbes = false,
-        ProbeQuality = ProbeQuality.Low,
-        AmbientOcclusion = false,
-        ScreenBounce = false,
-        Reflections = false,
-        AutoExposure = false,
-        DepthOfField = false,
-        Decals = false,
-        VolumetricFog = false,
-        HeightMaps = false,
-        // Puddles and wind stay on: in the Courtyard each costs less than a frame's noise, and the water is part
-        // of the place, not a finish on it.
-        BakeBudget = 1f,
     };
 
     /// <summary>
@@ -528,20 +68,35 @@ public sealed partial class Graphics
     /// virtual: Low. A card of its own: Low under 3 GB, Medium under 6 GB, High under 12 GB and Ultra from there. An
     /// unknown GPU gets High, the default.
     /// </summary>
-    public static GraphicsQuality Recommend(GpuInfo gpu) => gpu.Kind switch
-    {
-        GpuKind.Integrated or GpuKind.Virtual => GraphicsQuality.Low,
-        GpuKind.Discrete => gpu.MemoryBytes switch
-        {
-            < 3 * Gigabyte => GraphicsQuality.Low,
-            < 6 * Gigabyte => GraphicsQuality.Medium,
-            < 12 * Gigabyte => GraphicsQuality.High,
-            _ => GraphicsQuality.Ultra,
-        },
-        _ => GraphicsQuality.High,
-    };
+    public static GraphicsQuality Recommend(GpuInfo gpu) => QualityGuess.For(gpu);
 
-    private const long Gigabyte = 1L << 30;
+    /// <summary>
+    /// Every effect that costs GPU time off: the fastest the engine draws, and a start for a game that must
+    /// run on modest hardware. Turn back on only what it needs. Point and spot lights and particles stay, as they
+    /// are the game's own content rather than effects. What costs nothing or saves time stays on: the materials,
+    /// the baked lighting, the shine, the sky's light, glows, the colour grade, culling and simpler models. The light probes are at
+    /// <see cref="Rendition.ProbeQuality.Low"/>, so turning them back on keeps them cheap, and models switch to their
+    /// simpler versions at the lowest <see cref="GraphicsDrawing.MeshDetail"/>.
+    /// </summary>
+    public static Graphics Fastest() => new()
+    {
+        Screen = { Upscaler = Upscaler.Taa, AntiAliasing = false },
+        Shadowing = { SunShadows = false, ContactShadows = false, LightShadows = false },
+        Lighting =
+        {
+            LightProbes = false,
+            ProbeQuality = ProbeQuality.Low,
+            AmbientOcclusion = false,
+            ScreenBounce = false,
+            OcclusionHistory = false,
+            MultiscatterSpecular = false,
+            Reflections = false,
+        },
+        Atmosphere = { Fog = false, VolumetricFog = false, FogVolumes = false },
+        Surfaces = { WearAndDirt = false, Decals = false, Puddles = false, Wind = false, HeightMaps = false, Subsurface = false },
+        Picture = { Bloom = false, AutoExposure = false, DepthOfField = false, Vignette = false, Grain = false, Sharpening = false },
+        Drawing = { MeshDetail = 0.5f },
+    };
 
     /// <summary>
     /// Takes every setting from <paramref name="profile"/> but <see cref="DebugView"/>, so a game can switch the
@@ -551,79 +106,14 @@ public sealed partial class Graphics
     public void Apply(Graphics profile)
     {
         ArgumentNullException.ThrowIfNull(profile);
-        Vsync = profile.Vsync;
-        MaxFramesPerSecond = profile.MaxFramesPerSecond;
-        SunShadows = profile.SunShadows;
-        ShadowResolution = profile.ShadowResolution;
-        ShadowCascades = profile.ShadowCascades;
-        MeshDetail = profile.MeshDetail;
-        RenderScale = profile.RenderScale;
-        Upscaler = profile.Upscaler;
-        ProbeQuality = profile.ProbeQuality;
-        ReflectionResolution = profile.ReflectionResolution;
-        OcclusionResolution = profile.OcclusionResolution;
-        VolumetricFogCellSize = profile.VolumetricFogCellSize;
-        VolumetricFogSlices = profile.VolumetricFogSlices;
-        BakeOnArrival = profile.BakeOnArrival;
-        BakeBudget = profile.BakeBudget;
-        ApplySwitches(profile);
-    }
-
-    /// <summary>Takes the on and off of every effect from <paramref name="profile"/>.</summary>
-    private void ApplySwitches(Graphics profile)
-    {
-        ApplyLightSwitches(profile);
-        ApplyPictureSwitches(profile);
-    }
-
-    /// <summary>Takes the switches for light, shadows and the air from <paramref name="profile"/>.</summary>
-    private void ApplyLightSwitches(Graphics profile)
-    {
-        ContactShadows = profile.ContactShadows;
-        LightProbes = profile.LightProbes;
-        LightShadows = profile.LightShadows;
-        LocalLights = profile.LocalLights;
-        AmbientOcclusion = profile.AmbientOcclusion;
-        ScreenBounce = profile.ScreenBounce;
-        OcclusionHistory = profile.OcclusionHistory;
-        MultiscatterSpecular = profile.MultiscatterSpecular;
-        Reflections = profile.Reflections;
-        EnvironmentLight = profile.EnvironmentLight;
-        BakedLighting = profile.BakedLighting;
-        Fog = profile.Fog;
-        Haze = profile.Haze;
-        AerialPerspective = profile.AerialPerspective;
-        Stars = profile.Stars;
-        Underwater = profile.Underwater;
-        FogVolumes = profile.FogVolumes;
-        VolumetricFog = profile.VolumetricFog;
-    }
-
-    /// <summary>Takes the switches for surfaces, drawing and the finished picture from <paramref name="profile"/>.</summary>
-    private void ApplyPictureSwitches(Graphics profile)
-    {
-        AntiAliasing = profile.AntiAliasing;
-        Bloom = profile.Bloom;
-        AutoExposure = profile.AutoExposure;
-        DepthOfField = profile.DepthOfField;
-        Decals = profile.Decals;
-        Particles = profile.Particles;
-        Subsurface = profile.Subsurface;
-        Materials = profile.Materials;
-        WearAndDirt = profile.WearAndDirt;
-        Puddles = profile.Puddles;
-        Wind = profile.Wind;
-        HeightMaps = profile.HeightMaps;
-        Specular = profile.Specular;
-        Emissive = profile.Emissive;
-        Vignette = profile.Vignette;
-        Grain = profile.Grain;
-        Sharpening = profile.Sharpening;
-        ColorGrading = profile.ColorGrading;
-        Culling = profile.Culling;
-        SimplerModels = profile.SimplerModels;
-        DepthFirst = profile.DepthFirst;
-        Fades = profile.Fades;
+        Screen.CopyFrom(profile.Screen);
+        Shadowing.CopyFrom(profile.Shadowing);
+        Lighting.CopyFrom(profile.Lighting);
+        Atmosphere.CopyFrom(profile.Atmosphere);
+        Surfaces.CopyFrom(profile.Surfaces);
+        Picture.CopyFrom(profile.Picture);
+        Baking.CopyFrom(profile.Baking);
+        Drawing.CopyFrom(profile.Drawing);
     }
 
     /// <summary>
@@ -635,15 +125,16 @@ public sealed partial class Graphics
         File.WriteAllText(path, ToJson());
     }
 
-    /// <summary>The settings as a JSON profile, as <see cref="Save"/> writes it.</summary>
+    /// <summary>The settings as a JSON profile, as <see cref="Save"/> writes it: one object for each group.</summary>
     public string ToJson() => JsonSerializer.Serialize(this, GraphicsProfile.Options);
 
     /// <summary>
-    /// Reads a JSON profile that <see cref="Save"/> wrote or a person wrote by hand. A setting it leaves out keeps
-    /// its default, so a profile can hold only what it changes. <c>"Extends"</c> names a preset to start from instead of the
-    /// defaults: <c>Low</c>, <c>Medium</c>, <c>High</c>, <c>Ultra</c> or <c>Fastest</c>, so
-    /// <c>{ "Extends": "Low", "Reflections": true }</c> is Low with reflections. A name it doesn't know, or a value a
-    /// setting refuses, throws <see cref="InvalidDataException"/> naming the file.
+    /// Reads a JSON profile that <see cref="Save"/> wrote or a person wrote by hand, with one object for each group of
+    /// settings. A setting it leaves out keeps its default, so a profile can hold only what it changes.
+    /// <c>"Extends"</c> names a preset to start from instead of the defaults: <c>Low</c>, <c>Medium</c>, <c>High</c>,
+    /// <c>Ultra</c> or <c>Fastest</c>, so <c>{ "Extends": "Low", "Lighting": { "Reflections": true } }</c> is Low with
+    /// reflections. A name it doesn't know, or a value a setting refuses, throws <see cref="InvalidDataException"/>
+    /// naming the file.
     /// </summary>
     public static Graphics Load(string path) => FromJson(File.ReadAllText(path), path);
 
@@ -651,43 +142,37 @@ public sealed partial class Graphics
     public static Graphics FromJson(string json, string source = "the graphics profile") =>
         GraphicsProfile.Read(json, source, quality => quality is { } named ? For(named) : Fastest());
 
-    /// <summary>
-    /// Every effect that costs GPU time off: the fastest the engine draws, and a start for a game that must
-    /// run on modest hardware. Turn back on only what it needs. Point and spot lights and particles stay, as they
-    /// are the game's own content rather than effects. What costs nothing or saves time stays on: the materials,
-    /// the baked lighting, the shine, the sky's light, glows, the colour grade, culling and simpler models. The light probes are at
-    /// <see cref="Rendition.ProbeQuality.Low"/>, so turning them back on keeps them cheap, and models switch to their
-    /// simpler versions at the lowest <see cref="MeshDetail"/>.
-    /// </summary>
-    public static Graphics Fastest() => new()
+    private static Graphics Low() => new()
     {
-        Upscaler = Upscaler.Taa,
-        MeshDetail = 0.5f,
-        SunShadows = false,
-        ContactShadows = false,
-        LightProbes = false,
-        ProbeQuality = ProbeQuality.Low,
-        LightShadows = false,
-        AmbientOcclusion = false,
-        ScreenBounce = false,
-        OcclusionHistory = false,
-        MultiscatterSpecular = false,
-        Reflections = false,
-        AntiAliasing = false,
-        Bloom = false,
-        WearAndDirt = false,
-        Fog = false,
-        AutoExposure = false,
-        DepthOfField = false,
-        Decals = false,
-        VolumetricFog = false,
-        Puddles = false,
-        Wind = false,
-        HeightMaps = false,
-        Vignette = false,
-        Grain = false,
-        Sharpening = false,
-        Subsurface = false,
-        FogVolumes = false,
+        Screen = { RenderScale = 0.75f },
+        Shadowing = { ShadowResolution = 1024, ShadowCascades = 2, ContactShadows = false, LightShadows = false },
+        Lighting = { LightProbes = false, ProbeQuality = ProbeQuality.Low, AmbientOcclusion = false, ScreenBounce = false, Reflections = false },
+        Atmosphere = { VolumetricFog = false },
+
+        // Puddles and wind stay on: in the Courtyard each costs less than a frame's noise, and the water is part
+        // of the place, not a finish on it.
+        Surfaces = { Decals = false, HeightMaps = false },
+        Picture = { AutoExposure = false, DepthOfField = false },
+        Baking = { BakeBudget = 1f },
+        Drawing = { MeshDetail = 0.5f },
+    };
+
+    private static Graphics Medium() => new()
+    {
+        Screen = { RenderScale = 0.85f },
+        Shadowing = { ShadowCascades = 3 },
+        Lighting = { ProbeQuality = ProbeQuality.Medium },
+        Atmosphere = { VolumetricFog = false },
+        Picture = { DepthOfField = false },
+        Baking = { BakeBudget = 2f },
+        Drawing = { MeshDetail = 0.75f },
+    };
+
+    private static Graphics Ultra() => new()
+    {
+        Shadowing = { ShadowResolution = 4096 },
+        Lighting = { ReflectionResolution = ReflectionResolution.Full, OcclusionResolution = OcclusionResolution.Full },
+        Atmosphere = { VolumetricFogSlices = 128 },
+        Drawing = { MeshDetail = 1.5f },
     };
 }
