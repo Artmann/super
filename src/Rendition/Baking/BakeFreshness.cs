@@ -64,6 +64,9 @@ public sealed class NoBakes : IBakeStore
     public bool IsFresh(string file, BakeInputs inputs) => false;
 }
 
+/// <summary>Where a chunk's bake is this frame: fresh and on the GPU, fresh but still on its way, and how far it has faded in.</summary>
+internal readonly record struct ChunkBakeState(bool Fresh, bool Pending, float Fade);
+
 /// <summary>
 /// What one frame's baked areas came to: each area's inputs, whether its bake is fresh, how each light is used, and
 /// the Baked lights a fresh bake takes over, which the frame then leaves out. Made by <see cref="BakeResolver"/>, which
@@ -202,14 +205,14 @@ public sealed class BakeFrame
         SpaceFade = fresh ? fade : 0f;
     }
 
-    internal void AddChunk(BakeInputs inputs, bool fresh, bool pending, string file, int staticDraws, float fade)
+    internal void AddChunk(BakeInputs inputs, string file, int staticDraws, ChunkBakeState state)
     {
         _chunks.Add(inputs);
-        _chunkFresh.Add(fresh);
-        _chunkPending.Add(pending);
+        _chunkFresh.Add(state.Fresh);
+        _chunkPending.Add(state.Pending);
         _chunkFiles.Add(file);
         _chunkDraws.Add(staticDraws);
-        _chunkFade.Add(fresh ? fade : 0f);
+        _chunkFade.Add(state.Fresh ? state.Fade : 0f);
     }
 
     internal void SetMode(LightKey key, LightMode mode) => _modes[key] = mode;
