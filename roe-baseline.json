@@ -63,48 +63,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Cook.Materials.GraphCompiler.Banned",
-      "file": "src/Super.Cook.Materials/GraphCompiler.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Materials.MaterialGraphs.ReadKept",
-      "file": "src/Super.Cook.Materials/MaterialGraphs.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Materials.MaterialGraphs.Run/6",
-      "file": "src/Super.Cook.Materials/MaterialGraphs.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Materials.Variant.TryConvert",
-      "file": "src/Super.Cook.Materials/Variant.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.MaskBaker.Bake",
-      "file": "src/Super.Cook.Models/MaskBaker.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.MaskBaker.Dilate",
-      "file": "src/Super.Cook.Models/MaskBaker.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.RigImporter.RigImporter",
-      "file": "src/Super.Cook.Models/RigImporter.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.CookedTexture.DecodePixels",
       "file": "src/Super/Rendering/CookedTexture.cs",
       "metric": 13
@@ -141,38 +99,14 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Materials.BlendNode.Combine",
-      "file": "src/Super.Materials/Blend.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Materials.DMath.Atan2D",
-      "file": "src/Super.Materials/DMath.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Materials.ShapeNode.Value",
-      "file": "src/Super.Materials/Shapes.cs",
-      "metric": 11
+      "name": "Super.GameWindow.ListenForInput",
+      "file": "src/Super/Rendering/GameWindow.cs",
+      "metric": 13
     },
     {
       "kind": "high-complexity",
       "name": "Super.OpenAlSpeakers.Open",
       "file": "src/Super/Audio/DeviceOutput.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Physics.Physics.Move",
-      "file": "src/Super.Physics/Physics.Characters.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Physics.Physics.Walking",
-      "file": "src/Super.Physics/Physics.Characters.cs",
       "metric": 12
     },
     {
@@ -246,30 +180,6 @@
       "name": "Super.ContentValidator.Fields",
       "file": "src/Super/Data/ContentValidator.cs",
       "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Materials.MaterialGraphs.Run/6",
-      "file": "src/Super.Cook.Materials/MaterialGraphs.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.MaskBaker.Bake",
-      "file": "src/Super.Cook.Models/MaskBaker.cs",
-      "metric": 26
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.MaskBaker.Dilate",
-      "file": "src/Super.Cook.Models/MaskBaker.cs",
-      "metric": 30
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.RigImporter.RigImporter",
-      "file": "src/Super.Cook.Models/RigImporter.cs",
-      "metric": 26
     },
     {
       "kind": "high-cognitive-complexity",
@@ -723,96 +633,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Cook.Materials.GraphCompiler.CompileNew",
-      "file": "src/Super.Cook.Materials/GraphCompiler.cs",
-      "metric": 51
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Materials.MaterialGraphs.ReadKept",
-      "file": "src/Super.Cook.Materials/MaterialGraphs.cs",
-      "metric": 75
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Materials.MaterialGraphs.Run/6",
-      "file": "src/Super.Cook.Materials/MaterialGraphs.cs",
-      "metric": 83
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Materials.MaterialGraphs.WriteKept",
-      "file": "src/Super.Cook.Materials/MaterialGraphs.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Materials.MaterialWriter.Write/4",
-      "file": "src/Super.Cook.Materials/MaterialWriter.cs",
-      "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Materials.SharedGraphRuns.GetOrMake",
-      "file": "src/Super.Cook.Materials/SharedGraphRuns.cs",
-      "metric": 56
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Materials.SharedGraphRuns.Keep",
-      "file": "src/Super.Cook.Materials/SharedGraphRuns.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Materials.Variant.Read",
-      "file": "src/Super.Cook.Materials/Variant.cs",
-      "metric": 53
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.Bvh.Trace",
-      "file": "src/Super.Cook.Models/Bvh.cs",
-      "metric": 45
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.MaskBaker.Bake",
-      "file": "src/Super.Cook.Models/MaskBaker.cs",
-      "metric": 91
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.MaskBaker.Dilate",
-      "file": "src/Super.Cook.Models/MaskBaker.cs",
-      "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.ModelTextures.Add",
-      "file": "src/Super.Cook.Models/ModelTextures.cs",
-      "metric": 42
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.RigImporter.ReadClip",
-      "file": "src/Super.Cook.Models/RigImporter.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.RigImporter.RigImporter",
-      "file": "src/Super.Cook.Models/RigImporter.cs",
-      "metric": 93
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.RigImporter.Skin",
-      "file": "src/Super.Cook.Models/RigImporter.cs",
-      "metric": 55
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
       "metric": 151
@@ -843,36 +663,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Materials.BlurNode.Evaluate",
-      "file": "src/Super.Materials/Blur.cs",
-      "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.BlurNode.Taps",
-      "file": "src/Super.Materials/Blur.cs",
-      "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.BricksNode.Evaluate",
-      "file": "src/Super.Materials/Tiles.cs",
-      "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.DMath.LogD",
-      "file": "src/Super.Materials/DMath.cs",
-      "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.GraphRunner.Run",
-      "file": "src/Super.Materials/GraphRunner.cs",
-      "metric": 46
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Mixer.Mix",
       "file": "src/Super/Audio/Mixer.cs",
       "metric": 59
@@ -894,24 +684,6 @@
       "name": "Super.ParticleEmitter.ParticleEmitter/7",
       "file": "src/Super/Particles/ParticleEmitter.cs",
       "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Physics.Physics.FindTriggerEvents",
-      "file": "src/Super.Physics/Physics.Triggers.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Physics.Physics.Move",
-      "file": "src/Super.Physics/Physics.Characters.cs",
-      "metric": 59
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Physics.Physics.Walking",
-      "file": "src/Super.Physics/Physics.Characters.cs",
-      "metric": 55
     },
     {
       "kind": "long-method",
@@ -1341,30 +1113,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Super.Cook.Models.Bvh.Build",
-      "file": "src/Super.Cook.Models/Bvh.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Cook.Models.MaskBaker.Curvature",
-      "file": "src/Super.Cook.Models/MaskBaker.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Cook.Models.MaskBaker.Sky",
-      "file": "src/Super.Cook.Models/MaskBaker.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Cook.Models.ModelTextures.MakeShared",
-      "file": "src/Super.Cook.Models/ModelTextures.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Super.GameWindow.GameWindow",
       "file": "src/Super/Rendering/GameWindow.cs",
       "metric": 7
@@ -1389,36 +1137,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Super.Materials.BricksNode.BricksNode",
-      "file": "src/Super.Materials/Tiles.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Materials.PerlinNode.PerlinNode",
-      "file": "src/Super.Materials/Noise.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Materials.Sampling.Bilinear",
-      "file": "src/Super.Materials/Sampling.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Materials.SplatterNode.SplatterNode",
-      "file": "src/Super.Materials/Transform.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Materials.TransformNode.Make",
-      "file": "src/Super.Materials/Transform.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Super.OpenAlSpeakers.OpenAlSpeakers",
       "file": "src/Super/Audio/DeviceOutput.cs",
       "metric": 7
@@ -1434,18 +1152,6 @@
       "name": "Super.ParticleEmitter.ParticleEmitter/7",
       "file": "src/Super/Particles/ParticleEmitter.cs",
       "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Physics.Body.Body/10",
-      "file": "src/Super.Physics/Body.cs",
-      "metric": 10
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Physics.Physics.CastShape",
-      "file": "src/Super.Physics/Physics.Queries.cs",
-      "metric": 6
     },
     {
       "kind": "too-many-parameters",
@@ -1815,39 +1521,15 @@
     },
     {
       "kind": "large-type",
-      "name": "Super.Cook.CookInput",
-      "file": "src/Super.Cook/CookInput.cs",
-      "metric": 27
-    },
-    {
-      "kind": "large-type",
       "name": "Super.Cook.Models.MaterialRule",
       "file": "src/Super.Cook.Models/ImportSettings.cs",
       "metric": 45
     },
     {
       "kind": "large-type",
-      "name": "Super.Cook.Models.ModelTextures",
-      "file": "src/Super.Cook.Models/ModelTextures.cs",
-      "metric": 22
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Cook.Models.RigImporter",
-      "file": "src/Super.Cook.Models/RigImporter.cs",
-      "metric": 29
-    },
-    {
-      "kind": "large-type",
       "name": "Super.DeviceOutput",
       "file": "src/Super/Audio/DeviceOutput.cs",
       "metric": 21
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Ecs.World",
-      "file": "src/Super.Ecs/Queries.cs",
-      "metric": 35
     },
     {
       "kind": "large-type",
@@ -1875,12 +1557,6 @@
     },
     {
       "kind": "large-type",
-      "name": "Super.Materials.Gray",
-      "file": "src/Super.Materials/Blend.cs",
-      "metric": 28
-    },
-    {
-      "kind": "large-type",
       "name": "Super.Mixer",
       "file": "src/Super/Audio/Mixer.cs",
       "metric": 39
@@ -1896,18 +1572,6 @@
       "name": "Super.ParticleEmitter",
       "file": "src/Super/Particles/ParticleEmitter.cs",
       "metric": 57
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Physics.Physics",
-      "file": "src/Super.Physics/Physics.Bodies.cs",
-      "metric": 93
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.RandomStream",
-      "file": "src/Super.Random/RandomStream.cs",
-      "metric": 22
     },
     {
       "kind": "large-type",
@@ -2021,266 +1685,6 @@
     },
     {
       "members": [
-        "Bricks",
-        "Rendition.AnimatedLights",
-        "Rendition.AnimationClip",
-        "Rendition.AreaJob",
-        "Rendition.BakeArrivals",
-        "Rendition.BakeEncoding",
-        "Rendition.BakeFileNames",
-        "Rendition.BakeFiles",
-        "Rendition.BakeFilter",
-        "Rendition.BakeJob",
-        "Rendition.BakeLightOwners",
-        "Rendition.BakeLights",
-        "Rendition.BakePages",
-        "Rendition.BakeQueue",
-        "Rendition.BakeResolver",
-        "Rendition.BakedProbeAtlas",
-        "Rendition.Baker",
-        "Rendition.ChunkBakeCheck",
-        "Rendition.ChunkBakePool",
-        "Rendition.ChunkPageUploader",
-        "Rendition.ClipEvent",
-        "Rendition.ClipSound",
-        "Rendition.DrawSelection",
-        "Rendition.FadeRules",
-        "Rendition.FilterRun",
-        "Rendition.FogVolumeBatch",
-        "Rendition.FrameMaskSlots",
-        "Rendition.FrameView",
-        "Rendition.IBakeStore",
-        "Rendition.LastFrame",
-        "Rendition.LightBakeFile",
-        "Rendition.LightBakeStore",
-        "Rendition.LightmapLayout",
-        "Rendition.Material",
-        "Rendition.ModelData",
-        "Rendition.ModelFile",
-        "Rendition.NoBakes",
-        "Rendition.Passes.BloomPass",
-        "Rendition.Passes.CaptureScene",
-        "Rendition.Passes.CubeCapture",
-        "Rendition.Passes.DecalBatch",
-        "Rendition.Passes.DecalPass",
-        "Rendition.Passes.DepthFirst",
-        "Rendition.Passes.DepthOfFieldConstants",
-        "Rendition.Passes.DepthOfFieldPass",
-        "Rendition.Passes.Exposure",
-        "Rendition.Passes.Fog",
-        "Rendition.Passes.FogVolumePack",
-        "Rendition.Passes.FrameUniforms",
-        "Rendition.Passes.FsrPass",
-        "Rendition.Passes.FullscreenPass",
-        "Rendition.Passes.GBuffer",
-        "Rendition.Passes.GBufferPass",
-        "Rendition.Passes.GpuLightArray",
-        "Rendition.Passes.Motion",
-        "Rendition.Passes.Occlusion",
-        "Rendition.Passes.OverlayPass",
-        "Rendition.Passes.ParticlePass",
-        "Rendition.Passes.PostGrade",
-        "Rendition.Passes.ProbeCapturePass",
-        "Rendition.Passes.ProbeDebugPass",
-        "Rendition.Passes.ProbeSunShadow",
-        "Rendition.Passes.ProbeTracePass",
-        "Rendition.Passes.Puddles",
-        "Rendition.Passes.ReflectionCaptureCube",
-        "Rendition.Passes.ReflectionCapturePass",
-        "Rendition.Passes.SceneDraws",
-        "Rendition.Passes.ShadowMatrixArray",
-        "Rendition.Passes.ShadowPass",
-        "Rendition.Passes.SkyModel",
-        "Rendition.Passes.SkySh",
-        "Rendition.Passes.TraceDebugPass",
-        "Rendition.Passes.TransitionConstants",
-        "Rendition.Passes.TransparentPass",
-        "Rendition.Passes.TransparentTargets",
-        "Rendition.Passes.Upscale",
-        "Rendition.Passes.VolumetricFog",
-        "Rendition.Passes.Wind",
-        "Rendition.ProbeCandidate",
-        "Rendition.ProbeCaptureQueue",
-        "Rendition.ProbeLightTracker",
-        "Rendition.ProbeScheduler",
-        "Rendition.RenderEffects",
-        "Rendition.Renderer",
-        "Rendition.ShL1",
-        "Rendition.ShadowTileCache",
-        "Rendition.SkyImageData",
-        "Rendition.TextureData",
-        "Rendition.Vulkan.CubeCentres",
-        "Rendition.Vulkan.CubeLevel",
-        "Rendition.Vulkan.CubeShader<TConstants>",
-        "Rendition.Vulkan.EnvironmentCube",
-        "Rendition.Vulkan.EnvironmentFlat",
-        "Rendition.Vulkan.EnvironmentMap",
-        "Rendition.Vulkan.EnvironmentPrefilter",
-        "Rendition.Vulkan.EnvironmentUniforms",
-        "Rendition.Vulkan.ExposureMeter",
-        "Rendition.Vulkan.FogVolumeBuffers",
-        "Rendition.Vulkan.Fsr",
-        "Rendition.Vulkan.FsrInputs",
-        "Rendition.Vulkan.GpuLightmapRect",
-        "Rendition.Vulkan.GpuTexture",
-        "Rendition.Vulkan.InstanceBuffer",
-        "Rendition.Vulkan.PipelineFactory",
-        "Rendition.Vulkan.ProbeCubes",
-        "Rendition.Vulkan.ProbeVolume",
-        "Rendition.Vulkan.RayTracing",
-        "Rendition.Vulkan.ReflectionProbes",
-        "Rendition.Vulkan.RenderTarget",
-        "Rendition.Vulkan.ResourceTable",
-        "Rendition.Vulkan.SkyAtmosphere",
-        "Rendition.Vulkan.Swapchain",
-        "Rendition.Vulkan.TraceScene",
-        "Rendition.Vulkan.UploadQueue",
-        "Rendition.Vulkan.VolumetricFogVolume",
-        "Rendition.WindReach",
-        "Super.ActionDefinition",
-        "Super.AmbienceReader",
-        "Super.AnimationControllerBase",
-        "Super.AnimationPose",
-        "Super.Animator",
-        "Super.AnimatorRunner",
-        "Super.BakeIdentity",
-        "Super.BakeSaver",
-        "Super.Binding",
-        "Super.BoneMask",
-        "Super.Catalog<T>",
-        "Super.ClipEventTable",
-        "Super.Color",
-        "Super.Content",
-        "Super.ContentLoader<TLoaded>",
-        "Super.ContentNames",
-        "Super.ContentReader",
-        "Super.ContentSchema",
-        "Super.ContentValidator",
-        "Super.CookedFolder",
-        "Super.CookedTexture",
-        "Super.CursorLook",
-        "Super.DecalRequest",
-        "Super.EventTracker",
-        "Super.GeneratedMesh",
-        "Super.Gpu",
-        "Super.GradientNode",
-        "Super.Graphics",
-        "Super.HeldJoints",
-        "Super.ICatalog",
-        "Super.Input",
-        "Super.Keys",
-        "Super.Limb",
-        "Super.Materials.ArrayNode",
-        "Super.Materials.BlendNode",
-        "Super.Materials.BlurNode",
-        "Super.Materials.BricksNode",
-        "Super.Materials.CellsNode",
-        "Super.Materials.ConstantNode",
-        "Super.Materials.CurvatureNode",
-        "Super.Materials.DirectionalWarpNode",
-        "Super.Materials.DistanceNode",
-        "Super.Materials.DistanceTransform",
-        "Super.Materials.EdgeDetectNode",
-        "Super.Materials.EvaluationContext",
-        "Super.Materials.FloodFillNode",
-        "Super.Materials.Gradient",
-        "Super.Materials.GradientMapNode",
-        "Super.Materials.Gray",
-        "Super.Materials.HeightBlendNode",
-        "Super.Materials.HeightBlendResult",
-        "Super.Materials.HeightToNormalNode",
-        "Super.Materials.HeightToOcclusionNode",
-        "Super.Materials.HslNode",
-        "Super.Materials.Image",
-        "Super.Materials.ImageInputNode",
-        "Super.Materials.Islands",
-        "Super.Materials.LevelsNode",
-        "Super.Materials.LinearGradientNode",
-        "Super.Materials.MapNode",
-        "Super.Materials.Material",
-        "Super.Materials.MaterialGraph",
-        "Super.Materials.Node",
-        "Super.Materials.Noise",
-        "Super.Materials.NormalOverNode",
-        "Super.Materials.Normals",
-        "Super.Materials.PerlinNode",
-        "Super.Materials.Pixel",
-        "Super.Materials.PixelNode",
-        "Super.Materials.RadialGradientNode",
-        "Super.Materials.Ramp",
-        "Super.Materials.RandomGrayNode",
-        "Super.Materials.Rgb",
-        "Super.Materials.Shape",
-        "Super.Materials.ShapeNode",
-        "Super.Materials.SlopeBlurNode",
-        "Super.Materials.SplatterNode",
-        "Super.Materials.Tiles",
-        "Super.Materials.ToGradientNode",
-        "Super.Materials.ToGrayNode",
-        "Super.Materials.TransformNode",
-        "Super.Materials.WarpNode",
-        "Super.Materials.WhiteNode",
-        "Super.MemorySlots<T>",
-        "Super.ModelDraw",
-        "Super.Motion",
-        "Super.ParticleEffect",
-        "Super.ParticleEmitter",
-        "Super.PoseLayer",
-        "Super.Rig",
-        "Super.SceneRenderer",
-        "Super.Shapes",
-        "Super.SharedMaterials",
-        "Super.Shot",
-        "Super.SkeletonSpace",
-        "Super.Source",
-        "Super.Spline",
-        "Super.StateDefinition",
-        "Super.StatsOverlay",
-        "Super.Surface",
-        "Super.TickEvents",
-        "Super.Transition",
-        "Super.Ui.BoxModifier",
-        "Super.Ui.Button",
-        "Super.Ui.ClickModifier",
-        "Super.Ui.Container",
-        "Super.Ui.DragModifier",
-        "Super.Ui.DropModifier",
-        "Super.Ui.DropModifier<T>",
-        "Super.Ui.FixedSizeModifier",
-        "Super.Ui.FrameModifier",
-        "Super.Ui.GameImage",
-        "Super.Ui.GlyphAtlas",
-        "Super.Ui.Grid",
-        "Super.Ui.HStack",
-        "Super.Ui.IWatchedState",
-        "Super.Ui.IgnoresPointerModifier",
-        "Super.Ui.Image",
-        "Super.Ui.Modifier",
-        "Super.Ui.PaddingModifier",
-        "Super.Ui.PointerModifier",
-        "Super.Ui.Pressable",
-        "Super.Ui.PrimitiveView",
-        "Super.Ui.ShownText",
-        "Super.Ui.Spacer",
-        "Super.Ui.Stack",
-        "Super.Ui.State<T>",
-        "Super.Ui.StyleModifier",
-        "Super.Ui.Text",
-        "Super.Ui.TextStyle",
-        "Super.Ui.TooltipModifier",
-        "Super.Ui.UiExtensions",
-        "Super.Ui.UiNode",
-        "Super.Ui.UiTree",
-        "Super.Ui.UiView",
-        "Super.Ui.VStack",
-        "Super.View",
-        "Super.ViewMemory",
-        "Super.ViewRecording",
-        "Super.WrittenBakes"
-      ]
-    },
-    {
-      "members": [
         "Gallery.Building",
         "Gallery.GalleryGame",
         "Gallery.Tour"
@@ -2308,19 +1712,6 @@
     },
     {
       "members": [
-        "Super.AmbiencePlayer",
-        "Super.Mixer"
-      ]
-    },
-    {
-      "members": [
-        "Super.Audio",
-        "Super.DeviceOutput",
-        "Super.OpenAlSpeakers"
-      ]
-    },
-    {
-      "members": [
         "Super.Cook.CacheFolder",
         "Super.Cook.CacheUsage"
       ]
@@ -2333,26 +1724,8 @@
     },
     {
       "members": [
-        "Super.Ecs.Archetype",
-        "Super.Ecs.ArchetypeCursor",
-        "Super.Ecs.Query<T1, T2, T3, T4>",
-        "Super.Ecs.Query<T1, T2, T3>",
-        "Super.Ecs.Query<T1, T2>",
-        "Super.Ecs.Query<T1>",
-        "Super.Ecs.World"
-      ]
-    },
-    {
-      "members": [
         "Super.Ecs.Column",
         "Super.Ecs.Column<T>"
-      ]
-    },
-    {
-      "members": [
-        "Super.Game",
-        "Super.GameHost<TGame>",
-        "Super.GameWindow"
       ]
     },
     {
