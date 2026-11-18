@@ -543,12 +543,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Materials.HslNode.Evaluate",
-      "file": "src/Super.Materials/Color.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Materials.ShapeNode.Value",
       "file": "src/Super.Materials/Shapes.cs",
       "metric": 11
@@ -996,12 +990,6 @@
       "name": "Super.Materials.HeightToOcclusionNode.Evaluate",
       "file": "src/Super.Materials/SurfaceNodes.cs",
       "metric": 21
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.HslNode.Evaluate",
-      "file": "src/Super.Materials/Color.cs",
-      "metric": 22
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2208,12 +2196,6 @@
       "name": "Super.Materials.HeightToOcclusionNode.Evaluate",
       "file": "src/Super.Materials/SurfaceNodes.cs",
       "metric": 56
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.HslNode.Evaluate",
-      "file": "src/Super.Materials/Color.cs",
-      "metric": 65
     },
     {
       "kind": "long-method",
