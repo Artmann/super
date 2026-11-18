@@ -51,9 +51,13 @@ public static class Tween
     /// <summary>Tweens that play at the same time and finish when the longest does. Read each with the indexer.</summary>
     public static TweenGroup<T> Parallel<T>(params Tween<T>[] tweens)
         where T : struct => new(tweens);
+}
 
-    /// <summary>Blends two values of a type a tween can carry. Past 0 and 1 it carries on, so overshooting easings work.</summary>
-    internal static T Mix<T>(T from, T to, float amount)
+/// <summary>Blends two values of a type a tween can carry.</summary>
+internal static class TweenMix
+{
+    /// <summary>Past 0 and 1 it carries on, so overshooting easings work.</summary>
+    public static T Mix<T>(T from, T to, float amount)
         where T : struct
     {
         if (typeof(T) == typeof(float))
@@ -96,7 +100,37 @@ public static class Tween
         throw new NotSupportedException($"A tween can't blend {typeof(T).Name}. Use float, Vector2, Vector3, Vector4, Quaternion or Color.");
     }
 
-    internal static float Forward(float elapsed, float seconds)
+    private static TTo Cast<TFrom, TTo>(TFrom value) => Unsafe.As<TFrom, TTo>(ref value);
+}
+
+/// <summary>
+/// Where a tween, sequence or group is: the seconds since it began, and how far the last
+/// tick moved it, so drawing can look back between ticks.
+/// </summary>
+internal struct TweenPlayhead
+{
+    public float Elapsed;
+    public float LastStep;
+
+    /// <summary>Jumps to a moment, with no step behind it to blend back over.</summary>
+    public void JumpTo(float elapsed)
+    {
+        Elapsed = Forward(0f, elapsed);
+        LastStep = 0f;
+    }
+
+    /// <summary>Moves on by some seconds, stopping at the end.</summary>
+    public void Advance(float seconds, float duration)
+    {
+        float before = Elapsed;
+        Elapsed = Math.Min(Forward(Elapsed, seconds), duration);
+        LastStep = Elapsed - before;
+    }
+
+    /// <summary>The moment between the last tick and this one, for drawing.</summary>
+    public readonly float Blended(float blend) => Elapsed - (1f - Math.Clamp(blend, 0f, 1f)) * LastStep;
+
+    private static float Forward(float elapsed, float seconds)
     {
         if (!(seconds >= 0f) || !float.IsFinite(seconds))
         {
@@ -105,39 +139,14 @@ public static class Tween
 
         return elapsed + seconds;
     }
-
-    private static TTo Cast<TFrom, TTo>(TFrom value) => Unsafe.As<TFrom, TTo>(ref value);
 }
 
 /// <summary>
-/// A value going from one place to another over some seconds. It's a plain struct, so
-/// keep it in your game's state, call <see cref="Update"/> each tick and read
-/// <see cref="Value"/>. It follows <see cref="GameTime.DeltaSeconds"/>, so it replays the
-/// same from a seed and slows with the time scale. Make one with <see cref="Tween.Between(float, float, float, Easing)"/>.
+/// How a tween moves through time: how long one play takes, the wait before it starts,
+/// its easing or curve, and how it repeats. It doesn't know what the tween blends.
 /// </summary>
-public struct Tween<T>
-    where T : struct
+public readonly record struct TweenTiming
 {
-    private float _elapsed;
-    private float _lastStep;
-
-    internal Tween(T from, T to, float seconds, Easing easing)
-    {
-        if (!(seconds > 0f) || !float.IsFinite(seconds))
-        {
-            throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "A tween must last more than zero seconds.");
-        }
-
-        From = from;
-        To = to;
-        Seconds = seconds;
-        Easing = easing;
-    }
-
-    public T From { get; init; }
-
-    public T To { get; init; }
-
     /// <summary>How long one play takes.</summary>
     public float Seconds { get; init; }
 
@@ -156,91 +165,26 @@ public struct Tween<T>
     public int Times { get; init; }
 
     /// <summary>How long it lasts, delay included. Infinite if it repeats forever.</summary>
-    public readonly float Duration => IsEndless ? float.PositiveInfinity : Delay + Seconds * Plays;
+    public float Duration => IsEndless ? float.PositiveInfinity : Delay + Seconds * Plays;
 
-    /// <summary>Seconds since it began, delay included. Set it to jump to a moment.</summary>
-    public float Elapsed
+    internal bool IsEndless => Repeat != Repeat.Once && Times == 0;
+
+    private int Plays => Repeat == Repeat.Once ? 1 : Times;
+
+    /// <summary>The same timing, repeating this way this many times.</summary>
+    internal TweenTiming Repeating(Repeat repeat, int times)
     {
-        readonly get => _elapsed;
-        set
+        if (times < 0)
         {
-            _elapsed = Tween.Forward(0f, value);
-            _lastStep = 0f;
+            throw new ArgumentOutOfRangeException(nameof(times), times, "A tween can't play a negative number of times. Use 0 for forever.");
         }
+
+        return this with { Repeat = repeat, Times = times };
     }
 
-    /// <summary>The value now.</summary>
-    public readonly T Value => At(_elapsed);
-
-    /// <summary>Past its delay and not done yet.</summary>
-    public readonly bool IsPlaying => _elapsed >= Delay && !Completed;
-
-    /// <summary>At the end and staying there. A tween that repeats forever never completes.</summary>
-    public readonly bool Completed => !IsEndless && _elapsed >= Duration;
-
-    private readonly bool IsEndless => Repeat != Repeat.Once && Times == 0;
-
-    private readonly int Plays => Repeat == Repeat.Once ? 1 : Times;
-
-    /// <summary>Waits this many seconds before starting.</summary>
-    public readonly Tween<T> After(float seconds)
+    /// <summary>How far from the start value to the end one it is at that many seconds from its beginning, eased.</summary>
+    internal float ShapedAmount(float elapsed)
     {
-        if (!(seconds >= 0f) || !float.IsFinite(seconds))
-        {
-            throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "A tween's delay must be a finite number of at least zero.");
-        }
-
-        return this with { Delay = seconds };
-    }
-
-    /// <summary>Uses an easing.</summary>
-    public readonly Tween<T> Ease(Easing easing) => this with { Easing = easing, Curve = null };
-
-    /// <summary>Follows a curve instead of an easing, such as one an artist tuned in content.</summary>
-    public readonly Tween<T> Ease(Curve curve) => this with { Curve = curve ?? throw new ArgumentNullException(nameof(curve)) };
-
-    /// <summary>Plays this many times, jumping back to the start each time. 0 means forever.</summary>
-    public readonly Tween<T> Loop(int times = 0) => Repeating(Repeat.Loop, times);
-
-    /// <summary>Plays to the end and back. Each way counts as one of the times, so 2 is there and back. 0 means forever.</summary>
-    public readonly Tween<T> Yoyo(int times = 0) => Repeating(Repeat.Yoyo, times);
-
-    /// <summary>Moves on by this tick's <see cref="GameTime.DeltaSeconds"/>.</summary>
-    public void Update(GameTime time) => Advance(time.DeltaSeconds);
-
-    /// <summary>Moves on by some seconds.</summary>
-    public void Advance(float seconds)
-    {
-        float before = _elapsed;
-        _elapsed = Math.Min(Tween.Forward(_elapsed, seconds), Duration);
-        _lastStep = _elapsed - before;
-
-        // A tween that runs forever would lose precision as the seconds pile up, so it
-        // drops whole there-and-back trips, keeping one so Smooth can look back.
-        float trip = 2f * Seconds;
-        if (IsEndless && _elapsed - Delay >= 2f * trip)
-        {
-            _elapsed -= MathF.Floor((_elapsed - Delay) / trip - 1f) * trip;
-        }
-    }
-
-    /// <summary>Goes back to the beginning, delay and all.</summary>
-    public void Restart() => Elapsed = 0f;
-
-    /// <summary>
-    /// The value between the last tick and this one, for drawing: pass
-    /// <see cref="View.Blend"/>, so motion stays smooth at any frame rate.
-    /// </summary>
-    public readonly T Smooth(float blend) => At(_elapsed - (1f - Math.Clamp(blend, 0f, 1f)) * _lastStep);
-
-    /// <summary>The value this tween has at that many seconds from its beginning. It doesn't move the tween.</summary>
-    public readonly T At(float elapsed)
-    {
-        if (!(Seconds > 0f))
-        {
-            return To;
-        }
-
         float local = elapsed - Delay;
         float amount;
         bool backwards;
@@ -266,28 +210,128 @@ public struct Tween<T>
             amount = 1f - amount;
         }
 
-        float shaped = Curve is { } curve ? curve.Sample(amount) : Super.Ease.Apply(Easing, amount);
-        return Tween.Mix(From, To, shaped);
-    }
-
-    private readonly Tween<T> Repeating(Repeat repeat, int times)
-    {
-        if (times < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(times), times, "A tween can't play a negative number of times. Use 0 for forever.");
-        }
-
-        return this with { Repeat = repeat, Times = times };
+        return Curve is { } curve ? curve.Sample(amount) : Ease.Apply(Easing, amount);
     }
 }
 
-/// <summary>Tweens played one after another, as one value. Make one with <see cref="Tween.Sequence{T}"/>.</summary>
+/// <summary>
+/// A value going from one place to another over some seconds. It's a plain struct, so
+/// keep it in your game's state, call <see cref="Update"/> each tick and read
+/// <see cref="Value"/>. It follows <see cref="GameTime.DeltaSeconds"/>, so it replays the
+/// same from a seed and slows with the time scale. Make one with <c>Tween.Between</c>.
+/// </summary>
+public struct Tween<T>
+    where T : struct
+{
+    private TweenPlayhead _playhead;
+
+    internal Tween(T from, T to, float seconds, Easing easing)
+    {
+        if (!(seconds > 0f) || !float.IsFinite(seconds))
+        {
+            throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "A tween must last more than zero seconds.");
+        }
+
+        From = from;
+        To = to;
+        Timing = new TweenTiming { Seconds = seconds, Easing = easing };
+    }
+
+    public T From { get; init; }
+
+    public T To { get; init; }
+
+    /// <summary>How long it takes, the wait before it, its easing or curve, and how it repeats.</summary>
+    public TweenTiming Timing { get; init; }
+
+    /// <summary>How long it lasts, delay included. Infinite if it repeats forever.</summary>
+    public readonly float Duration => Timing.Duration;
+
+    /// <summary>Seconds since it began, delay included. Set it to jump to a moment.</summary>
+    public float Elapsed
+    {
+        readonly get => _playhead.Elapsed;
+        set => _playhead.JumpTo(value);
+    }
+
+    /// <summary>The value now.</summary>
+    public readonly T Value => At(_playhead.Elapsed);
+
+    /// <summary>Past its delay and not done yet.</summary>
+    public readonly bool IsPlaying => _playhead.Elapsed >= Timing.Delay && !Completed;
+
+    /// <summary>At the end and staying there. A tween that repeats forever never completes.</summary>
+    public readonly bool Completed => !Timing.IsEndless && _playhead.Elapsed >= Duration;
+
+    /// <summary>Waits this many seconds before starting.</summary>
+    public readonly Tween<T> After(float seconds)
+    {
+        if (!(seconds >= 0f) || !float.IsFinite(seconds))
+        {
+            throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "A tween's delay must be a finite number of at least zero.");
+        }
+
+        return this with { Timing = Timing with { Delay = seconds } };
+    }
+
+    /// <summary>Uses an easing.</summary>
+    public readonly Tween<T> Ease(Easing easing) => this with { Timing = Timing with { Easing = easing, Curve = null } };
+
+    /// <summary>Follows a curve instead of an easing, such as one an artist tuned in content.</summary>
+    public readonly Tween<T> Ease(Curve curve) =>
+        this with { Timing = Timing with { Curve = curve ?? throw new ArgumentNullException(nameof(curve)) } };
+
+    /// <summary>Plays this many times, jumping back to the start each time. 0 means forever.</summary>
+    public readonly Tween<T> Loop(int times = 0) => this with { Timing = Timing.Repeating(Repeat.Loop, times) };
+
+    /// <summary>Plays to the end and back. Each way counts as one of the times, so 2 is there and back. 0 means forever.</summary>
+    public readonly Tween<T> Yoyo(int times = 0) => this with { Timing = Timing.Repeating(Repeat.Yoyo, times) };
+
+    /// <summary>Moves on by this tick's <see cref="GameTime.DeltaSeconds"/>.</summary>
+    public void Update(GameTime time) => Advance(time.DeltaSeconds);
+
+    /// <summary>Moves on by some seconds.</summary>
+    public void Advance(float seconds)
+    {
+        _playhead.Advance(seconds, Duration);
+
+        // A tween that runs forever would lose precision as the seconds pile up, so it
+        // drops whole there-and-back trips, keeping one so Smooth can look back.
+        float trip = 2f * Timing.Seconds;
+        float delay = Timing.Delay;
+        if (Timing.IsEndless && _playhead.Elapsed - delay >= 2f * trip)
+        {
+            _playhead.Elapsed -= MathF.Floor((_playhead.Elapsed - delay) / trip - 1f) * trip;
+        }
+    }
+
+    /// <summary>Goes back to the beginning, delay and all.</summary>
+    public void Restart() => Elapsed = 0f;
+
+    /// <summary>
+    /// The value between the last tick and this one, for drawing: pass
+    /// <see cref="View.Blend"/>, so motion stays smooth at any frame rate.
+    /// </summary>
+    public readonly T Smooth(float blend) => At(_playhead.Blended(blend));
+
+    /// <summary>The value this tween has at that many seconds from its beginning. It doesn't move the tween.</summary>
+    public readonly T At(float elapsed)
+    {
+        if (!(Timing.Seconds > 0f))
+        {
+            return To;
+        }
+
+        return TweenMix.Mix(From, To, Timing.ShapedAmount(elapsed));
+    }
+}
+
+/// <summary>Tweens played one after another, as one value. Make one with <c>Tween.Sequence</c>.</summary>
 public struct TweenSequence<T>
     where T : struct
 {
     private readonly Tween<T>[] _steps;
-    private float _elapsed;
-    private float _lastStep;
+    private TweenPlayhead _playhead;
 
     internal TweenSequence(Tween<T>[] steps)
     {
@@ -321,35 +365,26 @@ public struct TweenSequence<T>
     /// <summary>Seconds since it began. Set it to jump to a moment.</summary>
     public float Elapsed
     {
-        readonly get => _elapsed;
-        set
-        {
-            _elapsed = Tween.Forward(0f, value);
-            _lastStep = 0f;
-        }
+        readonly get => _playhead.Elapsed;
+        set => _playhead.JumpTo(value);
     }
 
     /// <summary>The value of the tween playing now.</summary>
-    public readonly T Value => At(_elapsed);
+    public readonly T Value => At(_playhead.Elapsed);
 
     /// <summary>Past the first tween's delay and not done yet.</summary>
-    public readonly bool IsPlaying => _steps is not null && _elapsed >= _steps[0].Delay && !Completed;
+    public readonly bool IsPlaying => _steps is not null && _playhead.Elapsed >= _steps[0].Timing.Delay && !Completed;
 
-    public readonly bool Completed => _elapsed >= Duration;
+    public readonly bool Completed => _playhead.Elapsed >= Duration;
 
     public void Update(GameTime time) => Advance(time.DeltaSeconds);
 
-    public void Advance(float seconds)
-    {
-        float before = _elapsed;
-        _elapsed = Math.Min(Tween.Forward(_elapsed, seconds), Duration);
-        _lastStep = _elapsed - before;
-    }
+    public void Advance(float seconds) => _playhead.Advance(seconds, Duration);
 
     public void Restart() => Elapsed = 0f;
 
     /// <inheritdoc cref="Tween{T}.Smooth"/>
-    public readonly T Smooth(float blend) => At(_elapsed - (1f - Math.Clamp(blend, 0f, 1f)) * _lastStep);
+    public readonly T Smooth(float blend) => At(_playhead.Blended(blend));
 
     /// <summary>The value at that many seconds from the beginning. It doesn't move the sequence.</summary>
     public readonly T At(float elapsed)
@@ -375,13 +410,12 @@ public struct TweenSequence<T>
     }
 }
 
-/// <summary>Tweens played at the same time. Make one with <see cref="Tween.Parallel{T}"/>.</summary>
+/// <summary>Tweens played at the same time. Make one with <c>Tween.Parallel</c>.</summary>
 public struct TweenGroup<T>
     where T : struct
 {
     private readonly Tween<T>[] _tweens;
-    private float _elapsed;
-    private float _lastStep;
+    private TweenPlayhead _playhead;
 
     internal TweenGroup(Tween<T>[] tweens)
     {
@@ -393,7 +427,7 @@ public struct TweenGroup<T>
 
         _tweens = [.. tweens];
         Duration = _tweens.Max(tween => tween.Duration);
-        Start = _tweens.Min(tween => tween.Delay);
+        Start = _tweens.Min(tween => tween.Timing.Delay);
     }
 
     /// <summary>How many tweens play together.</summary>
@@ -407,34 +441,25 @@ public struct TweenGroup<T>
     /// <summary>Seconds since it began. Set it to jump to a moment.</summary>
     public float Elapsed
     {
-        readonly get => _elapsed;
-        set
-        {
-            _elapsed = Tween.Forward(0f, value);
-            _lastStep = 0f;
-        }
+        readonly get => _playhead.Elapsed;
+        set => _playhead.JumpTo(value);
     }
 
     /// <summary>The value of one tween now, by its place in the group.</summary>
-    public readonly T this[int index] => _tweens[index].At(_elapsed);
+    public readonly T this[int index] => _tweens[index].At(_playhead.Elapsed);
 
     /// <summary>One of the tweens has started, and not all are done.</summary>
-    public readonly bool IsPlaying => _elapsed >= Start && !Completed;
+    public readonly bool IsPlaying => _playhead.Elapsed >= Start && !Completed;
 
     /// <summary>Every tween is done.</summary>
-    public readonly bool Completed => _elapsed >= Duration;
+    public readonly bool Completed => _playhead.Elapsed >= Duration;
 
     public void Update(GameTime time) => Advance(time.DeltaSeconds);
 
-    public void Advance(float seconds)
-    {
-        float before = _elapsed;
-        _elapsed = Math.Min(Tween.Forward(_elapsed, seconds), Duration);
-        _lastStep = _elapsed - before;
-    }
+    public void Advance(float seconds) => _playhead.Advance(seconds, Duration);
 
     public void Restart() => Elapsed = 0f;
 
     /// <summary>One tween's value between the last tick and this one, for drawing. Pass <see cref="View.Blend"/>.</summary>
-    public readonly T Smooth(int index, float blend) => _tweens[index].At(_elapsed - (1f - Math.Clamp(blend, 0f, 1f)) * _lastStep);
+    public readonly T Smooth(int index, float blend) => _tweens[index].At(_playhead.Blended(blend));
 }

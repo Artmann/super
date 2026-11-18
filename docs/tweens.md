@@ -127,6 +127,8 @@ slows it too. `Advance(seconds)` moves it by any amount. Then read it:
 | `IsPlaying` | True once the delay has passed, until it's done |
 | `Completed` | True once it's done. A tween that repeats forever never is |
 | `Elapsed`, `Duration` | Seconds so far and in total, counting the delay and every repeat |
+| `From`, `To` | Where it starts and ends |
+| `Timing` | A `TweenTiming` with what the calls above set: `Seconds`, `Delay`, `Easing`, `Curve`, `Repeat` and `Times` |
 | `Restart()` | Goes back to the start |
 | `At(seconds)` | The value at any time, without changing it |
 

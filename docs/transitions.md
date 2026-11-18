@@ -80,7 +80,7 @@ the cutscene with one:
 ```csharp
 director.Play(new Cutscene()
     .Then(Shot.Hold(4f, wide), Transition.Fade(1f))        // fades in from black
-    .Then(Shot.Orbit(5f, () => hero.Position, 6f, 2f, 0f, 1f), Transition.Dissolve(0.8f))
+    .Then(Shot.Orbit(5f, () => hero.Position, new OrbitPath(6f, 2f, 0f, 1f)), Transition.Dissolve(0.8f))
     .Then(Shot.Hold(3f, close), Transition.Wipe(0.6f, WipeDirection.Left))
     .End(Transition.Fade(1f)));                            // fades out to black
 ```

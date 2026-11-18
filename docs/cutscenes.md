@@ -19,8 +19,9 @@ public sealed class MyGame(Director director) : IGame
                 new Camera(new Vector3(0f, 8f, -12f), Vector3.Zero, 0.8f),
                 new Camera(new Vector3(0f, 1.6f, -3f), new Vector3(0f, 1.4f, 0f), 0.6f)))
             .At(1.5f, () => hero.Animator.Play(Move.Wave))
-            .Then(Shot.Orbit(4f, () => hero.Position, radius: 3f, height: 0.5f,
-                fromAngle: 0f, toAngle: MathF.PI, look: new Vector3(0f, 1.4f, 0f)))
+            .Then(Shot.Orbit(4f, () => hero.Position,
+                new OrbitPath(Radius: 3f, Height: 0.5f, FromAngle: 0f, ToAngle: MathF.PI),
+                look: new Vector3(0f, 1.4f, 0f)))
             .Slow(4f, 6f, 0.25f));
     }
 }
@@ -40,7 +41,7 @@ The cutscene lasts as long as its shots end to end.
 | `Shot.Hold(seconds, camera)` | A camera that doesn't move |
 | `Shot.Move(seconds, from, to, easing)` | Moves from one camera to another: a crane when it rises, a dolly when it rolls in, a pan when only the target moves |
 | `Shot.Track(seconds, subject, from, to, look, fieldOfView, easing)` | Rides along with something, sliding from one offset to another while looking at a point above it |
-| `Shot.Orbit(seconds, subject, radius, height, fromAngle, toAngle, look, fieldOfView, easing)` | Circles something, from one angle to another |
+| `Shot.Orbit(seconds, subject, path, look, fieldOfView, easing)` | Circles something along an `OrbitPath(Radius, Height, FromAngle, ToAngle)`, from one angle to another |
 | `Shot.Along(seconds, rail, subject, look, fieldOfView, easing)` | Rides a [spline](splines.md) from its start to its end at an even speed, looking ahead along it or at a point above the subject |
 | `Shot.Custom(seconds, camera, easing)` | Any move: a function gets a `ShotTime` and gives a camera |
 

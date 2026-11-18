@@ -82,7 +82,7 @@ public class CutsceneTests
     [Fact]
     public void Orbit_circles_from_plus_z_towards_plus_x()
     {
-        var shot = Shot.Orbit(1f, () => Vector3.Zero, radius: 2f, height: 1f, fromAngle: 0f, toAngle: MathF.PI / 2f, easing: Easing.Linear);
+        var shot = Shot.Orbit(1f, () => Vector3.Zero, new OrbitPath(Radius: 2f, Height: 1f, FromAngle: 0f, ToAngle: MathF.PI / 2f), easing: Easing.Linear);
 
         var start = shot.CameraAt(0f).Position;
         var end = shot.CameraAt(1f).Position;

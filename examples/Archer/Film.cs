@@ -80,9 +80,9 @@ public static class Film
             .At(7.7f, () => Draw(erika()))
             .Slow(8.4f, 10.2f, 0.25f, ramp: 0.3f)
             .At(8.9f, () => Shoot(game, dummies[1]))
-            .Then(Shot.Orbit(2.3f, () => erika().Position, radius: 3.4f, height: 0.3f,
-                fromAngle: Toward(rockTop, dummies[1].Position) + 2.5f,
-                toAngle: Toward(rockTop, dummies[1].Position) + 0.9f,
+            .Then(Shot.Orbit(2.3f, () => erika().Position, new OrbitPath(Radius: 3.4f, Height: 0.3f,
+                FromAngle: Toward(rockTop, dummies[1].Position) + 2.5f,
+                ToAngle: Toward(rockTop, dummies[1].Position) + 0.9f),
                 look: new Vector3(0f, 1.4f, 0f), fieldOfView: 0.6f))
             .Then(Shot.Hold(0.7f, Beside(dummies[1], rockTop, 2.2f, 1.3f)))
 
