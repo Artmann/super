@@ -510,7 +510,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
             if (frame == LowFrom)
             {
                 beforeLow = gpu.Renderer.ProbeTests.SampleIrradiance([(point, Vector3.UnitX)])[0];
-                gpu.Renderer.ProbeQuality = ProbeQuality.Low;
+                gpu.Renderer.Settings.ProbeQuality = ProbeQuality.Low;
             }
 
             Render(gpu, scene, Vector3.Zero);
@@ -842,7 +842,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
                 });
             }
 
-            renderer.ProbeQuality = ProbeQuality.High;
+            renderer.Settings.ProbeQuality = ProbeQuality.High;
             renderer.LightProbes.UpdatesPaused = false;
             renderer.ProbeTests.Reset();
         }

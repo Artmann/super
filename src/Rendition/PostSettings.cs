@@ -130,8 +130,8 @@ public enum AgxLook
 }
 
 /// <summary>
-/// What smooths the scene's edges over several frames and, below a <see cref="Renderer.RenderScale"/> of 1, rebuilds
-/// it at the window's size. See <see cref="Renderer.Upscaler"/>.
+/// What smooths the scene's edges over several frames and, below a <see cref="RenderSettings.RenderScale"/> of 1, rebuilds
+/// it at the window's size. See <see cref="RenderSettings.Upscaler"/>.
 /// </summary>
 public enum Upscaler
 {

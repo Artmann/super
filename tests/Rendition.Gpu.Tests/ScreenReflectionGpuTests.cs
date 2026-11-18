@@ -83,7 +83,7 @@ public sealed class ScreenReflectionGpuTests(GpuFixture gpu)
         // still be settling.
         view.Off = off | RenderEffects.AntiAliasing | RenderEffects.LightProbes | RenderEffects.AutoExposure;
         view.Environment.Intensity = 1f;
-        gpu.Renderer.ReflectionResolution = resolution;
+        gpu.Renderer.Settings.ReflectionResolution = resolution;
         try
         {
             for (int frame = 0; frame < FramesBefore; frame++)
@@ -95,7 +95,7 @@ public sealed class ScreenReflectionGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.ReflectionResolution = ReflectionResolution.Half;
+            gpu.Renderer.Settings.ReflectionResolution = ReflectionResolution.Half;
         }
     }
 

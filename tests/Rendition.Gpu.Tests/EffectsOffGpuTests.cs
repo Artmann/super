@@ -80,7 +80,7 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
     // Renders a few frames of the scene with the effects given off, then reads the shaders the newest finished frame ran.
     private Measurement Measure(Scene scene, RenderEffects off)
     {
-        gpu.Renderer.MeasureGpu = true;
+        gpu.Renderer.Settings.MeasureGpu = true;
         try
         {
             for (int frame = 0; frame < Frames; frame++)
@@ -100,7 +100,7 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
         }
         finally
         {
-            gpu.Renderer.MeasureGpu = false;
+            gpu.Renderer.Settings.MeasureGpu = false;
         }
     }
 

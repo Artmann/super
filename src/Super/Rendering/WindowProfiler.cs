@@ -29,7 +29,7 @@ internal sealed class WindowProfiler(OsWindow window, SceneRenderer scene, Windo
         string path = request.Path;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
 
-        scene.Renderer.MeasureGpu = true;
+        scene.Renderer.Settings.MeasureGpu = true;
         var warmup = new ProfiledFrame[ProfileWarmupFrames];
         var gpu = new Dictionary<string, double>();
         MeasureFrames(host, clock, step, warmup, gpu);
@@ -40,7 +40,7 @@ internal sealed class WindowProfiler(OsWindow window, SceneRenderer scene, Windo
         var sampler = CpuSampler.Start(Path.ChangeExtension(path, ".nettrace"));
         MeasureFrames(host, clock, step, measured, gpu);
         var stacks = sampler.Stop(nameof(MeasureFrames));
-        scene.Renderer.MeasureGpu = false;
+        scene.Renderer.Settings.MeasureGpu = false;
 
         foreach (string pass in gpu.Keys)
         {

@@ -14,10 +14,10 @@ public sealed class GraphicsDrawing
     public float MeshDetail
     {
         get;
-        set => field = value is >= Renderer.MinMeshDetail and <= Renderer.MaxMeshDetail
+        set => field = value is >= RenderSettings.MinMeshDetail and <= RenderSettings.MaxMeshDetail
             ? value
             : throw new ArgumentOutOfRangeException(nameof(value), value, string.Create(CultureInfo.InvariantCulture,
-                $"Mesh detail can be from {Renderer.MinMeshDetail} to {Renderer.MaxMeshDetail}."));
+                $"Mesh detail can be from {RenderSettings.MinMeshDetail} to {RenderSettings.MaxMeshDetail}."));
     } = 1f;
 
     /// <summary>
