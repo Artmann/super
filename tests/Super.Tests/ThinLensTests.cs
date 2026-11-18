@@ -151,7 +151,7 @@ public class ThinLensTests
             var view = new View();
 
             var error = Assert.Throws<ArgumentOutOfRangeException>(
-                () => view.Finish(new PostSettings { FocusDistance = 4f, Aperture = -1.4f }));
+                () => view.Effects.Finish(new PostSettings { FocusDistance = 4f, Aperture = -1.4f }));
 
             Assert.Equal(
                 "The aperture must be an f-number such as 2.8, or 0 for no depth of field, but it is -1.4. (Parameter 'settings')",
@@ -168,10 +168,10 @@ public class ThinLensTests
     {
         var view = new View();
 
-        var error = Record.Exception(() => view.Finish(new PostSettings { FocusDistance = 0f, Aperture = 0f }));
+        var error = Record.Exception(() => view.Effects.Finish(new PostSettings { FocusDistance = 0f, Aperture = 0f }));
 
         Assert.Null(error);
-        Assert.Equal(0f, view.Post.FocusDistance);
+        Assert.Equal(0f, view.Effects.Post.FocusDistance);
     }
 
     [Theory]

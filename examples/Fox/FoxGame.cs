@@ -148,14 +148,14 @@ public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
 
         var side = Vector3.Normalize(position) * 2.6f;
         view.Camera(position + side + new Vector3(0f, 1.1f, 0f) - heading * 0.8f, position + new Vector3(0f, 0.35f, 0f), MathF.PI / 5f);
-        view.Sun(new Vector3(0.4f, 1f, 0.3f), new Vector3(4f, 3.8f, 3.4f));
-        view.Shadows(4f);
+        view.Lights.Sun(new Vector3(0.4f, 1f, 0.3f), new Vector3(4f, 3.8f, 3.4f));
+        view.Lights.Shadows(4f);
 
         view.Model(GroundKey, ModelRef.Cube, Matrix4x4.CreateScale(40f, 0.1f, 40f) * Matrix4x4.CreateTranslation(0f, -0.05f, 0f), new Vector3(0.33f, 0.45f, 0.22f));
         view.Model(FoxKey, _animator, fox);
         foreach (var puff in _puffs)
         {
-            view.Particles(DustKey + puff.Number, StepDust, puff.At, view.SecondsSince(puff.Tick));
+            view.Effects.Particles(DustKey + puff.Number, StepDust, puff.At, view.SecondsSince(puff.Tick));
         }
     }
 

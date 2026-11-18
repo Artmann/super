@@ -86,6 +86,21 @@ is in: the model cooker keeps skeletons and clips, and the vertex shader skins. 
 are in too: a `ParticleEffect` of chained emitters turns a key and an age into particles with no state
 from frame to frame; see [Particles](#particles).
 
+`View` keeps the camera, the models, the clock (`ViewClock`: the frame count, the tick and the
+blend) and view memory. The rest is split into four parts reached from the view, each holding
+its own state for the frame, and `View.Begin` clears them all:
+
+- `ViewLights` (`view.Lights`): the suns, the point and spot lights, and the shadow settings.
+- `ViewIndirect` (`view.Indirect`): ambient occlusion, the screen bounce, light probes, the baked
+  space and chunks, and reflection probes.
+- `ViewSurroundings` (`view.Surroundings`): the sky, water, puddles and wind.
+- `ViewEffects` (`view.Effects`): particles, decals, fog volumes, the finish, outlines and the
+  screen transition.
+
+`SceneRenderer` and `GameWindow` read them there, such as `view.Lights.Suns`,
+`view.Indirect.BakedSpace` and `view.Effects.Post`. The checks on a light live in `LightChecks`,
+and the checks on a model's options in `ModelOptions`.
+
 ## Lifecycle state in engine code
 
 Many engine classes move through a lifecycle: a background bake waits for pages, steps,
@@ -1318,7 +1333,7 @@ sets are identical.
 
 Shadows blur with distance from the object casting them: the lighting pass finds
 how far away the blocker is, then widens its sampling to match, by the sun's size
-(`ShadowSettings.LightAngle`, from `view.Shadows`' `sunSize`). The game says
+(`ShadowSettings.LightAngle`, from `view.Lights.Shadows`' `sunSize`). The game says
 which area the shadow map covers through `FrameView.Shadows`. A smaller area gives
 sharper shadows, so the sample fits it to the model. A wide outdoor scene asks for up
 to four cascades, each a ball three times the radius of the one before.
@@ -1600,7 +1615,7 @@ same reason.
 `FrameView.ShowEnvironment` draws the reflection cube, times `EnvironmentIntensity`,
 as the background instead of the flat `BackgroundRadiance`, and the distance fade then
 mixes toward the cube in the direction of the view. A far hill melts into the sky just
-behind it rather than into one grey. Super's `view.Sky` turns it on; the studio and
+behind it rather than into one grey. Super's `view.Surroundings.Sky` turns it on; the studio and
 underwater views leave it off. A `BackgroundFadeColor` overrides both backgrounds, and
 `BackgroundFadeOrigin` measures the fade across the ground from that point instead of
 from the camera, so a tall tree fades no sooner than the ground it stands on.
@@ -1868,7 +1883,7 @@ matches the closed form to within one level of 255 in every part of the frame.
 
 #### Fog volumes
 
-`view.FogVolume` keeps up to 64 `FogVolumeDraw`s a frame in `FrameView.FogVolumes`, and
+`view.Effects.FogVolume` keeps up to 64 `FogVolumeDraw`s a frame in `FrameView.FogVolumes`, and
 `FogVolumePack` packs them into 128-byte std430 `GpuFogVolume`s: the inverse transform, the
 colour and density, the shape, edge fade, noise and 1/noise size, the wind with the radius
 of a sphere round the centre that holds the shape (√3/2 times the longest axis), and the
@@ -2009,7 +2024,7 @@ and positions are left out, so a flickering candle or a swinging lantern, which 
 crossed any grid fine enough to matter, doesn't keep probes busy. The camera and the view's
 shadow settings are out of both, since a capture frames the sun on its own box.
 
-Super places probes with `view.ReflectionProbe`. `ReflectionProbeUpdater.Update`, before
+Super places probes with `view.Indirect.ReflectionProbe`. `ReflectionProbeUpdater.Update`, before
 each frame's `Render`, asks `ReflectionProbeSchedule.ShouldCapture` about each key: a new key, or
 a request that differs from the last one asked for (moved, a new box, version or update mode),
 always asks; then `ProbeUpdate.OnChange` asks when the two hashes combined differ from the last,
@@ -2726,7 +2741,7 @@ in a texture to borrow from.
 
 A space's `BakeJob` bakes its light probes after the lightmap, with the same scene and
 lights, into the file's probe pages. The settings are the space's own box and `ProbeSpacing`
-(`BakedSpace` from `view.BakedLighting`), so `ProbeGrid` lays the baked probes out exactly as it
+(`BakedSpace` from `view.Indirect.BakedLighting`), so `ProbeGrid` lays the baked probes out exactly as it
 would live probes in that box, at most `BakeFiles.MaxSpaceProbes` (4,096); `Renderer.Bake`
 refuses a space with more before it starts. The tiles are the live probes' own, but the pages
 keep a fixed layout of their own, `BakedProbeAtlas`: one 2D page each, 64 tiles across, probe i at
@@ -2772,7 +2787,7 @@ same scene bakes the same probes.
 At runtime `softLight` in `lighting.frag` looks for soft light in this order. A point inside a
 baked space whose bake is loaded reads the bake's probes (`bakedProbeIrradiance`). Where no baked
 probe sees it, for example where every nearby one is inside a wall, it falls back to the
-`view.LightProbes` box (layer 4 of the live atlases), then to the live cascades round the camera,
+`view.Indirect.LightProbes` box (layer 4 of the live atlases), then to the live cascades round the camera,
 and last to the environment. A surface with a lightmap never gets here: its soft light is the
 lightmap's.
 
@@ -2971,7 +2986,7 @@ no surface and the blur is skipped, so the surface is lit as plain matte.
 
 ## Decals
 
-A decal is a box. `View.Decal` takes its matrix, a `Surface` made of textures and a
+A decal is a box. `view.Effects.Decal` takes its matrix, a `Surface` made of textures and a
 `DecalBlend`, and refuses a box that can't be inverted, a weight outside 0 to 1, a surface
 shader and a 257th decal before anything is drawn. `DecalMaterials` turns each surface into
 a material of its own once (colour, normal and surface textures, no flags) and hands the
@@ -3582,7 +3597,7 @@ Ambient occlusion is ground-truth ambient occlusion (GTAO, Jimenez et al., "Prac
 Real-Time Strategies for Accurate Indirect Occlusion", 2016). Each pixel cuts the
 hemisphere above it into two slices, turned by interleaved gradient noise that changes
 every frame so anti-aliasing averages the grain. Along each slice it walks 8 steps each
-way across the depth buffer, within `view.AmbientOcclusion`'s radius, to find the highest
+way across the depth buffer, within `view.Indirect.AmbientOcclusion`'s radius, to find the highest
 horizon on either side; surfaces fade out of the search over the last 40% of the
 radius. The visible arc between the horizons is integrated against the cosine of the
 projected normal, which gives the share of the soft light that reaches the point. The same
@@ -3788,7 +3803,7 @@ scaling, wrapped in the Rec.709 to XYZ matrices, so it acts on linear Rec.709. A
 balanced for bluer light than the scene's turns the picture warmer, so positive
 `Temperature` warms and positive `Tint` pulls towards magenta. 0 and 0 give the identity.
 Neutral is the 6500 K black body, which sits a little off D65, so it is not the sRGB white.
-It is applied after exposure and before contrast, saturation and the curve. `View.Finish`
+It is applied after exposure and before contrast, saturation and the curve. `view.Effects.Finish`
 refuses values outside -1 to 1; `WhiteBalance` itself clamps them and counts NaN as 0, so
 Rendition used alone never uploads a broken matrix. Probe captures never reach the tonemap,
 so neither setting is in the lighting hashes.
@@ -3812,7 +3827,7 @@ take counts towards the tonemap's in `GpuTimer`.
 The CPU only keeps time (`ExposureClock`). The step is `AdaptationSpeed` times the change in
 `FrameView.Time` since the last metered frame. `Exposure.Speed` turns a speed of 0, and any
 speed that isn't finite and above 0, into the default of 2, because a negative step would
-flip the shader's clamp. `View.Finish` refuses those instead, so only Rendition used alone
+flip the shader's clamp. `view.Effects.Finish` refuses those instead, so only Rendition used alone
 relies on the fallback. The first metered frame snaps to the target,
 as does the first after metering was off and the first after time went backwards, such as
 a restart. Super's screenshots and recordings step `Time` by a fixed tick and settle at a
@@ -3856,7 +3871,7 @@ own circle's area, so it covers past its edges and its alpha says how much. `dof
 blends them back at full size: the far layer by the pixel's own full-size circle, so edges
 stay crisp, and the near layer from the strongest of five taps 2 pixels apart. Circles under
 a quarter of a pixel blend nothing. The pass runs only when `PostSettings.Aperture` is above
-0, the lens is valid and `RenderEffects.DepthOfField` isn't in `Off`; a lens `View.Finish`
+0, the lens is valid and `RenderEffects.DepthOfField` isn't in `Off`; a lens `view.Effects.Finish`
 would refuse simply gives no blur in Rendition alone. Probe captures only record the scene,
 never this pass, and `PostSettings` isn't in the lighting hashes, so focusing never captures
 a probe again. `GpuTimer` reports it as "Depth of field". Its three half-size RGBA16F layers
@@ -4109,7 +4124,7 @@ trace; GLFW is only terminated when the last fixture goes, since that closes eve
 A bake stores light per static draw, so each one needs a name that is the same in every run,
 on every machine, whatever order the draws come in. `DrawItem.BakeId` is that name. Zero means
 the draw isn't static, so every existing draw stays out of any bake. Only a `ModelDraw` with
-`Static` set, from `view.Model(..., isStatic: true)` or the `Static` component, gets one.
+`Static` set, from `view.Model(..., new ModelOptions { Static = true })` or the `Static` component, gets one.
 The check below and the [freshness check](#each-frames-bakes) read it.
 
 `StableHasher` (`src/Rendition/Baking/StableHasher.cs`) makes the hashes. It feeds
@@ -4203,7 +4218,7 @@ its id is as it was. Each shown part's id is `BakeIds.Of(instance, part)`, where
 number in the whole model, not among the shown ones, so a mask doesn't renumber the parts it
 keeps. The model's identity already fixes every part's mesh and material, so the part number
 is all a part adds. A static model of more than `BakeIds.MaxParts` parts throws when drawn.
-`View.Model` throws for a static draw with a swim or a pose, so the renderer's own check
+`View.Model` throws, through `ModelOptions`' check, for a static draw with a swim or a pose, so the renderer's own check
 below never sees one from a view.
 
 `Content.IdentityOf(model)` hashes what the model is, once, on its first static draw, and keeps
@@ -4610,7 +4625,7 @@ anisotropically, and neighbouring pixels can read different tiles, so derivative
 wrong level. In `lighting.frag`, `softLight` first reads the bake's probes when the unbiased point
 is inside the space's box (`bakedProbeWeight` above 0). Where they give -1, because no probe of the
 bake sees the point, it falls through to `liveSoftLight`: `probeIrradiance`, which tries the view's
-fixed grid (`View.LightProbes(...)`) and then the camera's cascades, and then the sky. The box test
+fixed grid (`view.Indirect.LightProbes(...)`) and then the camera's cascades, and then the sky. The box test
 matters: the lookup clamps to the grid, so a point within a spacing past the last probe still
 weighs it (`BakedProbeGpuTests`, which also checks the fall through to live probes inside the
 box). Near the box's faces the two are blended; see [Edge bands](#edge-bands).

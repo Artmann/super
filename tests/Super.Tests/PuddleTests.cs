@@ -175,7 +175,7 @@ public class PuddleTests
         var view = new View();
         view.Begin(0f);
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Puddles(-0.045f, band));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Surroundings.Puddles(-0.045f, band));
 
         Assert.StartsWith("The damp band above the water must be 0 or more metres, and 0 leaves no damp band.", error.Message);
         Assert.Equal("band", error.ParamName);
@@ -190,7 +190,7 @@ public class PuddleTests
         var view = new View();
         view.Begin(0f);
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Puddles(level));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Surroundings.Puddles(level));
 
         Assert.StartsWith("The water level must be a height in metres.", error.Message);
         Assert.Equal("level", error.ParamName);
@@ -208,16 +208,16 @@ public class PuddleTests
     {
         var view = new View();
         view.Begin(0f);
-        Assert.Null(view.PuddleSettings);
+        Assert.Null(view.Surroundings.PuddleSettings);
 
-        view.Puddles(-0.045f);
-        Assert.Equal(new PuddleSettings(-0.045f, 0.08f), view.PuddleSettings);
+        view.Surroundings.Puddles(-0.045f);
+        Assert.Equal(new PuddleSettings(-0.045f, 0.08f), view.Surroundings.PuddleSettings);
 
-        view.Puddles(0.2f, 0.03f);
-        Assert.Equal(new PuddleSettings(0.2f, 0.03f), view.PuddleSettings);
+        view.Surroundings.Puddles(0.2f, 0.03f);
+        Assert.Equal(new PuddleSettings(0.2f, 0.03f), view.Surroundings.PuddleSettings);
 
         view.Begin(0f);
-        Assert.Null(view.PuddleSettings);
+        Assert.Null(view.Surroundings.PuddleSettings);
     }
 
     [Fact]

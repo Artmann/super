@@ -148,10 +148,10 @@ public class FogTests
         var view = new View();
 
         var error = Assert.Throws<ArgumentOutOfRangeException>(
-            () => view.Sky(new SkySettings { Fog = new FogSettings(density, 0f, falloff, sunScatter) }));
+            () => view.Surroundings.Sky(new SkySettings { Fog = new FogSettings(density, 0f, falloff, sunScatter) }));
 
         Assert.Contains($"The fog's {named} must be 0 or more", error.Message);
-        Assert.Null(view.SkySettings);
+        Assert.Null(view.Surroundings.SkySettings);
     }
 
     [Fact]
@@ -160,7 +160,7 @@ public class FogTests
         var view = new View();
 
         var error = Assert.Throws<ArgumentOutOfRangeException>(
-            () => view.Sky(new SkySettings { Fog = new FogSettings(0.01f, float.PositiveInfinity) }));
+            () => view.Surroundings.Sky(new SkySettings { Fog = new FogSettings(0.01f, float.PositiveInfinity) }));
 
         Assert.Contains("The fog's height must be a number of metres", error.Message);
     }

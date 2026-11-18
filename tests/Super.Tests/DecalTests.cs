@@ -17,13 +17,13 @@ public class DecalTests
         var view = new View();
         for (int i = 0; i < 256; i++)
         {
-            view.Decal(i, Matrix4x4.Identity, Grime);
+            view.Effects.Decal(i, Matrix4x4.Identity, Grime);
         }
 
-        var error = Assert.Throws<InvalidOperationException>(() => view.Decal(256, Matrix4x4.Identity, Grime));
+        var error = Assert.Throws<InvalidOperationException>(() => view.Effects.Decal(256, Matrix4x4.Identity, Grime));
 
         Assert.Equal("At most 256 decals fit in a frame.", error.Message);
-        Assert.Equal(256, view.DrawnDecals.Length);
+        Assert.Equal(256, view.Effects.DrawnDecals.Length);
     }
 
     [Fact]
@@ -57,11 +57,11 @@ public class DecalTests
         {
             var view = new View();
 
-            var error = Assert.Throws<ArgumentException>(() => view.Decal(1, Matrix4x4.Identity, Grime, blend));
+            var error = Assert.Throws<ArgumentException>(() => view.Effects.Decal(1, Matrix4x4.Identity, Grime, blend));
 
             Assert.StartsWith($"The decal's blend {field} is {shown}, but it must be from 0 to 1.", error.Message);
             Assert.Equal("blend", error.ParamName);
-            Assert.Empty(view.DrawnDecals.ToArray());
+            Assert.Empty(view.Effects.DrawnDecals.ToArray());
         }
         finally
         {
@@ -74,9 +74,9 @@ public class DecalTests
     {
         var view = new View();
 
-        view.Decal(1, Matrix4x4.Identity, Grime, new DecalBlend(0f, 1f, 0f, 1f));
+        view.Effects.Decal(1, Matrix4x4.Identity, Grime, new DecalBlend(0f, 1f, 0f, 1f));
 
-        Assert.Equal(new DecalBlend(0f, 1f, 0f, 1f), view.DrawnDecals[0].Blend);
+        Assert.Equal(new DecalBlend(0f, 1f, 0f, 1f), view.Effects.DrawnDecals[0].Blend);
     }
 
     [Fact]
@@ -85,11 +85,11 @@ public class DecalTests
         var view = new View();
         var flat = Matrix4x4.CreateScale(2f, 0f, 1f);
 
-        var error = Assert.Throws<ArgumentException>(() => view.Decal(1, flat, Grime));
+        var error = Assert.Throws<ArgumentException>(() => view.Effects.Decal(1, flat, Grime));
 
         Assert.StartsWith("The decal's box can't be inverted: it is squashed flat on some axis", error.Message);
         Assert.Equal("box", error.ParamName);
-        Assert.Empty(view.DrawnDecals.ToArray());
+        Assert.Empty(view.Effects.DrawnDecals.ToArray());
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public class DecalTests
         var view = new View();
         var box = Matrix4x4.CreateTranslation(float.NaN, 0f, 0f);
 
-        var error = Assert.Throws<ArgumentException>(() => view.Decal(1, box, Grime));
+        var error = Assert.Throws<ArgumentException>(() => view.Effects.Decal(1, box, Grime));
 
         Assert.StartsWith("The decal's box can't be inverted", error.Message);
     }
@@ -144,9 +144,9 @@ public class DecalTests
     {
         var view = new View();
 
-        view.Decal(1, Matrix4x4.Identity, Grime);
+        view.Effects.Decal(1, Matrix4x4.Identity, Grime);
 
-        Assert.Equal(new DecalBlend(1f, 1f, 1f, 0.5f), view.DrawnDecals[0].Blend);
+        Assert.Equal(new DecalBlend(1f, 1f, 1f, 0.5f), view.Effects.DrawnDecals[0].Blend);
         Assert.Equal(new DecalBlend(1f, 1f, 1f, 0.5f), new DecalBlend());
     }
 
@@ -154,12 +154,12 @@ public class DecalTests
     public void A_decal_key_can_be_placed_once_a_frame()
     {
         var view = new View();
-        view.Decal(4, Matrix4x4.Identity, Grime);
+        view.Effects.Decal(4, Matrix4x4.Identity, Grime);
 
-        var error = Assert.Throws<ArgumentException>(() => view.Decal(4, Matrix4x4.Identity, Grime));
+        var error = Assert.Throws<ArgumentException>(() => view.Effects.Decal(4, Matrix4x4.Identity, Grime));
 
         Assert.StartsWith("Decal 4 was already placed this frame. Give each decal its own key.", error.Message);
-        Assert.Single(view.DrawnDecals.ToArray());
+        Assert.Single(view.Effects.DrawnDecals.ToArray());
     }
 
     [Fact]
@@ -169,7 +169,7 @@ public class DecalTests
         var view = new View { Content = content };
         var shaded = new Surface { Shader = new SurfaceShader(content.Shader("ripples")) };
 
-        var error = Assert.Throws<ArgumentException>(() => view.Decal(1, Matrix4x4.Identity, shaded));
+        var error = Assert.Throws<ArgumentException>(() => view.Effects.Decal(1, Matrix4x4.Identity, shaded));
 
         Assert.StartsWith("A decal can't use a surface shader.", error.Message);
     }
@@ -180,10 +180,10 @@ public class DecalTests
         var view = new View { Content = new Content(new MemoryContent()) };
         var surface = new Surface { NormalTexture = new TextureRef(40) };
 
-        var error = Assert.Throws<ArgumentException>(() => view.Decal(1, Matrix4x4.Identity, surface));
+        var error = Assert.Throws<ArgumentException>(() => view.Effects.Decal(1, Matrix4x4.Identity, surface));
 
         Assert.StartsWith("NormalTexture names 40, but nothing was named with that index.", error.Message);
-        Assert.Empty(view.DrawnDecals.ToArray());
+        Assert.Empty(view.Effects.DrawnDecals.ToArray());
     }
 
     [Fact]

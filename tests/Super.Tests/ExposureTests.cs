@@ -243,7 +243,7 @@ public class ExposureTests
             var view = new View();
 
             var error = Assert.Throws<ArgumentOutOfRangeException>(
-                () => view.Finish(new PostSettings { AutoExposure = true, AdaptationSpeed = speed }));
+                () => view.Effects.Finish(new PostSettings { AutoExposure = true, AdaptationSpeed = speed }));
 
             Assert.StartsWith(
                 $"The adaptation speed must be above 0 stops a second, or 0 for the default of 2, but it is {shown}.", error.Message);
@@ -259,9 +259,9 @@ public class ExposureTests
     {
         var view = new View();
 
-        view.Finish(new PostSettings { AutoExposure = true, Exposure = -0.3f });
+        view.Effects.Finish(new PostSettings { AutoExposure = true, Exposure = -0.3f });
 
-        Assert.True(view.Post.AutoExposure);
-        Assert.Equal(0f, view.Post.AdaptationSpeed);
+        Assert.True(view.Effects.Post.AutoExposure);
+        Assert.Equal(0f, view.Effects.Post.AdaptationSpeed);
     }
 }

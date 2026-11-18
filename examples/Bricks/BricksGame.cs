@@ -78,8 +78,8 @@ public sealed class BricksGame(Content content, Input input) : IGame
         float walked = float.Lerp(_previousWalked, _walked, view.Blend);
         var eye = new Vector3(-5f + walked, 1.6f, 2.2f);
         view.Camera(position: eye, lookAt: eye + new Vector3(4f, -0.5f, -1.6f), fieldOfView: 0.9f);
-        view.Sun(direction: new Vector3(0.9f, 0.7f, 0.6f), color: new Vector3(3.2f, 3f, 2.7f));
-        view.Shadows(12f, 2);
+        view.Lights.Sun(direction: new Vector3(0.9f, 0.7f, 0.6f), color: new Vector3(3.2f, 3f, 2.7f));
+        view.Lights.Shadows(12f, 2);
 
         view.Model(0, Pick(_wall), Matrix4x4.CreateTranslation(0f, WallHeight * 0.5f, -0.2f));
         view.Model(1, Pick(_street), Matrix4x4.CreateTranslation(0f, 0f, 5.6f));

@@ -138,12 +138,12 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
         if (pose.Indoors > 0.5f)
         {
             // Close up indoors: sharper shadows, and the room's corners hide more of the sky.
-            view.Shadows(18f, 2);
-            view.AmbientOcclusion(1.5f, 1f);
+            view.Lights.Shadows(18f, 2);
+            view.Indirect.AmbientOcclusion(1.5f, 1f);
         }
         else
         {
-            view.Shadows(90f, 3);
+            view.Lights.Shadows(90f, 3);
         }
 
         for (int i = 0; i < _ground.Models.Count; i++)
@@ -170,8 +170,8 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
         {
             var lantern = Vector3.Transform(Cart.Lantern, cart);
             float flicker = Flicker(seconds, 7f);
-            view.SpotLight(
-                CartLightKey, lantern, -Vector3.UnitY, Palette.Lamplight * 3f * cartLamp * flicker, 8f, 0.6f, 1.35f, mode: LightMode.Realtime);
+            view.Lights.Spot(
+                CartLightKey, new SpotLight(lantern, -Vector3.UnitY, Palette.Lamplight * 3f * cartLamp * flicker, 8f) { InnerAngle = 0.6f, OuterAngle = 1.35f, Mode = LightMode.Realtime });
         }
     }
 
@@ -223,7 +223,7 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
         public static void Draw(View view, Building building, ModelRef pane, BuildingGlow glow, bool inside)
         {
             var plan = building.Plan;
-            view.BakedChunk(plan.Name, building.Placement, plan.Min, plan.Max, TexelsPerMetre, plan.EdgeBlend);
+            view.Indirect.BakedChunk(plan.Name, building.Placement, plan.Min, plan.Max, TexelsPerMetre, plan.EdgeBlend);
 
             DrawParts(view, building, glow);
             DrawLamps(view, building, glow);
@@ -249,7 +249,7 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
                     _ => null,
                 };
 
-                view.Model(key + p, part.Model, building.Placement, tint, isStatic: !part.Glows);
+                view.Model(key + p, part.Model, building.Placement, new ModelOptions { Color = tint, Static = !part.Glows });
             }
         }
 
@@ -263,15 +263,18 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
                 float strength = lamp.Fire ? glow.Fire : glow.Level * glow.Flicker;
                 if (strength > 0.01f)
                 {
-                    view.SpotLight(
+                    view.Lights.Spot(
                         lightKey + j,
-                        building.ToWorld(lamp.Position),
-                        building.DirectionToWorld(lamp.Direction),
-                        lamp.Color * strength,
-                        lamp.Range,
-                        lamp.InnerAngle,
-                        lamp.OuterAngle,
-                        mode: lamp.Mode);
+                        new SpotLight(
+                            building.ToWorld(lamp.Position),
+                            building.DirectionToWorld(lamp.Direction),
+                            lamp.Color * strength,
+                            lamp.Range)
+                        {
+                            InnerAngle = lamp.InnerAngle,
+                            OuterAngle = lamp.OuterAngle,
+                            Mode = lamp.Mode,
+                        });
                 }
             }
         }
@@ -293,17 +296,20 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
                 }
 
                 var outward = building.DirectionToWorld(window.Outward);
-                view.SpotLight(
+                view.Lights.Spot(
                     lightKey + PaneKeys + w,
-                    building.ToWorld(window.Middle + window.Outward * 0.25f),
-                    outward + new Vector3(0f, -0.6f, 0f),
-                    Palette.Lamplight * 1.6f * glow.Level * glow.Flicker,
-                    7f,
-                    0.5f,
-                    1.2f,
-                    shadows: false,
-                    volumetric: 0.3f,
-                    mode: LightMode.Realtime);
+                    new SpotLight(
+                        building.ToWorld(window.Middle + window.Outward * 0.25f),
+                        outward + new Vector3(0f, -0.6f, 0f),
+                        Palette.Lamplight * 1.6f * glow.Level * glow.Flicker,
+                        7f)
+                    {
+                        InnerAngle = 0.5f,
+                        OuterAngle = 1.2f,
+                        Shadows = false,
+                        Volumetric = 0.3f,
+                        Mode = LightMode.Realtime,
+                    });
             }
         }
     }

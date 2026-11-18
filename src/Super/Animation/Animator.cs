@@ -8,7 +8,7 @@ namespace Super;
 /// which actions are playing over it. Comes from
 /// <see cref="AnimationController{TState, TAction}.Start"/>. The game loop moves it on
 /// after every Update, so a game only says what the character is doing, and draws it
-/// with <see cref="View.Model(int, Animator, System.Numerics.Matrix4x4, System.Numerics.Vector3?)"/>.
+/// with <see cref="View.Model(int, Animator, System.Numerics.Matrix4x4, in ModelOptions)"/>.
 /// </summary>
 public sealed class Animator
 {
@@ -31,7 +31,7 @@ public sealed class Animator
 
     public Rig Rig => _controller.Rig;
 
-    /// <summary>What to draw. <see cref="View.Model(int, Animator, System.Numerics.Matrix4x4, System.Numerics.Vector3?)"/> uses it for you.</summary>
+    /// <summary>What to draw. <see cref="View.Model(int, Animator, System.Numerics.Matrix4x4, in ModelOptions)"/> uses it for you.</summary>
     public AnimationPose Pose { get; }
 
     /// <summary>The one-shot actions playing over the state: play, stop and ask about them here.</summary>

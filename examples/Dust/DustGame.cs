@@ -68,8 +68,8 @@ public sealed class DustGame : IGame
     public void Draw(View view)
     {
         view.Camera(new Vector3(4f, 3.2f, 9f), new Vector3(-0.5f, 0.8f, -1.5f), MathF.PI / 4f);
-        view.Sun(new Vector3(0.6f, 0.8f, 0.35f), new Vector3(3.4f, 2.9f, 2.3f));
-        view.Sky(new SkySettings
+        view.Lights.Sun(new Vector3(0.6f, 0.8f, 0.35f), new Vector3(3.4f, 2.9f, 2.3f));
+        view.Surroundings.Sky(new SkySettings
         {
             Zenith = new Vector3(0.25f, 0.45f, 0.85f),
             Horizon = new Vector3(0.85f, 0.75f, 0.6f),
@@ -78,7 +78,7 @@ public sealed class DustGame : IGame
             HazeStart = 20f,
             HazeEnd = 90f,
         });
-        view.Shadows(10f, cascades: 2);
+        view.Lights.Shadows(10f, cascades: 2);
 
         view.Model(GroundKey, ModelRef.Cube, Matrix4x4.CreateScale(60f, 0.1f, 60f) * Matrix4x4.CreateTranslation(0f, -0.05f, 0f), new Vector3(0.2f, 0.26f, 0.1f));
         for (int i = 0; i < Trees.Length; i++)
@@ -112,7 +112,7 @@ public sealed class DustGame : IGame
 
         // From the stump to the crown, so the puff sits at the foot and the dust along the trunk.
         int key = DustKey + index * 10_000 + (int)cycle;
-        view.Particles(key, TreeFall, tree.Foot, tree.Foot + direction * TrunkLength, since);
+        view.Effects.Particles(key, TreeFall, tree.Foot, tree.Foot + direction * TrunkLength, since);
     }
 
     private readonly record struct Tree(Vector3 Foot, float Heading, float Offset);

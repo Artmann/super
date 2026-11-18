@@ -71,7 +71,7 @@ public enum SurfaceFeatures
 {
     None = 0,
 
-    /// <summary>Draws an ink line round the surface's outline and along its creases, as <see cref="View.Outlines"/> sets it.</summary>
+    /// <summary>Draws an ink line round the surface's outline and along its creases, as <see cref="ViewEffects.Outlines"/> sets it.</summary>
     Outline = 1,
 
     /// <summary>
@@ -87,13 +87,13 @@ public enum SurfaceFeatures
     Dithered = 4,
 
     /// <summary>
-    /// Water stands on the surface where it lies below the level set with <see cref="View.Puddles"/>, and it is damp
+    /// Water stands on the surface where it lies below the level set with <see cref="ViewSurroundings.Puddles"/>, and it is damp
     /// for a band above. Its height map counts, so hollows fill first. Without a level it stays dry.
     /// </summary>
     Puddles = 8,
 
     /// <summary>
-    /// <see cref="View.Decal"/>s don't lay on the surface, so a prop standing in a stain or a crate in a scorch mark
+    /// <see cref="ViewEffects.Decal"/>s don't lay on the surface, so a prop standing in a stain or a crate in a scorch mark
     /// keeps its own look. Animated characters never take decals.
     /// </summary>
     NoDecals = 16,
@@ -167,7 +167,7 @@ public sealed record Surface
     public Foliage? Foliage { get; init; }
 
     /// <summary>
-    /// How far the surface sways in the wind set with <see cref="View.Wind"/>, as a share of it: 1 for grass, less for
+    /// How far the surface sways in the wind set with <see cref="ViewSurroundings.Wind"/>, as a share of it: 1 for grass, less for
     /// stiffer things such as ivy or a tree's crown, and 0, the default, to stand still. Each part sways more the higher
     /// it is above its lowest point, up to 1 m, so it stays rooted. Its shadow sways with it.
     /// </summary>

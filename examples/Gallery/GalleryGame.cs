@@ -240,8 +240,8 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
         }
 
         // Mixed: real-time cascades near the camera, and the bake's mask past the last one.
-        view.Sun(SunDirection, new Vector3(7.2f, 6.8f, 6f), mode: LightMode.Mixed);
-        view.Sky(new SkySettings
+        view.Lights.Sun(SunDirection, new Vector3(7.2f, 6.8f, 6f), mode: LightMode.Mixed);
+        view.Surroundings.Sky(new SkySettings
         {
             Zenith = new Vector3(0.2f, 0.38f, 0.8f),
             Horizon = new Vector3(0.75f, 0.8f, 0.85f),
@@ -253,21 +253,21 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
 
         // A crisp sun with two cascades: the last ends 15 m round the camera's target, well short
         // of the far end of the 42 m corridor.
-        view.Shadows(5f, cascades: 2, sunSize: 0.02f);
-        view.AmbientOcclusion(0.8f, 1f);
+        view.Lights.Shadows(5f, cascades: 2, sunSize: 0.02f);
+        view.Indirect.AmbientOcclusion(0.8f, 1f);
 
         // One box of probes over the whole gallery. At most 4,096 fit, so they're 1.65 m apart.
         // It's kept on top of the probes that follow the camera: without it the rooms' walls and
         // floors came out blotchy, and the building greyer from the overview.
-        view.LightProbes(new Vector3(-11.8f, -0.4f, -56.6f), new Vector3(7.8f, 8.6f, 10.6f), 1.65f);
+        view.Indirect.LightProbes(new Vector3(-11.8f, -0.4f, -56.6f), new Vector3(7.8f, 8.6f, 10.6f), 1.65f);
 
         // The same box is the baked space "gallery": once it has a bake, the building's static
         // pieces take their light from it.
-        view.BakedLighting("gallery", new Vector3(-11.8f, -0.4f, -56.6f), new Vector3(7.8f, 8.6f, 10.6f), 1.65f);
+        view.Indirect.BakedLighting("gallery", new Vector3(-11.8f, -0.4f, -56.6f), new Vector3(7.8f, 8.6f, 10.6f), 1.65f);
 
         ReflectionProbes.Place(view);
 
-        view.Finish(new PostSettings
+        view.Effects.Finish(new PostSettings
         {
             AutoExposure = true,
             Exposure = 1.1f,
@@ -281,7 +281,7 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
         var pieces = _building.Pieces;
         for (int i = 0; i < pieces.Count; i++)
         {
-            view.Model(1 + i, pieces[i].Mesh, pieces[i].Transform, isStatic: true);
+            view.Model(1 + i, pieces[i].Mesh, pieces[i].Transform, new ModelOptions { Static = true });
         }
 
         view.Model(DynamicKey, _bust, Matrix4x4.CreateRotationY(MathF.PI / 2f) * Matrix4x4.CreateTranslation(BustAt));
@@ -328,7 +328,7 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
             // Lamp 3 is baked, so its soft shadows cost nothing. Lamps 1 and 2 stay mixed with real-time
             // shadows, so the rolling sphere still shades the floor under them.
             var mode = i == 2 ? LightMode.Baked : LightMode.Mixed;
-            view.PointLight(LampLightKey + i, disc - new Vector3(0f, 0.15f, 0f), new Vector3(2.2f, 1.6f, 0.95f), range: 5.5f, radius: 0.35f, mode: mode);
+            view.Lights.Point(LampLightKey + i, new PointLight(disc - new Vector3(0f, 0.15f, 0f), new Vector3(2.2f, 1.6f, 0.95f), 5.5f) { Radius = 0.35f, Mode = mode });
         }
 
         // The brass sphere rolls back and forth under the lamps, so their soft shadows swing round it.
@@ -358,7 +358,7 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
         if (_changes.LanternLit)
         {
             float lanternFlicker = 1f + 0.08f * MathF.Sin(_seconds * 9f) + 0.05f * MathF.Sin(_seconds * 23f);
-            view.PointLight(LanternKey, wick + new Vector3(0f, 0.05f, 0f), new Vector3(1.8f, 1.05f, 0.4f) * lanternFlicker, range: 9f, radius: 0.04f, mode: LightMode.Mixed);
+            view.Lights.Point(LanternKey, new PointLight(wick + new Vector3(0f, 0.05f, 0f), new Vector3(1.8f, 1.05f, 0.4f) * lanternFlicker, 9f) { Radius = 0.04f, Mode = LightMode.Mixed });
             DrawFlame(view, FlameKey, wick);
         }
 
@@ -371,7 +371,7 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
             view.Model(DynamicKey + 40 + i, _wax, Matrix4x4.CreateScale(0.045f, height, 0.045f) * Matrix4x4.CreateTranslation(foot + new Vector3(0f, height / 2f, 0f)));
             var tip = foot + new Vector3(0f, height + 0.012f, 0f);
             float flicker = 1f + 0.15f * MathF.Sin(_seconds * 13f + i * 1.7f) + 0.08f * MathF.Sin(_seconds * 29f + i);
-            view.PointLight(CandleKey + i, tip + new Vector3(0f, 0.03f, 0f), new Vector3(0.4f, 0.19f, 0.055f) * flicker, range: 3f, shadows: false, mode: LightMode.Mixed);
+            view.Lights.Point(CandleKey + i, new PointLight(tip + new Vector3(0f, 0.03f, 0f), new Vector3(0.4f, 0.19f, 0.055f) * flicker, 3f) { Shadows = false, Mode = LightMode.Mixed });
             DrawFlame(view, FlameKey + (i + 1) * 1000, tip);
         }
     }
@@ -381,8 +381,8 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
     {
         int second = (int)_seconds;
         float into = _seconds - second;
-        view.Particles(key + (second % 500), Flame, at, into);
-        view.Particles(key + ((second + 499) % 500), Flame, at, into + 1f);
+        view.Effects.Particles(key + (second % 500), Flame, at, into);
+        view.Effects.Particles(key + ((second + 499) % 500), Flame, at, into + 1f);
     }
 
     private float Axis(Key positive, Key negative) =>

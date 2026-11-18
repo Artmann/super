@@ -30,33 +30,33 @@ public class FogVolumeTests
         var low = Matrix4x4.CreateScale(4f, 0.4f, 4f);
         var tall = Matrix4x4.CreateScale(1f, 3f, 1f) * Matrix4x4.CreateTranslation(2f, 0f, 0f);
 
-        view.FogVolume(7, FogShape.Box, low, Mist);
-        view.FogVolume(2, FogShape.Cone, tall, Mist with { Noise = 0.5f });
+        view.Effects.FogVolume(7, FogShape.Box, low, Mist);
+        view.Effects.FogVolume(2, FogShape.Cone, tall, Mist with { Noise = 0.5f });
 
         Assert.Equal(
             [new FogVolumeDraw(FogShape.Box, low, Mist), new FogVolumeDraw(FogShape.Cone, tall, Mist with { Noise = 0.5f })],
-            view.DrawnFogVolumes.ToArray());
+            view.Effects.DrawnFogVolumes.ToArray());
     }
 
     [Fact]
     public void A_new_frame_starts_with_no_volumes()
     {
         var view = new View();
-        view.FogVolume(1, FogShape.Ellipsoid, Matrix4x4.Identity, Mist);
+        view.Effects.FogVolume(1, FogShape.Ellipsoid, Matrix4x4.Identity, Mist);
 
         view.Begin(1f);
-        view.FogVolume(1, FogShape.Ellipsoid, Matrix4x4.Identity, Mist);
+        view.Effects.FogVolume(1, FogShape.Ellipsoid, Matrix4x4.Identity, Mist);
 
-        Assert.Equal(1, view.DrawnFogVolumes.Length);
+        Assert.Equal(1, view.Effects.DrawnFogVolumes.Length);
     }
 
     [Fact]
     public void A_key_placed_twice_in_a_frame_is_refused()
     {
         var view = new View();
-        view.FogVolume(3, FogShape.Box, Matrix4x4.Identity, Mist);
+        view.Effects.FogVolume(3, FogShape.Box, Matrix4x4.Identity, Mist);
 
-        var error = Assert.Throws<ArgumentException>(() => view.FogVolume(3, FogShape.Cylinder, Matrix4x4.Identity, Mist));
+        var error = Assert.Throws<ArgumentException>(() => view.Effects.FogVolume(3, FogShape.Cylinder, Matrix4x4.Identity, Mist));
 
         Assert.StartsWith("Fog volume 3 was already placed this frame. Give each fog volume its own key.", error.Message);
         Assert.Equal("key", error.ParamName);
@@ -68,19 +68,19 @@ public class FogVolumeTests
         var view = new View();
         for (int i = 0; i < 64; i++)
         {
-            view.FogVolume(i, FogShape.Box, Matrix4x4.Identity, Mist);
+            view.Effects.FogVolume(i, FogShape.Box, Matrix4x4.Identity, Mist);
         }
 
-        var error = Assert.Throws<InvalidOperationException>(() => view.FogVolume(64, FogShape.Box, Matrix4x4.Identity, Mist));
+        var error = Assert.Throws<InvalidOperationException>(() => view.Effects.FogVolume(64, FogShape.Box, Matrix4x4.Identity, Mist));
 
         Assert.Equal("At most 64 fog volumes fit in a frame.", error.Message);
-        Assert.Equal(64, view.DrawnFogVolumes.Length);
+        Assert.Equal(64, view.Effects.DrawnFogVolumes.Length);
     }
 
     [Fact]
     public void A_shape_that_is_not_one_of_the_four_is_refused()
     {
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new View().FogVolume(1, (FogShape)9, Matrix4x4.Identity, Mist));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new View().Effects.FogVolume(1, (FogShape)9, Matrix4x4.Identity, Mist));
 
         Assert.StartsWith("A fog volume can be a Box, an Ellipsoid, a Cylinder or a Cone.", error.Message);
         Assert.Equal("shape", error.ParamName);
@@ -90,7 +90,7 @@ public class FogVolumeTests
     public void A_transform_squashed_flat_is_refused()
     {
         var error = Assert.Throws<ArgumentException>(
-            () => new View().FogVolume(1, FogShape.Box, Matrix4x4.CreateScale(2f, 0f, 2f), Mist));
+            () => new View().Effects.FogVolume(1, FogShape.Box, Matrix4x4.CreateScale(2f, 0f, 2f), Mist));
 
         Assert.StartsWith(
             "The fog volume's transform can't be inverted: it is squashed flat on some axis, or holds a number that isn't finite. "
@@ -103,7 +103,7 @@ public class FogVolumeTests
     public void A_transform_with_a_number_that_is_not_finite_is_refused()
     {
         var error = Assert.Throws<ArgumentException>(
-            () => new View().FogVolume(1, FogShape.Box, Matrix4x4.CreateTranslation(float.NaN, 0f, 0f), Mist));
+            () => new View().Effects.FogVolume(1, FogShape.Box, Matrix4x4.CreateTranslation(float.NaN, 0f, 0f), Mist));
 
         Assert.StartsWith("The fog volume's transform can't be inverted", error.Message);
     }
@@ -164,11 +164,11 @@ public class FogVolumeTests
     public void A_refused_volume_is_not_placed_and_its_key_stays_free()
     {
         var view = new View();
-        Assert.Throws<ArgumentException>(() => view.FogVolume(1, FogShape.Box, Matrix4x4.Identity, new FogVolumeSettings(-1f)));
+        Assert.Throws<ArgumentException>(() => view.Effects.FogVolume(1, FogShape.Box, Matrix4x4.Identity, new FogVolumeSettings(-1f)));
 
-        view.FogVolume(1, FogShape.Box, Matrix4x4.Identity, Mist);
+        view.Effects.FogVolume(1, FogShape.Box, Matrix4x4.Identity, Mist);
 
-        Assert.Equal(1, view.DrawnFogVolumes.Length);
+        Assert.Equal(1, view.Effects.DrawnFogVolumes.Length);
     }
 
     [Fact]
@@ -303,7 +303,7 @@ public class FogVolumeTests
         CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
         try
         {
-            var error = Assert.Throws<ArgumentException>(() => new View().FogVolume(1, FogShape.Box, Matrix4x4.Identity, settings));
+            var error = Assert.Throws<ArgumentException>(() => new View().Effects.FogVolume(1, FogShape.Box, Matrix4x4.Identity, settings));
             Assert.Equal("settings", error.ParamName);
             return error;
         }

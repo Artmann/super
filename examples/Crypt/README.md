@@ -43,7 +43,7 @@ See [CREDITS.md](../../CREDITS.md) for who made what.
 ## Baked lighting
 
 The hall is a baked space named `crypt`, in a box a little larger than the walls and the vault, with
-probes 0.8 m apart. Everything that stands still is drawn static (`isStatic: true`): the floor, walls,
+probes 0.8 m apart. Everything that stands still is drawn static (`new ModelOptions { Static = true }`): the floor, walls,
 vault, pillars, altar, statue, chest, barrels, candelabras, the loose candles and the torches' sticks.
 The shapes made in code are made static too, so they get lightmap UVs. The lantern and its chain swing,
 so they stay dynamic, and the probes light them as they move. The bake is

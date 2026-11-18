@@ -60,8 +60,8 @@ public sealed class WaxTable(Content content) : IGame
     public void Draw(View view)
     {
         view.Camera(position: new Vector3(0f, 0.45f, 1.25f), lookAt: new Vector3(0f, 0.12f, 0f), fieldOfView: 0.75f);
-        view.Sun(direction: new Vector3(-1f, 0.55f, 0.5f), color: new Vector3(4f));
-        view.Shadows(1.5f);
+        view.Lights.Sun(direction: new Vector3(-1f, 0.55f, 0.5f), color: new Vector3(4f));
+        view.Lights.Shadows(1.5f);
         view.Model(0, _table, Matrix4x4.CreateTranslation(0f, -0.025f, 0f));
         view.Model(1, _wall, Matrix4x4.CreateTranslation(0f, 0.5f, -0.45f));
 

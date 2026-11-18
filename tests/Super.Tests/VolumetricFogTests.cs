@@ -33,12 +33,12 @@ public class VolumetricFogTests
             var view = new View();
 
             var error = Assert.Throws<ArgumentOutOfRangeException>(
-                () => view.Sky(new SkySettings { Fog = new FogSettings(0.01f) { Anisotropy = anisotropy } }));
+                () => view.Surroundings.Sky(new SkySettings { Fog = new FogSettings(0.01f) { Anisotropy = anisotropy } }));
 
             Assert.StartsWith(
                 $"The fog's anisotropy must be from -0.9 to 0.9, where 0 scatters light evenly and more scatters it onwards, but it is {shown}.",
                 error.Message);
-            Assert.Null(view.SkySettings);
+            Assert.Null(view.Surroundings.SkySettings);
         }
         finally
         {
@@ -58,7 +58,7 @@ public class VolumetricFogTests
             var view = new View();
 
             var error = Assert.Throws<ArgumentOutOfRangeException>(
-                () => view.Sky(new SkySettings { Fog = new FogSettings(0.01f) { VolumetricDistance = distance } }));
+                () => view.Surroundings.Sky(new SkySettings { Fog = new FogSettings(0.01f) { VolumetricDistance = distance } }));
 
             Assert.StartsWith(
                 $"The fog's volumetric distance must be 0 or more, in metres, and 0 is the plain fog only, but it is {shown}.",
@@ -164,10 +164,10 @@ public class VolumetricFogTests
     {
         var view = new View();
 
-        view.PointLight(1, Vector3.Zero, Vector3.One, 4f);
-        view.PointLight(2, Vector3.Zero, Vector3.One, 4f, volumetric: 0.25f);
+        view.Lights.Point(1, new PointLight(Vector3.Zero, Vector3.One, 4f));
+        view.Lights.Point(2, new PointLight(Vector3.Zero, Vector3.One, 4f) { Volumetric = 0.25f });
 
-        var lights = view.DrawnLights.ToArray();
+        var lights = view.Lights.DrawnLights.ToArray();
         Assert.Equal(1f, lights[0].Volumetric);
         Assert.Equal(0.25f, lights[1].Volumetric);
     }
@@ -180,9 +180,9 @@ public class VolumetricFogTests
         var view = new View();
 
         var error = Assert.Throws<ArgumentOutOfRangeException>(
-            () => view.SpotLight(1, Vector3.Zero, -Vector3.UnitY, Vector3.One, 4f, 0.2f, 0.4f, volumetric: volumetric));
+            () => view.Lights.Spot(1, new SpotLight(Vector3.Zero, -Vector3.UnitY, Vector3.One, 4f) { InnerAngle = 0.2f, OuterAngle = 0.4f, Volumetric = volumetric }));
 
         Assert.StartsWith("A light's volumetric strength must be 0 or more, and 0 leaves it out of the fog.", error.Message);
-        Assert.Equal("volumetric", error.ParamName);
+        Assert.Equal("light", error.ParamName);
     }
 }

@@ -64,7 +64,7 @@ public sealed class BakeCommandTests
         var error = Assert.Throws<InvalidOperationException>(() => BakeCommand.Targets(null, 0, _ => "unused"));
 
         Assert.Equal(
-            "--bake found no baked space or chunk in the frame. Name one with view.BakedLighting or view.BakedChunk.",
+            "--bake found no baked space or chunk in the frame. Name one with view.Indirect.BakedLighting or view.Indirect.BakedChunk.",
             error.Message);
     }
 

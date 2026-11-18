@@ -85,7 +85,7 @@ public sealed class ToonGarden(Content content, Input input) : IGame
         float turn = float.Lerp(_previousTurn, _turn, view.Blend);
         var eye = new Vector3(MathF.Sin(turn) * 5.5f, 2.4f, MathF.Cos(turn) * 5.5f);
         view.Camera(position: eye, lookAt: new Vector3(0f, 0.9f, 0f), fieldOfView: 0.9f);
-        view.Sky(new SkySettings
+        view.Surroundings.Sky(new SkySettings
         {
             Zenith = new Vector3(0.25f, 0.4f, 0.8f),
             Horizon = new Vector3(0.85f, 0.7f, 0.6f),
@@ -93,10 +93,10 @@ public sealed class ToonGarden(Content content, Input input) : IGame
             Brightness = 0.6f,
             Fog = new FogSettings(Density: 0.03f, Height: 0f, Falloff: 0.2f, SunScatter: 0.4f),
         });
-        view.Sun(direction: new Vector3(0.7f, 0.55f, 0.4f), color: new Vector3(4.5f, 4f, 3.3f), shadows: true);
-        view.Shadows(10f, 2);
-        view.PointLight(LanternKey, new Vector3(-2.5f, 1.3f, 1.6f), new Vector3(6f, 3.5f, 1.5f), range: 3.5f);
-        view.Outlines(thickness: _noOutlines ? 0f : 1.5f);
+        view.Lights.Sun(direction: new Vector3(0.7f, 0.55f, 0.4f), color: new Vector3(4.5f, 4f, 3.3f), shadows: true);
+        view.Lights.Shadows(10f, 2);
+        view.Lights.Point(LanternKey, new PointLight(new Vector3(-2.5f, 1.3f, 1.6f), new Vector3(6f, 3.5f, 1.5f), 3.5f));
+        view.Effects.Outlines(thickness: _noOutlines ? 0f : 1.5f);
 
         for (int i = 0; i < _pieces.Count; i++)
         {

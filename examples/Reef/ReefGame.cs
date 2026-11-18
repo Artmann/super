@@ -75,16 +75,16 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
         float angle = (float)(time.Tick + view.Blend) * time.TickSeconds * MathF.Tau / CameraOrbitSeconds;
         var camera = new Vector3(MathF.Sin(angle) * CameraDistance, CameraHeight, MathF.Cos(angle) * CameraDistance);
         view.Camera(camera, new Vector3(0f, 12f, 0f), 58f * MathF.PI / 180f);
-        view.Sun(new Vector3(0.35f, 1f, 0.2f), new Vector3(7f, 7.4f, 7f));
-        view.Shadows(25f, 3);
-        view.Water(Water);
+        view.Lights.Sun(new Vector3(0.35f, 1f, 0.2f), new Vector3(7f, 7.4f, 7f));
+        view.Lights.Shadows(25f, 3);
+        view.Surroundings.Water(Water);
 
         // The swell rocks the seagrass and sea fans back and forth: the wind's direction flips with the surge, and its
         // strength goes through zero, so the lean swings smoothly from one side to the other.
         float seconds = (float)(time.Tick + view.Blend) * time.TickSeconds;
         float surge = MathF.Sin(seconds * MathF.Tau / SurgeSeconds);
-        view.Wind(SurgeDirection * MathF.Sign(surge), SurgeStrength * MathF.Abs(surge), gustiness: 0.3f);
-        view.Finish(new PostSettings { Contrast = 0.12f, Saturation = 0.12f, Vignette = 0.4f, Sharpen = 0.35f });
+        view.Surroundings.Wind(SurgeDirection * MathF.Sign(surge), SurgeStrength * MathF.Abs(surge), gustiness: 0.3f);
+        view.Effects.Finish(new PostSettings { Contrast = 0.12f, Saturation = 0.12f, Vignette = 0.4f, Sharpen = 0.35f });
 
         view.Model(SeabedKey, _seabed, Matrix4x4.Identity);
         view.Models(world);

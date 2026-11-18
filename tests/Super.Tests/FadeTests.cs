@@ -201,7 +201,7 @@ public sealed class FadeTests
         var view = new View();
         view.Begin(0f);
 
-        view.Model(1, ModelRef.Cube, Matrix4x4.Identity, fade: new DistanceFade(50f, 60f));
+        view.Model(1, ModelRef.Cube, Matrix4x4.Identity, new ModelOptions { Fade = new DistanceFade(50f, 60f) });
 
         Assert.Equal(new DistanceFade(50f, 60f), Assert.Single(view.Drawn.ToArray()).Fade);
     }
@@ -212,7 +212,7 @@ public sealed class FadeTests
         var view = new View();
         view.Begin(0f);
 
-        var exception = Assert.Throws<ArgumentException>(() => view.Model(7, ModelRef.Cube, Matrix4x4.Identity, fade: new DistanceFade(60f, 50f)));
+        var exception = Assert.Throws<ArgumentException>(() => view.Model(7, ModelRef.Cube, Matrix4x4.Identity, new ModelOptions { Fade = new DistanceFade(60f, 50f) }));
 
         Assert.StartsWith("Model 7's fade distance end 50 must not be before its start 60.", exception.Message);
     }

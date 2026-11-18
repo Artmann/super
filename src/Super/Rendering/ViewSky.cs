@@ -15,13 +15,13 @@ internal static class ViewSky
     /// </summary>
     internal static SkyBands SurroundingColors(View view, RenderEffects off)
     {
-        var water = view.WaterSettings;
+        var water = view.Surroundings.WaterSettings;
         if (Submerged(view, off))
         {
             return new SkyBands(water.ShallowColor, Vector3.Lerp(water.ShallowColor, water.DeepColor, 0.5f), water.DeepColor);
         }
 
-        if (view.SkySettings is { } sky)
+        if (view.Surroundings.SkySettings is { } sky)
         {
             return new SkyBands(sky.Zenith, sky.Horizon, sky.Ground);
         }
@@ -34,7 +34,7 @@ internal static class ViewSky
     /// renderer's handle for a photographed sky.
     /// </summary>
     internal static AnalyticSky FrameSky(View view, RenderEffects off, Func<SkyImage, SkyImageHandle>? image = null) =>
-        !Submerged(view, off) && view.SkySettings is { } sky
+        !Submerged(view, off) && view.Surroundings.SkySettings is { } sky
             ? new AnalyticSky
             {
                 Turbidity = sky.Turbidity,
@@ -60,7 +60,7 @@ internal static class ViewSky
 
     /// <summary>Whether the view is under its water, which it never is while <see cref="RenderEffects.Underwater"/> is off.</summary>
     private static bool Submerged(View view, RenderEffects off) =>
-        view.WaterSettings.Absorption != Vector3.Zero && !off.HasFlag(RenderEffects.Underwater);
+        view.Surroundings.WaterSettings.Absorption != Vector3.Zero && !off.HasFlag(RenderEffects.Underwater);
 }
 
 /// <summary>The three colours baked into the environment: above, at the horizon and below.</summary>

@@ -14,7 +14,7 @@ internal static class BakeCommand
 {
     /// <summary>The message of a frame that names no baked space and no chunk.</summary>
     public const string NoAreaMessage =
-        "--bake found no baked space or chunk in the frame. Name one with view.BakedLighting or view.BakedChunk.";
+        "--bake found no baked space or chunk in the frame. Name one with view.Indirect.BakedLighting or view.Indirect.BakedChunk.";
 
     /// <summary>
     /// The files a frame draws, in the order to bake them: the space's, if it has one, then each distinct chunk file in

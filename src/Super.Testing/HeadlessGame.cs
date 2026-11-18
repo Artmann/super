@@ -76,7 +76,7 @@ public sealed class HeadlessRun<TGame> : IDisposable
     public Camera Camera => _host.View.Shot;
 
     /// <summary>How the last frame moved between pictures: its style, how far along, and which held picture. Call <see cref="Frame"/> first.</summary>
-    public Rendition.ScreenTransition Transition => _host.View.Transition;
+    public Rendition.ScreenTransition Transition => _host.View.Effects.Transition;
 
     /// <summary>
     /// What the mixer is playing now: each voice's clip, channel, gain, pan and how far in it is. A sound started

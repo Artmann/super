@@ -64,7 +64,7 @@ public sealed class SkyImageTests
         var content = new Content(new MemoryContent().Add("skies/grey.hdr", TestHdr.Make(64, 32, new Vector3(0.5f))));
         var image = content.Sky("skies/grey.hdr");
         var view = new View();
-        view.Sky(new SkySettings { Image = image, Rotation = 0.75f, Exposure = -1.5f });
+        view.Surroundings.Sky(new SkySettings { Image = image, Rotation = 0.75f, Exposure = -1.5f });
 
         var sky = ViewSky.FrameSky(view, RenderEffects.None, named => new SkyImageHandle(named == image ? 7 : -1));
 
@@ -86,13 +86,13 @@ public sealed class SkyImageTests
             var view = new View();
 
             var error = Assert.Throws<ArgumentOutOfRangeException>(() =>
-                view.Sky(new SkySettings { Rotation = rotation, Exposure = exposure }));
+                view.Surroundings.Sky(new SkySettings { Rotation = rotation, Exposure = exposure }));
 
             Assert.Equal("settings", error.ParamName);
             Assert.StartsWith(
                 "The sky image's rotation must be a number and its exposure from -20 to 20 stops, but they are " + shown + ".",
                 error.Message);
-            Assert.Null(view.SkySettings);
+            Assert.Null(view.Surroundings.SkySettings);
         }
         finally
         {

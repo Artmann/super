@@ -9,7 +9,7 @@ internal sealed class ReflectionProbeUpdater(Renderer renderer)
 
     /// <summary>The reflection probes to keep: the view's, or none while reflections are off.</summary>
     internal static ReadOnlySpan<ReflectionProbeRequest> WantedReflectionProbes(View view, RenderEffects off) =>
-        off.HasFlag(RenderEffects.Reflections) ? [] : view.ReflectionProbes;
+        off.HasFlag(RenderEffects.Reflections) ? [] : view.Indirect.ReflectionProbes;
 
     /// <summary>
     /// Puts each of the view's reflection probes in the renderer's line for a picture the first frame it's placed,

@@ -45,19 +45,19 @@ internal static class DayCycle
         float elevation = MathF.Asin(sun.Y);
         // The sun is always there, white: the sky's air reddens and dims it as it sinks and puts it out below the
         // horizon. It casts the shadows by day and the moon by night.
-        view.Sun(sun, new Vector3(5.2f, 4.9f, 4.4f), shadows: elevation > 0f);
+        view.Lights.Sun(sun, new Vector3(5.2f, 4.9f, 4.4f), shadows: elevation > 0f);
         // The moon is opposite the sun, and rises as the sun sinks.
         var moon = -sun;
         if (elevation <= 0f)
         {
             float up = Smooth(0f, 0.08f, -elevation);
-            view.Sun(moon, new Vector3(0.16f, 0.21f, 0.36f) * up, shadows: true);
+            view.Lights.Sun(moon,new Vector3(0.16f, 0.21f, 0.36f) * up, shadows: true);
         }
 
         // A physical sky follows the sun every frame, with the moon and the stars, which turn once a day; its
         // lighting is rebuilt on the GPU without a wait.
         float day = Smooth(-0.1f, 0.2f, elevation);
-        view.Sky(new SkySettings
+        view.Surroundings.Sky(new SkySettings
         {
             Turbidity = 2.5f,
             Moon = moon,
@@ -71,7 +71,7 @@ internal static class DayCycle
         // well before sunset, so it starts opening while the sun is still a little way up.
         // By day it stops down a little, so sunlight stands out from the sky's light in the shade.
         float night = 1f - Smooth(-0.1f, 0.25f, elevation);
-        view.Finish(new PostSettings
+        view.Effects.Finish(new PostSettings
         {
             Exposure = float.Lerp(-0.6f, 3.4f, night) + indoors,
             Contrast = 0.06f,

@@ -14,16 +14,16 @@ public class ParticleTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Particles(key, effect, transform ?? Matrix4x4.Identity, age);
-        return view.DrawnParticles.ToArray();
+        view.Effects.Particles(key, effect, transform ?? Matrix4x4.Identity, age);
+        return view.Effects.DrawnParticles.ToArray();
     }
 
     private static Particle[] DrawLine(ParticleEffect effect, Vector3 from, Vector3 to, float age, int key = 3)
     {
         var view = new View();
         view.Begin(0f);
-        view.Particles(key, effect, from, to, age);
-        return view.DrawnParticles.ToArray();
+        view.Effects.Particles(key, effect, from, to, age);
+        return view.Effects.DrawnParticles.ToArray();
     }
 
     private static void Near(Vector3 expected, Vector3 actual, float tolerance = 1e-4f) =>
@@ -394,12 +394,12 @@ public class ParticleTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Particles(1, Single, Vector3.Zero, 0.1f);
-        Assert.NotEqual(0, view.DrawnParticles.Length);
+        view.Effects.Particles(1, Single, Vector3.Zero, 0.1f);
+        Assert.NotEqual(0, view.Effects.DrawnParticles.Length);
 
         view.Begin(0f);
 
-        Assert.Equal(0, view.DrawnParticles.Length);
+        Assert.Equal(0, view.Effects.DrawnParticles.Length);
     }
 
     [Fact]

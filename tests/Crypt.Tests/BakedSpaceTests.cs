@@ -86,7 +86,7 @@ public sealed class BakedSpaceTests
     {
         var (view, content) = DrawnFrame();
 
-        var space = view.BakedSpace;
+        var space = view.Indirect.BakedSpace;
         Assert.NotNull(space);
         Assert.Equal("crypt", space.Value.Name);
         Assert.True(Holds(space.Value.Min, space.Value.Max, HallMin, HallMax),

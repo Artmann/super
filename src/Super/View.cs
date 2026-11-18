@@ -1,208 +1,56 @@
-using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Rendition;
-using Rendition.Passes;
 using Super.Ui;
 
 namespace Super;
 
 /// <summary>
-/// A model to draw. It only exists until the next frame describes the world again. A
-/// pose skins a rigged model; PoseAhead is how many seconds past the last tick the
-/// display is, so clips keep moving between ticks. A ghost draws it in one colour. Meshes,
-/// when set, shows only the masked meshes of the model; null shows them all. Static marks a
-/// draw that never moves, so baked lighting can hold it; its parts get bake ids.
-/// </summary>
-public readonly record struct ModelDraw(
-    int Key,
-    ModelRef Model,
-    Matrix4x4 Transform,
-    Vector3? Color,
-    SwimMotion Swim = default,
-    AnimationPose? Pose = null,
-    float PoseAhead = 0f,
-    Ghost? Ghost = null,
-    MeshMask? Meshes = null,
-    bool Static = false,
-    DistanceFade? Fade = null);
-
-/// <summary>
-/// A light as far away as the sun, shining the same way everywhere. One sun casts the
-/// shadows: the one marked with <see cref="CastsShadows"/>, or else the first.
-/// </summary>
-public readonly record struct SunLight(Vector3 Direction, Vector3 Color, bool CastsShadows = false, LightMode Mode = LightMode.Mixed);
-
-/// <summary>When a reflection probe placed with <see cref="View.ReflectionProbe"/> is photographed again.</summary>
-public enum ProbeUpdate
-{
-    /// <summary>
-    /// When the light on it changes: the suns, the sky, a bake, the light probes, or a point or spot light that reaches
-    /// its box appearing, going, moving or changing its range. A light's colour isn't watched, so a flicker costs nothing.
-    /// </summary>
-    OnChange,
-
-    /// <summary>Only when the game changes the version it places the probe with.</summary>
-    OnRequest,
-
-    /// <summary>Again and again, taking turns with the other probes, for things that move or change all the time.</summary>
-    Always,
-}
-
-/// <summary>
-/// A reflection probe placed with <see cref="View.ReflectionProbe"/>: where it photographs the scene
-/// from, the box its reflections are bent to land on, how far towards the box's sides it fades out,
-/// which probe blends first where boxes overlap, and when it's photographed again.
-/// </summary>
-public readonly record struct ReflectionProbeRequest(
-    int Key, Vector3 Position, Vector3 Min, Vector3 Max, float Blend, float Priority = 0f, ProbeUpdate Update = ProbeUpdate.OnChange,
-    int Version = 0)
-{
-    /// <summary>
-    /// Throws for a blend that isn't 0 or more metres, a priority that isn't a finite number, or an update that isn't one
-    /// of the three, each naming its argument as <see cref="View.ReflectionProbe"/> does.
-    /// </summary>
-    internal static void CheckSettings(float blend, float priority, ProbeUpdate update)
-    {
-        if (!(float.IsFinite(blend) && blend >= 0f))
-        {
-            throw new ArgumentOutOfRangeException(nameof(blend), blend, "The reflection probe's blend must be 0 or more metres.");
-        }
-
-        if (!float.IsFinite(priority))
-        {
-            throw new ArgumentOutOfRangeException(nameof(priority), priority, "The reflection probe's priority must be a finite number.");
-        }
-
-        if (!Enum.IsDefined(update))
-        {
-            throw new ArgumentOutOfRangeException(nameof(update), update, "The reflection probe's update must be OnChange, OnRequest or Always.");
-        }
-    }
-
-    /// <summary>The probe as the renderer takes it.</summary>
-    internal ReflectionProbe ToProbe() => new()
-    {
-        Position = Position,
-        BoxMin = Min,
-        BoxMax = Max,
-        BlendDistance = Blend,
-        Priority = Priority,
-    };
-}
-
-/// <summary>A decal placed with <see cref="View.Decal"/>: the box it fills, what it lays on and how much of each part.</summary>
-public readonly record struct DecalRequest(int Key, Matrix4x4 Box, Surface Material, DecalBlend Blend);
-
-/// <summary>
-/// Names a model. <see cref="Content"/> hands these out, and there are built-in shapes one
-/// unit wide, centred on zero. Build other sizes with <see cref="Shapes"/>.
-/// </summary>
-public readonly record struct ModelRef(int Index)
-{
-    /// <summary>A cube one unit wide, centred on zero.</summary>
-    public static ModelRef Cube { get; } = new(0);
-
-    /// <summary>A sphere one unit across.</summary>
-    public static ModelRef Sphere { get; } = new(-1);
-
-    /// <summary>A capsule standing up, one unit wide and two tall, like a person.</summary>
-    public static ModelRef Capsule { get; } = new(-2);
-
-    /// <summary>A cylinder standing up, one unit wide and one tall.</summary>
-    public static ModelRef Cylinder { get; } = new(-3);
-
-    /// <summary>A cone pointing up, one unit wide at the base and one tall.</summary>
-    public static ModelRef Cone { get; } = new(-4);
-
-    /// <summary>A one-sided square one unit wide, lying flat and facing up.</summary>
-    public static ModelRef Plane { get; } = new(-5);
-
-    /// <summary>A one-sided square one unit wide, standing up and facing along z.</summary>
-    public static ModelRef Quad { get; } = new(-6);
-
-    /// <summary>A ring lying flat, one unit across, with a tube a quarter unit thick.</summary>
-    public static ModelRef Torus { get; } = new(-7);
-
-    /// <summary>Whether this is the cube or one of the other shapes every game has.</summary>
-    public bool IsBuiltIn => Index <= 0;
-}
-
-/// <summary>
 /// What's on screen this frame. Draw describes everything visible, every frame, and
 /// this class writes it down. It touches no GPU, so it works the same with no window.
+/// The models and the camera are set here; the lights, the light that bounces, what surrounds the world and the
+/// effects each have their own part: <see cref="Lights"/>, <see cref="Indirect"/>, <see cref="Surroundings"/> and
+/// <see cref="Effects"/>.
 /// </summary>
 public sealed class View
 {
     private readonly List<ModelDraw> _models = [];
-    private readonly List<SunLight> _suns = [];
-    private readonly List<Particle> _particles = [];
-    private readonly List<LocalLight> _lights = [];
-    private readonly List<ReflectionProbeRequest> _reflectionProbes = [];
-    private readonly List<DecalRequest> _decals = [];
-    private readonly List<BakedChunk> _bakedChunks = [];
-    private readonly HashSet<int> _decalKeys = [];
-    private readonly List<FogVolumeDraw> _fogVolumes = [];
-    private readonly HashSet<int> _fogVolumeKeys = [];
     private readonly ViewMemory _memory = new();
-    private long _frame;
-    private long _tick;
-    private float _tickSeconds;
-    private float _timeScale = 1f;
+    private ViewClock _clock = new(0, 0, 0f, 1f, 0f);
 
     internal Camera Shot { get; private set; }
-    /// <summary>The time on screen, which sits between the last tick and the next.</summary>
-    private double Now => (_tick - 1 + (double)Blend) * _tickSeconds;
 
-    internal ReadOnlySpan<SunLight> Suns => CollectionsMarshal.AsSpan(_suns);
-    internal UnderwaterSettings WaterSettings { get; private set; }
-    internal PuddleSettings? PuddleSettings { get; private set; }
-    internal WindSettings? WindSettings { get; private set; }
-    internal SkySettings? SkySettings { get; private set; }
-    internal PostSettings Post { get; private set; }
-    internal float ShadowRadius { get; private set; }
-    internal int ShadowCascades { get; private set; }
-    internal float SunSize { get; private set; }
-    internal float ShadowContact { get; private set; } = ShadowSettings.DefaultContactLength;
-    internal OcclusionSettings Occlusion { get; private set; } = new();
-    internal BounceSettings Bounce { get; private set; } = new();
-    internal OutlineSettings OutlineSettings { get; private set; } = new();
-    internal ProbeVolumeSettings? LightProbeVolume { get; private set; }
-    internal BakedSpace? BakedSpace { get; private set; }
-
-    /// <summary>The baked chunks placed so far this frame, in the order they were placed.</summary>
-    internal IReadOnlyList<BakedChunk> BakedChunks => _bakedChunks;
-
-    internal ReadOnlySpan<BakedChunk> PlacedBakedChunks => CollectionsMarshal.AsSpan(_bakedChunks);
     internal UiTree? Ui { get; set; }
 
-    /// <summary>How the screen moves between pictures this frame. Set by <see cref="Transitions"/>.</summary>
-    internal ScreenTransition Transition { get; set; }
-
     /// <summary>What the game named, so drawing something it unloaded fails where the mistake is.</summary>
-    internal Content? Content { get; set; }
+    internal Content? Content
+    {
+        get;
+        set
+        {
+            field = value;
+            Effects.SurfaceCheck = value is null ? null : value.RequireSurface;
+        }
+    }
+
+    /// <summary>The suns, the point and spot lights, and the shadows they cast.</summary>
+    public ViewLights Lights { get; } = new();
+
+    /// <summary>The light that bounces: ambient occlusion, screen bounce, light probes, bakes and reflection probes.</summary>
+    public ViewIndirect Indirect { get; } = new();
+
+    /// <summary>The sky, the water, the puddles and the wind.</summary>
+    public ViewSurroundings Surroundings { get; } = new();
+
+    /// <summary>Particles, decals and fog volumes, and the finish, outlines and transition of the picture.</summary>
+    public ViewEffects Effects { get; } = new();
 
     /// <summary>Everything drawn so far this frame.</summary>
     public ReadOnlySpan<ModelDraw> Drawn => CollectionsMarshal.AsSpan(_models);
 
-    /// <summary>Every point and spot light so far this frame.</summary>
-    public ReadOnlySpan<LocalLight> DrawnLights => CollectionsMarshal.AsSpan(_lights);
-
-    /// <summary>Every particle drawn so far this frame, in no particular order.</summary>
-    public ReadOnlySpan<Particle> DrawnParticles => CollectionsMarshal.AsSpan(_particles);
-
-    /// <summary>The reflection probes placed so far this frame, in the order they were placed.</summary>
-    public ReadOnlySpan<ReflectionProbeRequest> ReflectionProbes => CollectionsMarshal.AsSpan(_reflectionProbes);
-
-    /// <summary>The decals placed so far this frame, in the order they are drawn.</summary>
-    public ReadOnlySpan<DecalRequest> DrawnDecals => CollectionsMarshal.AsSpan(_decals);
-
-    /// <summary>The fog volumes placed so far this frame, in the order they were placed.</summary>
-    public ReadOnlySpan<FogVolumeDraw> DrawnFogVolumes => CollectionsMarshal.AsSpan(_fogVolumes);
-
     /// <summary>How far the display is between the last tick and the next, from 0 to 1.</summary>
-    public float Blend { get; private set; }
+    public float Blend => _clock.Blend;
 
     /// <summary>Places the camera. Field of view is the vertical angle in radians.</summary>
     public void Camera(Vector3 position, Vector3 lookAt, float fieldOfView = MathF.PI / 4f) =>
@@ -212,264 +60,65 @@ public sealed class View
     public void Camera(in Camera camera) => Shot = camera;
 
     /// <summary>
-    /// Adds a sun. The direction points from the ground towards it, and needn't be one
-    /// unit long. Colors above 1 are brighter. One sun casts the shadows: the one added
-    /// with <paramref name="shadows"/> set, or else the first. Marking two throws. The mode says how
-    /// a bake treats it; see "Light modes" in docs/rendering.md.
-    /// </summary>
-    public void Sun(Vector3 direction, Vector3 color, bool shadows = false, LightMode mode = LightMode.Mixed)
-    {
-        CheckMode(mode);
-
-        if (shadows)
-        {
-            foreach (var sun in _suns)
-            {
-                if (sun.CastsShadows)
-                {
-                    throw new InvalidOperationException(
-                        "Only one sun can cast shadows, and another already does this frame. Pass shadows: true to one sun only.");
-                }
-            }
-        }
-
-        _suns.Add(new SunLight(Vector3.Normalize(direction), color, shadows, mode));
-    }
-
-    /// <summary>
-    /// Adds a light that shines every way from a point, such as a candle or a torch. The
-    /// color is how bright it is on a surface a metre away, and it dims with the square of
-    /// the distance, reaching nothing at the range. The key names it across frames, so its
-    /// shadow stays as sharp as it moves; use a stable ID. A frame can have up to
-    /// <see cref="LocalLight.MaxPerFrame"/>, and lights with shadows share an atlas, so the
-    /// biggest on screen get the sharpest ones. The radius is how big the glowing part is:
-    /// raise it for a light right beside a wall, such as a torch in a bracket, so the wall
-    /// isn't blown out. It also softens the shadows. The volumetric strength is how brightly
-    /// it lights the volumetric fog around it, as a halo: 1 is true to the fog, 0 leaves it
-    /// out. See "Point and spot lights" in docs/views.md.
-    /// </summary>
-    public void PointLight(
-        int key,
-        Vector3 position,
-        Vector3 color,
-        float range,
-        bool shadows = true,
-        float radius = LocalLight.DefaultRadius,
-        float volumetric = 1f,
-        LightMode mode = LightMode.Mixed)
-    {
-        CheckLight(position, color, range, radius, volumetric, mode);
-        _lights.Add(new LocalLight
-        {
-            Key = key,
-            Position = position,
-            Radiance = color,
-            Range = range,
-            Radius = radius,
-            CastsShadow = shadows,
-            Volumetric = volumetric,
-            Mode = mode,
-        });
-    }
-
-    /// <summary>
-    /// Adds a light that shines one way in a cone, such as a lantern's beam. It's full
-    /// inside the inner angle and fades to nothing at the outer one; both are measured
-    /// from the direction, in radians, and the outer must be under a right angle.
-    /// Otherwise it's like <see cref="PointLight"/>, though it costs a sixth as much shadow.
-    /// </summary>
-    public void SpotLight(
-        int key,
-        Vector3 position,
-        Vector3 direction,
-        Vector3 color,
-        float range,
-        float innerAngle,
-        float outerAngle,
-        bool shadows = true,
-        float radius = LocalLight.DefaultRadius,
-        float volumetric = 1f,
-        LightMode mode = LightMode.Mixed)
-    {
-        CheckLight(position, color, range, radius, volumetric, mode);
-        if (!(direction.LengthSquared() > 1e-12f) || !float.IsFinite(direction.LengthSquared()))
-        {
-            throw new ArgumentException($"A spot light needs a direction to shine in, not {direction}.", nameof(direction));
-        }
-
-        if (!(outerAngle > 0f && outerAngle < MathF.PI / 2f))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(outerAngle), outerAngle, "A spot light's outer angle must be more than 0 and less than π/2 radians.");
-        }
-
-        if (!(innerAngle >= 0f && innerAngle <= outerAngle))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(innerAngle), innerAngle, "A spot light's inner angle must be from 0 up to its outer angle.");
-        }
-
-        _lights.Add(new LocalLight
-        {
-            Key = key,
-            Position = position,
-            Radiance = color,
-            Range = range,
-            Radius = radius,
-            Direction = Vector3.Normalize(direction),
-            InnerAngle = innerAngle,
-            OuterAngle = outerAngle,
-            CastsShadow = shadows,
-            Volumetric = volumetric,
-            Mode = mode,
-        });
-    }
-
-    private static void CheckMode(LightMode mode)
-    {
-        // Not Enum.IsDefined: a game checks this every frame for every light, and that allocates.
-        if (mode < LightMode.Mixed || mode > LightMode.Baked)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(mode),
-                (int)mode,
-                $"A light's mode must be Mixed, Realtime or Baked, but it was {(int)mode}.");
-        }
-    }
-
-    private void CheckLight(Vector3 position, Vector3 color, float range, float radius, float volumetric, LightMode mode)
-    {
-        CheckMode(mode);
-
-        if (_lights.Count >= LocalLight.MaxPerFrame)
-        {
-            throw new InvalidOperationException(
-                $"A frame can have at most {LocalLight.MaxPerFrame} point and spot lights. Leave out those too far away to see.");
-        }
-
-        if (!(range > 0f) || !float.IsFinite(range))
-        {
-            throw new ArgumentOutOfRangeException(nameof(range), range, "A light's range must be more than 0 metres.");
-        }
-
-        if (!(radius > 0f && radius < range))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(radius), radius, "A light's radius must be more than 0 metres and less than its range.");
-        }
-
-        if (!float.IsFinite(position.X + position.Y + position.Z))
-        {
-            throw new ArgumentException($"A light can't be at {position}.", nameof(position));
-        }
-
-        if (!(volumetric >= 0f) || !float.IsFinite(volumetric))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(volumetric), volumetric, "A light's volumetric strength must be 0 or more, and 0 leaves it out of the fog.");
-        }
-
-        if (!(color.X >= 0f && color.Y >= 0f && color.Z >= 0f) || !float.IsFinite(color.X + color.Y + color.Z))
-        {
-            throw new ArgumentException($"A light's color can't be negative, but it was {color}.", nameof(color));
-        }
-    }
-
-    /// <summary>
     /// Draws a model. The key names it across frames, so use a stable ID from your game.
     /// A color tints the model, as red, green and blue from 0 to 1. It multiplies the
     /// model's own colors and keeps its textures, and costs nothing extra, so every copy
-    /// of a model can have its own. The cube is white under a color. A static draw never moves,
-    /// so baked lighting can hold it; see "Static draws" in docs/views.md.
+    /// of a model can have its own. The cube is white under a color. For more, such as a swim, some meshes only, a
+    /// static draw or a fade, pass <see cref="ModelOptions"/>.
     /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color = null, bool isStatic = false, DistanceFade? fade = null) =>
-        Model(key, model, transform, color, default, null, null, isStatic, fade);
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color = null) =>
+        Model(key, model, transform, null, new ModelOptions { Color = color });
 
-    /// <summary>Draws some meshes of a model, or all of them when the mask is null, perhaps static.</summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, MeshMask? meshes, bool isStatic = false) =>
-        Model(key, model, transform, color, default, null, meshes, isStatic);
+    /// <summary>Draws a model with a color, a swim, some meshes only, as a static draw or fading out, as the options say.</summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, in ModelOptions options) =>
+        Model(key, model, transform, null, options);
 
     /// <summary>
-    /// Draws a model that bends as it swims. Its head must face +z. Like a color, this
-    /// costs nothing extra, so every fish can have its own.
+    /// Draws an animated character in its current pose, with any options but a static draw. The animator's rig must
+    /// come from <see cref="Content.Rig"/>, which knows the model; otherwise pass the model and
+    /// <see cref="Animator.Pose"/> instead. The skeleton is skinned once for the draw, even when the options show only
+    /// some meshes.
     /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, SwimMotion swim) =>
-        Model(key, model, transform, null, swim);
-
-    /// <summary>Draws a model with both a color and a swimming motion.</summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim) =>
-        Model(key, model, transform, color, swim, null);
-
-    /// <summary>
-    /// Draws only some meshes of a model, the ones <see cref="Content.Meshes"/> picked for
-    /// the mask. Meshes it leaves out are not drawn, and cost no triangles. The mask must have
-    /// been made for this model.
-    /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, MeshMask meshes, Vector3? color = null) =>
-        Model(key, model, transform, color, default, null, meshes);
-
-    /// <summary>
-    /// Draws some meshes of a rigged model in a pose, as <see cref="Model(int, ModelRef, Matrix4x4, AnimationPose, Vector3?)"/>
-    /// does, but only the meshes the mask shows. The whole skeleton is still skinned once.
-    /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, AnimationPose pose, MeshMask meshes, Vector3? color = null) =>
-        Model(key, model, transform, color, default, pose, meshes);
-
-    /// <summary>
-    /// Draws a rigged model in a pose from an <see cref="Animator"/>. The model must have
-    /// been cooked with a skeleton, and the pose's rig must be the model's own. Clips
-    /// keep moving between ticks, like <see cref="Smooth"/> does for transforms.
-    /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, AnimationPose pose, Vector3? color = null) =>
-        Model(key, model, transform, color, default, pose);
-
-    /// <summary>
-    /// Draws an animated character in its current pose. The animator's rig must come from
-    /// <see cref="Content.Rig"/>, which knows the model; otherwise pass the model and
-    /// <see cref="Animator.Pose"/> instead.
-    /// </summary>
-    public void Model(int key, Animator animator, Matrix4x4 transform, Vector3? color = null) =>
-        DrawAnimated(key, animator, transform, color, null);
-
-    /// <summary>
-    /// Draws an animated character in its current pose, with only the meshes the mask shows.
-    /// The skeleton is still skinned once for the draw, not once per part.
-    /// </summary>
-    public void Model(int key, Animator animator, Matrix4x4 transform, MeshMask meshes, Vector3? color = null) =>
-        DrawAnimated(key, animator, transform, color, meshes);
-
-    private void DrawAnimated(int key, Animator animator, Matrix4x4 transform, Vector3? color, MeshMask? meshes)
+    public void Model(int key, Animator animator, Matrix4x4 transform, in ModelOptions options = default)
     {
         if (animator.Rig.Model is not { } model)
         {
             throw new InvalidOperationException("The animator's rig wasn't read with content.Rig, so it has no model. Pass the model and the animator's Pose instead.");
         }
 
-        Model(key, model, transform, color, default, animator.Pose, meshes);
+        Model(key, model, transform, animator.Pose, options);
     }
 
-    /// <summary>Draws a model with a color, a swimming motion and a pose, any of which may be left out.</summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose) =>
-        Model(key, model, transform, color, swim, pose, null);
+    /// <summary>
+    /// Draws a model in one flat colour that glows a little, as a preview of where something
+    /// will go: green where a building fits, red where it doesn't. It reads the same over
+    /// any model and in any light, since the model's own colours and textures are left out.
+    /// An opacity below 1 lets the world show through. A ghost casts no shadow. The colour
+    /// is linear, from 0 to 1. <paramref name="meshes"/>, when set, shows only the meshes it picks, such as a preview of
+    /// a unit in the look it will have; the mask must have been made for this model.
+    /// </summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Ghost ghost, MeshMask? meshes = null)
+    {
+        if (!(ghost.Opacity > 0f && ghost.Opacity <= 1f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(ghost), ghost.Opacity, "A ghost's opacity must be more than 0 and at most 1.");
+        }
+
+        ModelOptions.CheckMeshes(meshes, model, nameof(meshes));
+        Model(key, model, transform, null, new ModelOptions { Meshes = meshes });
+        _models[^1] = _models[^1] with { Ghost = ghost };
+    }
 
     /// <summary>
-    /// The full draw: a color, a swimming motion, a pose and the meshes to show, any of which
-    /// may be left out, and a <paramref name="fade"/> that fades it out with distance, winning over its surfaces'
-    /// <see cref="Surface.FadeDistance"/>. Throws if the mask was made for another model, if a static draw
-    /// swims or has a pose, since a bake holds it where it stands, or for a fade that ends before it starts.
+    /// Draws a model in a pose, such as a rigged model in a pose from an <see cref="Animator"/>, with options. The
+    /// model must have been cooked with a skeleton, and the pose's rig must be the model's own. Clips keep moving
+    /// between ticks, like <see cref="Smooth"/> does for transforms. A null pose draws the model as it stands. Throws
+    /// if the mask was made for another model, if a static draw swims or has a pose, since a bake holds it where it
+    /// stands, or for a fade that ends before it starts.
     /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose, MeshMask? meshes, bool isStatic = false,
-        DistanceFade? fade = null)
+    public void Model(int key, ModelRef model, Matrix4x4 transform, AnimationPose? pose, in ModelOptions options = default)
     {
-        if (fade is { } fading && DistanceFade.Problem(fading) is { } problem)
-        {
-            throw new ArgumentException($"Model {key}'s {problem}", nameof(fade));
-        }
-
-        if (isStatic)
-        {
-            CheckStatic(key, swim, pose);
-        }
+        options.Check(key, pose is not null, nameof(options));
 
         if (model.Index < -Shapes.BuiltInNames.Length)
         {
@@ -481,644 +130,13 @@ public sealed class View
             throw new InvalidOperationException($"Model {model.Index} was unloaded, so it can't be drawn.");
         }
 
-        if (meshes is { } mask && mask.Model != model.Index)
-        {
-            throw new ArgumentException($"The mesh mask was made for model {mask.Model}, not model {model.Index}. Make it with Content.Meshes for this model.", nameof(meshes));
-        }
+        ModelOptions.CheckMeshes(options.Meshes, model, nameof(options));
 
         // So the animator's clip sounds play where the model stands.
         pose?.Drawn = transform;
-        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale, null, meshes, isStatic, fade));
+        _models.Add(new ModelDraw(
+            key, model, transform, options.Color, options.Swim, pose, pose is null ? 0f : _clock.PoseAhead, null, options.Meshes, options.Static, options.Fade));
     }
-
-    // A bake holds a static draw where it stands, so it can't swim or take a pose.
-    private static void CheckStatic(int key, SwimMotion swim, AnimationPose? pose)
-    {
-        if (swim.Amplitude != 0f)
-        {
-            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
-                $"Model {key} is static, so it can't swim, but its swim has amplitude {swim.Amplitude}. Draw it without isStatic, or without the swim."),
-                nameof(swim));
-        }
-
-        if (pose is not null)
-        {
-            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
-                $"Model {key} is static, so it can't move in a pose. Draw it without isStatic, or without the pose."),
-                nameof(pose));
-        }
-    }
-
-    /// <summary>
-    /// Draws a model in one flat colour that glows a little, as a preview of where something
-    /// will go: green where a building fits, red where it doesn't. It reads the same over
-    /// any model and in any light, since the model's own colours and textures are left out.
-    /// An opacity below 1 lets the world show through. A ghost casts no shadow. The colour
-    /// is linear, from 0 to 1.
-    /// </summary>
-    public void Ghost(int key, ModelRef model, Matrix4x4 transform, Vector3 color, float opacity = 1f) =>
-        Ghost(key, model, transform, null, color, opacity);
-
-    /// <summary>
-    /// Draws only the meshes a <see cref="MeshMask"/> shows as a ghost, such as a preview of a
-    /// unit in the look it will have. The mask must have been made for this model.
-    /// </summary>
-    public void Ghost(int key, ModelRef model, Matrix4x4 transform, MeshMask? meshes, Vector3 color, float opacity = 1f)
-    {
-        if (!(opacity > 0f && opacity <= 1f))
-        {
-            throw new ArgumentOutOfRangeException(nameof(opacity), opacity, "A ghost's opacity must be more than 0 and at most 1.");
-        }
-
-        Model(key, model, transform, null, default, null, meshes);
-        _models[^1] = _models[^1] with { Ghost = new Ghost(color, opacity) };
-    }
-
-    /// <summary>
-    /// Draws a particle effect, such as dust or smoke, at a place in the world. A
-    /// <see cref="ParticleEmitter"/> can be passed on its own.
-    /// The age is how many seconds ago it started, usually
-    /// <c>view.SecondsSince(startTick)</c>; each particle is worked out from the age and
-    /// the key alone, so the same key and age always look the same, paused, loaded or
-    /// recorded. Use a different key for each burst so they don't look alike. Before the
-    /// age is 0 or after <see cref="ParticleEffect.Duration"/> nothing is drawn.
-    /// </summary>
-    public void Particles(int key, ParticleEffect effect, Vector3 position, float age) =>
-        Particles(key, effect, Matrix4x4.CreateTranslation(position), age);
-
-    /// <summary>
-    /// Draws a burst of particles moved, turned and stretched by a transform. The spawn
-    /// shape and speeds go through it; gravity and sizes stay in the world.
-    /// </summary>
-    public void Particles(int key, ParticleEffect effect, Matrix4x4 transform, float age)
-    {
-        ArgumentNullException.ThrowIfNull(effect);
-        effect.Emit(key, age, transform, _particles);
-    }
-
-    /// <summary>
-    /// Draws a burst of particles laid along a line, such as dust where a fallen tree hit
-    /// the ground. The effect's x axis runs from one end to the other, scaled so a
-    /// <see cref="ParticleSpawning.FromLine"/> one metre long covers it exactly, and its y
-    /// axis stays upward. Speeds and sizes keep their size, and an emitter's offset of
-    /// -0.5 on x is the start of the line and 0.5 the end.
-    /// </summary>
-    public void Particles(int key, ParticleEffect effect, Vector3 from, Vector3 to, float age)
-    {
-        var along = to - from;
-        float length = along.Length();
-        if (length < 1e-4f)
-        {
-            Particles(key, effect, (from + to) * 0.5f, age);
-            return;
-        }
-
-        var x = along / length;
-        var up = MathF.Abs(x.Y) > 0.99f ? Vector3.UnitX : Vector3.UnitY;
-        var z = Vector3.Normalize(Vector3.Cross(x, up));
-        var y = Vector3.Cross(z, x);
-        var middle = (from + to) * 0.5f;
-        var transform = new Matrix4x4(
-            x.X, x.Y, x.Z, 0f,
-            y.X, y.Y, y.Z, 0f,
-            z.X, z.Y, z.Z, 0f,
-            middle.X, middle.Y, middle.Z, 1f);
-        ArgumentNullException.ThrowIfNull(effect);
-        effect.Emit(key, age, transform, _particles, length);
-    }
-
-    // How far a sky image's exposure goes either way, in stops; past it the image's half floats overflow or vanish.
-    private const float MaxSkyExposure = 20f;
-
-    /// <summary>
-    /// Sets the sky: a gradient from the ground up through the horizon to straight up, and
-    /// haze and fog that set distant things back in it, or a physical or photographed sky in its place. Without one
-    /// the world sits in a plain grey studio. Water, when set, takes over the sky.
-    /// </summary>
-    public void Sky(in SkySettings settings)
-    {
-        if (settings.Brightness < 0f)
-        {
-            throw new ArgumentOutOfRangeException(nameof(settings), settings.Brightness, "The sky's brightness can't be negative.");
-        }
-
-        if (settings.HazeStart < 0f || settings.HazeEnd < settings.HazeStart)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(settings),
-                $"The haze must start at zero or further and end no nearer than it starts, but it runs from {settings.HazeStart} to {settings.HazeEnd} metres.");
-        }
-
-        float turbidity = settings.Turbidity;
-        if (!(turbidity == 0f || turbidity is >= Super.SkySettings.MinTurbidity and <= Super.SkySettings.MaxTurbidity))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(settings),
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"The sky's turbidity must be 0 for the gradient sky, or from {Super.SkySettings.MinTurbidity} to {Super.SkySettings.MaxTurbidity} for a clear one, but it is {turbidity}."));
-        }
-
-        if (!(float.IsFinite(settings.Moon.X) && float.IsFinite(settings.Moon.Y) && float.IsFinite(settings.Moon.Z))
-            || !float.IsFinite(settings.StarRotation))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(settings),
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"The moon's direction and the stars' rotation must be numbers, but they are {settings.Moon} and {settings.StarRotation}."));
-        }
-
-        if (!float.IsFinite(settings.Rotation) || !(settings.Exposure is >= -MaxSkyExposure and <= MaxSkyExposure))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(settings),
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"The sky image's rotation must be a number and its exposure from {-MaxSkyExposure} to {MaxSkyExposure} stops, but they are {settings.Rotation} and {settings.Exposure}."));
-        }
-
-        RefuseBadFog(settings.Fog, nameof(settings));
-        SkySettings = settings;
-    }
-
-    private static void RefuseBadFog(in FogSettings fog, string paramName)
-    {
-        RefuseBelowZero(fog.Density, "density", "per metre");
-        RefuseBelowZero(fog.Falloff, "falloff", "per metre, and 0 is fog of one density at every height");
-        RefuseBelowZero(fog.SunScatter, "sun scatter", "and 0 gives no glow towards the sun");
-        if (!float.IsFinite(fog.Height))
-        {
-            throw new ArgumentOutOfRangeException(
-                paramName,
-                string.Create(CultureInfo.InvariantCulture, $"The fog's height must be a number of metres, but it is {fog.Height}."));
-        }
-
-        if (!(MathF.Abs(fog.Anisotropy) <= FogSettings.MaxAnisotropy))
-        {
-            throw new ArgumentOutOfRangeException(
-                paramName,
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"The fog's anisotropy must be from -0.9 to 0.9, where 0 scatters light evenly and more scatters it onwards, but it is {fog.Anisotropy}."));
-        }
-
-        RefuseBelowZero(fog.VolumetricDistance, "volumetric distance", "in metres, and 0 is the plain fog only");
-
-        void RefuseBelowZero(float value, string name, string unit)
-        {
-            if (!(float.IsFinite(value) && value >= 0f))
-            {
-                throw new ArgumentOutOfRangeException(
-                    paramName,
-                    string.Create(CultureInfo.InvariantCulture, $"The fog's {name} must be 0 or more, {unit}, but it is {value}."));
-            }
-        }
-    }
-
-    /// <summary>Puts the whole view underwater.</summary>
-    public void Water(in UnderwaterSettings settings) => WaterSettings = settings;
-
-    /// <summary>
-    /// Lets water stand at <paramref name="level"/>, a height in metres, on every surface whose material asks for
-    /// puddles. Whatever lies below it, counting the material's height map so hollows fill first, turns into a rippled
-    /// mirror that darkens as it deepens, and for <paramref name="band"/> metres above it the surface is damp: darker
-    /// and smoother at the waterline, dry at the band's top. <see cref="Graphics.Puddles"/> turns it off. See
-    /// docs/rendering.md.
-    /// </summary>
-    public void Puddles(float level, float band = Rendition.PuddleSettings.DefaultBand)
-    {
-        if (!float.IsFinite(level))
-        {
-            throw new ArgumentOutOfRangeException(nameof(level), level, "The water level must be a height in metres.");
-        }
-
-        if (!(float.IsFinite(band) && band >= 0f))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(band), band, "The damp band above the water must be 0 or more metres, and 0 leaves no damp band.");
-        }
-
-        PuddleSettings = new PuddleSettings(level, band);
-    }
-
-    /// <summary>
-    /// Lets the wind blow along the ground towards <paramref name="direction"/>, swaying every surface whose material
-    /// asks for it, and its shadow with it. <paramref name="strength"/> is how far, in metres, it leans the tip of grass
-    /// 1 m tall at a gust's peak: 0.1 is a breeze, 0.35 a fresh wind and 1 a gale. Gusts roll across the ground
-    /// downwind; <paramref name="gustiness"/> runs from 0 for a steady wind to 1 for one that drops to a fifth of its
-    /// strength between them. <see cref="Graphics.Wind"/> turns it off. See docs/rendering.md.
-    /// </summary>
-    public void Wind(Vector3 direction, float strength, float gustiness = Rendition.WindSettings.DefaultGustiness)
-    {
-        if (!(float.IsFinite(direction.X) && float.IsFinite(direction.Y) && float.IsFinite(direction.Z)))
-        {
-            throw new ArgumentOutOfRangeException(nameof(direction), direction, "The wind's direction must be finite.");
-        }
-
-        if (!(float.IsFinite(strength) && strength >= 0f))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(strength), strength, "The wind's strength must be 0 or more metres, and 0 is a calm.");
-        }
-
-        if (strength > 0f && direction.X * direction.X + direction.Z * direction.Z < 1e-12f)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(direction), direction, "The wind must blow along the ground, so its direction needs some x or z.");
-        }
-
-        if (!(gustiness is >= 0f and <= 1f))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(gustiness), gustiness, "The wind's gustiness must be from 0 for steady to 1 for gusty.");
-        }
-
-        WindSettings = new WindSettings(direction, strength, gustiness);
-    }
-
-    /// <summary>Sets the look of the finished picture.</summary>
-    public void Finish(in PostSettings settings)
-    {
-        float speed = settings.AdaptationSpeed;
-        if (!(float.IsFinite(speed) && speed >= 0f))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(settings),
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"The adaptation speed must be above 0 stops a second, or 0 for the default of 2, but it is {speed}."));
-        }
-
-        RefuseOutsideOne(settings.Temperature, "temperature");
-        RefuseOutsideOne(settings.Tint, "tint");
-        ThinLens.Check(
-            settings.FocusDistance, settings.Aperture, ThinLens.FocalLength(settings.FocalLength), nameof(settings));
-        Post = settings;
-
-        static void RefuseOutsideOne(float value, string name)
-        {
-            if (!(value is >= -1f and <= 1f))
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(settings),
-                    string.Create(CultureInfo.InvariantCulture, $"The white balance {name} must be from -1 to 1, with 0 for no change, but it is {value}."));
-            }
-        }
-    }
-
-    /// <summary>
-    /// Sets how far around the camera's target the sharpest shadows reach, in metres,
-    /// and how many maps to draw, 1 to 4. Each map covers three times the radius of the
-    /// one before, so a wide world keeps sharp shadows near the camera.
-    /// <paramref name="sunSize"/> is how wide the sun looks, in radians, which sets how fast
-    /// its shadows blur with distance from what casts them: 0 is hard, the real sun is about
-    /// 0.01, and the default of 0.12 is a soft, hazy sun.
-    /// <paramref name="contact"/> is how far, in metres, each pixel looks towards the sun on screen
-    /// for something touching it, which darkens the last centimetres where things meet the ground
-    /// that the maps are too coarse to see. It works only inside the first map's radius; 0 turns it off.
-    /// </summary>
-    public void Shadows(float radius, int cascades = 1, float sunSize = DefaultSunSize, float contact = ShadowSettings.DefaultContactLength)
-    {
-        if (!(radius > 0f))
-        {
-            throw new ArgumentOutOfRangeException(nameof(radius), radius, "The shadow radius must be more than zero.");
-        }
-
-        if (cascades is < 1 or > 4)
-        {
-            throw new ArgumentOutOfRangeException(nameof(cascades), cascades, "There can be 1 to 4 shadow cascades.");
-        }
-
-        if (!(sunSize is >= 0f and <= MaxSunSize))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(sunSize), sunSize, $"The sun's size must be from 0 to {MaxSunSize.ToString(CultureInfo.InvariantCulture)} radians.");
-        }
-
-        if (!(float.IsFinite(contact) && contact >= 0f))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(contact), contact, "The contact shadows' length must be 0 or more metres, and 0 turns them off.");
-        }
-
-        ShadowRadius = radius;
-        ShadowCascades = cascades;
-        SunSize = sunSize;
-        ShadowContact = contact;
-    }
-
-    /// <summary>
-    /// Sets how nearby surfaces darken the soft light from the sky in corners, creases and under
-    /// things. <paramref name="radius"/> is how far, in metres, a point looks for surfaces that hide
-    /// the sky from it; <paramref name="strength"/>, from 0 to 1, is how dark they make it. The
-    /// defaults suit rooms and streets seen from head height.
-    /// </summary>
-    public void AmbientOcclusion(float radius = OcclusionSettings.DefaultRadius, float strength = OcclusionSettings.DefaultStrength)
-    {
-        if (!(radius > 0f))
-        {
-            throw new ArgumentOutOfRangeException(nameof(radius), radius, "The ambient occlusion radius must be more than zero.");
-        }
-
-        if (!(strength is >= 0f and <= 1f))
-        {
-            throw new ArgumentOutOfRangeException(nameof(strength), strength, "The ambient occlusion strength must be from 0 to 1.");
-        }
-
-        Occlusion = new OcclusionSettings(radius, strength);
-    }
-
-    /// <summary>
-    /// Sets the light bounced from the surfaces on screen, which lets a sunlit floor tint the wall beside it and a
-    /// glowing sign light the bricks round it. <paramref name="strength"/>, from 0 to 2, scales it, where 1 is the
-    /// true amount and 0 turns it off for this view; <paramref name="radius"/>, from more than 0 up to 8, is how far,
-    /// in metres, a point looks for surfaces that light it. Without a call it is 1 and 2 metres.
-    /// </summary>
-    public void ScreenBounce(float strength = BounceSettings.DefaultStrength, float radius = BounceSettings.DefaultRadius)
-    {
-        if (!(strength is >= 0f and <= BounceSettings.MostStrength))
-        {
-            throw new ArgumentOutOfRangeException(nameof(strength), strength, "The screen bounce strength must be from 0 to 2.");
-        }
-
-        if (!(radius is > 0f and <= BounceSettings.MostRadius))
-        {
-            throw new ArgumentOutOfRangeException(nameof(radius), radius, "The screen bounce radius must be more than 0 and at most 8 metres.");
-        }
-
-        Bounce = new BounceSettings(strength, radius);
-    }
-
-    /// <summary>
-    /// Sets the ink lines drawn round surfaces with <see cref="SurfaceFeatures.Outline"/>: their linear colour, black when null,
-    /// how many pixels of the picture wide they are, from 0 for none to <see cref="OutlineSettings.MostThickness"/>, and
-    /// the distances in metres over which they fade out. Without a call they're black, 1.5 pixels wide and fade from
-    /// 30 to 60 metres.
-    /// </summary>
-    public void Outlines(
-        Vector3? color = null,
-        float thickness = OutlineSettings.DefaultThickness,
-        float fadeStart = OutlineSettings.DefaultFadeStart,
-        float fadeEnd = OutlineSettings.DefaultFadeEnd)
-    {
-        var settings = new OutlineSettings(color ?? Vector3.Zero, thickness, fadeStart, fadeEnd);
-        if (settings.Problem() is { } problem)
-        {
-            throw new ArgumentException(problem);
-        }
-
-        OutlineSettings = settings;
-    }
-
-    /// <summary>
-    /// Fills the box from <paramref name="min"/> to <paramref name="max"/> with light probes
-    /// <paramref name="spacing"/> metres apart, which give the surfaces inside the light bounced
-    /// off the walls, floor and everything else around them, in place of the sky's. A probe
-    /// keeps track of how far it sees in each direction, so light doesn't leak through walls. The
-    /// probes are drawn again over the next frames whenever the sun, the sky or the box changes.
-    /// At most <see cref="ProbeGrid.MaxProbes"/> fit. See docs/rendering.md.
-    /// </summary>
-    public void LightProbes(Vector3 min, Vector3 max, float spacing)
-    {
-        if (!(float.IsFinite(spacing) && spacing > 0f))
-        {
-            throw new ArgumentOutOfRangeException(nameof(spacing), spacing, "The light probes' spacing must be more than 0 metres.");
-        }
-
-        for (int axis = 0; axis < 3; axis++)
-        {
-            if (!(float.IsFinite(min[axis]) && float.IsFinite(max[axis]) && max[axis] > min[axis]))
-            {
-                string name = axis == 0 ? "x" : axis == 1 ? "y" : "z";
-                throw new ArgumentException(
-                    $"The light probes' box must reach further along {name} than it starts, but it runs from {min[axis].ToString(CultureInfo.InvariantCulture)} to {max[axis].ToString(CultureInfo.InvariantCulture)}.",
-                    nameof(max));
-            }
-        }
-
-        var settings = new ProbeVolumeSettings(min, max, spacing);
-        long total = ProbeGrid.Total(settings);
-        if (total > ProbeGrid.MaxProbes)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(spacing), spacing,
-                $"The box holds {total.ToString(CultureInfo.InvariantCulture)} light probes at this spacing, but at most {ProbeGrid.MaxProbes.ToString(CultureInfo.InvariantCulture)} fit. Space them further apart or make the box smaller.");
-        }
-
-        LightProbeVolume = settings;
-    }
-
-    /// <summary>
-    /// Names the one fixed place this frame whose lighting is baked as it stands, sun included: the box from
-    /// <paramref name="min"/> to <paramref name="max"/>, holding baked probes <paramref name="probeSpacing"/> metres
-    /// apart, at most <see cref="BakeFiles.MaxSpaceProbes"/>, with lightmaps of <paramref name="texelsPerMetre"/>
-    /// texels for each metre of surface. Its bake is <c>lighting/&lt;name&gt;.lightbake</c>, made with
-    /// <c>--bake</c>, and a bake made at another density is stale. A second space in one frame throws. While the bake
-    /// is fresh, its lightmaps light the draws it holds in place of its <c>Baked</c> lights, which are no longer drawn
-    /// live, its shadow mask shadows its <c>Mixed</c> lights, and its probes light other draws inside the box. A
-    /// missing, stale or unreadable bake leaves the space lit live. See docs/rendering.md.
-    /// </summary>
-    public void BakedLighting(
-        string name, Vector3 min, Vector3 max, float probeSpacing,
-        int texelsPerMetre = BakeSettings.DefaultTexelsPerMetre)
-    {
-        BakeFiles.CheckName(name);
-        if (BakedSpace is { } named)
-        {
-            throw new InvalidOperationException(
-                $"The baked space \"{named.Name}\" was already named this frame, so \"{name}\" can't be. A frame has at most one baked space.");
-        }
-
-        CheckTexelsPerMetre("baked space", texelsPerMetre);
-
-        if (!(float.IsFinite(probeSpacing) && probeSpacing > 0f))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(probeSpacing), probeSpacing, "The baked space's probe spacing must be more than 0 metres.");
-        }
-
-        CheckBox("baked space", min, max);
-        long total = ProbeGrid.Total(new ProbeVolumeSettings(min, max, probeSpacing));
-        if (total > BakeFiles.MaxSpaceProbes)
-        {
-            throw new ArgumentException(
-                $"The baked space \"{name}\" holds {total.ToString(CultureInfo.InvariantCulture)} probes at this spacing, but at most {BakeFiles.MaxSpaceProbes.ToString(CultureInfo.InvariantCulture)} fit. Space them further apart or make the box smaller.",
-                nameof(probeSpacing));
-        }
-
-        BakedSpace = new BakedSpace(name, min, max, probeSpacing, texelsPerMetre);
-    }
-
-    /// <summary>
-    /// Places a piece of the world that is baked once in its own space: <paramref name="transform"/> places it and
-    /// may only turn and move it, and <paramref name="min"/> to <paramref name="max"/> is its box in its own space.
-    /// Its lightmaps have <paramref name="texelsPerMetre"/> texels for each metre of surface. The same name may be
-    /// placed many times, and every copy with the same contents shares one bake. At most
-    /// <see cref="BakeFiles.MaxChunks"/> a frame. With no fresh bake the chunk is lit live. The bake's light blends into
-    /// the live light over <paramref name="edgeBlend"/> metres in from the box's four sides, its own ±x and ±z, so it
-    /// meets what stands beside it without a step: 0 for a hard edge, and at most half the box's smaller side across x
-    /// and z. See docs/rendering.md.
-    /// </summary>
-    public void BakedChunk(
-        string name, Matrix4x4 transform, Vector3 min, Vector3 max,
-        int texelsPerMetre = BakeSettings.DefaultTexelsPerMetre, float edgeBlend = global::Rendition.BakedChunk.DefaultEdgeBlend)
-    {
-        BakeFiles.CheckName(name);
-        if (_bakedChunks.Count == BakeFiles.MaxChunks)
-        {
-            throw new InvalidOperationException(
-                $"At most {BakeFiles.MaxChunks.ToString(CultureInfo.InvariantCulture)} baked chunks fit in a frame.");
-        }
-
-        BakeFiles.CheckChunkTransform(_bakedChunks.Count, name, transform, nameof(transform));
-        CheckBox("baked chunk", min, max);
-        CheckTexelsPerMetre("baked chunk", texelsPerMetre);
-        BakeFiles.CheckEdgeBlend(name, edgeBlend, min, max, nameof(edgeBlend));
-        _bakedChunks.Add(new BakedChunk(name, transform, min, max, texelsPerMetre, edgeBlend));
-    }
-
-    private static void CheckTexelsPerMetre(string what, int texelsPerMetre)
-    {
-        if (texelsPerMetre < BakeSettings.MinTexelsPerMetre || texelsPerMetre > BakeSettings.MaxTexelsPerMetre)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(texelsPerMetre), texelsPerMetre,
-                $"The {what}'s lightmap density must be {BakeSettings.MinTexelsPerMetre.ToString(CultureInfo.InvariantCulture)} to {BakeSettings.MaxTexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, not {texelsPerMetre.ToString(CultureInfo.InvariantCulture)}.");
-        }
-    }
-
-    private static void CheckBox(string what, Vector3 min, Vector3 max, string maxName = "max")
-    {
-        for (int axis = 0; axis < 3; axis++)
-        {
-            if (!(float.IsFinite(min[axis]) && float.IsFinite(max[axis]) && max[axis] > min[axis]))
-            {
-                string name = axis == 0 ? "x" : axis == 1 ? "y" : "z";
-                throw new ArgumentException(
-                    $"The {what}'s box must reach further along {name} than it starts, but it runs from {min[axis].ToString(CultureInfo.InvariantCulture)} to {max[axis].ToString(CultureInfo.InvariantCulture)}.",
-                    maxName);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Places a reflection probe: a photograph of the scene in every direction from
-    /// <paramref name="position"/>, which shiny surfaces and glass inside the box from
-    /// <paramref name="boxMin"/> to <paramref name="boxMax"/> reflect in place of the sky. The box
-    /// should match the room or yard round it, since a reflection is bent to land on its walls.
-    /// Towards the box's sides the probe fades out over <paramref name="blend"/> metres. Where
-    /// boxes overlap, the probe with the higher <paramref name="priority"/> blends first, and
-    /// between equal priorities the smaller box does. The key names it across frames, so place it
-    /// every frame. It is photographed a frame or a few after it's first placed, again whenever it
-    /// moves or its box changes, and otherwise as <paramref name="update"/> says. With
-    /// <see cref="ProbeUpdate.OnRequest"/>, change <paramref name="version"/> to ask for a new picture.
-    /// Photographs are taken during play without stopping the game, one a frame. At most
-    /// <see cref="Renderer.MaxReflectionProbes"/> fit. See docs/rendering.md.
-    /// </summary>
-    public void ReflectionProbe(
-        int key, Vector3 position, Vector3 boxMin, Vector3 boxMax, float blend = 0.5f, float priority = 0f,
-        ProbeUpdate update = ProbeUpdate.OnChange, int version = 0)
-    {
-        if (_reflectionProbes.Count == Renderer.MaxReflectionProbes)
-        {
-            throw new InvalidOperationException(
-                $"At most {Renderer.MaxReflectionProbes.ToString(CultureInfo.InvariantCulture)} reflection probes fit in a frame.");
-        }
-
-        foreach (var placed in _reflectionProbes)
-        {
-            if (placed.Key == key)
-            {
-                throw new ArgumentException(
-                    $"Reflection probe {key.ToString(CultureInfo.InvariantCulture)} was already placed this frame. Give each probe its own key.",
-                    nameof(key));
-            }
-        }
-
-        ReflectionProbeRequest.CheckSettings(blend, priority, update);
-        CheckBox("reflection probe", boxMin, boxMax, nameof(boxMax));
-        if (!(Vector3.Clamp(position, boxMin, boxMax) == position))
-        {
-            throw new ArgumentException(
-                $"The reflection probe's position {Format(position)} must be inside its box, from {Format(boxMin)} to {Format(boxMax)}.",
-                nameof(position));
-        }
-
-        _reflectionProbes.Add(new ReflectionProbeRequest(key, position, boxMin, boxMax, blend, priority, update, version));
-    }
-
-    /// <summary>
-    /// Lays a material onto whatever lies inside a box, such as a damp patch on a wall, rust under a bracket or
-    /// a puddle's dark ring, without a mesh of its own. The box is the cube from −0.5 to 0.5 moved by
-    /// <paramref name="box"/>: the material spans its X and Z, and it projects down the box's −Y onto every
-    /// surface it reaches, so the bumps under it still show. Point the box's Y out of the wall or up from the floor.
-    /// The material's colour, surface and normal textures are used, and their opacity says where it shows.
-    /// <paramref name="blend"/> says how much of each reaches the surface, the whole material when left out.
-    /// Decals are drawn in order. The key names the decal, and each one can be placed once a frame.
-    /// At most <see cref="DecalBatch.MaxDecals"/> fit. See docs/views.md.
-    /// </summary>
-    public void Decal(int key, Matrix4x4 box, Surface material, DecalBlend? blend = default)
-    {
-        ArgumentNullException.ThrowIfNull(material);
-        if (_decals.Count == DecalBatch.MaxDecals)
-        {
-            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
-                $"At most {DecalBatch.MaxDecals} decals fit in a frame."));
-        }
-
-        if (_decalKeys.Contains(key))
-        {
-            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
-                $"Decal {key} was already placed this frame. Give each decal its own key."), nameof(key));
-        }
-
-        var weights = blend ?? new DecalBlend();
-        DecalBatch.Check(box, weights);
-        if (material.Shader is not null)
-        {
-            throw new ArgumentException(
-                "A decal can't use a surface shader. Give it a surface made of textures, such as a material graph's.", nameof(material));
-        }
-
-        Content?.RequireSurface(material);
-        _decalKeys.Add(key);
-        _decals.Add(new DecalRequest(key, box, material, weights));
-    }
-
-    /// <summary>
-    /// Fills a shape with fog of its own for this frame, such as mist pooled in a room, steam over a pool or the
-    /// haze in a lamp's beam, lit by the sun and the lights like the scene's fog. The shape is the unit
-    /// <paramref name="shape"/> moved by <paramref name="transform"/>, and <paramref name="settings"/> says how thick
-    /// and what colour it is. It shows only while the volumetric fog is on. The key names the volume, and each one can
-    /// be placed once a frame. At most <see cref="FogVolumeBatch.MaxVolumes"/> fit. See docs/views.md.
-    /// </summary>
-    public void FogVolume(int key, FogShape shape, Matrix4x4 transform, in FogVolumeSettings settings)
-    {
-        if (_fogVolumes.Count == FogVolumeBatch.MaxVolumes)
-        {
-            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
-                $"At most {FogVolumeBatch.MaxVolumes} fog volumes fit in a frame."));
-        }
-
-        if (_fogVolumeKeys.Contains(key))
-        {
-            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
-                $"Fog volume {key} was already placed this frame. Give each fog volume its own key."), nameof(key));
-        }
-
-        FogVolumeBatch.Check(shape, transform, settings);
-        _fogVolumeKeys.Add(key);
-        _fogVolumes.Add(new FogVolumeDraw(shape, transform, settings));
-    }
-
-    private static string Format(Vector3 value) => value.ToString(null, CultureInfo.InvariantCulture);
-
-    /// <summary>How wide the sun looks, in radians, unless <see cref="Shadows"/> says otherwise.</summary>
-    public const float DefaultSunSize = 0.12f;
-
-    /// <summary>The widest a sun can look, in radians. Wider would blur shadows away.</summary>
-    public const float MaxSunSize = 0.5f;
 
     /// <summary>
     /// Blends between a thing's transform on the last two ticks, which keeps motion
@@ -1139,8 +157,8 @@ public sealed class View
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0)
     {
-        double now = Now;
-        ref var motion = ref _memory.Motions.Touch(new MemorySite(key, file, line), _frame, out bool isNew);
+        double now = _clock.Now;
+        ref var motion = ref _memory.Motions.Touch(new MemorySite(key, file, line), _clock.FrameCount, out bool isNew);
         if (isNew)
         {
             motion = new ViewMotion(target, target, now, seconds);
@@ -1163,7 +181,7 @@ public sealed class View
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0)
     {
-        ref var last = ref _memory.Kind<T>().Touch(new MemorySite(key, file, line), _frame, out bool isNew);
+        ref var last = ref _memory.Kind<T>().Touch(new MemorySite(key, file, line), _clock.FrameCount, out bool isNew);
         bool changed = !isNew && !EqualityComparer<T>.Default.Equals(last, value);
         last = value;
         return changed;
@@ -1173,7 +191,7 @@ public sealed class View
     /// How long ago something happened, given the <see cref="GameTime.Tick"/> your Update
     /// saved at that moment. It's worked out from game time, so it needs no memory.
     /// </summary>
-    public float SecondsSince(long tick) => MathF.Max((_tick - 1 - tick + Blend) * _tickSeconds, 0f);
+    public float SecondsSince(long tick) => _clock.SecondsSince(tick);
 
     /// <summary>
     /// Runs a function that draws models, then replays them without calling it again until
@@ -1188,7 +206,7 @@ public sealed class View
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0)
     {
-        ref var slot = ref _memory.Recordings.Touch(new MemorySite(key, file, line), _frame, out bool isNew);
+        ref var slot = ref _memory.Recordings.Touch(new MemorySite(key, file, line), _clock.FrameCount, out bool isNew);
         var recording = slot ??= new ViewRecording();
         if (!isNew && recording.Version == version)
         {
@@ -1207,39 +225,13 @@ public sealed class View
     internal void Begin(float blend, long tick = 0, float tickSeconds = 0f, float timeScale = 1f)
     {
         // What the last frame didn't draw goes now, before this frame can touch it.
-        _memory.Forget(_frame);
-        _frame++;
-        _tick = tick;
-        _tickSeconds = tickSeconds;
-        _timeScale = timeScale;
-        Blend = blend;
+        _memory.Forget(_clock.FrameCount);
+        _clock = _clock.Next(blend, tick, tickSeconds, timeScale);
         _models.Clear();
-        _suns.Clear();
-        _particles.Clear();
-        _lights.Clear();
-        WaterSettings = default;
-        PuddleSettings = null;
-        WindSettings = null;
-        SkySettings = null;
-        Post = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
-        ShadowRadius = 8f;
-        ShadowCascades = 1;
-        SunSize = DefaultSunSize;
-        ShadowContact = ShadowSettings.DefaultContactLength;
-        Occlusion = new OcclusionSettings();
-        Bounce = new BounceSettings();
-        OutlineSettings = new OutlineSettings();
-        LightProbeVolume = null;
-        BakedSpace = null;
-        _bakedChunks.Clear();
-        _reflectionProbes.Clear();
-        _decals.Clear();
-        _decalKeys.Clear();
-        _fogVolumes.Clear();
-        _fogVolumeKeys.Clear();
-
-        // The hold stays, since changing it is what tells the renderer to keep a picture.
-        Transition = new ScreenTransition { Hold = Transition.Hold };
+        Lights.Clear();
+        Indirect.Clear();
+        Surroundings.Clear();
+        Effects.Clear();
         Camera(new Vector3(0f, 0f, 5f), Vector3.Zero);
     }
 }

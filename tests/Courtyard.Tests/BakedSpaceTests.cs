@@ -23,7 +23,7 @@ public sealed class BakedSpaceTests
 
         game.Draw(view);
 
-        var space = view.BakedSpace;
+        var space = view.Indirect.BakedSpace;
         Assert.NotNull(space);
         Assert.Equal("courtyard", space.Value.Name);
 
@@ -35,7 +35,7 @@ public sealed class BakedSpaceTests
             $"The box {space.Value.Min} to {space.Value.Max} should hold the model, {min} to {max}.");
 
         var model = view.Drawn.ToArray().Single(draw => draw.Key == 0);
-        Assert.True(model.Static, "The courtyard model is drawn without isStatic, so the bake can't hold it.");
+        Assert.True(model.Static, "The courtyard model is drawn without Static, so the bake can't hold it.");
         Assert.Equal(Matrix4x4.Identity, model.Transform);
         Assert.All(view.Drawn.ToArray(), draw => Assert.True(draw.Static, $"Draw {draw.Key} is not static."));
     }

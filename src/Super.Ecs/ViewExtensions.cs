@@ -122,7 +122,14 @@ public static class ViewExtensions
             }
 
             var swim = Swims is null ? default : SwimAt(i, blend);
-            view.Model(Entities[i].Id, model.Value, matrix, model.Color, swim, animator?.Pose, model.Meshes, IsStatic, model.Fade);
+            view.Model(Entities[i].Id, model.Value, matrix, animator?.Pose, new ModelOptions
+            {
+                Color = model.Color,
+                Swim = swim,
+                Meshes = model.Meshes,
+                Static = IsStatic,
+                Fade = model.Fade,
+            });
         }
 
         /// <summary>A Model says what to draw; without one, an animator draws its rig's own model. False when neither is there.</summary>

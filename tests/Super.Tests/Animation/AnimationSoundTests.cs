@@ -80,7 +80,7 @@ public class AnimationSoundTests
             view.Camera(Vector3.Zero, -Vector3.UnitZ);
             if (setup.Draws)
             {
-                view.Model(1, ModelRef.Sphere, Placement, null, default, Animator.Pose);
+                view.Model(1, ModelRef.Sphere, Placement, Animator.Pose);
             }
         }
     }

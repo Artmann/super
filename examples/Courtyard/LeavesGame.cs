@@ -41,16 +41,16 @@ public sealed class LeavesGame(Content content) : IGame
         view.Camera(position: new Vector3(0.1f, 0.85f, 2.4f), lookAt: new Vector3(0.1f, 0.45f, -0.3f), fieldOfView: 0.66f);
 
         // An afternoon sun from the front right, high enough to light the ground, and a clear sky to fill the shade.
-        view.Sun(direction: new Vector3(0.55f, 0.65f, 0.6f), color: new Vector3(6f, 5.7f, 5.1f));
-        view.Sky(new SkySettings
+        view.Lights.Sun(direction: new Vector3(0.55f, 0.65f, 0.6f), color: new Vector3(6f, 5.7f, 5.1f));
+        view.Surroundings.Sky(new SkySettings
         {
             Zenith = new Vector3(0.25f, 0.4f, 0.75f),
             Horizon = new Vector3(0.75f, 0.78f, 0.82f),
             Ground = new Vector3(0.2f, 0.18f, 0.15f),
             Brightness = 0.8f,
         });
-        view.Shadows(4f, 2, sunSize: 0.02f);
-        view.Wind(new Vector3(0.6f, 0f, -0.3f), 0.2f);
+        view.Lights.Shadows(4f, 2, sunSize: 0.02f);
+        view.Surroundings.Wind(new Vector3(0.6f, 0f, -0.3f), 0.2f);
 
         view.Model(0, _ground, Matrix4x4.Identity);
         view.Model(1, _wall, Matrix4x4.CreateTranslation(0f, 0.7f, -0.65f));

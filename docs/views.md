@@ -54,28 +54,43 @@ component on its entity instead. See [Audio](audio.md).
 | --- | --- |
 | `view.Camera(position, lookAt, fieldOfView)` | A fixed camera. See [Cameras](cameras.md) for the rest |
 | `view.Camera(camera)` | A `Camera` value the game keeps |
-| `view.Sun(direction, color, shadows, mode)` | A directional light. `color` is linear and can go past 1. The first sun casts shadows unless `shadows: true` picks another. See [Light modes](rendering.md#light-modes) |
-| `view.PointLight(key, position, color, range, shadows, radius, volumetric, mode)` | A light shining every way, like a candle or a torch. See [Point and spot lights](rendering.md#point-and-spot-lights) |
-| `view.SpotLight(key, position, direction, color, range, innerAngle, outerAngle, shadows, radius, volumetric, mode)` | A light shining in a cone, like a lantern's beam |
 | `view.Model(key, model, transform, color)` | A model. `color`, if given, tints it and keeps its textures. `ModelRef.Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Plane`, `Quad` and `Torus` are [built in](rendering.md#built-in-shapes) |
-| `view.Model(key, model, transform, meshes)` | Only the meshes a `MeshMask` shows, such as a body without its helmet. See [Showing some meshes](#showing-some-meshes) |
-| `view.Model(key, model, transform, color, isStatic: true)` | A model that never moves, whose lighting will be baked. See [Static draws](#static-draws) |
-| `view.Model(key, model, transform, fade: new DistanceFade(50, 60))` | A model that fades out between 50 and 60 metres from the camera, such as grass. See [Fading with distance](rendering.md#fading-with-distance) |
-| `view.Decal(key, box, material, blend)` | Grime, damp or a stain projected onto whatever is inside a box. Up to 256 a frame. See [Decals](#decals) |
-| `view.FogVolume(key, shape, transform, settings)` | A box, ellipsoid, cylinder or cone filled with fog of its own, such as mist in a room or a lamp's beam. Up to 64 a frame. See [Fog volumes](#fog-volumes) |
-| `view.Ghost(key, model, transform, color, opacity)` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
-| `view.Shadows(radius, cascades, sunSize, contact)` | How far shadows reach, how soft they are, and how far contact shadows look where things meet the ground. See [Rendering](rendering.md#shadows) |
-| `view.AmbientOcclusion(radius, strength)` | How far corners and creases reach out to darken the soft light, and how dark. See [Rendering](rendering.md#ambient-occlusion) |
-| `view.ScreenBounce(strength, radius)` | How much light surfaces on screen pass on to the surfaces near them, and how far it reaches. See [Rendering](rendering.md#light-bounced-across-the-screen) |
-| `view.LightProbes(min, max, spacing)` | A box of light probes of your own, finer than the ones the renderer keeps round the camera, whose probes win inside it. `--debug-view probes` shows its probes and those of the finest box round the camera, not the coarser ones. See [Rendering](rendering.md#bounced-light) |
-| `view.BakedLighting(name, min, max, probeSpacing, texelsPerMetre)` | Names the one place this frame whose lighting is baked, with lightmaps of `texelsPerMetre` texels a metre (20 unless given). `--bake` bakes it, and once its bake is fresh its surfaces are lit from their lightmap, and anything moving inside it from the bake's probes before the live ones. See [Baked lighting](rendering.md#baked-lighting) |
-| `view.BakedChunk(name, transform, min, max, texelsPerMetre, edgeBlend)` | Places a piece of the world that is baked once and reused wherever it stands, each copy relit by the frame's sky and suns. Up to 256 a frame. `edgeBlend`, 0.5 metres by default, blends the chunk's light into the live light over that far in from its four sides; 0 gives a hard edge. See [Baked lighting](rendering.md#baked-lighting) |
-| `view.ReflectionProbe(key, position, boxMin, boxMax, blend, priority, update, version)` | A photograph of the scene from one spot, which shiny surfaces and glass in its box reflect, taken during play without stopping the game. Up to 64 a frame; where boxes overlap, the higher priority, then the smaller box, goes first. `update` says when it's taken again: when the light changes (the default), when `version` changes, or always. See [Rendering](rendering.md#reflections) |
-| `view.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
-| `view.Puddles(level, band)` | Lets water stand below `level` on materials that ask for puddles, damp for `band` metres above. See [Rendering](rendering.md#puddles) |
-| `view.Wind(direction, strength, gustiness)` | A breeze that sways grass and leaves on materials that ask for wind, leaning grass 1 m tall `strength` metres downwind, with gusts from 0 for steady to 1. See [Rendering](rendering.md#wind) |
-| `view.Finish(settings)` | Exposure, contrast, vignette and other [post-processing](rendering.md#the-look-of-the-picture) |
+| `view.Model(key, model, transform, new ModelOptions { Meshes = meshes })` | Only the meshes a `MeshMask` shows, such as a body without its helmet. See [Showing some meshes](#showing-some-meshes) |
+| `view.Model(key, model, transform, new ModelOptions { Color = color, Static = true })` | A model that never moves, whose lighting will be baked. See [Static draws](#static-draws) |
+| `view.Model(key, model, transform, new ModelOptions { Fade = new DistanceFade(50, 60) })` | A model that fades out between 50 and 60 metres from the camera, such as grass. See [Fading with distance](rendering.md#fading-with-distance) |
+| `view.Model(key, model, transform, new Ghost(color, opacity))` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
 | `view.Models(world)` | Every entity with a model, from [`Super.Ecs`](ecs.md#drawing-entities) |
+
+`ModelOptions` holds everything a model draw can take beyond a colour: `Color`, `Swim` for a
+`SwimMotion` that bends a fish as it swims, `Meshes`, `Static` and `Fade`. Leave out what you don't need.
+
+The rest of what a frame shows is set through four parts of the view, each with its own job:
+
+| Call | What it does |
+| --- | --- |
+| `view.Lights.Sun(direction, color, shadows, mode)` | A directional light. `color` is linear and can go past 1. The first sun casts shadows unless `shadows: true` picks another. See [Light modes](rendering.md#light-modes) |
+| `view.Lights.Point(key, new PointLight(position, color, range) { Shadows, Radius, Volumetric, Mode })` | A light shining every way, like a candle or a torch. See [Point and spot lights](rendering.md#point-and-spot-lights) |
+| `view.Lights.Spot(key, new SpotLight(position, direction, color, range) { InnerAngle, OuterAngle, ... })` | A light shining in a cone, like a lantern's beam. It takes the same `Shadows`, `Radius`, `Volumetric` and `Mode` as a point light |
+| `view.Lights.Shadows(radius, cascades, sunSize, contact)` | How far shadows reach, how soft they are, and how far contact shadows look where things meet the ground. See [Rendering](rendering.md#shadows) |
+| `view.Indirect.AmbientOcclusion(radius, strength)` | How far corners and creases reach out to darken the soft light, and how dark. See [Rendering](rendering.md#ambient-occlusion) |
+| `view.Indirect.ScreenBounce(strength, radius)` | How much light surfaces on screen pass on to the surfaces near them, and how far it reaches. See [Rendering](rendering.md#light-bounced-across-the-screen) |
+| `view.Indirect.LightProbes(min, max, spacing)` | A box of light probes of your own, finer than the ones the renderer keeps round the camera, whose probes win inside it. `--debug-view probes` shows its probes and those of the finest box round the camera, not the coarser ones. See [Rendering](rendering.md#bounced-light) |
+| `view.Indirect.BakedLighting(name, min, max, probeSpacing, texelsPerMetre)` | Names the one place this frame whose lighting is baked, with lightmaps of `texelsPerMetre` texels a metre (20 unless given). `--bake` bakes it, and once its bake is fresh its surfaces are lit from their lightmap, and anything moving inside it from the bake's probes before the live ones. See [Baked lighting](rendering.md#baked-lighting) |
+| `view.Indirect.BakedChunk(name, transform, min, max, texelsPerMetre, edgeBlend)` | Places a piece of the world that is baked once and reused wherever it stands, each copy relit by the frame's sky and suns. Up to 256 a frame. `edgeBlend`, 0.5 metres by default, blends the chunk's light into the live light over that far in from its four sides; 0 gives a hard edge. See [Baked lighting](rendering.md#baked-lighting) |
+| `view.Indirect.ReflectionProbe(key, position, boxMin, boxMax, blend, priority, update, version)` | A photograph of the scene from one spot, which shiny surfaces and glass in its box reflect, taken during play without stopping the game. Up to 64 a frame; where boxes overlap, the higher priority, then the smaller box, goes first. `update` says when it's taken again: when the light changes (the default), when `version` changes, or always. See [Rendering](rendering.md#reflections) |
+| `view.Surroundings.Sky(settings)` | The sky, its haze and fog. See [Rendering](rendering.md#the-sky) |
+| `view.Surroundings.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
+| `view.Surroundings.Puddles(level, band)` | Lets water stand below `level` on materials that ask for puddles, damp for `band` metres above. See [Rendering](rendering.md#puddles) |
+| `view.Surroundings.Wind(direction, strength, gustiness)` | A breeze that sways grass and leaves on materials that ask for wind, leaning grass 1 m tall `strength` metres downwind, with gusts from 0 for steady to 1. See [Rendering](rendering.md#wind) |
+| `view.Effects.Particles(key, effect, position, age)` | A burst of particles, such as dust or smoke. See [Particles](#particles) |
+| `view.Effects.Decal(key, box, material, blend)` | Grime, damp or a stain projected onto whatever is inside a box. Up to 256 a frame. See [Decals](#decals) |
+| `view.Effects.FogVolume(key, shape, transform, settings)` | A box, ellipsoid, cylinder or cone filled with fog of its own, such as mist in a room or a lamp's beam. Up to 64 a frame. See [Fog volumes](#fog-volumes) |
+| `view.Effects.Finish(settings)` | Exposure, contrast, vignette and other [post-processing](rendering.md#the-look-of-the-picture) |
+| `view.Effects.Outlines(color, thickness, fadeStart, fadeEnd)` | The ink lines drawn round surfaces that ask for them. See [Rendering](rendering.md#toon-shading-and-outlines) |
+
+`view.Lights` holds the suns, point and spot lights and their shadows; `view.Indirect` the light that
+bounces, live, in probes or baked; `view.Surroundings` the sky, water, puddles and wind; and `view.Effects`
+particles, decals, fog volumes and the look of the finished picture.
 
 Worlds in Super are flat: a list of things you draw, not a tree of nodes. To attach one
 thing to another, multiply their transforms:
@@ -193,12 +208,12 @@ view.Model(FoxKey, _animator, transform);
 ```
 
 To draw a pose on a model without an animator, pass the model and the pose. Both forms
-take a mesh mask too, [see below](#showing-some-meshes):
+take `ModelOptions` too, such as a mesh mask, [see below](#showing-some-meshes):
 
 ```csharp
 view.Model(FoxKey, foxModel, transform, pose);
-view.Model(FoxKey, _animator, transform, meshes);
-view.Model(FoxKey, foxModel, transform, pose, meshes);
+view.Model(FoxKey, _animator, transform, new ModelOptions { Meshes = meshes });
+view.Model(FoxKey, foxModel, transform, pose, new ModelOptions { Meshes = meshes });
 ```
 
 [Animation](animation.md) covers importing rigs, states, actions and blends.
@@ -213,7 +228,7 @@ Each draw then shows only those meshes:
 
 ```csharp
 MeshMask knight = content.Meshes(armoured, "body", "legs");
-view.Model(KnightKey, armoured, transform, knight);
+view.Model(KnightKey, armoured, transform, new ModelOptions { Meshes = knight });
 ```
 
 With entities, give the `Model` component the mask, and `view.Models(world)` draws with it:
@@ -230,18 +245,18 @@ game draws with it without allocating.
   each mask's copies apart, by the triangles they show.
 - A draw with a pose or an animator still skins the whole skeleton once, however few
   meshes it shows.
-- A ghost takes a mask too, as `view.Ghost(key, model, transform, meshes, color, opacity)`.
+- A ghost takes a mask too, as `view.Model(key, model, transform, new Ghost(color, opacity), meshes)`.
 - `run.Drawn` entries carry the mask as `Meshes`, or null for a draw that shows every
   mesh. See [Testing](testing.md).
 
 ## Static draws
 
 A model that never moves, such as a wall, a rock or a house, can be drawn static. Its
-lighting will be baked, so give it `isStatic: true`:
+lighting will be baked, so give it `Static = true`:
 
 ```csharp
-view.Model(WallKey, wall, transform, isStatic: true);
-view.Model(KnightKey, statue, transform, color, statueMeshes, isStatic: true);
+view.Model(WallKey, wall, transform, new ModelOptions { Static = true });
+view.Model(KnightKey, statue, transform, new ModelOptions { Color = color, Meshes = statueMeshes, Static = true });
 ```
 
 Until its space is baked, a static draw looks the same as any other; once the bake is fresh, it
@@ -290,7 +305,7 @@ static readonly ParticleEmitter Dust = new ParticleEmitter(count: 40, lifetime: 
 if (tree.FellAt is { } fellAt)
 {
     float age = view.SecondsSince(fellAt);
-    view.Particles(tree.Id, Dust, tree.Foot, tree.Crown, age - FallSeconds);
+    view.Effects.Particles(tree.Id, Dust, tree.Foot, tree.Crown, age - FallSeconds);
 }
 ```
 
@@ -305,9 +320,9 @@ There are three ways to place a burst:
 
 | Call | Use it for |
 | --- | --- |
-| `view.Particles(key, effect, position, age)` | A puff at one spot |
-| `view.Particles(key, effect, transform, age)` | A burst turned, tilted or stretched |
-| `view.Particles(key, effect, from, to, age)` | Dust along a line, such as where a tree lands. `FromLine()` covers it end to end |
+| `view.Effects.Particles(key, effect, position, age)` | A puff at one spot |
+| `view.Effects.Particles(key, effect, transform, age)` | A burst turned, tilted or stretched |
+| `view.Effects.Particles(key, effect, from, to, age)` | Dust along a line, such as where a tree lands. `FromLine()` covers it end to end |
 
 Spawn shapes and speeds are in the emitter's own space and follow the transform;
 gravity, wind, sizes and colours stay in the world, so dust still rises and keeps its
@@ -365,7 +380,7 @@ static readonly ParticleEffect TreeFall = new ParticleEffect()
     .Add(StumpPuff, offset: new Vector3(-0.5f, 0f, 0f))  // at the stump, straight away
     .Add(GroundDust, delay: FallSeconds);                // along the trunk when it lands
 
-view.Particles(key, TreeFall, tree.Foot, tree.Foot + direction * TrunkLength, since);
+view.Effects.Particles(key, TreeFall, tree.Foot, tree.Foot + direction * TrunkLength, since);
 ```
 
 An emitter can be drawn on its own wherever an effect can. The node calls are
@@ -390,7 +405,7 @@ allocates nothing.
 Particles are lit by the sun, the sky and point and spot lights, shaded by the sun's
 shadows, sit in the fog, fade into haze and melt softly into the ground and anything they touch. A
 glowing particle gives off its own light on top, but doesn't light what's round it: put
-a `view.PointLight` at a fire for that. They cast no shadow, and underwater
+a `view.Lights.Point` at a fire for that. They cast no shadow, and underwater
 they fade with distance but miss the shafts of light. They're sorted with
 [glass](rendering.md#glass), so a puff in front of a pane covers it and one behind is
 seen through it. `Cached` keeps only
@@ -419,7 +434,7 @@ Matrix4x4 box = new(
     0f, -0.5f, 0f, 0f,
     2f, 0.6f, -3.98f, 1f);
 
-view.Decal(DampKey, box, damp);
+view.Effects.Decal(DampKey, box, damp);
 ```
 
 The material's opacity fades the decal: a graph's `Opacity`, or the alpha of a colour
@@ -441,7 +456,7 @@ fifth of the box's depth at either end.
 
 ```csharp
 // Darkens the bricks but keeps them their own roughness.
-view.Decal(SootKey, box, soot, new DecalBlend { Roughness = 0f });
+view.Effects.Decal(SootKey, box, soot, new DecalBlend { Roughness = 0f });
 ```
 
 A surface's `Color` tints the decal's colour, so `damp with { Color = new Vector3(0.6f) }`
@@ -505,7 +520,7 @@ moved, turned and sized by the transform:
 ```csharp
 // Mist a metre deep over a cellar floor ten metres by eight.
 var mist = new FogVolumeSettings(0.4f) { Noise = 0.5f, Wind = new Vector3(0.2f, 0f, 0f) };
-view.FogVolume(CellarMistKey, FogShape.Box,
+view.Effects.FogVolume(CellarMistKey, FogShape.Box,
     Matrix4x4.CreateScale(10f, 1f, 8f) * Matrix4x4.CreateTranslation(0f, 0.5f, 0f), mist);
 ```
 

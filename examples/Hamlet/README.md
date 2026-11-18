@@ -36,7 +36,7 @@ another's: a part inside two boxes would be baked into the wrong one.
 
 ## Baked lighting
 
-Each building calls `view.BakedChunk` with its kind's name (`cottage`, `workshop`,
+Each building calls `view.Indirect.BakedChunk` with its kind's name (`cottage`, `workshop`,
 `tower` or `well`), its plan's box and its placement, at 10 texels a metre. The well and
 the tower are narrow, so their edge blend is 0.4 metres; the others keep the default
 0.5. Every part is drawn static except the glowing bulbs and coals, which brighten and
