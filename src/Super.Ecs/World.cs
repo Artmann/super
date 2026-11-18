@@ -11,7 +11,6 @@ public readonly record struct Entity(int Id, int Generation);
 public sealed class World : ITickHook, IStateHook
 {
     private readonly EntitySlots _entities = new();
-    private readonly List<Entity> _leaving = [];
     private int _iterating;
 
     /// <summary>How many entities are alive.</summary>
@@ -110,10 +109,13 @@ public sealed class World : ITickHook, IStateHook
 
     void ITickHook.BeforeUpdate() => SmoothedTransforms.Remember(this);
 
-    void IStateHook.Exited<TState>(TState state) => ScopedEntities.DestroyScopedTo(this, state, _leaving);
+    void IStateHook.Exited<TState>(TState state) => ScopedEntities.DestroyScopedTo(this, state);
 
     // Whatever was just placed for the new state should appear there, not glide from the old one.
     void IStateHook.Entered() => SmoothedTransforms.Remember(this);
+
+    /// <summary>The component type's ID, registering it the first time. Queries ask for theirs as they start.</summary>
+    internal int TypeId<T>() => Archetypes.TypeId<T>();
 
     internal void BeginIteration() => _iterating++;
 
