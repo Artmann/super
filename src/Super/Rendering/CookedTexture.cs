@@ -70,9 +70,7 @@ internal sealed record CookedTexture(int Width, int Height, TextureKind Kind, bo
 
     public static (int Width, int Height) ReadSize(byte[] bytes, string name)
     {
-        if (bytes.Length < HeaderSize
-            || BinaryPrimitives.ReadUInt32LittleEndian(bytes) != Magic
-            || BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(4)) != Version)
+        if (!HasCurrentHeader(bytes))
         {
             throw Stale(name);
         }
@@ -81,16 +79,26 @@ internal sealed record CookedTexture(int Width, int Height, TextureKind Kind, bo
         int height = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(12));
         var format = (TextureFormat)BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(21));
         int levels = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(25));
-        // Half floats are only for a lightmap straight from the baker; a cook never writes them.
-        if (width < 1 || height < 1 || !Enum.IsDefined(format) || format == TextureFormat.Rgba16f
-            || levels != (format == TextureFormat.Rgba8 ? 1 : LevelCount(width, height))
-            || Length(format, width, height, levels) != bytes.Length - HeaderSize)
+        if (!LevelsFit(width, height, format, levels, bytes.Length - HeaderSize))
         {
             throw Stale(name);
         }
 
         return (width, height);
     }
+
+    // Whether the bytes start with the magic and this version, with room for the whole header.
+    private static bool HasCurrentHeader(byte[] bytes) =>
+        bytes.Length >= HeaderSize
+        && BinaryPrimitives.ReadUInt32LittleEndian(bytes) == Magic
+        && BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(4)) == Version;
+
+    // Whether the header's size, format and level count make sense and come to exactly the bytes after the header.
+    // Half floats are only for a lightmap straight from the baker; a cook never writes them.
+    private static bool LevelsFit(int width, int height, TextureFormat format, int levels, int levelBytes) =>
+        width >= 1 && height >= 1 && Enum.IsDefined(format) && format != TextureFormat.Rgba16f
+        && levels == (format == TextureFormat.Rgba8 ? 1 : LevelCount(width, height))
+        && Length(format, width, height, levels) == levelBytes;
 
     /// <summary>
     /// The texture as the renderer takes it, with its whole mip chain: an RGBA8 one's are built
@@ -127,19 +135,24 @@ internal sealed record CookedTexture(int Width, int Height, TextureKind Kind, bo
         byte[] pixels = new byte[Width * Height * 4];
         for (int i = 0; i < colors.Length; i++)
         {
-            var color = colors[i];
-            pixels[i * 4] = color.r;
-            pixels[i * 4 + 1] = Format == TextureFormat.Bc4 ? color.r : color.g;
-            pixels[i * 4 + 2] = Format switch
-            {
-                TextureFormat.Bc4 => color.r,
-                TextureFormat.Bc5 => NormalMap ? NormalZ(color.r, color.g) : (byte)0,
-                _ => color.b,
-            };
-            pixels[i * 4 + 3] = Format == TextureFormat.Bc7 ? color.a : (byte)255;
+            WritePixel(colors[i], pixels.AsSpan(i * 4, 4));
         }
 
         return pixels;
+    }
+
+    // One decoded pixel as RGBA8: BC4's red in all three colours, a BC5 normal map's blue rebuilt, opaque but for BC7.
+    private void WritePixel(ColorRgba32 color, Span<byte> pixel)
+    {
+        pixel[0] = color.r;
+        pixel[1] = Format == TextureFormat.Bc4 ? color.r : color.g;
+        pixel[2] = Format switch
+        {
+            TextureFormat.Bc4 => color.r,
+            TextureFormat.Bc5 => NormalMap ? NormalZ(color.r, color.g) : (byte)0,
+            _ => color.b,
+        };
+        pixel[3] = Format == TextureFormat.Bc7 ? color.a : (byte)255;
     }
 
     // The third axis of a unit normal stored as bytes, from the other two.
