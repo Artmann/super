@@ -232,11 +232,7 @@ sealed class SplatterNode : Node
     public SplatterNode(Node input, SplatterStamps stamps, int? seed) : base(1, input)
     {
         (_count, _sizeMin, _sizeMax, _rotate, _mode) = stamps;
-
-        if (seed is { } s)
-        {
-            UseSeed(s);
-        }
+        UseSeed(seed);
     }
 
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
