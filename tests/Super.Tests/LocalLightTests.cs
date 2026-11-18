@@ -250,6 +250,38 @@ public class LocalLightTests
     }
 
     [Fact]
+    public void Lights_with_tiles_of_one_size_keep_their_places_in_the_atlas_when_their_order_changes()
+    {
+        // More lamps than a sort does by insertion, so an unstable sort would shuffle them. Every lamp is at almost the
+        // same distance, so all get one size, and the next frame lists them the other way round and nearest last.
+        var prepared = new LocalLights();
+        var gpu = new GpuLocalLight[LocalLight.MaxPerFrame];
+        var tiles = new GpuShadowTile[LocalLights.MaxTiles];
+        var first = Enumerable.Range(0, 40).Select(i => Point(i, Spread(i, 8f + i * 0.001f), 1.5f)).ToArray();
+        var second = Enumerable.Range(0, 40).Reverse().Select(i => Point(i, Spread(i, 8.04f - i * 0.001f), 1.5f)).ToArray();
+
+        Dictionary<int, (int X, int Y, int Size)> Places(LocalLight[] lights)
+        {
+            prepared.Prepare(lights, LookingDownZ, Perspective, Height, gpu, tiles);
+            Assert.Equal(lights.Length, prepared.LightCount);
+            var places = new Dictionary<int, (int X, int Y, int Size)>();
+            for (int light = 0; light < lights.Length; light++)
+            {
+                var tile = prepared.Tiles[(int)gpu[light].RadianceShadow.W];
+                places[lights[light].Key] = (tile.X, tile.Y, tile.Size);
+            }
+
+            return places;
+        }
+
+        var before = Places(first);
+        var after = Places(second);
+
+        Assert.Single(before.Values.Select(place => place.Size).Distinct());
+        Assert.Equal(before.OrderBy(pair => pair.Key), after.OrderBy(pair => pair.Key));
+    }
+
+    [Fact]
     public void A_light_near_the_line_between_two_sizes_keeps_last_frames()
     {
         var prepared = new LocalLights();

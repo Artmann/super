@@ -92,6 +92,18 @@ public sealed class ProfilingTests
     }
 
     [Fact]
+    public void The_report_counts_light_shadow_tiles_drawn_and_kept_only_when_there_are_any()
+    {
+        ModelCost[] models = [new("small", 100, 10)];
+
+        string withTiles = ProfileReport.Write(Run([]) with { Models = models, ShadowTiles = (3, 1200) });
+        string without = ProfileReport.Write(Run([]) with { Models = models });
+
+        Assert.Contains("Light shadow tiles: 3 drawn, 1,200 kept from earlier frames", withTiles);
+        Assert.DoesNotContain("Light shadow tiles", without);
+    }
+
+    [Fact]
     public void The_report_reads_the_same_in_a_culture_with_decimal_commas()
     {
         ModelCost[] models = [new("small", 100, 10), new("big", 2, 1000)];

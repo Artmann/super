@@ -31,7 +31,8 @@ internal sealed record ProfileRun(
     IReadOnlyDictionary<string, double> GpuMilliseconds,
     IReadOnlyList<string[]> Stacks,
     IReadOnlyList<ModelCost>? Models = null,
-    (long Camera, long Shadows) DrawnTriangles = default);
+    (long Camera, long Shadows) DrawnTriangles = default,
+    (int Drawn, int Kept) ShadowTiles = default);
 
 /// <summary>Writes a profile as plain text, short enough to read in one go, by a person or an agent.</summary>
 internal static class ProfileReport
@@ -49,7 +50,7 @@ internal static class ProfileReport
         WriteSummary(text, run);
         WriteSlowest(text, run.Frames);
         WriteGpu(text, run);
-        WriteModels(text, run.Models ?? [], run.DrawnTriangles);
+        WriteModels(text, run.Models ?? [], run.DrawnTriangles, run.ShadowTiles);
         WriteFunctions(text, run.Stacks);
         WriteStacks(text, run.Stacks);
         return text.ToString();
@@ -172,7 +173,8 @@ internal static class ProfileReport
         Line(text);
     }
 
-    private static void WriteModels(StringBuilder text, IReadOnlyList<ModelCost> models, (long Camera, long Shadows) drawn)
+    private static void WriteModels(
+        StringBuilder text, IReadOnlyList<ModelCost> models, (long Camera, long Shadows) drawn, (int Drawn, int Kept) tiles)
     {
         if (models.Count == 0)
         {
@@ -182,6 +184,11 @@ internal static class ProfileReport
         long total = models.Sum(model => model.Triangles);
         Formatted(text, $"Scene: {models.Sum(model => model.Copies):N0} models, {total:N0} triangles at full detail");
         Formatted(text, $"Drawn after culling and detail: {drawn.Camera:N0} triangles for the camera, {drawn.Shadows:N0} for shadows");
+        if (tiles.Drawn + tiles.Kept > 0)
+        {
+            Formatted(text, $"Light shadow tiles: {tiles.Drawn:N0} drawn, {tiles.Kept:N0} kept from earlier frames");
+        }
+
         foreach (var model in models.OrderByDescending(model => model.Triangles))
         {
             double share = (double)model.Triangles / total;

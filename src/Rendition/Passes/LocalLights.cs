@@ -56,6 +56,7 @@ internal sealed class LocalLights
     private readonly float[] _pixels = new float[LocalLight.MaxPerFrame];
     private readonly int[] _sizes = new int[LocalLight.MaxPerFrame];
     private readonly int[] _bySize = new int[LocalLight.MaxPerFrame];
+    private readonly long[] _placeOrder = new long[LocalLight.MaxPerFrame];
     private readonly int[] _sizeKeys = new int[LocalLight.MaxPerFrame];
     private readonly ShadowView[] _tiles = new ShadowView[MaxTiles];
 
@@ -283,7 +284,7 @@ internal sealed class LocalLights
     /// </summary>
     private void PlaceTiles(ReadOnlySpan<LocalLight> lights, int shadowed, Span<GpuShadowTile> gpuTiles)
     {
-        int count = SortBySize(shadowed);
+        int count = SortBySize(lights, shadowed);
         long offset = 0;
         int tiles = 0;
         for (int t = 0; t < count; t++)
@@ -318,8 +319,10 @@ internal sealed class LocalLights
         TileCount = tiles;
     }
 
-    // Puts the shadowed lights that got a tile size in _bySize, biggest first, and returns how many.
-    private int SortBySize(int shadowed)
+    // Puts the shadowed lights that got a tile size in _bySize, biggest first, and returns how many. Lights of one size
+    // go in the order of their keys, so a light keeps its place in the atlas from frame to frame and its kept shadow
+    // stays good, however their brightness or distance swaps them.
+    private int SortBySize(ReadOnlySpan<LocalLight> lights, int shadowed)
     {
         int count = 0;
         for (int s = 0; s < shadowed; s++)
@@ -328,12 +331,12 @@ internal sealed class LocalLights
             if (_sizes[k] > 0)
             {
                 _bySize[count] = k;
-                _priority[count] = -_sizes[k];
+                _placeOrder[count] = ((long)(MaxTile - _sizes[k]) << 32) | (uint)lights[_kept[k]].Key;
                 count++;
             }
         }
 
-        _priority.AsSpan(0, count).Sort(_bySize.AsSpan(0, count));
+        _placeOrder.AsSpan(0, count).Sort(_bySize.AsSpan(0, count));
         return count;
     }
 

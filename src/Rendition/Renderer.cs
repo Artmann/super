@@ -568,8 +568,17 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>How long the last frame waited for the GPU to finish earlier work and for the display, while <see cref="MeasureGpu"/> is on.</summary>
     public double WaitMilliseconds { get; private set; }
 
-    /// <summary>Triangles in the last frame's camera and shadow passes, while <see cref="MeasureGpu"/> is on.</summary>
+    /// <summary>
+    /// Triangles in the last frame's camera and shadow passes, while <see cref="MeasureGpu"/> is on. The shadows count the
+    /// sun's cascades and the point and spot light tiles drawn that frame, not the ones kept from earlier frames.
+    /// </summary>
     public (long Camera, long Shadows) DrawnTriangles { get; private set; }
+
+    /// <summary>
+    /// How many point and spot light shadow tiles the last frame drew, and how many it kept as earlier frames drew them,
+    /// while <see cref="MeasureGpu"/> is on.
+    /// </summary>
+    public (int Drawn, int Kept) ShadowTiles { get; private set; }
 
     private DrawItem[] _cameraDraws = [];
     // Which draw each camera draw came from, and the placed chunk each camera draw is relit as, -1 for none. Only
@@ -596,8 +605,13 @@ public sealed unsafe class Renderer : IDisposable
     // Point and spot lights: those the view needs, their shadow tiles and what each tile draws.
     private readonly LocalLights _localLights = new();
     private DrawItem[] _tileDraws = [];
-    private readonly (int First, int Count)[] _tileRanges = new (int, int)[LocalLights.MaxTiles];
+    // Which tiles this frame draws, and what the others were last drawn with, so a tile whose light and casters stand
+    // still keeps its depths. The world counts changes that can change any tile, such as a mesh or texture going.
+    private readonly ShadowPass.TileDraws[] _tileRanges = new ShadowPass.TileDraws[LocalLights.MaxTiles];
     private int _tileCount;
+    private readonly ShadowTileCache _tileCache = new();
+    private ulong _shadowWorld;
+    private bool _atlasKept;
     private bool _clustersNeeded;
     private readonly PipelineLayout _clusterLayout;
     private readonly LivePipeline _clusterPipeline;
@@ -746,7 +760,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
         _aoPass = new FullscreenPass(
-            _context, "ao.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [_frameSetLayout, _fourTextureSetLayout], sizeof(int));
+            _context, "ao.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [_frameSetLayout, _fourTextureSetLayout], 2 * sizeof(int));
         _aoBlurPass = new FullscreenPass(
             _context, "ao_blur.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [_frameSetLayout, _fourTextureSetLayout], 3 * sizeof(int));
         _aoSteadyPass = new FullscreenPass(
@@ -1078,6 +1092,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _meshes[mesh.Index] = null;
         _freeMeshes.Push(mesh.Index);
+        _shadowWorld++;
 
         // A mesh made this frame may still be waiting for its bytes. That copy must not
         // run into a buffer that is about to be freed.
@@ -1166,6 +1181,7 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>Marks a live texture as gone, drops any copy still waiting for it, and queues its release.</summary>
     private void QueueTextureDestroy(int slot)
     {
+        _shadowWorld++;
         // A background bake whose materials read it would trace a freed image.
         StopBakeThatReads(job => BakeReadsTexture(job, slot));
 
@@ -1197,6 +1213,7 @@ public sealed unsafe class Renderer : IDisposable
 
     private void QueueMaterialDestroy(int slot)
     {
+        _shadowWorld++;
         // The slot may go to a material with a different opaque flag, so no structure may keep using it, and a
         // background bake tracing those structures can't go on.
         var material = new MaterialHandle(slot);
@@ -3529,7 +3546,11 @@ public sealed unsafe class Renderer : IDisposable
     /// for the GPU, so call it between frames. A shader that changed what it reads or writes, not only how, needs
     /// a restart.
     /// </summary>
-    public int ReloadShaders(IReadOnlySet<string> names) => PipelineFactory.Reload(_context, names);
+    public int ReloadShaders(IReadOnlySet<string> names)
+    {
+        _shadowWorld++;
+        return PipelineFactory.Reload(_context, names);
+    }
 
     public MaterialHandle CreateMaterial(in Material material)
     {
@@ -4034,6 +4055,11 @@ public sealed unsafe class Renderer : IDisposable
         _transitionHold = view.Transition.Hold;
         var (cameraCount, shadowCount) = SelectDraws(view, camera.ViewProjection, draws, castsShadow);
         int tileDrawCount = SelectTileDraws(draws);
+        if (MeasureGpu)
+        {
+            DrawnTriangles = (DrawnTriangles.Camera, DrawnTriangles.Shadows + CountTriangles(_tileDraws.AsSpan(0, tileDrawCount)));
+        }
+
         ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
         // The space's slots go every frame, so a frame drawing only the space reads its mask as it always has.
         var spaceSlots = _maskSlots.SpaceSlots;
@@ -4319,12 +4345,15 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>
     /// Picks what each shadow tile of the atlas can see, one after another in
-    /// <see cref="_tileDraws"/>, and returns how many there are in all.
+    /// <see cref="_tileDraws"/>, and returns how many there are in all. A tile the atlas still holds as it would be
+    /// drawn is left out, with no draws.
     /// </summary>
     private int SelectTileDraws(ReadOnlySpan<DrawItem> draws)
     {
         var tiles = _localLights.Tiles;
         int total = 0;
+        int drawn = 0;
+        _tileCache.Begin(_shadowWorld);
         for (int tile = 0; tile < tiles.Length; tile++)
         {
             if (_tileDraws.Length < total + draws.Length * 2)
@@ -4336,10 +4365,14 @@ public sealed unsafe class Renderer : IDisposable
             var shadow = new DetailView(
                 view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, DetailError(ShadowDetailError), far: true, cull: Culls);
             int count = DrawSelection.Select(shadow, draws, _details, _tileDraws.AsSpan(total), _windReach, fades: _fadeRules);
-            _tileRanges[tile] = (total, count);
-            total += count;
+            bool redraw = _tileCache.NeedsDrawing(view, _tileDraws.AsSpan(total, count), _windReach, _resources.ShadowShapeOf);
+            _tileRanges[tile] = new ShadowPass.TileDraws(total, redraw ? count : 0, redraw);
+            total += _tileRanges[tile].Count;
+            drawn += redraw ? 1 : 0;
         }
 
+        _tileCache.End();
+        ShadowTiles = MeasureGpu ? (drawn, tiles.Length - drawn) : default;
         return total;
     }
 
@@ -4792,21 +4825,27 @@ public sealed unsafe class Renderer : IDisposable
     private void RecordTileShadows(CommandBuffer cmd, DescriptorSet frameSet, InstanceBuffer instances)
     {
         // The lighting pass binds the atlas even when no light has a tile in it.
+        // Tiles that weren't drawn keep their depths from earlier frames, so the atlas keeps its contents from frame to
+        // frame. On its first frame it has none, and the cache remembers no tile, so every tile is drawn.
         var atlas = _shadowPass.Atlas.Image;
-        if (_tileCount > 0)
+        var kept = _atlasKept ? ImageLayout.ShaderReadOnlyOptimal : ImageLayout.Undefined;
+        var ranges = _tileRanges.AsSpan(0, _tileCount);
+        if (ShadowPass.AnyRedrawn(ranges))
         {
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
+                kept, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
                 DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
-            _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileDraws, _tileRanges.AsSpan(0, _tileCount), _meshes, _details, instances);
+            _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileDraws, ranges, _meshes, _details, instances);
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
                 ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess);
         }
-        else
+        else if (!_atlasKept)
         {
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, ShadowReadStages, SampledAccess, ShadowReadStages, SampledAccess);
         }
+
+        _atlasKept = true;
     }
 
     /// <summary>
@@ -5014,16 +5053,18 @@ public sealed unsafe class Renderer : IDisposable
 
         var extent = targets.AoExtent;
         int scale = targets.Occlusion == OcclusionResolution.Full ? 1 : 2;
+
+        // Averaged with the frames before, where there are any to keep, and that average kept for the next frame.
+        bool averaged = keepHistory && !_off.HasFlag(RenderEffects.OcclusionHistory);
+        var constants = new AoConstants(scale, AoSlices(scale, averaged));
         ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
         _api.BeginColorTarget(cmd, targets.Ao.Image);
         _api.BeginColorTarget(cmd, targets.Bounce.Image);
-        _aoPass.Record(cmd, [targets.Ao.View, targets.Bounce.View], extent, aoSets, new ReadOnlySpan<byte>(&scale, sizeof(int)));
+        _aoPass.Record(cmd, [targets.Ao.View, targets.Bounce.View], extent, aoSets, new ReadOnlySpan<byte>(&constants, sizeof(AoConstants)));
         _api.EndColorTarget(cmd, targets.Ao.Image);
         _api.EndColorTarget(cmd, targets.Bounce.Image);
         _gpuTimer.Mark(cmd);
 
-        // Averaged with the frames before, where there are any to keep, and that average kept for the next frame.
-        bool averaged = keepHistory && !_off.HasFlag(RenderEffects.OcclusionHistory);
         if (averaged)
         {
             RecordOcclusionAverage(cmd, targets, frameSet, scale);
@@ -5063,6 +5104,17 @@ public sealed unsafe class Renderer : IDisposable
         RecordCopy(cmd, targets.AoSteady.Image, targets.AoHistory.Image, extent, drawnJustNow: true);
         RecordCopy(cmd, targets.BounceSteady.Image, targets.BounceHistory.Image, extent, drawnJustNow: true);
     }
+
+    /// <summary>ao.frag's constants: screen pixels per pixel of occlusion, and how many slices each pixel traces.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly record struct AoConstants(int Scale, int Slices);
+
+    /// <summary>
+    /// How many slices round a pixel the occlusion traces a frame. At full size with the frames averaged one does, a
+    /// different way each frame, and the average gathers the turns. That is still twice the slices a screen pixel gets
+    /// at half size, where each pixel traces two every fourth frame. Without the average, or at half size, two do.
+    /// </summary>
+    private static int AoSlices(int scale, bool averaged) => scale == 1 && averaged ? 1 : 2;
 
     /// <summary>ao_blur.frag's constants: one pixel along the way a pass blurs, and screen pixels per pixel of occlusion.</summary>
     [StructLayout(LayoutKind.Sequential)]

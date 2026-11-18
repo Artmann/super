@@ -53,6 +53,13 @@ can read it and act on it directly.
 - **A profile run differs a little from a normal one.** It's a hidden window with Vulkan
   validation off, and it asks the GPU for timestamps and to count the shaders each pass runs.
 
+The triangles for shadows are those the sun's cascades and the point and spot lights drew
+that frame. A light's shadow that stood still is kept from an earlier frame and isn't
+counted, so a still scene with many shadowed lamps can show far fewer triangles here than
+the lamps reach. The line after it says how many of the lights' shadow tiles that frame drew
+and how many it kept. A tile is drawn again when something in it moved, and every frame while
+an animated character or a plant in the wind is in it.
+
 ## Comparing before and after
 
 Use the same `--seed`, `--ticks` and `--size` for both runs, so they measure the same

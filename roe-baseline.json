@@ -1535,7 +1535,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 6103
+      "metric": 6155
     },
     {
       "kind": "large-file",
@@ -1565,7 +1565,7 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1249
+      "metric": 1251
     },
     {
       "kind": "large-file",
@@ -1685,13 +1685,13 @@
       "kind": "large-type",
       "name": "Rendition.Passes.LocalLights",
       "file": "src/Rendition/Passes/LocalLights.cs",
-      "metric": 29
+      "metric": 30
     },
     {
       "kind": "large-type",
       "name": "Rendition.Passes.ShadowPass",
       "file": "src/Rendition/Passes/ShadowPass.cs",
-      "metric": 27
+      "metric": 29
     },
     {
       "kind": "large-type",
@@ -1709,7 +1709,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 468
+      "metric": 473
     },
     {
       "kind": "large-type",
@@ -1757,7 +1757,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.ResourceTable",
       "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 66
+      "metric": 68
     },
     {
       "kind": "large-type",
@@ -1937,7 +1937,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 116
+      "metric": 117
     },
     {
       "kind": "large-type",
@@ -2123,6 +2123,7 @@
         "Rendition.RenderEffects",
         "Rendition.Renderer",
         "Rendition.ShL1",
+        "Rendition.ShadowTileCache",
         "Rendition.SkyImageData",
         "Rendition.TextureData",
         "Rendition.Vulkan.CubeCentres",

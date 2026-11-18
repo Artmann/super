@@ -262,6 +262,8 @@ internal sealed class SceneRenderer : IDisposable
 
     public (long Camera, long Shadows) DrawnTriangles => _renderer.DrawnTriangles;
 
+    public (int Drawn, int Kept) ShadowTiles => _renderer.ShadowTiles;
+
     public void Render(View view, Content content, int width, int height, float time)
     {
         Prepare(content, view);
