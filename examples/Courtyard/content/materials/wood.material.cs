@@ -101,6 +101,47 @@ public sealed class Wood : MaterialGraph
 
     public override Material Build()
     {
+        CheckSettings();
+        var rustAt = ParseRustAt(RustAt);
+
+        // The knots are made first. A node's noise is seeded by the order it is made in, so made first they come out
+        // the same here as in a graph that makes nothing else, which is how WoodTests looks at them. Each stage after
+        // them makes its nodes in the same order as before too.
+        var knots = Knots();
+        var planks = Tiles.Bricks(columns: 1, rows: Boards, gap: 0.03f, bevel: 0.08f, offset: 0.5f);
+        var ids = planks.FloodFill();
+        var marks = Marks(planks, ids, knots);
+        var color = WoodColor(marks, ids, knots);
+
+        // The weather wears the soft wood between the rings away, so the rings and knots stand proud.
+        var height = planks
+            .Multiply(ids.RandomGray(seed: 9).Remap(0.9f, 1f))
+            .Add(marks.Rings.Multiply(0.02f + 0.06f * Weathering))
+            .Subtract(marks.Grain.Multiply(0.08f))
+            .Add(knots.Multiply(0.04f))
+            .Subtract(marks.Checks.Multiply(0.3f));
+
+        var roughness = WoodRoughness(marks, knots);
+
+        // Rust washed down from iron bands, last, so the noise above is the same with or without it.
+        if (rustAt.Count > 0)
+        {
+            (color, roughness) = WithRust(rustAt, planks, color, roughness);
+        }
+
+        return new Material
+        {
+            Width = 1f,
+            Depth = 0.01f,
+            Occlusion = 0.85f,
+            Height = height,
+            Color = color,
+            Roughness = roughness,
+        };
+    }
+
+    private void CheckSettings()
+    {
         if (!(Weathering >= 0f && Weathering <= 1f))
         {
             throw new ArgumentOutOfRangeException(nameof(Weathering), Weathering, FormattableString.Invariant($"Weathering must be from 0 to 1, not {Weathering}."));
@@ -110,15 +151,13 @@ public sealed class Wood : MaterialGraph
         {
             throw new ArgumentOutOfRangeException(nameof(Tone), Tone, FormattableString.Invariant($"Tone must be from -1 to 1, not {Tone}."));
         }
+    }
 
-        var rustAt = ParseRustAt(RustAt);
+    /// <summary>What marks the boards, as images: the rings, the grain, the checks, the silvering and the dark ends.</summary>
+    private sealed record BoardMarks(Gray Rings, Gray Grain, Gray Checks, Gray Silver, Gray Ends);
 
-        // The knots are made first. A node's noise is seeded by the order it is made in, so made first they come out
-        // the same here as in a graph that makes nothing else, which is how WoodTests looks at them.
-        var knots = Knots();
-        var planks = Tiles.Bricks(columns: 1, rows: Boards, gap: 0.03f, bevel: 0.08f, offset: 0.5f);
-        var ids = planks.FloodFill();
-
+    private BoardMarks Marks(Gray planks, Islands ids, Gray knots)
+    {
         // The grain bends round each knot: the rings and the fibres are pushed out along the slope of a soft bump.
         var knotBump = knots.Blur(0.01f);
 
@@ -151,8 +190,14 @@ public sealed class Wood : MaterialGraph
             return 1f - Math.Clamp((fromEnd - 0.006f) / 0.03f, 0f, 1f);
         });
 
+        return new BoardMarks(rings, grain, checks, silver, ends);
+    }
+
+    /// <summary>Each board in its tone, figured by its rings and grain, darker at the knots, the ends and the checks, and silvered in patches.</summary>
+    private Rgb WoodColor(BoardMarks marks, Islands ids, Gray knots)
+    {
         var tone = Pixel.Gray(p => ToneAt(BoardAt(p.Uv.Y), Tone));
-        var figure = rings.Multiply(0.6f).Add(grain.Multiply(0.4f));
+        var figure = marks.Rings.Multiply(0.6f).Add(marks.Grain.Multiply(0.4f));
         var color = tone
             .GradientMap(Ramp.Of(Tones.Select((hex, i) => (i / (float)(Tones.Count - 1), hex)).ToArray()))
             .Multiply(figure.Remap(1.14f, 0.8f))
@@ -160,65 +205,53 @@ public sealed class Wood : MaterialGraph
             .Multiply(knots.Curve((0f, 1f), (0.25f, 0.72f), (0.6f, 0.5f), (1f, 0.4f)));
 
         // Silvered wood keeps its grain and a little of its board's tone, but loses most of its colour and turns paler.
-        color = color.Blend(color.Hsl(saturation: -0.15f, lightness: 0.05f), mask: silver);
-        color = color
-            .Multiply(ends.Remap(1f, 0.62f))
-            .Multiply(checks.Remap(1f, 0.45f));
+        color = color.Blend(color.Hsl(saturation: -0.15f, lightness: 0.05f), mask: marks.Silver);
 
-        // The weather wears the soft wood between the rings away, so the rings and knots stand proud.
-        var height = planks
-            .Multiply(ids.RandomGray(seed: 9).Remap(0.9f, 1f))
-            .Add(rings.Multiply(0.02f + 0.06f * Weathering))
-            .Subtract(grain.Multiply(0.08f))
-            .Add(knots.Multiply(0.04f))
-            .Subtract(checks.Multiply(0.3f));
+        return color
+            .Multiply(marks.Ends.Remap(1f, 0.62f))
+            .Multiply(marks.Checks.Remap(1f, 0.45f));
+    }
 
-        // Planed wood is satin, silvered wood dry and rough, end grain rougher still, and knots resinous and smoother.
-        var roughness = grain.Remap(0.62f, 0.8f).Add(rings.Multiply(0.05f))
-            .Blend(Gray.Of(0.9f), mask: silver)
-            .Blend(Gray.Of(0.94f), mask: ends)
+    /// <summary>Planed wood is satin, silvered wood dry and rough, end grain rougher still, and knots resinous and smoother.</summary>
+    private static Gray WoodRoughness(BoardMarks marks, Gray knots)
+    {
+        return marks.Grain.Remap(0.62f, 0.8f).Add(marks.Rings.Multiply(0.05f))
+            .Blend(Gray.Of(0.9f), mask: marks.Silver)
+            .Blend(Gray.Of(0.94f), mask: marks.Ends)
             .Blend(Gray.Of(0.55f), mask: knots.Levels(0.2f, 0.6f).Multiply(0.7f))
-            .Blend(Gray.Of(0.95f), mask: checks);
+            .Blend(Gray.Of(0.95f), mask: marks.Checks);
+    }
 
-        // Rust washed down from iron bands, last, so the noise above is the same with or without it.
-        if (rustAt.Count > 0)
+    /// <summary>
+    /// <paramref name="color"/> and <paramref name="roughness"/> with rust washed down from the iron bands at
+    /// <paramref name="rustAt"/>, in streaks down the grain, some longer than others.
+    /// </summary>
+    private static (Rgb Color, Gray Roughness) WithRust(List<float> rustAt, Gray planks, Rgb color, Gray roughness)
+    {
+        var below = Pixel.Gray(p =>
         {
-            var below = Pixel.Gray(p =>
+            var t = AlongBoard(p.Uv);
+            var most = 0f;
+
+            foreach (var band in rustAt)
             {
-                var t = AlongBoard(p.Uv);
-                var most = 0f;
+                // How far below the band, along the board towards its start, wrapping round.
+                var down = band - t;
+                down -= MathF.Floor(down);
+                most = MathF.Max(most, MathF.Pow(1f - Math.Clamp(down / RustReach, 0f, 1f), 1.6f));
+            }
 
-                foreach (var band in rustAt)
-                {
-                    // How far below the band, along the board towards its start, wrapping round.
-                    var down = band - t;
-                    down -= MathF.Floor(down);
-                    most = MathF.Max(most, MathF.Pow(1f - Math.Clamp(down / RustReach, 0f, 1f), 1.6f));
-                }
+            return most;
+        });
 
-                return most;
-            });
+        var runs = Noise.Directional(scale: 40, angle: 0f, stretch: 10f, octaves: 3, seed: 10).Remap(-0.35f, 0.35f);
+        var rust = below.Add(runs).Add(Noise.Perlin(scale: 16, octaves: 3, seed: 11).Remap(-0.15f, 0.15f))
+            .Levels(0.35f, 0.9f)
+            .Multiply(planks.Levels(0.5f, 1f));
+        var rustColor = Noise.Perlin(scale: 30, octaves: 4, seed: 12).GradientMap(Ramp.Of("#4a2412", "#6e3a1a", "#7d4a24"));
 
-            // The rust runs in streaks down the grain, some longer than others.
-            var runs = Noise.Directional(scale: 40, angle: 0f, stretch: 10f, octaves: 3, seed: 10).Remap(-0.35f, 0.35f);
-            var rust = below.Add(runs).Add(Noise.Perlin(scale: 16, octaves: 3, seed: 11).Remap(-0.15f, 0.15f))
-                .Levels(0.35f, 0.9f)
-                .Multiply(planks.Levels(0.5f, 1f));
-            var rustColor = Noise.Perlin(scale: 30, octaves: 4, seed: 12).GradientMap(Ramp.Of("#4a2412", "#6e3a1a", "#7d4a24"));
-
-            color = color.Blend(color.Multiply(rustColor.Multiply(Gray.Of(1.7f))), mask: rust.Multiply(0.85f));
-            roughness = roughness.Blend(Gray.Of(0.85f), mask: rust.Multiply(0.6f));
-        }
-
-        return new Material
-        {
-            Width = 1f,
-            Depth = 0.01f,
-            Occlusion = 0.85f,
-            Height = height,
-            Color = color,
-            Roughness = roughness,
-        };
+        return (color.Blend(color.Multiply(rustColor.Multiply(Gray.Of(1.7f))), mask: rust.Multiply(0.85f)),
+            roughness.Blend(Gray.Of(0.85f), mask: rust.Multiply(0.6f)));
     }
 
     /// <summary>How far rust runs down a board from an iron band, as a fraction of the board: 20 cm.</summary>

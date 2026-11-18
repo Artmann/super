@@ -5,6 +5,33 @@ public sealed class DryStone : MaterialGraph
 {
     public override Material Build()
     {
+        // Each stage makes its nodes in the same order as before, as a node's noise is seeded by the order it is made in.
+        var (height, bedding, seams, flakes) = Relief();
+        var (moss, crust, ochre) = Growth(height, seams);
+        var stone = StoneColor(bedding, seams, flakes);
+        var crustColor = Noise.Perlin(scale: 40, octaves: 2).GradientMap(Ramp.Of("#9c9d86", "#b5b39a"));
+        var ochreColor = Noise.Perlin(scale: 40, octaves: 2, seed: 9).GradientMap(Ramp.Of("#9a7a42", "#b08d4c"));
+        var mossColor = Noise.Perlin(scale: 40, octaves: 3).GradientMap(Ramp.Of("#36421f", "#4f5d27"));
+        var color = stone
+            .Blend(crustColor, mask: crust.Multiply(0.8f))
+            .Blend(ochreColor, mask: ochre.Multiply(0.75f))
+            .Blend(mossColor, mask: moss);
+
+        return new Material
+        {
+            Width = 1f,
+            Depth = 0.015f,
+            Occlusion = 0.85f,
+            Height = height,
+            Color = color,
+            // Smoothish on the high beds, rough in the hollows and under lichen and moss.
+            Roughness = height.Invert().Remap(0.62f, 0.9f).Max(moss.Remap(0f, 0.95f)).Max(crust.Remap(0f, 0.92f)),
+        };
+    }
+
+    /// <summary>The stone's height, with the bedding, the long cracks and the flakes that shape it.</summary>
+    private static (Gray Height, Gray Bedding, Gray Seams, Gray Flakes) Relief()
+    {
         // The stone was laid down in beds, and a split face shows them as faint bands running
         // across it, some standing a little proud of the others where they weather harder.
         var bedding = Noise.Directional(scale: 12, angle: 0f, stretch: 10f, octaves: 4);
@@ -26,6 +53,12 @@ public sealed class DryStone : MaterialGraph
         var flakes = Noise.Directional(scale: 10, angle: 0f, stretch: 4f, octaves: 4, seed: 5).Levels(0.66f, 0.69f);
         height = height.Subtract(flakes.Multiply(0.14f));
 
+        return (height, bedding, seams, flakes);
+    }
+
+    /// <summary>Where moss, pale lichen crusts and ochre lichen grow on the stone.</summary>
+    private static (Gray Moss, Gray Crust, Gray Ochre) Growth(Gray height, Gray seams)
+    {
         // Moss gathers in the hollows and the cracks, where the damp stays.
         var hollows = height.Invert().Levels(0.4f, 0.62f);
         var moss = Noise.Perlin(scale: 6, octaves: 5).Levels(0.5f, 0.7f).Multiply(hollows).Max(seams.Multiply(0.7f));
@@ -37,33 +70,22 @@ public sealed class DryStone : MaterialGraph
         var ochre = Noise.Cells(scale: 64, output: CellOutput.F1, seed: 7).Levels(0f, 0.3f).Invert()
             .Multiply(Noise.Perlin(scale: 8, octaves: 3, seed: 8).Levels(0.68f, 0.78f));
 
-        // A grey-brown stone, banded light and dark along its beds, with flecks of grit and
-        // paler where flakes came off.
+        return (moss, crust, ochre);
+    }
+
+    /// <summary>
+    /// A grey-brown stone, banded light and dark along its beds, with flecks of grit and paler where flakes came off.
+    /// </summary>
+    private static Rgb StoneColor(Gray bedding, Gray seams, Gray flakes)
+    {
         var flecks = Noise.White().Blur(0.0005f).Levels(0.2f, 0.8f).Remap(0.84f, 1.1f);
-        var stone = Noise.Perlin(scale: 2, octaves: 4)
+
+        return Noise.Perlin(scale: 2, octaves: 4)
             .GradientMap(Ramp.Of("#6a645b", "#7d766b", "#8a8478", "#76716a"))
             .Multiply(bedding.Remap(0.86f, 1.1f))
             .Multiply(Noise.Perlin(scale: 24, octaves: 4).Remap(0.88f, 1.08f))
             .Multiply(flecks)
             .Multiply(seams.Remap(1f, 0.72f))
             .Multiply(flakes.Remap(1f, 1.14f));
-        var crustColor = Noise.Perlin(scale: 40, octaves: 2).GradientMap(Ramp.Of("#9c9d86", "#b5b39a"));
-        var ochreColor = Noise.Perlin(scale: 40, octaves: 2, seed: 9).GradientMap(Ramp.Of("#9a7a42", "#b08d4c"));
-        var mossColor = Noise.Perlin(scale: 40, octaves: 3).GradientMap(Ramp.Of("#36421f", "#4f5d27"));
-        var color = stone
-            .Blend(crustColor, mask: crust.Multiply(0.8f))
-            .Blend(ochreColor, mask: ochre.Multiply(0.75f))
-            .Blend(mossColor, mask: moss);
-
-        return new Material
-        {
-            Width = 1f,
-            Depth = 0.015f,
-            Occlusion = 0.85f,
-            Height = height,
-            Color = color,
-            // Smoothish on the high beds, rough in the hollows and under lichen and moss.
-            Roughness = height.Invert().Remap(0.62f, 0.9f).Max(moss.Remap(0f, 0.95f)).Max(crust.Remap(0f, 0.92f)),
-        };
     }
 }

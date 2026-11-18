@@ -49,45 +49,28 @@ public sealed class GrassBlade : MaterialGraph
 
     public override Material Build()
     {
+        // Each stage makes its nodes in the same order as before, as a node's noise is seeded by the order it is made in.
         var look = Of(Species);
         int seed = Seed;
 
         var blade = Pixel.Gray(p => Field(p.Uv, look, seed));
-        var opacity = blade.Levels(-Soft, Soft);
-        // 0 at a blade's foot and 1 at its tip, and its own random value, each per column.
-        var along = Pixel.Gray(p => Along(p.Uv, look, seed));
-        var tone = Pixel.Gray(p => Unit(seed, Column(p.Uv, look) * 16 + 5));
-        // Another per blade, for its hue: some blades warmer and yellower, some cooler and bluer.
-        var warmth = Pixel.Gray(p => Unit(seed, Column(p.Uv, look) * 16 + 6));
-        var rib = Pixel.Gray(p => Rib(p.Uv, look, seed));
-        var head = Pixel.Gray(p => look.Head > 0f && Along(p.Uv, look, seed) > 1f - look.Head ? 1f : 0f);
+        var layers = LayersOf(blade, look, seed);
 
         // Fine veins running the length of the blade, and the blade folded along its rib, so it is highest down the
         // middle. Spikelets are little domes.
         var veins = Noise.Directional(scale: 220, angle: 90f, stretch: 16f, octaves: 2, seed: 2).Levels(0.3f, 0.7f);
         var fold = blade.Levels(-Soft, 0.012f);
         var height = fold.Multiply(0.55f)
-            .Add(rib.Multiply(0.3f))
+            .Add(layers.Rib.Multiply(0.3f))
             .Add(veins.Multiply(0.08f))
-            .Multiply(opacity);
+            .Multiply(layers.Opacity);
 
-        // Green at the foot drying to straw towards the tip, each blade a little lighter or darker, a little more or
-        // less dry and a little yellower or bluer, the rib paler, and here and there a rust-brown spot.
-        var dryness = along.Add(tone.Remap(-0.12f, 0.12f));
-        var spots = Noise.Cells(scale: 90, seed: 3).Levels(0f, 0.12f).Invert()
-            .Multiply(Noise.Perlin(scale: 6, octaves: 2, seed: 4).Levels(0.62f, 0.72f));
-        var color = dryness.GradientMap(look.Colors)
-            .Blend(Rgb.Of("#6c6a34"), mask: warmth.Levels(0.55f, 1f), opacity: 0.3f)
-            .Blend(Rgb.Of("#394d33"), mask: warmth.Invert().Levels(0.55f, 1f), opacity: 0.3f)
-            .Multiply(tone.Remap(0.86f, 1.1f))
-            .Blend(dryness.GradientMap(look.Colors).Multiply(Gray.Of(1.25f)), mask: rib, opacity: 0.45f)
-            .Blend(Rgb.Of("#7a5a32"), mask: spots, opacity: 0.6f)
-            .Multiply(veins.Remap(0.94f, 1.04f))
-            .Blend(Rgb.Of("#9c8350"), mask: head.Multiply(Noise.Perlin(scale: 40, octaves: 2, seed: 6)), opacity: 0.6f);
+        var dryness = layers.Along.Add(layers.Tone.Remap(-0.12f, 0.12f));
+        var color = BladeColor(look, layers, dryness, veins);
 
         // A waxy blade, smoother on the rib, rougher where it has dried.
         var roughness = dryness.Levels(0.4f, 1f).Remap(0.45f, 0.75f)
-            .Subtract(rib.Multiply(0.08f))
+            .Subtract(layers.Rib.Multiply(0.08f))
             .Add(Noise.Perlin(scale: 30, octaves: 2, seed: 5).Remap(-0.03f, 0.03f));
 
         return new Material
@@ -98,8 +81,43 @@ public sealed class GrassBlade : MaterialGraph
             Height = height,
             Color = color,
             Roughness = roughness,
-            Opacity = opacity,
+            Opacity = layers.Opacity,
         };
+    }
+
+    /// <summary>The images worked out per blade, from each blade's column.</summary>
+    /// <param name="Along">0 at a blade's foot and 1 at its tip.</param>
+    /// <param name="Tone">The blade's own random value, for its lightness and dryness.</param>
+    /// <param name="Warmth">Another per blade, for its hue: some blades warmer and yellower, some cooler and bluer.</param>
+    /// <param name="Head">1 on a seed head.</param>
+    private sealed record BladeLayers(Gray Opacity, Gray Along, Gray Tone, Gray Warmth, Gray Rib, Gray Head);
+
+    /// <summary>The <see cref="BladeLayers"/> of <paramref name="blade"/>, the blades' outline.</summary>
+    private static BladeLayers LayersOf(Gray blade, Look look, int seed) => new(
+        blade.Levels(-Soft, Soft),
+        Pixel.Gray(p => Along(p.Uv, look, seed)),
+        Pixel.Gray(p => Unit(seed, Column(p.Uv, look) * 16 + 5)),
+        Pixel.Gray(p => Unit(seed, Column(p.Uv, look) * 16 + 6)),
+        Pixel.Gray(p => Rib(p.Uv, look, seed)),
+        Pixel.Gray(p => look.Head > 0f && Along(p.Uv, look, seed) > 1f - look.Head ? 1f : 0f));
+
+    /// <summary>
+    /// Green at the foot drying to straw towards the tip, each blade a little lighter or darker, a little more or less
+    /// dry and a little yellower or bluer, the rib paler, and here and there a rust-brown spot.
+    /// </summary>
+    private static Rgb BladeColor(Look look, BladeLayers layers, Gray dryness, Gray veins)
+    {
+        var spots = Noise.Cells(scale: 90, seed: 3).Levels(0f, 0.12f).Invert()
+            .Multiply(Noise.Perlin(scale: 6, octaves: 2, seed: 4).Levels(0.62f, 0.72f));
+
+        return dryness.GradientMap(look.Colors)
+            .Blend(Rgb.Of("#6c6a34"), mask: layers.Warmth.Levels(0.55f, 1f), opacity: 0.3f)
+            .Blend(Rgb.Of("#394d33"), mask: layers.Warmth.Invert().Levels(0.55f, 1f), opacity: 0.3f)
+            .Multiply(layers.Tone.Remap(0.86f, 1.1f))
+            .Blend(dryness.GradientMap(look.Colors).Multiply(Gray.Of(1.25f)), mask: layers.Rib, opacity: 0.45f)
+            .Blend(Rgb.Of("#7a5a32"), mask: spots, opacity: 0.6f)
+            .Multiply(veins.Remap(0.94f, 1.04f))
+            .Blend(Rgb.Of("#9c8350"), mask: layers.Head.Multiply(Noise.Perlin(scale: 40, octaves: 2, seed: 6)), opacity: 0.6f);
     }
 
     /// <summary>The column a point is in, from 0 at the left.</summary>
@@ -167,29 +185,36 @@ public sealed class GrassBlade : MaterialGraph
                 break;
             }
 
-            // Spikelets shrink towards the head's tip, and alternate sides.
+            // Spikelets shrink towards the head's tip.
             float shrink = 1f - 0.45f * (at - start) / (top - start);
-            float side = i % 2 == 0 ? 1f : -1f;
-            float tilt = 0.45f + 0.15f * Unit(seed, i * 3 + 9);
-            var direction = new Vector2(side * DMath.Sin(tilt), DMath.Cos(tilt));
-            var normal = new Vector2(-direction.Y, direction.X);
-            float length = 0.026f * shrink;
-            var centre = new Vector2(side * 0.004f, at) + direction * (length * 0.5f);
-            var d = new Vector2(x, y) - centre;
-            float along = Vector2.Dot(d, direction) / (length * 0.5f);
-            float across = Vector2.Dot(d, normal) / (0.0055f * shrink);
-            float spikelet = (1f - MathF.Sqrt(along * along + across * across)) * 0.0045f * shrink;
-
-            // The awn: a hair 0.4 mm thick running on from the spikelet's tip.
-            float awnAlong = Vector2.Dot(d, direction) - length * 0.5f;
-            float awn = awnAlong is > 0f and < 0.016f ? 0.0006f - MathF.Abs(Vector2.Dot(d, normal)) : -1f;
-
-            best = MathF.Max(best, MathF.Max(spikelet, awn));
+            best = MathF.Max(best, Spikelet(new Vector2(x, y), i, at, shrink, seed));
         }
 
         // The head ends in one last spikelet's awn, straight up.
         float crown = y > top - 0.01f ? 0.0006f - MathF.Abs(x) : -1f;
         return MathF.Max(best, crown);
+    }
+
+    // Spikelet i of a seed head, its foot at height `at` on the stalk, scaled by `shrink`, with its awn. Above 0 inside.
+    // Spikelets alternate sides.
+    private static float Spikelet(Vector2 point, int i, float at, float shrink, int seed)
+    {
+        float side = i % 2 == 0 ? 1f : -1f;
+        float tilt = 0.45f + 0.15f * Unit(seed, i * 3 + 9);
+        var direction = new Vector2(side * DMath.Sin(tilt), DMath.Cos(tilt));
+        var normal = new Vector2(-direction.Y, direction.X);
+        float length = 0.026f * shrink;
+        var centre = new Vector2(side * 0.004f, at) + direction * (length * 0.5f);
+        var d = point - centre;
+        float along = Vector2.Dot(d, direction) / (length * 0.5f);
+        float across = Vector2.Dot(d, normal) / (0.0055f * shrink);
+        float spikelet = (1f - MathF.Sqrt(along * along + across * across)) * 0.0045f * shrink;
+
+        // The awn: a hair 0.4 mm thick running on from the spikelet's tip.
+        float awnAlong = Vector2.Dot(d, direction) - length * 0.5f;
+        float awn = awnAlong is > 0f and < 0.016f ? 0.0006f - MathF.Abs(Vector2.Dot(d, normal)) : -1f;
+
+        return MathF.Max(spikelet, awn);
     }
 
     // 1 down the blade's middle, fading to 0 a fifth of the way to its edge.

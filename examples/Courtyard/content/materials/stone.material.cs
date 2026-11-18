@@ -5,6 +5,26 @@ public sealed class Stone : MaterialGraph
 {
     public override Material Build()
     {
+        // Each stage makes its nodes in the same order as before, as a node's noise is seeded by the order it is made in.
+        var (height, cracks, spalls) = Relief();
+        var (moss, lichen) = Growth(height);
+        var color = StoneColor(height, cracks, spalls, moss, lichen);
+
+        return new Material
+        {
+            Width = 1f,
+            Depth = 0.015f,
+            Occlusion = 0.85f,
+            Height = height,
+            Color = color,
+            // Worn smooth on the high spots, rough in the pits, the cracks, the lichen and the moss.
+            Roughness = height.Invert().Remap(0.6f, 0.9f).Max(moss.Remap(0f, 0.95f)).Max(lichen.Remap(0f, 0.92f)),
+        };
+    }
+
+    /// <summary>The stone's height, and the cracks and spalls cut into it, which the colour darkens and lightens.</summary>
+    private static (Gray Height, Gray Cracks, Gray Spalls) Relief()
+    {
         // Broad lumps and small pits, with a fine grain over them.
         var lumps = Noise.Perlin(scale: 4, octaves: 6).Remap(0.3f, 0.7f);
         var pits = Noise.Cells(scale: 18, output: CellOutput.F1).Levels(0f, 0.35f).Multiply(0.12f);
@@ -24,6 +44,12 @@ public sealed class Stone : MaterialGraph
         var spalls = Noise.Perlin(scale: 14, octaves: 4).Levels(0.64f, 0.68f);
         height = height.Subtract(spalls.Multiply(0.18f));
 
+        return (height, cracks, spalls);
+    }
+
+    /// <summary>Where moss and lichen grow on the stone.</summary>
+    private static (Gray Moss, Gray Lichen) Growth(Gray height)
+    {
         // Moss sits in the low places.
         var moss = Noise.Perlin(scale: 5, octaves: 5).Levels(0.55f, 0.75f).Multiply(height.Invert().Levels(0.35f, 0.6f));
 
@@ -31,6 +57,11 @@ public sealed class Stone : MaterialGraph
         var lichen = Noise.Cells(scale: 48, output: CellOutput.F1).Levels(0f, 0.3f).Invert()
             .Multiply(Noise.Perlin(scale: 6, octaves: 3).Levels(0.55f, 0.7f));
 
+        return (moss, lichen);
+    }
+
+    private static Rgb StoneColor(Gray height, Gray cracks, Gray spalls, Gray moss, Gray lichen)
+    {
         // Dark and light flecks of grit and a mid-sized mottle give the colour detail at every size,
         // not only in broad patches.
         var flecks = Noise.White().Blur(0.0005f).Levels(0.2f, 0.8f).Remap(0.8f, 1.12f);
@@ -50,17 +81,7 @@ public sealed class Stone : MaterialGraph
             .Multiply(height.Levels(0.65f, 0.9f).Remap(1f, 1.05f));
         var lichenColor = Noise.Perlin(scale: 60, octaves: 2).GradientMap(Ramp.Of("#a3a28e", "#b9b49a"));
         var mossColor = Noise.Perlin(scale: 40, octaves: 3).GradientMap(Ramp.Of("#3d4a22", "#556429"));
-        var color = stone.Blend(lichenColor, mask: lichen.Multiply(0.85f)).Blend(mossColor, mask: moss);
 
-        return new Material
-        {
-            Width = 1f,
-            Depth = 0.015f,
-            Occlusion = 0.85f,
-            Height = height,
-            Color = color,
-            // Worn smooth on the high spots, rough in the pits, the cracks, the lichen and the moss.
-            Roughness = height.Invert().Remap(0.6f, 0.9f).Max(moss.Remap(0f, 0.95f)).Max(lichen.Remap(0f, 0.92f)),
-        };
+        return stone.Blend(lichenColor, mask: lichen.Multiply(0.85f)).Blend(mossColor, mask: moss);
     }
 }

@@ -125,7 +125,7 @@ To change the scene, edit the script, run it in Blender and cook again.
 
 The sidecar sets `keepOrigin`, so the model keeps Blender's origin and a point in the script
 is the same point in the game, with Blender's z as y and its y as -z. That's how
-`CourtyardGame.cs` places its lights at the lantern's bulb and in the room.
+`CourtyardLight.cs` places its lights at the lantern's bulb and in the room.
 
 Press M to turn the materials off and on. Without them, the whole courtyard is plain grey
 clay, so you can judge the sunlight, the shadows and the shapes of the models without the
@@ -298,7 +298,8 @@ stain quads are gone: `WallStains` lays the damp, the drip and the rust as decal
 | File | What's in it |
 | --- | --- |
 | `Program.cs` | Starts the courtyard, or the lineup with `--lineup` and the leaves with `--leaves` |
-| `CourtyardGame.cs` | The courtyard model, the camera, the sun and its shadows, the sky and its fog, the reflection probe, the puddle level, the wind, the lantern and the room's light, and the finish. It loads the hand-placed decal list, lays it with the wall's stains and the gravel, and turns the materials, fog, volumetric fog, auto exposure and decals off and on with M, F, V, E and D |
+| `CourtyardGame.cs` | The courtyard model and the camera. It loads the hand-placed decal list, lays it with the wall's stains and the gravel, and turns the materials, fog, volumetric fog, auto exposure and decals off and on with M, F, V, E and D |
+| `CourtyardLight.cs` | The sun and its shadows, the sky and its fog, the reflection probe, the puddle level, the wind, the lantern and the room's light, and the finish |
 | `WallStains.cs` | Where the grime decals lie on the wall: the damp along its foot, the dirty water under the sill and the rust under the anchor plates |
 | `GravelSpills.cs` | Where the gravel decals lie: spills along both edges of both arms of the path and round the barrel's foot, kept off the middle of the path, the puddle and the wall |
 | `DecalCatalog.cs` | `DecalList` and `PlacedDecal`, the shape of a hand-placed decal list, and how a decal's position, size, facing and turn make its box |

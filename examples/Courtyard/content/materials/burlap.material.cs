@@ -18,42 +18,96 @@ public sealed class Burlap : MaterialGraph
 
     public override Material Build()
     {
+        // Each stage makes its nodes in the same order as before, as a node's noise is seeded by the order it is made in.
         // Jute is lumpy, so each thread swells and thins along its length: noise stretched along it, one cell per
         // thread across.
         var warpSlub = Noise.Directional(scale: 96, angle: 90f, stretch: 12f, octaves: 2, seed: 1);
         var weftSlub = Noise.Directional(scale: 96, angle: 0f, stretch: 12f, octaves: 2, seed: 2);
         var weave = Pixel.Gray(p => Weave(p.Uv * Threads, p.Gray(0), p.Gray(1)), warpSlub, weftSlub);
 
-        // Loose fibres standing off the threads, and the cloth's own sag and creases.
+        var (creases, cloth) = Cloth(weave);
+        var patch = PatchShape();
+        var patchWeave = PatchWeave(warpSlub, weftSlub);
+        var (stitches, patchHeight) = Stitching(patch, patchWeave);
+        var loose = LooseThreads();
+        var height = cloth
+            .Blend(patchHeight, mask: patch)
+            .Max(loose.Multiply(0.95f));
+
+        var (sacking, patchCloth) = ClothColors(warpSlub, weftSlub, weave, patchWeave, stitches);
+        var color = sacking
+            .Blend(patchCloth, mask: patch)
+            .Multiply(creases.Remap(1f, 0.82f));
+        (color, var wet) = WetStain(color);
+
+        var flour = Flour(height);
+        color = color.Blend(Rgb.Of("#c9c0ad"), mask: flour, opacity: 0.6f);
+
+        // The loose threads are paler than the cloth, being clean on the side that was inside the weave.
+        color = color.Blend(Noise.White(seed: 34).Blur(0.001f).GradientMap(Ramp.Of("#86704f", "#9a815c")), mask: loose.Levels(0f, 0.3f));
+        (color, var handled) = Handling(color);
+
+        return new Material
+        {
+            Width = 0.5f,
+            Depth = 0.004f,
+            Height = height,
+            Color = color,
+            Roughness = Dullness(weave, wet, handled, flour),
+        };
+    }
+
+    /// <summary>
+    /// The cloth's height before the patch: the weave, loose fibres standing off the threads, and the cloth's own sag
+    /// and creases, which come back too.
+    /// </summary>
+    private static (Gray Creases, Gray Cloth) Cloth(Gray weave)
+    {
         var fuzz = Noise.White(seed: 3).Blur(0.0006f).Levels(0.45f, 0.75f);
         var creases = Noise.Cells(scale: 5, output: CellOutput.Edge, seed: 4)
             .Warp(Noise.Perlin(scale: 4, octaves: 2), amount: 0.006f)
             .Levels(0f, 0.08f)
             .Invert()
             .Blur(0.004f);
-        var cloth = weave.Multiply(0.75f).Add(fuzz.Multiply(0.12f)).Subtract(creases.Multiply(0.25f));
 
-        // A square of older, finer sacking sewn over a hole, cut by hand so its edges wander a little. Its threads
-        // don't line up with the sack's: they start part of a thread over and run a few degrees off square, as a patch
-        // stitched on by eye would.
-        var patch = Shape.Of(ShapeKind.Square, PatchSize)
+        return (creases, weave.Multiply(0.75f).Add(fuzz.Multiply(0.12f)).Subtract(creases.Multiply(0.25f)));
+    }
+
+    /// <summary>A square of older, finer sacking sewn over a hole, cut by hand so its edges wander a little.</summary>
+    private static Gray PatchShape()
+    {
+        return Shape.Of(ShapeKind.Square, PatchSize)
             .Warp(Noise.Perlin(scale: 6, octaves: 2, seed: 20), amount: 0.0012f)
             .Transform(offset: PatchCentre - new Vector2(0.5f))
             .Levels(0.4f, 0.6f)
             .Blur(0.0004f);
+    }
+
+    /// <summary>
+    /// The patch's weave. Its threads don't line up with the sack's: they start part of a thread over and run a few
+    /// degrees off square, as a patch stitched on by eye would.
+    /// </summary>
+    private static Gray PatchWeave(Gray warpSlub, Gray weftSlub)
+    {
         float turn = 3.5f * 3.14159265f / 180f;
         float cos = DMath.Cos(turn);
         float sin = DMath.Sin(turn);
-        var patchWeave = Pixel.Gray(p =>
+
+        return Pixel.Gray(p =>
         {
             var d = p.Uv - PatchCentre;
             var turned = new Vector2(d.X * cos - d.Y * sin, d.X * sin + d.Y * cos);
             return Weave(turned * 112f + new Vector2(0.37f, 0.61f), p.SampleGray(0, turned + new Vector2(0.21f, 0.43f)),
                 p.SampleGray(1, turned + new Vector2(0.67f, 0.12f)));
         }, warpSlub, weftSlub);
+    }
 
-        // The patch's edge is turned under, so a band round it stands a double layer thick, and a running stitch of
-        // pale twine holds it about 4 mm in from the edge.
+    /// <summary>
+    /// The patch's edge is turned under, so a band round it stands a double layer thick, and a running stitch of pale
+    /// twine holds it about 4 mm in from the edge. Returns the stitches and the patch's height.
+    /// </summary>
+    private static (Gray Stitches, Gray PatchHeight) Stitching(Gray patch, Gray patchWeave)
+    {
         var fromEdge = patch.Invert().Distance(0.014f).Multiply(patch);
         var hem = fromEdge.Levels(0.25f, 0.6f);
         var stitches = Pixel.Gray(p =>
@@ -69,9 +123,13 @@ public sealed class Burlap : MaterialGraph
             float stitch = 1f - MathF.Abs(dash - 0.3f) / 0.3f;
             return stitch > 0f ? MathF.Sqrt(line * MathF.Min(1f, stitch * 3f)) : 0f;
         }, fromEdge, patch);
-        var patchHeight = patchWeave.Multiply(0.7f).Add(0.28f).Add(hem.Multiply(0.12f)).Add(stitches.Multiply(0.2f));
 
-        // Loose threads pulled out of the weave, lying across the cloth in loose curls a few centimetres long.
+        return (stitches, patchWeave.Multiply(0.7f).Add(0.28f).Add(hem.Multiply(0.12f)).Add(stitches.Multiply(0.2f)));
+    }
+
+    /// <summary>Loose threads pulled out of the weave, lying across the cloth in loose curls a few centimetres long.</summary>
+    private static Gray LooseThreads()
+    {
         var strand = Pixel.Gray(p =>
         {
             float along = (p.Uv.X - 0.05f) / 0.9f;
@@ -84,13 +142,16 @@ public sealed class Burlap : MaterialGraph
             float across = MathF.Abs(p.Uv.Y - middle) / 0.02f;
             return across < 1f ? MathF.Sqrt(1f - across * across) : 0f;
         });
-        var loose = strand.Splatter(count: 26, sizeMin: 0.03f, sizeMax: 0.08f, seed: 21);
 
-        var height = cloth
-            .Blend(patchHeight, mask: patch)
-            .Max(loose.Multiply(0.95f));
+        return strand.Splatter(count: 26, sizeMin: 0.03f, sizeMax: 0.08f, seed: 21);
+    }
 
-        // Pale straw-brown jute, each thread a slightly different shade, darker in the gaps.
+    /// <summary>
+    /// Pale straw-brown jute, each thread a slightly different shade, darker in the gaps: the sack's and the patch's,
+    /// with the patch's stitches.
+    /// </summary>
+    private static (Rgb Sacking, Rgb PatchCloth) ClothColors(Gray warpSlub, Gray weftSlub, Gray weave, Gray patchWeave, Gray stitches)
+    {
         var shade = warpSlub.Add(weftSlub).Multiply(0.5f);
         var sacking = shade
             .GradientMap(Ramp.Of("#6b5338", "#7c6344", "#89704e"))
@@ -99,11 +160,16 @@ public sealed class Burlap : MaterialGraph
             .GradientMap(Ramp.Of("#5f5240", "#6d5d47", "#786851"))
             .Multiply(patchWeave.Levels(0f, 0.6f).Remap(0.45f, 1f))
             .Blend(Rgb.Of("#c4b089"), mask: stitches);
-        var color = sacking
-            .Blend(patchCloth, mask: patch)
-            .Multiply(creases.Remap(1f, 0.82f));
 
-        // A dark stain where something wet soaked in, with a tide mark darker still round its rim where it dried.
+        return (sacking, patchCloth);
+    }
+
+    /// <summary>
+    /// A dark stain where something wet soaked in, with a tide mark darker still round its rim where it dried. Returns
+    /// <paramref name="color"/> stained, and where it is wet.
+    /// </summary>
+    private static (Rgb Color, Gray Wet) WetStain(Rgb color)
+    {
         var wetSpread = Noise.Perlin(scale: 3, octaves: 5, seed: 30).Warp(Noise.Perlin(scale: 12, octaves: 2, seed: 31), amount: 0.004f);
         var wet = wetSpread.HistogramScan(position: 0.13f, contrast: 0.92f);
         var tide = wet.Subtract(wetSpread.HistogramScan(position: 0.09f, contrast: 0.85f)).Levels(0f, 0.6f);
@@ -111,18 +177,26 @@ public sealed class Burlap : MaterialGraph
             .Blend(Rgb.Of("#4a3f2e"), mask: wet, opacity: 0.85f)
             .Blend(Rgb.Of("#3a3124"), mask: tide, opacity: 0.6f);
 
-        // Flour dusted on from the grain inside, caught on the tops of the threads and not down in the gaps.
+        return (color, wet);
+    }
+
+    /// <summary>Flour dusted on from the grain inside, caught on the tops of the threads and not down in the gaps.</summary>
+    private static Gray Flour(Gray height)
+    {
         var flourPatch = Noise.Perlin(scale: 4, octaves: 4, seed: 32).HistogramScan(position: 0.22f, contrast: 0.4f);
-        var flour = flourPatch
+
+        return flourPatch
             .Multiply(height.Levels(0.15f, 0.6f))
             .Multiply(Noise.White(seed: 33).Blur(0.0008f).Levels(0.3f, 0.7f).Remap(0.6f, 1f));
-        color = color.Blend(Rgb.Of("#c9c0ad"), mask: flour, opacity: 0.6f);
+    }
 
-        // The loose threads are paler than the cloth, being clean on the side that was inside the weave.
-        color = color.Blend(Noise.White(seed: 34).Blur(0.001f).GradientMap(Ramp.Of("#86704f", "#9a815c")), mask: loose.Levels(0f, 0.3f));
-
-        // Grubby in broad patches where it has been handled, and grimy from the bottom up, where it stood on the yard
-        // and the damp wicked up into it in uneven tongues. The ramp runs down the image, 1 at the foot of a sack.
+    /// <summary>
+    /// Grubby in broad patches where it has been handled, and grimy from the bottom up, where it stood on the yard and
+    /// the damp wicked up into it in uneven tongues. The ramp runs down the image, 1 at the foot of a sack. Returns
+    /// <paramref name="color"/> dirtied, and where it was handled.
+    /// </summary>
+    private static (Rgb Color, Gray Handled) Handling(Rgb color)
+    {
         var handled = Noise.Perlin(scale: 3, octaves: 5, seed: 5).HistogramScan(position: 0.3f, contrast: 0.25f);
         var foot = Shape.Of(ShapeKind.Gradient)
             .Transform(rotate: -90f)
@@ -132,21 +206,20 @@ public sealed class Burlap : MaterialGraph
             .Blend(Rgb.Of("#5a4630"), mask: handled, opacity: 0.4f)
             .Blend(Rgb.Of("#3f3426"), mask: foot, opacity: 0.75f);
 
-        return new Material
-        {
-            Width = 0.5f,
-            Depth = 0.004f,
-            Height = height,
-            Color = color,
-            // Dry jute is very dull; patches rubbed smooth, the wet stain and handling leave it a touch less so, the
-            // flour more.
-            Roughness = weave.Remap(0.95f, 0.89f)
-                .Subtract(Noise.Perlin(scale: 4, octaves: 3, seed: 36).Levels(0.35f, 0.7f).Multiply(0.06f))
-                .Subtract(wet.Multiply(0.03f))
-                .Subtract(handled.Multiply(0.02f))
-                .Max(0.85f)
-                .Blend(Gray.Of(0.95f), mask: flour),
-        };
+        return (color, handled);
+    }
+
+    /// <summary>
+    /// Dry jute is very dull; patches rubbed smooth, the wet stain and handling leave it a touch less so, the flour more.
+    /// </summary>
+    private static Gray Dullness(Gray weave, Gray wet, Gray handled, Gray flour)
+    {
+        return weave.Remap(0.95f, 0.89f)
+            .Subtract(Noise.Perlin(scale: 4, octaves: 3, seed: 36).Levels(0.35f, 0.7f).Multiply(0.06f))
+            .Subtract(wet.Multiply(0.03f))
+            .Subtract(handled.Multiply(0.02f))
+            .Max(0.85f)
+            .Blend(Gray.Of(0.95f), mask: flour);
     }
 
     /// <summary>

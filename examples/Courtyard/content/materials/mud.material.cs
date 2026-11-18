@@ -8,33 +8,10 @@ public sealed class Mud : MaterialGraph
 {
     public override Material Build()
     {
-        // Broad swells, then coarse clods about 30 cm across pushed up between prints, and crumbs between those.
-        var swell = Noise.Perlin(scale: 6, octaves: 5).Remap(0.3f, 0.6f);
-        // A clod is a cell, rounded off towards the cracks between it and the next, each standing its own height.
-        var clods = Clods(scale: 14, seed: 1).Multiply(0.16f);
-        var crumbs = Clods(scale: 64, seed: 3).Multiply(0.06f);
-        var grit = Noise.White().Blur(0.0006f).Remap(-0.025f, 0.025f);
-        var ground = swell.Add(clods).Add(crumbs).Add(grit);
-
-        // Pebbles of three sizes, about a centimetre, 2 to 3 cm and 4 to 7 cm. Each stamp is a dome bent out of round,
-        // flattened on top, so they read as stones rather than beads.
-        var stone = Shape.Of(ShapeKind.Bell).Warp(Noise.Perlin(scale: 3, octaves: 2, seed: 5), amount: 0.05f).Levels(0f, 0.55f);
-        var small = stone.Splatter(count: 1400, sizeMin: 0.0016f, sizeMax: 0.0032f, seed: 11);
-        var medium = stone.Splatter(count: 260, sizeMin: 0.004f, sizeMax: 0.0075f, seed: 12);
-        var large = stone.Splatter(count: 40, sizeMin: 0.01f, sizeMax: 0.0175f, seed: 13);
-        // They sit on the broad swell, half sunk, so they stand out of the mud round them but not out of the clods. Only
-        // a stone is lifted: between the stones the top layer is the swell let down by the grit's depth, so it never
-        // wins in the cracks between clods.
-        var pebbles = small.Multiply(0.35f).Max(medium.Multiply(0.5f)).Max(large.Multiply(0.65f));
-        var lift = pebbles.Levels(0f, 0.02f).Multiply(0.13f);
-        var withPebbles = Gray.HeightBlend(ground, swell.Add(pebbles).Add(lift), offset: 0.45f, contrast: 0.95f);
-
-        // Straw trodden in: little clumps of short parallel strokes, each clump turned its own way.
-        var strawClump = Noise.Directional(scale: 12, stretch: 6, octaves: 1, seed: 6)
-            .Levels(0.6f, 0.68f)
-            .Multiply(Shape.Of(ShapeKind.Bell).Levels(0f, 0.5f));
-        var straw = strawClump.Splatter(count: 320, sizeMin: 0.01f, sizeMax: 0.02f, seed: 14)
-            .Multiply(Noise.Perlin(scale: 5, octaves: 2, seed: 7).Levels(0.35f, 0.55f));
+        // Each stage makes its nodes in the same order as before, as a node's noise is seeded by the order it is made in.
+        var (swell, ground) = Ground();
+        var (pebbles, withPebbles) = Pebbles(swell, ground);
+        var straw = Straw();
 
         // Fallen leaves pressed flat into the mud, 4 to 8 cm long, browned and darker than the dry earth.
         var leaves = Leaf().Splatter(count: 150, sizeMin: 0.012f, sizeMax: 0.022f, seed: 15);
@@ -46,20 +23,8 @@ public sealed class Mud : MaterialGraph
         // Water lies in the low places, so they're dark and glossy.
         var wet = height.Invert().Levels(0.45f, 0.65f).Multiply(Noise.Perlin(scale: 8, octaves: 3, seed: 8).Levels(0.3f, 0.6f));
 
-        // The earth from dark umber to a dry grey-brown, darker in the hollows, paler in broad drier patches, and
-        // darker again where rotted matter is mixed in.
-        var dry = Noise.Perlin(scale: 3, octaves: 3, seed: 9).Levels(0.35f, 0.75f);
-        var tone = ground.Levels(0.25f, 0.75f).Multiply(0.75f).Add(dry.Multiply(0.25f));
-        var earth = tone.GradientMap(Ramp.Of("#3a2a1c", "#4c3a29", "#5f4b37", "#7a6248"));
-        var organic = Noise.Perlin(scale: 10, octaves: 4, seed: 10).Levels(0.5f, 0.75f);
-        earth = earth.Blend(Rgb.Of("#241a12"), mask: organic, opacity: 0.3f);
-
-        var pebbleColor = withPebbles.Mask.Multiply(pebbles).FloodFill(threshold: 0.02f).RandomGray()
-            .GradientMap(Ramp.Of("#4f4a44", "#6a645b", "#7d7468", "#5a5048"));
-        var strawColor = Noise.White(seed: 16).Blur(0.001f).GradientMap(Ramp.Of("#7e7052", "#a29271"));
-        var leafColor = leaves.FloodFill(threshold: 0.05f).RandomGray()
-            .GradientMap(Ramp.Of("#33271c", "#4c3824", "#5f462c", "#6c5636"));
-
+        var earth = Earth(ground);
+        var (pebbleColor, strawColor, leafColor) = LitterColors(pebbles, withPebbles, leaves);
         var color = earth
             .Blend(pebbleColor, mask: withPebbles.Mask)
             .Blend(strawColor, mask: straw.Multiply(0.85f))
@@ -77,6 +42,74 @@ public sealed class Mud : MaterialGraph
                 .Blend(Gray.Of(0.55f), mask: withPebbles.Mask.Multiply(0.6f))
                 .Add(Noise.Perlin(scale: 30, octaves: 3, seed: 17).Remap(-0.04f, 0.04f)),
         };
+    }
+
+    /// <summary>The bare ground: the broad swell, and the swell with clods, crumbs and grit on it.</summary>
+    private static (Gray Swell, Gray Ground) Ground()
+    {
+        // Broad swells, then coarse clods about 30 cm across pushed up between prints, and crumbs between those.
+        var swell = Noise.Perlin(scale: 6, octaves: 5).Remap(0.3f, 0.6f);
+        // A clod is a cell, rounded off towards the cracks between it and the next, each standing its own height.
+        var clods = Clods(scale: 14, seed: 1).Multiply(0.16f);
+        var crumbs = Clods(scale: 64, seed: 3).Multiply(0.06f);
+        var grit = Noise.White().Blur(0.0006f).Remap(-0.025f, 0.025f);
+
+        return (swell, swell.Add(clods).Add(crumbs).Add(grit));
+    }
+
+    /// <summary>The pebbles, and the ground with them half sunk into it.</summary>
+    private static (Gray Pebbles, HeightBlendResult WithPebbles) Pebbles(Gray swell, Gray ground)
+    {
+        // Pebbles of three sizes, about a centimetre, 2 to 3 cm and 4 to 7 cm. Each stamp is a dome bent out of round,
+        // flattened on top, so they read as stones rather than beads.
+        var stone = Shape.Of(ShapeKind.Bell).Warp(Noise.Perlin(scale: 3, octaves: 2, seed: 5), amount: 0.05f).Levels(0f, 0.55f);
+        var small = stone.Splatter(count: 1400, sizeMin: 0.0016f, sizeMax: 0.0032f, seed: 11);
+        var medium = stone.Splatter(count: 260, sizeMin: 0.004f, sizeMax: 0.0075f, seed: 12);
+        var large = stone.Splatter(count: 40, sizeMin: 0.01f, sizeMax: 0.0175f, seed: 13);
+        // They sit on the broad swell, half sunk, so they stand out of the mud round them but not out of the clods. Only
+        // a stone is lifted: between the stones the top layer is the swell let down by the grit's depth, so it never
+        // wins in the cracks between clods.
+        var pebbles = small.Multiply(0.35f).Max(medium.Multiply(0.5f)).Max(large.Multiply(0.65f));
+        var lift = pebbles.Levels(0f, 0.02f).Multiply(0.13f);
+
+        return (pebbles, Gray.HeightBlend(ground, swell.Add(pebbles).Add(lift), offset: 0.45f, contrast: 0.95f));
+    }
+
+    /// <summary>Straw trodden in: little clumps of short parallel strokes, each clump turned its own way.</summary>
+    private static Gray Straw()
+    {
+        var strawClump = Noise.Directional(scale: 12, stretch: 6, octaves: 1, seed: 6)
+            .Levels(0.6f, 0.68f)
+            .Multiply(Shape.Of(ShapeKind.Bell).Levels(0f, 0.5f));
+
+        return strawClump.Splatter(count: 320, sizeMin: 0.01f, sizeMax: 0.02f, seed: 14)
+            .Multiply(Noise.Perlin(scale: 5, octaves: 2, seed: 7).Levels(0.35f, 0.55f));
+    }
+
+    /// <summary>
+    /// The earth from dark umber to a dry grey-brown, darker in the hollows, paler in broad drier patches, and darker
+    /// again where rotted matter is mixed in.
+    /// </summary>
+    private static Rgb Earth(Gray ground)
+    {
+        var dry = Noise.Perlin(scale: 3, octaves: 3, seed: 9).Levels(0.35f, 0.75f);
+        var tone = ground.Levels(0.25f, 0.75f).Multiply(0.75f).Add(dry.Multiply(0.25f));
+        var earth = tone.GradientMap(Ramp.Of("#3a2a1c", "#4c3a29", "#5f4b37", "#7a6248"));
+        var organic = Noise.Perlin(scale: 10, octaves: 4, seed: 10).Levels(0.5f, 0.75f);
+
+        return earth.Blend(Rgb.Of("#241a12"), mask: organic, opacity: 0.3f);
+    }
+
+    /// <summary>The colours of the pebbles, the straw and the leaves, each pebble and leaf its own.</summary>
+    private static (Rgb Pebbles, Rgb Straw, Rgb Leaves) LitterColors(Gray pebbles, HeightBlendResult withPebbles, Gray leaves)
+    {
+        var pebbleColor = withPebbles.Mask.Multiply(pebbles).FloodFill(threshold: 0.02f).RandomGray()
+            .GradientMap(Ramp.Of("#4f4a44", "#6a645b", "#7d7468", "#5a5048"));
+        var strawColor = Noise.White(seed: 16).Blur(0.001f).GradientMap(Ramp.Of("#7e7052", "#a29271"));
+        var leafColor = leaves.FloodFill(threshold: 0.05f).RandomGray()
+            .GradientMap(Ramp.Of("#33271c", "#4c3824", "#5f462c", "#6c5636"));
+
+        return (pebbleColor, strawColor, leafColor);
     }
 
     /// <summary>Lumps <paramref name="scale"/> to the image, rounded off into the cracks between them, each its own height.</summary>

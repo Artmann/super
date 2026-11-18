@@ -30,45 +30,18 @@ public sealed class Glass : MaterialGraph
         // Old glass was drawn by hand, so it has gentle ripples running across it that bend what it reflects. Each
         // pane was cut from a different sheet, so neighbours don't carry the same ripples on: half the panes have one
         // set and half another.
+        // Each stage makes its nodes in the same order as before, as a node's noise is seeded by the order it is made in.
         var rippleA = Noise.Directional(scale: 37, angle: 0f, stretch: 4f, octaves: 2, seed: 1);
         var rippleB = Noise.Directional(scale: 37, angle: 0f, stretch: 4f, octaves: 2, seed: 2);
         var ripples = rippleA.Blend(rippleB, mask: panes.RandomGray(seed: 3).Levels(0.49f, 0.51f));
 
-        // Dust packs into each pane's corners, against the putty, and settles along its foot. The corners come from a
-        // radial gradient laid over each pane by its own ramps and turned inside out, ragged at the edge.
-        var corners = Pixel.Gray(p => p.SampleGray(2, new Vector2(p.Gray(0), 1f - p.Gray(1))), across, up, Gradient.Radial().Invert());
-        var ragged = Noise.Perlin(scale: 60, octaves: 3, seed: 4).Remap(-0.12f, 0.12f);
-        var packed = corners.Add(ragged).Levels(0.74f, 0.96f)
-            .Max(up.Invert().Add(ragged).Levels(0.9f, 0.99f).Multiply(0.35f));
-
-        // Grime over the rest: broad dusty patches, rain that ran down and dried, and specks of dirt. The rain left
-        // only faint runs, and they gather towards each pane's foot, where the drops slowed and dried; the top half
-        // of a pane has almost none.
-        var dust = Noise.Perlin(scale: 11, octaves: 5, seed: 5).Levels(0.55f, 0.85f);
-        var streaks = Noise.Directional(scale: 89, angle: 90f, stretch: 8f, octaves: 3, seed: 6)
-            .Levels(0.55f, 0.8f)
-            .Multiply(Noise.Perlin(scale: 15, octaves: 2, seed: 7).Levels(0.4f, 0.7f))
-            .Multiply(up.Invert().Levels(0.45f, 0.95f));
-        var specks = Noise.White(seed: 8).Blur(0.0005f).Levels(0.7f, 0.74f);
-        var grime = dust.Multiply(0.45f).Max(streaks.Multiply(0.2f)).Max(specks).Max(packed);
+        var grime = Grime(across, up);
 
         // One pane has cracked from its lower left to the top, with a short branch, drawn as a hairline and grown a
-        // little with Distance for the stressed glass round it. One side of the crack has sagged a fraction, so it
-        // reflects at a slightly different angle.
+        // little with Distance for the stressed glass round it.
         var hairline = Pixel.Gray(p => Crack(p.Uv) < 0.00035f ? 1f : 0f);
         var crack = hairline.Distance(0.0025f);
-        var sagged = Pixel.Gray(p =>
-        {
-            var local = (p.Uv - CrackedMin) / (CrackedMax - CrackedMin);
-            if (local.X < 0f || local.Y < 0f || local.X > 1f || local.Y > 1f)
-            {
-                return 0f;
-            }
-
-            // Right of the crack's main run, the piece is tipped forward towards its right edge.
-            float side = Side(local);
-            return side > 0f ? 0.5f * local.X : 0f;
-        });
+        var sagged = Sagged();
 
         return new Material
         {
@@ -83,6 +56,51 @@ public sealed class Glass : MaterialGraph
             Opacity = grime.Remap(0.05f, 0.8f).Max(crack.Levels(0.6f, 1f).Multiply(0.6f)),
             Roughness = grime.Remap(0.05f, 0.6f).Max(crack.Levels(0.3f, 1f).Multiply(0.35f)),
         };
+    }
+
+    /// <summary>
+    /// The dirt on the glass, from <paramref name="across"/> and <paramref name="up"/>, each pane's own ramps. Dust packs
+    /// into each pane's corners, against the putty, and settles along its foot; broad dusty patches, rain that ran down
+    /// and dried, and specks of dirt cover the rest.
+    /// </summary>
+    private static Gray Grime(Gray across, Gray up)
+    {
+        // The corners come from a radial gradient laid over each pane by its own ramps and turned inside out, ragged
+        // at the edge.
+        var corners = Pixel.Gray(p => p.SampleGray(2, new Vector2(p.Gray(0), 1f - p.Gray(1))), across, up, Gradient.Radial().Invert());
+        var ragged = Noise.Perlin(scale: 60, octaves: 3, seed: 4).Remap(-0.12f, 0.12f);
+        var packed = corners.Add(ragged).Levels(0.74f, 0.96f)
+            .Max(up.Invert().Add(ragged).Levels(0.9f, 0.99f).Multiply(0.35f));
+
+        // The rain left only faint runs, and they gather towards each pane's foot, where the drops slowed and dried;
+        // the top half of a pane has almost none.
+        var dust = Noise.Perlin(scale: 11, octaves: 5, seed: 5).Levels(0.55f, 0.85f);
+        var streaks = Noise.Directional(scale: 89, angle: 90f, stretch: 8f, octaves: 3, seed: 6)
+            .Levels(0.55f, 0.8f)
+            .Multiply(Noise.Perlin(scale: 15, octaves: 2, seed: 7).Levels(0.4f, 0.7f))
+            .Multiply(up.Invert().Levels(0.45f, 0.95f));
+        var specks = Noise.White(seed: 8).Blur(0.0005f).Levels(0.7f, 0.74f);
+
+        return dust.Multiply(0.45f).Max(streaks.Multiply(0.2f)).Max(specks).Max(packed);
+    }
+
+    /// <summary>
+    /// One side of the crack has sagged a fraction, so it reflects at a slightly different angle: right of the crack's
+    /// main run, the piece is tipped forward towards its right edge.
+    /// </summary>
+    private static Gray Sagged()
+    {
+        return Pixel.Gray(p =>
+        {
+            var local = (p.Uv - CrackedMin) / (CrackedMax - CrackedMin);
+            if (local.X < 0f || local.Y < 0f || local.X > 1f || local.Y > 1f)
+            {
+                return 0f;
+            }
+
+            float side = Side(local);
+            return side > 0f ? 0.5f * local.X : 0f;
+        });
     }
 
     // The crack's run across its pane, from near the lower left corner up to the top edge, in the pane's own 0 to 1
