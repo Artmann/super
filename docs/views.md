@@ -368,8 +368,9 @@ static readonly ParticleEffect TreeFall = new ParticleEffect()
 view.Particles(key, TreeFall, tree.Foot, tree.Foot + direction * TrunkLength, since);
 ```
 
-An emitter can be drawn on its own wherever an effect can. To share steps between
-emitters, write an extension method; the `Dust` example gives its stump puff and its
+An emitter can be drawn on its own wherever an effect can. The node calls are
+extension methods themselves, in `ParticleSpawning`, `ParticleMotion` and
+`ParticleLooks`, so to share steps between emitters, write one of your own; the `Dust` example gives its stump puff and its
 ground dust the same `Billows` look this way:
 
 ```csharp

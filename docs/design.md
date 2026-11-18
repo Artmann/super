@@ -3068,7 +3068,11 @@ Fog, haze and the underwater fade are the same as for surfaces. Colour is premul
 
 On the Super side, a `ParticleEmitter` is an immutable list of nodes, built like a
 Unity or Unreal particle graph but always a chain, never a graph with branches. The
-constructor sorts the nodes into stages and every particle runs through them in a
+calls that add nodes are extension methods grouped by stage: `ParticleSpawning` for the
+birth time and spawn shape, which an emitter keeps one of each in its `ParticleSettings`
+with the count, lifetime and seed, `ParticleMotion` for speeds, forces and motions, and
+`ParticleLooks` for looks. `ParticleChecks` holds the range checks they share.
+`ParticleStages` sorts the nodes into stages and every particle runs through them in a
 fixed order: birth time, spawn shape, start speeds (summed), forces, motions (in
 turn), then looks (in turn, multiplying from one metre, white and solid). Every node
 must be a closed-form function of the particle's age, because nothing is stepped
@@ -3083,7 +3087,9 @@ number. Each node rolls its own dice, salted by its place in the list, so adding
 node doesn't change what the nodes before it roll. An effect is a list of emitters,
 each with a delay and an offset; the delay is taken off the age. Spawn shapes, speeds
 and offsets go through the call's transform; the from/to call stretches only the x of
-shapes and offsets, so speeds keep their size. Gravity, wind, sizes and colours stay
+shapes and offsets, so speeds keep their size. A `ParticlePlacement` carries the
+transform, offset and stretch to each emitter, with the middle and upright axis that
+motions turn round. Gravity, wind, sizes and colours stay
 in the world. An emitter drawn alone turns into an effect once and keeps it, so a
 frame allocates nothing.
 

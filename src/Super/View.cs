@@ -559,7 +559,7 @@ public sealed class View
     /// <summary>
     /// Draws a burst of particles laid along a line, such as dust where a fallen tree hit
     /// the ground. The effect's x axis runs from one end to the other, scaled so a
-    /// <see cref="ParticleEmitter.FromLine"/> one metre long covers it exactly, and its y
+    /// <see cref="ParticleSpawning.FromLine"/> one metre long covers it exactly, and its y
     /// axis stays upward. Speeds and sizes keep their size, and an emitter's offset of
     /// -0.5 on x is the start of the line and 0.5 the end.
     /// </summary>
