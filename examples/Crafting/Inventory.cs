@@ -44,13 +44,7 @@ public sealed class Inventory(int slots)
     /// </summary>
     public bool Add(string item, int count)
     {
-        int room = 0;
-        foreach (var stack in _slots)
-        {
-            room += stack is null ? MaxStack : stack.Item == item ? MaxStack - stack.Count : 0;
-        }
-
-        if (room < count)
+        if (Room(item) < count)
         {
             return false;
         }
@@ -63,6 +57,24 @@ public sealed class Inventory(int slots)
             }
         }
 
+        FillEmptySlots(item, count);
+        return true;
+    }
+
+    /// <summary>How many of the item would fit: the space left on its stacks, and a whole stack per empty slot.</summary>
+    private int Room(string item)
+    {
+        int room = 0;
+        foreach (var stack in _slots)
+        {
+            room += stack is null ? MaxStack : stack.Item == item ? MaxStack - stack.Count : 0;
+        }
+
+        return room;
+    }
+
+    private void FillEmptySlots(string item, int count)
+    {
         for (int slot = 0; slot < _slots.Length && count > 0; slot++)
         {
             if (_slots[slot] is null)
@@ -72,8 +84,6 @@ public sealed class Inventory(int slots)
                 count -= taken;
             }
         }
-
-        return true;
     }
 
     /// <summary>Moves a stack onto another slot: it merges with the same item, and swaps with anything else.</summary>

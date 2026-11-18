@@ -15,12 +15,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Crafting.Inventory.Add",
-      "file": "examples/Crafting/Inventory.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
       "name": "Hamlet.HamletGame.DrawBuilding",
       "file": "examples/Hamlet/HamletGame.cs",
       "metric": 13
@@ -552,12 +546,6 @@
       "name": "Bricks.ToneTable",
       "file": "examples/Courtyard/content/materials/bricks.material.cs",
       "metric": 27
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Crafting.Inventory.Add",
-      "file": "examples/Crafting/Inventory.cs",
-      "metric": 16
     },
     {
       "kind": "high-cognitive-complexity",
