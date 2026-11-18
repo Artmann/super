@@ -1,20 +1,25 @@
 using System.Numerics;
 using Rendition;
+using static Super.ShapeChecks;
 
 namespace Super;
 
 /// <summary>
 /// Ready-made meshes: boxes, spheres, capsules, cylinders, cones, planes, quads, tori and
-/// prisms. Hand one to <see cref="Content.Mesh"/> to draw it. Every shape is centred on
-/// zero with y up, its triangles face outwards, and its normals, tangents and UVs are set.
+/// prisms, and meshes made along a <see cref="Spline"/>: roads, rails, pipes and rivers, and
+/// models bent to follow one. Hand one to <see cref="Content.Mesh"/> to draw it. Every shape is
+/// centred on zero with y up, its triangles face outwards, and its normals, tangents and UVs are set.
 /// Curved shapes are smooth; <see cref="Flat"/> gives any mesh hard, faceted edges.
 /// UVs stretch once across each part unless <c>uvPerMetre</c> is given, which makes them
 /// tile in metres instead, so a texture keeps its size whatever the shape's size. A surface
 /// from <see cref="Content.Surface(string)"/> tiles at its material's width when
 /// <c>uvPerMetre</c> isn't given.
 /// </summary>
-public static partial class Shapes
+public static class Shapes
 {
+    /// <summary>The names of the built-in shapes, in the same order as <see cref="BuiltIn"/>.</summary>
+    internal static readonly string[] BuiltInNames = ["sphere", "capsule", "cylinder", "cone", "plane", "quad", "torus"];
+
     /// <summary>A box with this width, height and depth. One texture covers each face.</summary>
     public static GeneratedMesh Box(Vector3 size, Surface? surface = null, float? uvPerMetre = null)
     {
@@ -41,15 +46,15 @@ public static partial class Shapes
             float width = Math.Abs(Vector3.Dot(across, size));
             float height = Math.Abs(Vector3.Dot(up, size));
             var tangent = new Vector4(across, 1f);
-            var uvScale = Tiling(uvPerMetre, width, height);
-            builder.Grid(1, 1, (column, row) => new Vertex(
+            var uvScale = ShapeMath.Tiling(uvPerMetre, width, height);
+            builder.AddGrid(1, 1, (column, row) => new Vertex(
                 normal * half + across * ((column - 0.5f) * width) + up * ((0.5f - row) * height),
                 normal,
                 tangent,
                 new Vector2(column, row) * uvScale));
         }
 
-        return builder.Build(surface);
+        return builder.ToMesh(surface);
     }
 
     /// <summary>
@@ -64,10 +69,10 @@ public static partial class Shapes
         RequireAtLeast(rings, 2, nameof(rings));
 
         var profile = new List<ProfilePoint>(rings + 1);
-        AddArc(profile, Vector2.Zero, radius, 0, rings, rings, startAngle: 0f, endAngle: MathF.PI);
+        ShapeMath.AddArc(profile, new ProfileArc(Vector2.Zero, radius, 0f, MathF.PI, rings), 0, rings);
         var builder = new ShapeBuilder();
         builder.Revolve(profile, segments, radius, uvPerMetre);
-        return builder.Build(surface);
+        return builder.ToMesh(surface);
     }
 
     /// <summary>
@@ -82,11 +87,11 @@ public static partial class Shapes
         RequireAtLeast(rings, 1, nameof(rings));
 
         var profile = new List<ProfilePoint>(rings + 1);
-        AddArc(profile, Vector2.Zero, radius, 0, rings, 2 * rings, startAngle: 0f, endAngle: MathF.PI);
+        ShapeMath.AddArc(profile, new ProfileArc(Vector2.Zero, radius, 0f, MathF.PI, 2 * rings), 0, rings);
         var builder = new ShapeBuilder();
         builder.Revolve(profile, segments, radius, uvPerMetre);
-        builder.Disc(0f, radius, segments, facingUp: false, uvPerMetre);
-        return builder.Build(surface);
+        builder.AddDisc(0f, radius, segments, facingUp: false, uvPerMetre);
+        return builder.ToMesh(surface);
     }
 
     /// <summary>
@@ -107,12 +112,12 @@ public static partial class Shapes
 
         float middle = (height - 2f * radius) * 0.5f;
         var profile = new List<ProfilePoint>(2 * rings + 2);
-        AddArc(profile, new Vector2(0f, middle), radius, 0, rings, 2 * rings, startAngle: 0f, endAngle: MathF.PI);
+        ShapeMath.AddArc(profile, new ProfileArc(new Vector2(0f, middle), radius, 0f, MathF.PI, 2 * rings), 0, rings);
         float start = profile[^1].Distance + 2f * middle;
-        AddArc(profile, new Vector2(0f, -middle), radius, rings, 2 * rings, 2 * rings, startAngle: 0f, endAngle: MathF.PI, distance: start);
+        ShapeMath.AddArc(profile, new ProfileArc(new Vector2(0f, -middle), radius, 0f, MathF.PI, 2 * rings), rings, 2 * rings, distance: start);
         var builder = new ShapeBuilder();
         builder.Revolve(profile, segments, radius, uvPerMetre);
-        return builder.Build(surface);
+        return builder.ToMesh(surface);
     }
 
     /// <summary>
@@ -149,15 +154,15 @@ public static partial class Shapes
             uvPerMetre);
         if (topRadius > 0f)
         {
-            builder.Disc(top, topRadius, segments, facingUp: true, uvPerMetre);
+            builder.AddDisc(top, topRadius, segments, facingUp: true, uvPerMetre);
         }
 
         if (bottomRadius > 0f)
         {
-            builder.Disc(-top, bottomRadius, segments, facingUp: false, uvPerMetre);
+            builder.AddDisc(-top, bottomRadius, segments, facingUp: false, uvPerMetre);
         }
 
-        return builder.Build(surface);
+        return builder.ToMesh(surface);
     }
 
     /// <summary>A cone standing on its base, pointing up.</summary>
@@ -176,15 +181,15 @@ public static partial class Shapes
         RequireAtLeast(subdivisions, 1, nameof(subdivisions));
 
         var builder = new ShapeBuilder();
-        var uvScale = Tiling(uvPerMetre, size.X, size.Y);
+        var uvScale = ShapeMath.Tiling(uvPerMetre, size.X, size.Y);
         var tangent = new Vector4(Vector3.UnitX, 1f);
-        builder.Grid(subdivisions, subdivisions, (column, row) =>
+        builder.AddGrid(subdivisions, subdivisions, (column, row) =>
         {
             float u = column / (float)subdivisions;
             float v = row / (float)subdivisions;
             return new Vertex(new Vector3((u - 0.5f) * size.X, 0f, (v - 0.5f) * size.Y), Vector3.UnitY, tangent, new Vector2(u, v) * uvScale);
         });
-        return builder.Build(surface);
+        return builder.ToMesh(surface);
     }
 
     /// <summary>
@@ -198,14 +203,14 @@ public static partial class Shapes
         RequirePositive(size.Y, nameof(size), "height");
 
         var builder = new ShapeBuilder();
-        var uvScale = Tiling(uvPerMetre, size.X, size.Y);
+        var uvScale = ShapeMath.Tiling(uvPerMetre, size.X, size.Y);
         var tangent = new Vector4(Vector3.UnitX, 1f);
-        builder.Grid(1, 1, (column, row) => new Vertex(
+        builder.AddGrid(1, 1, (column, row) => new Vertex(
             new Vector3((column - 0.5f) * size.X, (0.5f - row) * size.Y, 0f),
             Vector3.UnitZ,
             tangent,
             new Vector2(column, row) * uvScale));
-        return builder.Build(surface);
+        return builder.ToMesh(surface);
     }
 
     /// <summary>
@@ -228,10 +233,10 @@ public static partial class Shapes
 
         // Round the tube from the top, out over the far side and back, like the sphere.
         var profile = new List<ProfilePoint>(sides + 1);
-        AddArc(profile, new Vector2(radius, 0f), tube, 0, sides, sides, startAngle: 0f, endAngle: 2f * MathF.PI);
+        ShapeMath.AddArc(profile, new ProfileArc(new Vector2(radius, 0f), tube, 0f, 2f * MathF.PI, sides), 0, sides);
         var builder = new ShapeBuilder();
         builder.Revolve(profile, segments, radius + tube, uvPerMetre);
-        return builder.Build(surface);
+        return builder.ToMesh(surface);
     }
 
     /// <summary>
@@ -267,7 +272,7 @@ public static partial class Shapes
             var b = mesh.Vertices[mesh.Indices[i + 1]];
             var c = mesh.Vertices[mesh.Indices[i + 2]];
             var normal = Vector3.Normalize(Vector3.Cross(b.Position - a.Position, c.Position - a.Position));
-            var tangent = FaceTangent(a, b, c, normal);
+            var tangent = ShapeMath.FaceTangent(a, b, c, normal);
             vertices[i] = a with { Normal = normal, Tangent = tangent };
             vertices[i + 1] = b with { Normal = normal, Tangent = tangent };
             vertices[i + 2] = c with { Normal = normal, Tangent = tangent };
@@ -277,6 +282,133 @@ public static partial class Shapes
         }
 
         return mesh with { Vertices = vertices, Indices = indices };
+    }
+
+    /// <summary>
+    /// Sweeps an outline along a spline, as a road, a rail, a wall or a river bed. The
+    /// outline is in metres, seen looking along the spline from its start: x to the right
+    /// and y up. Each edge faces to the right of the way it runs, so an outline going
+    /// anticlockwise faces outwards, and a flat road listed from right to left faces up.
+    /// A closed outline joins its last point back to its first. Rings are placed every
+    /// <paramref name="step"/> metres, and UVs are in metres: u across the outline and v
+    /// along the spline. Edges are sharp across the outline unless it's
+    /// <paramref name="smooth"/>, as for a pipe. The ends are left open.
+    /// </summary>
+    public static GeneratedMesh Extrude(
+        Spline spline,
+        IReadOnlyList<Vector2> outline,
+        bool closedOutline = false,
+        bool smooth = false,
+        float step = 0.5f,
+        Surface? surface = null,
+        float? uvPerMetre = null)
+    {
+        ArgumentNullException.ThrowIfNull(spline);
+        ArgumentNullException.ThrowIfNull(outline);
+        SplineSweep.CheckOutline(outline, closedOutline);
+        RequirePositive(step, nameof(step), "step");
+        float perMetre = PerMetre(uvPerMetre, surface) ?? 1f;
+        RequirePositive(perMetre, nameof(uvPerMetre), "UV scale");
+
+        int rings = Math.Max(1, (int)MathF.Ceiling(spline.Length / step - 1e-4f));
+        var poses = new SplinePose[rings + 1];
+        var along = new float[rings + 1];
+        for (int ring = 0; ring <= rings; ring++)
+        {
+            along[ring] = spline.Length * ring / rings;
+            poses[ring] = spline.FrameAtDistance(along[ring]);
+        }
+
+        var builder = new ShapeBuilder();
+        foreach (var strip in SplineSweep.Strips(outline, closedOutline, smooth))
+        {
+            builder.AddGrid(strip.Length - 1, rings, (column, row) =>
+            {
+                var corner = strip[column];
+                var pose = poses[row];
+                var normal = Vector3.Transform(new Vector3(-corner.Normal.X, corner.Normal.Y, 0f), pose.Rotation);
+                var across = Vector3.Transform(new Vector3(-corner.Across.X, corner.Across.Y, 0f), pose.Rotation);
+
+                // The shaders build the bitangent as cross(normal, tangent) * w, pointing to where v falls.
+                float handedness = Vector3.Dot(Vector3.Cross(normal, across), pose.Forward) > 0f ? -1f : 1f;
+                return new Vertex(
+                    pose.Position + Vector3.Transform(new Vector3(-corner.Point.X, corner.Point.Y, 0f), pose.Rotation),
+                    normal,
+                    new Vector4(across, handedness),
+                    new Vector2(corner.U, along[row]) * perMetre);
+            });
+        }
+
+        return builder.ToMesh(surface);
+    }
+
+    /// <summary>
+    /// A flat strip along a spline, facing up, such as a road or a river. It's
+    /// <paramref name="width"/> metres across, centred on the spline.
+    /// </summary>
+    public static GeneratedMesh Ribbon(Spline spline, float width, float step = 0.5f, Surface? surface = null, float? uvPerMetre = null)
+    {
+        RequirePositive(width, nameof(width), "width");
+        return Extrude(spline, [new Vector2(width * 0.5f, 0f), new Vector2(-width * 0.5f, 0f)], step: step, surface: surface, uvPerMetre: uvPerMetre);
+    }
+
+    /// <summary>A round pipe along a spline, for rails, cables, ropes and pipes. Sides go round it.</summary>
+    public static GeneratedMesh Tube(Spline spline, float radius = 0.25f, int sides = 12, float step = 0.5f, Surface? surface = null, float? uvPerMetre = null)
+    {
+        RequirePositive(radius, nameof(radius), "radius");
+        RequireAtLeast(sides, 3, nameof(sides));
+
+        var outline = new Vector2[sides];
+        for (int i = 0; i < sides; i++)
+        {
+            var (sin, cos) = ShapeMath.SinCos(2f * MathF.PI * i / sides);
+            outline[i] = new Vector2(cos * radius, sin * radius);
+        }
+
+        return Extrude(spline, outline, closedOutline: true, smooth: true, step, surface, uvPerMetre);
+    }
+
+    /// <summary>
+    /// Bends a mesh to follow a spline, such as a straight plank into a bridge or a pipe
+    /// into a bend. The mesh's +z runs along the spline from its start, measured from the
+    /// mesh's back end, and its x and y keep their place across it, so it keeps its length.
+    /// Past the end of an open spline it carries on straight. Give it plenty of vertices
+    /// along z, since only vertices move. Loaded models can't be bent, only generated meshes.
+    /// The result keeps the mesh's <see cref="Vertex.Uv2"/>, which stretches with the bend, so call
+    /// <see cref="GeneratedMesh.WithLightmapUvs"/> on it after a tight bend.
+    /// </summary>
+    public static GeneratedMesh Bend(GeneratedMesh mesh, Spline spline)
+    {
+        ArgumentNullException.ThrowIfNull(mesh);
+        ArgumentNullException.ThrowIfNull(spline);
+
+        float back = float.MaxValue;
+        foreach (var vertex in mesh.Vertices)
+        {
+            back = MathF.Min(back, vertex.Position.Z);
+        }
+
+        var vertices = new Vertex[mesh.Vertices.Length];
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            var vertex = mesh.Vertices[i];
+            float distance = vertex.Position.Z - back;
+            var pose = spline.FrameAtDistance(distance);
+            if (!spline.Closed && distance > spline.Length)
+            {
+                pose = pose with { Position = pose.Position + pose.Forward * (distance - spline.Length) };
+            }
+
+            var tangent = Vector3.Transform(new Vector3(vertex.Tangent.X, vertex.Tangent.Y, vertex.Tangent.Z), pose.Rotation);
+            vertices[i] = vertex with
+            {
+                Position = pose.Position + Vector3.Transform(vertex.Position with { Z = 0f }, pose.Rotation),
+                Normal = Vector3.Transform(vertex.Normal, pose.Rotation),
+                Tangent = new Vector4(tangent, vertex.Tangent.W),
+            };
+        }
+
+        return mesh with { Vertices = vertices };
     }
 
     /// <summary>The meshes behind <see cref="ModelRef.Sphere"/> and the other built-in shapes, in index order from -1.</summary>
@@ -290,378 +422,4 @@ public static partial class Shapes
         Quad(Vector2.One),
         Torus(),
     ];
-
-    /// <summary>The names of the built-in shapes, in the same order as <see cref="BuiltIn"/>.</summary>
-    internal static readonly string[] BuiltInNames = ["sphere", "capsule", "cylinder", "cone", "plane", "quad", "torus"];
-
-    /// <summary>
-    /// Which way a triangle's texture runs across, from how its UVs change over it. Bent
-    /// to lie flat in the face, and with the handedness the shaders expect.
-    /// </summary>
-    private static Vector4 FaceTangent(in Vertex a, in Vertex b, in Vertex c, Vector3 normal)
-    {
-        var edge1 = b.Position - a.Position;
-        var edge2 = c.Position - a.Position;
-        var uv1 = b.Uv - a.Uv;
-        var uv2 = c.Uv - a.Uv;
-        float determinant = uv1.X * uv2.Y - uv2.X * uv1.Y;
-        if (MathF.Abs(determinant) < 1e-12f)
-        {
-            // No usable UVs, so any direction in the face will do.
-            return new Vector4(Vector3.Normalize(edge1), 1f);
-        }
-
-        var alongU = (edge1 * uv2.Y - edge2 * uv1.Y) / determinant;
-        var alongV = (edge2 * uv1.X - edge1 * uv2.X) / determinant;
-        var tangent = Vector3.Normalize(alongU - normal * Vector3.Dot(normal, alongU));
-
-        // The shaders build the bitangent as cross(normal, tangent) * w, pointing to where v falls.
-        float handedness = Vector3.Dot(Vector3.Cross(normal, tangent), alongV) < 0f ? 1f : -1f;
-        return new Vector4(tangent, handedness);
-    }
-
-    /// <summary>
-    /// Adds points round an arc to a profile, from <paramref name="first"/> to
-    /// <paramref name="last"/> of <paramref name="steps"/> equal steps between the two
-    /// angles. Angles start at the top and turn outwards, so normals face away from the centre.
-    /// </summary>
-    private static void AddArc(List<ProfilePoint> profile, Vector2 centre, float radius, int first, int last, int steps, float startAngle, float endAngle, float distance = 0f)
-    {
-        for (int step = first; step <= last; step++)
-        {
-            var (sin, cos) = SinCos(startAngle + (endAngle - startAngle) * step / steps);
-            var normal = new Vector2(sin, cos);
-            float travelled = distance + radius * MathF.Abs(endAngle - startAngle) * (step - first) / steps;
-            profile.Add(new ProfilePoint(centre.X + radius * sin, centre.Y + radius * cos, normal, travelled));
-        }
-    }
-
-    /// <summary>Sine and cosine, exact at quarter turns, so poles and seams meet bit for bit.</summary>
-    internal static (float Sin, float Cos) SinCos(float angle)
-    {
-        float quarters = angle / (MathF.PI * 0.5f);
-        float nearest = MathF.Round(quarters);
-        if (MathF.Abs(quarters - nearest) < 1e-6f)
-        {
-            int quarter = ((int)nearest % 4 + 4) % 4;
-            return quarter switch
-            {
-                0 => (0f, 1f),
-                1 => (1f, 0f),
-                2 => (0f, -1f),
-                _ => (-1f, 0f),
-            };
-        }
-
-        return MathF.SinCos(angle);
-    }
-
-    /// <summary>The tiling to use: the one given, else one tile per <see cref="Surface.TileWidth"/> metres, else none.</summary>
-    internal static float? PerMetre(float? uvPerMetre, Surface? surface)
-    {
-        if (uvPerMetre is { } given)
-        {
-            if (!(given > 0f) || !float.IsFinite(given))
-            {
-                throw new ArgumentOutOfRangeException(nameof(uvPerMetre), FormattableString.Invariant($"uvPerMetre must be a finite number above zero, not {given}."));
-            }
-
-            return given;
-        }
-
-        if (surface?.TileWidth is not { } width)
-        {
-            return null;
-        }
-
-        // A width so small that one over it overflows is as unusable as zero.
-        if (!(width > 0f) || !float.IsFinite(width) || !float.IsFinite(1f / width))
-        {
-            throw new ArgumentOutOfRangeException(nameof(surface), FormattableString.Invariant($"The surface's TileWidth must be a finite number above zero, not {width}."));
-        }
-
-        return 1f / width;
-    }
-
-    private static Vector2 Tiling(float? uvPerMetre, float width, float height)
-    {
-        if (uvPerMetre is not { } perMetre)
-        {
-            return Vector2.One;
-        }
-
-        RequirePositive(perMetre, nameof(uvPerMetre), "UV scale");
-        return new Vector2(width, height) * perMetre;
-    }
-
-    private static void RequirePositive(float value, string field, string what)
-    {
-        if (!(value > 0f) || !float.IsFinite(value))
-        {
-            throw new ArgumentOutOfRangeException(field, value, $"The {what} must be above zero.");
-        }
-    }
-
-    private static void RequireAtLeastZero(float value, string field)
-    {
-        if (!(value >= 0f) || !float.IsFinite(value))
-        {
-            throw new ArgumentOutOfRangeException(field, value, "The radius can't be below zero.");
-        }
-    }
-
-    private static void RequireAtLeast(int value, int least, string field)
-    {
-        if (value < least)
-        {
-            throw new ArgumentOutOfRangeException(field, value, $"A shape needs at least {least} {field}.");
-        }
-    }
-
-    /// <summary>
-    /// One point on the outline a round shape is spun from: how far out it is, how high,
-    /// which way it faces in that half-slice, and how far along the outline it lies.
-    /// </summary>
-    private readonly record struct ProfilePoint(float Radius, float Y, Vector2 Normal, float Distance);
-
-    /// <summary>
-    /// One piece of a shape in the lightmap: its vertices from <paramref name="Start"/> on,
-    /// where each lies on the flat chart in metres, and how wide and tall the chart is.
-    /// </summary>
-    private sealed record Chart(int Start, Vector2[] Layout, Vector2 Extent);
-
-    private sealed class ShapeBuilder
-    {
-        private readonly List<Vertex> _vertices = [];
-        private readonly List<uint> _indices = [];
-        private readonly List<Chart> _charts = [];
-
-        /// <summary>
-        /// The mesh, with every piece's lightmap chart packed on one page and its vertices'
-        /// <see cref="Vertex.Uv2"/> set from it.
-        /// </summary>
-        public GeneratedMesh Build(Surface? surface)
-        {
-            LayOutLightmap();
-            return new([.. _vertices], [.. _indices], surface ?? new Surface());
-        }
-
-        /// <summary>
-        /// A grid of vertices, row by row from the top. Rows run down the texture and
-        /// columns across it. A triangle whose corners meet, such as at a pole, is left out.
-        /// The grid is one lightmap chart, laid out by its columns and rows.
-        /// </summary>
-        public void Grid(int columns, int rows, Func<int, int, Vertex> vertexAt)
-        {
-            uint start = (uint)_vertices.Count;
-            for (int row = 0; row <= rows; row++)
-            {
-                for (int column = 0; column <= columns; column++)
-                {
-                    _vertices.Add(vertexAt(column, row));
-                }
-            }
-
-            AddGridChart((int)start, columns, rows);
-
-            uint stride = (uint)columns + 1;
-            for (int row = 0; row < rows; row++)
-            {
-                for (int column = 0; column < columns; column++)
-                {
-                    uint corner = start + (uint)row * stride + (uint)column;
-                    uint below = corner + stride;
-                    Triangle(corner, below, corner + 1);
-                    Triangle(corner + 1, below, below + 1);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Spins an outline round the y axis. Its points go down the outside of the shape,
-        /// and the texture wraps once round, joined at a seam facing along x.
-        /// </summary>
-        public void Revolve(IReadOnlyList<ProfilePoint> profile, int segments, float widest, float? uvPerMetre)
-        {
-            float length = profile[^1].Distance;
-            var uvScale = uvPerMetre is { } perMetre ? Tiling(perMetre, 2f * MathF.PI * widest, 1f) : new Vector2(1f, 1f / length);
-            Grid(segments, profile.Count - 1, (column, row) =>
-            {
-                // The seam's last column takes the same angle as the first, so they meet exactly.
-                var (sin, cos) = Around(column % segments, segments);
-                var point = profile[row];
-                var tangent = new Vector4(-sin, 0f, -cos, 1f);
-                return new Vertex(
-                    new Vector3(point.Radius * cos, point.Y, -point.Radius * sin),
-                    new Vector3(point.Normal.X * cos, point.Normal.Y, -point.Normal.X * sin),
-                    tangent,
-                    new Vector2(column / (float)segments, point.Distance) * uvScale);
-            });
-        }
-
-        /// <summary>A flat round end at this height, facing up or down, with its own sharp-edged normals.</summary>
-        public void Disc(float y, float radius, int segments, bool facingUp, float? uvPerMetre)
-        {
-            var normal = facingUp ? Vector3.UnitY : -Vector3.UnitY;
-            var tangent = new Vector4(Vector3.UnitX, 1f);
-
-            // Seen from outside, v runs towards +z on top and towards -z underneath.
-            float flip = facingUp ? 1f : -1f;
-            var uvScale = uvPerMetre is { } perMetre ? new Vector2(perMetre) : new Vector2(0.5f / radius);
-            var uvCentre = uvPerMetre is null ? new Vector2(0.5f) : Vector2.Zero;
-
-            uint centre = (uint)_vertices.Count;
-            _vertices.Add(new Vertex(new Vector3(0f, y, 0f), normal, tangent, uvCentre));
-            for (int i = 0; i < segments; i++)
-            {
-                var (sin, cos) = Around(i, segments);
-                var position = new Vector3(radius * cos, y, -radius * sin);
-                _vertices.Add(new Vertex(position, normal, tangent, uvCentre + new Vector2(position.X, position.Z * flip) * uvScale));
-            }
-
-            // The disc's chart is the disc itself, seen from the side it faces.
-            var layout = new Vector2[segments + 1];
-            for (int i = 0; i <= segments; i++)
-            {
-                var position = _vertices[(int)centre + i].Position;
-                layout[i] = new Vector2(position.X + radius, position.Z * flip + radius);
-            }
-
-            _charts.Add(new Chart((int)centre, layout, new Vector2(2f * radius)));
-
-            for (int i = 0; i < segments; i++)
-            {
-                uint here = centre + 1 + (uint)i;
-                uint next = centre + 1 + (uint)((i + 1) % segments);
-
-                // Round the rim goes anticlockwise from above, so the top keeps that order.
-                if (facingUp)
-                {
-                    Triangle(centre, here, next);
-                }
-                else
-                {
-                    Triangle(centre, next, here);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Lays a grid out flat in metres by its columns and rows: each column is as wide as
-        /// its widest row makes it, and each row as tall as its tallest column, so the chart
-        /// is never squeezed smaller than the surface, only stretched where it narrows, such
-        /// as towards a sphere's poles.
-        /// </summary>
-        private void AddGridChart(int start, int columns, int rows)
-        {
-            int stride = columns + 1;
-            var xs = new float[columns + 1];
-            for (int column = 0; column < columns; column++)
-            {
-                float widest = 0f;
-                for (int row = 0; row <= rows; row++)
-                {
-                    int at = start + row * stride + column;
-                    widest = MathF.Max(widest, Vector3.Distance(_vertices[at].Position, _vertices[at + 1].Position));
-                }
-
-                xs[column + 1] = xs[column] + widest;
-            }
-
-            var ys = new float[rows + 1];
-            for (int row = 0; row < rows; row++)
-            {
-                float tallest = 0f;
-                for (int column = 0; column <= columns; column++)
-                {
-                    int at = start + row * stride + column;
-                    tallest = MathF.Max(tallest, Vector3.Distance(_vertices[at].Position, _vertices[at + stride].Position));
-                }
-
-                ys[row + 1] = ys[row] + tallest;
-            }
-
-            var layout = new Vector2[(rows + 1) * stride];
-            for (int row = 0; row <= rows; row++)
-            {
-                // A row that's all one point, such as a pole or a cone's tip, is one point in
-                // the chart too, so the triangles round it join along their edges.
-                var first = _vertices[start + row * stride].Position;
-                bool point = true;
-                for (int column = 1; column <= columns && point; column++)
-                {
-                    point = _vertices[start + row * stride + column].Position == first;
-                }
-
-                for (int column = 0; column <= columns; column++)
-                {
-                    float x = point ? xs[columns] * 0.5f : xs[column];
-                    layout[row * stride + column] = new Vector2(x, ys[row]);
-                }
-            }
-
-            _charts.Add(new Chart(start, layout, new Vector2(xs[columns], ys[rows])));
-        }
-
-        /// <summary>
-        /// Packs every chart on one lightmap page at the same texels per metre, as many as
-        /// fit, with <see cref="LightmapUnwrap.Gutter"/> texels between them, and sets the
-        /// vertices' <see cref="Vertex.Uv2"/>. The page is
-        /// <see cref="LightmapUnwrap.ReferenceSize"/> texels square, or twice or four times
-        /// that when the charts don't fit even at their smallest.
-        /// </summary>
-        private void LayOutLightmap()
-        {
-            if (_charts.Count == 0)
-            {
-                return;
-            }
-
-            var packing = new ChartPacking([.. _charts.Select(chart => chart.Extent)]);
-            for (int size = LightmapUnwrap.ReferenceSize; size <= LightmapUnwrap.LargestSize; size *= 2)
-            {
-                if (packing.BestScale(size) is { } fits)
-                {
-                    SetLightmapUvs(packing, fits, size);
-                    return;
-                }
-            }
-
-            throw new InvalidOperationException(
-                $"The shape's {_charts.Count} lightmap charts don't fit a {LightmapUnwrap.LargestSize}-texel page with a {LightmapUnwrap.Gutter}-texel gutter, even at their smallest.");
-        }
-
-        /// <summary>Sets each chart's vertices' <see cref="Vertex.Uv2"/>, centred in its packed rectangle.</summary>
-        private void SetLightmapUvs(ChartPacking packing, double fits, int size)
-        {
-            for (int i = 0; i < _charts.Count; i++)
-            {
-                var chart = _charts[i];
-                var (left, top) = packing.Corner(i, fits);
-                for (int k = 0; k < chart.Layout.Length; k++)
-                {
-                    double u = (left + chart.Layout[k].X * fits) / size;
-                    double v = (top + chart.Layout[k].Y * fits) / size;
-                    _vertices[chart.Start + k] = _vertices[chart.Start + k] with { Uv2 = new Vector2((float)u, (float)v) };
-                }
-            }
-        }
-
-        private static (float Sin, float Cos) Around(int step, int steps) => SinCos(2f * MathF.PI * step / steps);
-
-        private void Triangle(uint a, uint b, uint c)
-        {
-            var pa = _vertices[(int)a].Position;
-            var pb = _vertices[(int)b].Position;
-            var pc = _vertices[(int)c].Position;
-            if (pa == pb || pb == pc || pa == pc)
-            {
-                return;
-            }
-
-            _indices.Add(a);
-            _indices.Add(b);
-            _indices.Add(c);
-        }
-    }
 }

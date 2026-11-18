@@ -42,6 +42,12 @@ public sealed class Heightfield(Func<float, float, float> height, float spacing)
             throw new ArgumentOutOfRangeException(nameof(quads), quads, "A chunk needs at least one quad.");
         }
 
+        return new GeneratedMesh(ChunkVertices(chunkX, chunkZ, quads, uvPerMetre), ChunkIndices(quads), surface, Simplify: false);
+    }
+
+    /// <summary>The chunk's grid of vertices, row by row along z.</summary>
+    private Vertex[] ChunkVertices(int chunkX, int chunkZ, int quads, float uvPerMetre)
+    {
         int side = quads + 1;
         var vertices = new Vertex[side * side];
         for (int row = 0; row < side; row++)
@@ -63,6 +69,13 @@ public sealed class Heightfield(Func<float, float, float> height, float spacing)
             }
         }
 
+        return vertices;
+    }
+
+    /// <summary>Two triangles for each square of the grid.</summary>
+    private static uint[] ChunkIndices(int quads)
+    {
+        int side = quads + 1;
         var indices = new uint[quads * quads * 6];
         int next = 0;
         for (int row = 0; row < quads; row++)
@@ -71,15 +84,12 @@ public sealed class Heightfield(Func<float, float, float> height, float spacing)
             {
                 uint corner = (uint)(row * side + column);
                 uint below = corner + (uint)side;
-                indices[next++] = corner;
-                indices[next++] = below;
-                indices[next++] = corner + 1;
-                indices[next++] = corner + 1;
-                indices[next++] = below;
-                indices[next++] = below + 1;
+                ReadOnlySpan<uint> square = [corner, below, corner + 1, corner + 1, below, below + 1];
+                square.CopyTo(indices.AsSpan(next));
+                next += square.Length;
             }
         }
 
-        return new GeneratedMesh(vertices, indices, surface, Simplify: false);
+        return indices;
     }
 }
