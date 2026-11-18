@@ -577,7 +577,11 @@ as neighbouring probes have been drawn different numbers of times, until each ha
 a few times and they even out.
 After that the oldest probes are redone in turn, so objects that move or appear show up in the
 bounce within about 2,000 frames at `High`. A point or spot light that moves, turns, changes
-colour or is switched off marks the probes in its range for an update, and a change to the sun,
+colour or is switched off marks the probes in its range for an update. A colour change only counts
+once the light has drifted by more than a third from the colour its probes were last marked for,
+so a flame that flickers by a tenth or so each frame leaves them alone, while a lamp dimmed to half
+or turned from red to blue marks them at once. A slow fade marks them each time it passes another
+third. A change to the sun,
 the sky or the `Materials`, `SunShadows` or `LightShadows` switches marks them all (probes
 don't draw wear and dirt, so `WearAndDirt` leaves them be); until it is redone, a probe keeps its old light, so a change fades in rather than flashing.
 As the camera moves, the boxes slide with it a row at a time: probes it keeps stay as they were,
