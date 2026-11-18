@@ -1987,7 +1987,7 @@ lighting pass uses too: the bake's probes, the live light probes, then the sky. 
 its colour times the soft light. Texels nothing covered keep alpha 0, and
 `reflection_sky.comp` fills them with the sky behind them, as the lighting pass draws it
 without the sun's disc. Blits then halve the capture into a full chain of eight mips.
-`ReflectionProbes.RecordFilter` blurs it into the probe's six mips with `reflection_probe.comp`:
+`ReflectionProbes.RecordFilter` blurs it into the probe's six mips with `ReflectionFilter`, which runs `reflection_probe.comp`:
 64 GGX samples a texel, each read from the capture's mip whose texels cover about as much of
 the sphere as the sample stands for (filtered importance sampling, Křivánek and Colbert,
 2008), so the rough levels are smooth without hundreds of reads. Each frame in flight has one
@@ -1996,7 +1996,7 @@ barriers wait for earlier frames' fragment reads of the cube before the blur wri
 frame's own lighting waits for the blur, so the frame shows the new picture. The probe's
 placement is stored then, so a probe shows from the frame of its first capture. A frame that
 throws between planning and recording puts the probe back at the front (`PutBack`).
-`ReflectionCapturesDrawn` and `VulkanContext.WaitIdleCount` let tests and `--profile` check
+`ReflectionCapturesDrawn` and `GpuWaits.WaitIdleCount` (`VulkanContext.Waits`) let tests and `--profile` check
 that captures happen without stopping, and the GPU timer shows the capture and blur as the
 "Reflection probes" pass, after "Light probes".
 
@@ -2590,7 +2590,7 @@ since second UVs may be mirrored. Nothing is culled.
 
 A triangle thinner than a texel can miss every texel's centre and leave its texels empty, so
 coverage must count any part of a texel. Where the device has
-`VK_EXT_conservative_rasterization` (`VulkanContext.ConservativeRasterization`), the pipeline
+`VK_EXT_conservative_rasterization` (`DeviceAbilities.ConservativeRasterization`), the pipeline
 overestimates: every texel a triangle touches is drawn, its attributes taken at the texel's
 centre, extended along the triangle's plane. A draw's own rectangle therefore spreads one texel
 into its gutter, which is what the gutter is for. Those texels hold their own rectangle's number,
@@ -2867,7 +2867,7 @@ last step's rate, at most double, starting over at one after a step that traced 
 
 With `Renderer.AutoBake` set, the renderer bakes the areas a frame names whose bake is missing or stale by itself, one
 `BakeJob` at a time, a step a frame inside the frame's own command buffer. Nothing waits for the GPU: the frames
-(`AutoBakeGpuTests`) never move `VulkanContext.SubmitAndWaitCount`.
+(`AutoBakeGpuTests`) never move `GpuWaits.SubmitAndWaitCount`.
 
 `BackgroundBakes` (`src/Rendition/BackgroundBakes.cs`) does the work. Setting `AutoBake` stops the running job and
 calls `PreparedBakers.Prepare(probes: Spaces)`, which may wait the first time, so it is set outside a frame. A device
@@ -3037,7 +3037,7 @@ opacity (base colour alpha times the surface texture's alpha) times that fade. B
 is alpha-blended, by that strength times `Color`, into RT0, with metallic left alone.
 
 RT1 is written whole, without blending, while RT0 blends, which needs the device feature
-`independentBlend`. `VulkanContext.RequireFeatures` checks it before the device is made
+`independentBlend`. `VulkanDevice.RequireFeatures` checks it before the device is made
 and names it when it's missing. A normal can't be blended as a colour:
 the decal's normal map is laid over the normal underneath with reoriented normal mapping
 (RNM), so the brick's bumps show through the damp. The pass must read the normal it
@@ -3964,21 +3964,21 @@ The HDR image is copied to the reflection history every FSR frame, since FSR kee
 history at the window's size and screen-space reflections read the lit scene.
 
 FSR's Vulkan backend chooses its shaders from what the GPU supports, not from what the
-device turned on, so `CreateDevice` turns on, where the GPU has them, 16-bit floats and
+device turned on, so `VulkanDevice.Create` turns on, where the GPU has them, 16-bit floats and
 ints in shaders and storage, non-uniform indexing of storage buffers, and subgroup size
 control with full subgroups. FSR's backend also looks up `vkGetBufferMemoryRequirements2KHR`
 by its KHR name whenever the GPU offers dedicated allocations, and calls it without
 checking, so the device turns on `VK_KHR_get_memory_requirements2` where it exists; without
 it, making the context crashes.
 
-`CreateDevice` also turns on ray queries when `RayTracingSupport.Missing` finds nothing
+`VulkanDevice.Create` also turns on ray queries when `RayTracingSupport.Missing` finds nothing
 missing: the three extensions in `RayTracingSupport.Extensions`, and the `bufferDeviceAddress`,
 `accelerationStructure` and `rayQuery` features, checked on the same `GetPhysicalDeviceFeatures2`
 chain as the others. The last two feature structs belong to their extensions, so
 `RayTracingSupport.CanAskForFeatures` puts them on the chain only where the GPU lists both
 `VK_KHR_acceleration_structure` and `VK_KHR_ray_query`; elsewhere the query is the one it was
 before tracing and they read as false. `VulkanContext.CanTrace` says whether they are on and
-`NoTraceReason` says what was missing, such as `no VK_KHR_ray_query`, or `turned off with --no-trace` for
+`DeviceAbilities.NoTraceReason` says what was missing, such as `no VK_KHR_ray_query`, or `turned off with --no-trace` for
 `RendererOptions.DisableRayTracing`. When anything is missing the device is made exactly as
 it was before, so a GPU without ray queries loses nothing.
 
@@ -3989,7 +3989,7 @@ must match the view's, and when it doesn't, what the shader reads and writes the
 undefined. The luma history is FSR's own record of how bright each pixel was over the last
 frames, which it uses to tell a steady thin detail from flicker, so on a driver that takes
 the declared format at its word, FSR could mis-judge those pixels and shimmer or smear
-them. `VulkanContext.IsFsrLumaHistoryFormat` matches that one message, by the variable and
+them. `VulkanValidation.IsFsrLumaHistoryFormat` matches that one message, by the variable and
 both formats, and prints a note once instead of counting it, so any other message, from FSR
 or anything else, still counts and a screenshot run can still demand 0 messages.
 
@@ -4546,7 +4546,7 @@ used it have finished on the GPU. Then it uploads through its `ChunkPageUploader
 until `UploadBudget` is spent (`ChunkUploadBudget`, 8 MB, unless a test sets less), always at
 least one `GpuTexture.RowUnit` (4 rows for block-compressed pages) so a page bigger than the
 budget still moves, copies the bands into one host-visible staging buffer that the frame's
-`_destroyed` list frees, and records each with `GpuTexture.RecordRows`, which readies the image
+`_destroyed` list frees, and records each with `TextureUploads.RecordRows`, which readies the image
 on a page's first band and hands it to shaders on its last. A frame with no band makes no
 staging buffer. A finished page goes into the resource table with clamped edges. When a bake's last
 page is in, its rects become `GpuLightmapRect`s with its irradiance and direction slots, a mask
@@ -5103,7 +5103,7 @@ its floor brightens over the last few tenths of a metre on top of the band.
 
 ## Ray tracing
 
-Device setup is in `VulkanContext.CreateDevice` (see above): ray queries are on only where nothing is
+Device setup is in `VulkanDevice.Create` (see above): ray queries are on only where nothing is
 missing, `Renderer.CanTrace` says so, and `Renderer.NoTraceReason` says what was missing. Super
 prints nothing at start about it: the reason is only shown when something that needs tracing is
 asked for, which today is `--debug-view trace`, whose start-up error carries it. Nothing else

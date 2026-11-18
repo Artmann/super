@@ -71,7 +71,7 @@ public class UpscaleTests
     [Fact]
     public void Fsrs_own_luma_history_format_message_is_not_counted()
     {
-        Assert.True(Rendition.Vulkan.VulkanContext.IsFsrLumaHistoryFormat(LumaHistoryMessage));
+        Assert.True(Rendition.Vulkan.VulkanValidation.IsFsrLumaHistoryFormat(LumaHistoryMessage));
     }
 
     [Theory]
@@ -80,7 +80,7 @@ public class UpscaleTests
     [InlineData("VK_FORMAT_R16G16B16A16_SFLOAT", "VK_FORMAT_R32G32B32A32_SFLOAT")]
     public void Any_other_format_message_is_still_counted(string part, string replacement)
     {
-        Assert.False(Rendition.Vulkan.VulkanContext.IsFsrLumaHistoryFormat(LumaHistoryMessage.Replace(part, replacement)));
+        Assert.False(Rendition.Vulkan.VulkanValidation.IsFsrLumaHistoryFormat(LumaHistoryMessage.Replace(part, replacement)));
     }
 
     private static void AssertNear(Vector2 expected, Vector2 actual)

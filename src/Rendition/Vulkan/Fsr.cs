@@ -105,11 +105,14 @@ internal sealed unsafe class Fsr : IDisposable
         {
             Header = new ApiHeader { Type = UpscaleDispatchType },
             CommandList = cmd.Handle,
-            Color = Texture(inputs.Color, FormatR16G16B16A16Float, render, UsageReadOnly, StatePixelComputeRead),
-            Depth = Texture(inputs.Depth, FormatR32Float, render, UsageDepthTarget, StatePixelComputeRead),
-            MotionVectors = Texture(inputs.Motion, FormatR16G16Float, render, UsageReadOnly, StatePixelComputeRead),
-            Exposure = Texture(inputs.Exposure, FormatR32Float, new Dimensions(1, 1), UsageReadOnly, StatePixelComputeRead),
-            Output = Texture(inputs.Output, FormatR16G16B16A16Float, display, UsageUnorderedAccess, StateUnorderedAccess),
+            Resources = new UpscaleResources
+            {
+                Color = Texture(inputs.Color, FormatR16G16B16A16Float, render, UsageReadOnly, StatePixelComputeRead),
+                Depth = Texture(inputs.Depth, FormatR32Float, render, UsageDepthTarget, StatePixelComputeRead),
+                MotionVectors = Texture(inputs.Motion, FormatR16G16Float, render, UsageReadOnly, StatePixelComputeRead),
+                Exposure = Texture(inputs.Exposure, FormatR32Float, new Dimensions(1, 1), UsageReadOnly, StatePixelComputeRead),
+                Output = Texture(inputs.Output, FormatR16G16B16A16Float, display, UsageUnorderedAccess, StateUnorderedAccess),
+            },
             JitterOffset = new FloatCoords(inputs.Jitter.X, inputs.Jitter.Y),
             // Motion is already in render pixels, from now back to then, which is what FSR reads.
             MotionVectorScale = new FloatCoords(1f, 1f),
@@ -245,11 +248,11 @@ internal sealed unsafe class Fsr : IDisposable
         public uint State;
     }
 
+    // The images of one dispatch, in the order ffxDispatchDescUpscale lists them. Each resource is 8-byte aligned and
+    // a multiple of 8 bytes, so grouping them leaves every offset as it was.
     [StructLayout(LayoutKind.Sequential)]
-    private struct UpscaleDispatchDescription
+    private struct UpscaleResources
     {
-        public ApiHeader Header;
-        public nint CommandList;
         public Resource Color;
         public Resource Depth;
         public Resource MotionVectors;
@@ -257,6 +260,14 @@ internal sealed unsafe class Fsr : IDisposable
         public Resource Reactive;
         public Resource TransparencyAndComposition;
         public Resource Output;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UpscaleDispatchDescription
+    {
+        public ApiHeader Header;
+        public nint CommandList;
+        public UpscaleResources Resources;
         public FloatCoords JitterOffset;
         public FloatCoords MotionVectorScale;
         public Dimensions RenderSize;

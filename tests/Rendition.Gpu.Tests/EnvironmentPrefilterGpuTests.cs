@@ -107,10 +107,10 @@ public sealed class EnvironmentPrefilterGpuTests(GpuFixture gpu)
         using var environment = new EnvironmentMap(gpu.Context);
         environment.SetDescription(new EnvironmentDescription { Ceiling = colour, Horizon = colour, Floor = colour });
 
-        int waits = gpu.Context.SubmitAndWaitCount;
+        int waits = gpu.Context.Waits.SubmitAndWaitCount;
         gpu.Context.SubmitAndWait(cmd => environment.Record(cmd, default));
 
-        Assert.Equal(1, gpu.Context.SubmitAndWaitCount - waits);
+        Assert.Equal(1, gpu.Context.Waits.SubmitAndWaitCount - waits);
         var (irradiance, reflection) = environment.Flat;
         Assert.True(Vector3.Distance(colour, irradiance) < 2e-3f, $"Expected {colour}, got {irradiance}.");
         Assert.True(Vector3.Distance(colour, reflection) < 2e-3f, $"Expected {colour}, got {reflection}.");

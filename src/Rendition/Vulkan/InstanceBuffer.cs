@@ -2,7 +2,6 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using Rendition.Passes;
 using Silk.NET.Vulkan;
-using Buffer = Silk.NET.Vulkan.Buffer;
 
 namespace Rendition.Vulkan;
 
@@ -78,19 +77,14 @@ internal sealed unsafe class InstanceBuffer : IDisposable
         Capacity = StartingCapacity;
     }
 
-    public Buffer Handle => _buffer.Handle;
-
-    public ulong Size => _buffer.Size;
+    /// <summary>The whole buffer of each copy's <see cref="GpuInstance"/>, for a descriptor.</summary>
+    public DescriptorBufferInfo ModelsInfo => new(_buffer.Handle, 0, _buffer.Size);
 
     /// <summary>Where each copy stood last frame, as <see cref="PreviousInstance"/>s.</summary>
-    public Buffer PreviousHandle => _previous.Handle;
-
-    public ulong PreviousSize => _previous.Size;
+    public DescriptorBufferInfo PreviousInfo => new(_previous.Handle, 0, _previous.Size);
 
     /// <summary>Where each copy reads its baked light, as <see cref="GpuLightmapRect"/>s.</summary>
-    public Buffer LightmapHandle => _lightmaps.Handle;
-
-    public ulong LightmapSize => _lightmaps.Size;
+    public DescriptorBufferInfo LightmapInfo => new(_lightmaps.Handle, 0, _lightmaps.Size);
 
     public int Capacity { get; private set; }
 

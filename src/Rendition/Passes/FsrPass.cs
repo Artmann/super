@@ -58,7 +58,7 @@ internal sealed unsafe class FsrPass : IDisposable
         Release();
         _motion = new RenderTarget(_context, MotionFormat, render, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         _exposure = new RenderTarget(_context, ExposureFormat, new Extent2D(1, 1), ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
-        _fsr = new Fsr(_context, render, display, debugChecking: _context.Validating);
+        _fsr = new Fsr(_context, render, display, debugChecking: _context.Validation is not null);
 
         // Glass has just used depth for testing, and it stays in that layout until FSR needs it.
         var images = stackalloc DescriptorImageInfo[]

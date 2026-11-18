@@ -53,10 +53,7 @@ internal sealed unsafe class RenderTarget : IDisposable
             InitialLayout = ImageLayout.Undefined,
         };
         api.CreateImage(context.Device, &imageInfo, null, out Image).Check();
-
-        api.GetImageMemoryRequirements(context.Device, Image, out var requirements);
-        _allocation = context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
-        api.BindImageMemory(context.Device, Image, _allocation.Memory, _allocation.Offset).Check();
+        _allocation = BindMemory(context, Image);
 
         var viewInfo = new ImageViewCreateInfo
         {
@@ -67,14 +64,30 @@ internal sealed unsafe class RenderTarget : IDisposable
             SubresourceRange = new ImageSubresourceRange(aspect, 0, mips, 0, layers),
         };
         api.CreateImageView(context.Device, &viewInfo, null, out View).Check();
+        LayerViews = CreateLayerViews(context, viewInfo, layers);
+    }
 
-        LayerViews = new ImageView[layers];
+    private static GpuAllocation BindMemory(VulkanContext context, Image image)
+    {
+        context.Api.GetImageMemoryRequirements(context.Device, image, out var requirements);
+        var allocation = context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
+        context.Api.BindImageMemory(context.Device, image, allocation.Memory, allocation.Offset).Check();
+        return allocation;
+    }
+
+    // One 2D view of each layer, like the view of them all but for its single layer and first mip.
+    private static ImageView[] CreateLayerViews(VulkanContext context, ImageViewCreateInfo viewInfo, uint layers)
+    {
+        var views = new ImageView[layers];
+        var aspect = viewInfo.SubresourceRange.AspectMask;
         for (uint layer = 0; layer < layers; layer++)
         {
             viewInfo.ViewType = ImageViewType.Type2D;
             viewInfo.SubresourceRange = new ImageSubresourceRange(aspect, 0, 1, layer, 1);
-            api.CreateImageView(context.Device, &viewInfo, null, out LayerViews[layer]).Check();
+            context.Api.CreateImageView(context.Device, &viewInfo, null, out views[layer]).Check();
         }
+
+        return views;
     }
 
     public void Dispose()

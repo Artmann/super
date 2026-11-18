@@ -7,7 +7,7 @@ namespace Rendition.Vulkan;
 /// The volumetric fog's grid on the GPU and the two passes that fill it. volumetric_inject.comp
 /// lights each cell into one of two volumes, reading the other, last frame's, as history, and
 /// volumetric_integrate.comp sums each column into <see cref="Result"/>, which the lighting,
-/// glass and particle passes look up. All three volumes stay in the general layout. They are
+/// glass and particle passes look up. All three volumes, a <see cref="FogGrid"/>, stay in the general layout. They are
 /// made the first time a frame draws the fog, at the scene's size, so a game without it spends
 /// no memory on them, and freed by <see cref="Release"/> when the fog is switched off. Without
 /// them <see cref="Result"/> is a single texel that lets everything through. The inject pass also reads the frame's
@@ -15,83 +15,42 @@ namespace Rendition.Vulkan;
 /// </summary>
 internal sealed unsafe class VolumetricFogVolume : IDisposable
 {
-    private const Format VolumeFormat = Format.R16G16B16A16Sfloat;
-
     // How many cells across and down each invocation of the inject pass lights. Must match BLOCK in
     // volumetric_inject.comp.
     private const int InjectBlock = 2;
 
-    // Where probes.glsl reads the live light probes' atlases, in every set that includes it.
-    private const uint ProbeIrradianceBinding = 11;
-    private const uint ProbeDepthBinding = 12;
-
-    private sealed class Volume(Image image, GpuAllocation memory, ImageView view)
-    {
-        public readonly Image Image = image;
-        public readonly GpuAllocation Memory = memory;
-        public readonly ImageView View = view;
-    }
-
     private readonly VulkanContext _context;
-    private readonly Sampler _sampler;
-    private readonly DescriptorSetLayout _setLayout;
-    private readonly DescriptorPool _pool;
-    private readonly DescriptorSet[] _sets = new DescriptorSet[2];
+    private readonly FogInjectSets _sets;
     private readonly FogVolumeBuffers _volumes;
     private readonly PipelineLayout _pipelineLayout;
     private readonly LivePipeline _inject;
     private readonly LivePipeline _integrate;
-    private readonly Volume _empty;
-    private Volume[]? _injected;
-    private Volume? _integrated;
-    private (int X, int Y, int Z) _size;
-
-    /// <summary>The cells across, down and deep of the volumes made last; meaningless without <see cref="HasTargets"/>.</summary>
-    public (int X, int Y, int Z) Size => _size;
+    private readonly FogGrid _grid;
 
     // Which of the two injected volumes this frame writes; the other holds last frame's.
     private int _current;
+
+    /// <summary>The cells across, down and deep of the volumes made last; meaningless without <see cref="HasTargets"/>.</summary>
+    public (int X, int Y, int Z) Size => _grid.Size;
 
     /// <summary>Whether last frame drew into the volume, so its cells can be reprojected.</summary>
     public bool HistoryReady { get; private set; }
 
     /// <summary>Whether the volumes have been made.</summary>
-    public bool HasTargets => _integrated is not null;
+    public bool HasTargets => _grid.HasTargets;
 
     /// <summary>The summed volume, or until it's made a texel that lets everything through.</summary>
-    public ImageView Result => (_integrated ?? _empty).View;
+    public ImageView Result => _grid.Result;
 
     public VolumetricFogVolume(VulkanContext context, DescriptorSetLayout frameSetLayout, Sampler linearSampler)
     {
         _context = context;
-        _sampler = linearSampler;
-        var api = context.Api;
-
-        _setLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-            new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-            new(2, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-            new(3, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-            new(4, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-            new(FogVolumeBuffers.Binding, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
-            new(ProbeIrradianceBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-            new(ProbeDepthBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-        ]);
-        _pool = context.CreateDescriptorPool(
-            2,
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 10),
-            new DescriptorPoolSize(DescriptorType.StorageImage, 4),
-            new DescriptorPoolSize(DescriptorType.StorageBuffer, 2));
-        context.AllocateSets(_pool, _setLayout, _sets);
-        _volumes = new FogVolumeBuffers(context, _sets);
-
-        _pipelineLayout = context.CreatePipelineLayout([frameSetLayout, _setLayout]);
+        _sets = new FogInjectSets(context, linearSampler, FogVolumeBuffers.Binding);
+        _volumes = new FogVolumeBuffers(context, _sets.Sets);
+        _pipelineLayout = context.CreatePipelineLayout([frameSetLayout, _sets.Layout]);
         _inject = PipelineFactory.CreateCompute(context, "volumetric_inject.comp", _pipelineLayout);
         _integrate = PipelineFactory.CreateCompute(context, "volumetric_integrate.comp", _pipelineLayout);
-
-        // Nothing in front, and everything behind gets through.
-        _empty = CreateVolume(1, 1, 1, new ClearColorValue(0f, 0f, 0f, 1f));
+        _grid = new FogGrid(context);
     }
 
     /// <summary>
@@ -101,21 +60,8 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     /// </summary>
     public void SetSources(
         in DescriptorImageInfo sunShadow, in DescriptorImageInfo sky,
-        in DescriptorImageInfo probeIrradiance, in DescriptorImageInfo probeDepth)
-    {
-        var infos = stackalloc DescriptorImageInfo[] { sunShadow, sky, probeIrradiance, probeDepth };
-        uint* bindings = stackalloc uint[] { 0, 1, ProbeIrradianceBinding, ProbeDepthBinding };
-        var writes = stackalloc WriteDescriptorSet[8];
-        for (int i = 0; i < 2; i++)
-        {
-            for (int s = 0; s < 4; s++)
-            {
-                writes[4 * i + s] = Descriptors.ImageWrite(_sets[i], bindings[s], DescriptorType.CombinedImageSampler, &infos[s]);
-            }
-        }
-
-        _context.Api.UpdateDescriptorSets(_context.Device, 8, writes, 0, null);
-    }
+        in DescriptorImageInfo probeIrradiance, in DescriptorImageInfo probeDepth) =>
+        _sets.SetSources(sunShadow, sky, probeIrradiance, probeDepth);
 
     /// <summary>
     /// Makes the volumes for a scene of this many pixels, after render scale, cut into cells this many
@@ -125,33 +71,15 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     public void SetSize(int sceneWidth, int sceneHeight, int cellPixels, int slices)
     {
         var size = VolumetricFog.GridSize(sceneWidth, sceneHeight, cellPixels, slices);
-        if (HasTargets && size == _size)
+        if (HasTargets && size == _grid.Size)
         {
             return;
         }
 
-        DestroyTargets();
-        _size = size;
-        var black = new ClearColorValue(0f, 0f, 0f, 0f);
-        _injected = [CreateVolume(size.X, size.Y, size.Z, black), CreateVolume(size.X, size.Y, size.Z, black)];
-        _integrated = CreateVolume(size.X, size.Y, size.Z, new ClearColorValue(0f, 0f, 0f, 1f));
+        _grid.Make(size);
         HistoryReady = false;
-
-        // Each set writes one injected volume and reads the other as history.
-        var summed = new DescriptorImageInfo(default, _integrated.View, ImageLayout.General);
-        var history = stackalloc DescriptorImageInfo[2];
-        var written = stackalloc DescriptorImageInfo[2];
-        var writes = stackalloc WriteDescriptorSet[6];
-        for (int i = 0; i < 2; i++)
-        {
-            history[i] = new DescriptorImageInfo(_sampler, _injected[1 - i].View, ImageLayout.General);
-            written[i] = new DescriptorImageInfo(default, _injected[i].View, ImageLayout.General);
-            writes[3 * i] = Descriptors.ImageWrite(_sets[i], 2, DescriptorType.CombinedImageSampler, &history[i]);
-            writes[3 * i + 1] = Descriptors.ImageWrite(_sets[i], 3, DescriptorType.StorageImage, &written[i]);
-            writes[3 * i + 2] = Descriptors.ImageWrite(_sets[i], 4, DescriptorType.StorageImage, &summed);
-        }
-
-        _context.Api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
+        var injected = _grid.Injected!;
+        _sets.PointAt(injected[0].View, injected[1].View, _grid.Result);
     }
 
     /// <summary>
@@ -170,7 +98,7 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     /// </summary>
     public void Release()
     {
-        DestroyTargets();
+        _grid.Release();
         HistoryReady = false;
     }
 
@@ -181,7 +109,7 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     /// </summary>
     public void Record(CommandBuffer cmd, DescriptorSet frameSet)
     {
-        if (_injected is null)
+        if (!HasTargets)
         {
             throw new InvalidOperationException("The volumetric fog's volumes are made before it is drawn.");
         }
@@ -189,32 +117,30 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         var api = _context.Api;
 
         // Last frame's passes read the history and the sum, and wrote what is history now.
-        Barrier(cmd,
-            PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.FragmentShaderBit,
-            AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.ComputeShaderBit,
-            AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderSampledReadBit);
+        const AccessFlags2 used = AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderSampledReadBit;
+        api.MemoryBarrier(cmd,
+            (PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.FragmentShaderBit, used),
+            (PipelineStageFlags2.ComputeShaderBit, used));
 
-        var sets = stackalloc DescriptorSet[] { frameSet, _sets[_current] };
-        uint groupsX = (uint)(_size.X + 7) / 8;
-        uint groupsY = (uint)(_size.Y + 7) / 8;
+        var sets = stackalloc DescriptorSet[] { frameSet, _sets.Sets[_current] };
+        var size = _grid.Size;
 
         // Each of the inject pass's invocations lights a block of InjectBlock by InjectBlock cells.
         const int injectGroup = 8 * InjectBlock;
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _inject);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 2, sets, 0, null);
-        api.CmdDispatch(cmd, (uint)(_size.X + injectGroup - 1) / injectGroup, (uint)(_size.Y + injectGroup - 1) / injectGroup, (uint)_size.Z);
+        api.CmdDispatch(cmd, (uint)(size.X + injectGroup - 1) / injectGroup, (uint)(size.Y + injectGroup - 1) / injectGroup, (uint)size.Z);
 
-        Barrier(cmd,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit);
+        api.MemoryBarrier(cmd,
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit));
 
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _integrate);
-        api.CmdDispatch(cmd, groupsX, groupsY, 1);
+        api.CmdDispatch(cmd, (uint)(size.X + 7) / 8, (uint)(size.Y + 7) / 8, 1);
 
-        Barrier(cmd,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit);
+        api.MemoryBarrier(cmd,
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
 
         _current = 1 - _current;
         HistoryReady = true;
@@ -222,109 +148,11 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
 
     public void Dispose()
     {
-        var api = _context.Api;
-        DestroyTargets();
-        Destroy(_empty);
+        _grid.Dispose();
         _volumes.Dispose();
         _inject.Destroy();
         _integrate.Destroy();
-        api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
-        api.DestroyDescriptorPool(_context.Device, _pool, null);
-        api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
-    }
-
-    private void DestroyTargets()
-    {
-        if (_injected is not null)
-        {
-            Destroy(_injected[0]);
-            Destroy(_injected[1]);
-            _injected = null;
-        }
-
-        if (_integrated is not null)
-        {
-            Destroy(_integrated);
-            _integrated = null;
-        }
-    }
-
-    private void Destroy(Volume volume)
-    {
-        var api = _context.Api;
-        api.DestroyImageView(_context.Device, volume.View, null);
-        api.DestroyImage(_context.Device, volume.Image, null);
-        _context.Memory.Free(volume.Memory);
-    }
-
-    private void Barrier(
-        CommandBuffer cmd, PipelineStageFlags2 sourceStage, AccessFlags2 sourceAccess, PipelineStageFlags2 destinationStage, AccessFlags2 destinationAccess)
-    {
-        var barrier = new MemoryBarrier2
-        {
-            SType = StructureType.MemoryBarrier2,
-            SrcStageMask = sourceStage,
-            SrcAccessMask = sourceAccess,
-            DstStageMask = destinationStage,
-            DstAccessMask = destinationAccess,
-        };
-        var dependency = new DependencyInfo
-        {
-            SType = StructureType.DependencyInfo,
-            MemoryBarrierCount = 1,
-            PMemoryBarriers = &barrier,
-        };
-        _context.Api.CmdPipelineBarrier2(cmd, &dependency);
-    }
-
-    /// <summary>A 3D image the passes write and sample, in the general layout for good, cleared to a value.</summary>
-    private Volume CreateVolume(int width, int height, int depth, ClearColorValue clear)
-    {
-        var api = _context.Api;
-        var imageInfo = new ImageCreateInfo
-        {
-            SType = StructureType.ImageCreateInfo,
-            ImageType = ImageType.Type3D,
-            Format = VolumeFormat,
-            Extent = new Extent3D((uint)width, (uint)height, (uint)depth),
-            MipLevels = 1,
-            ArrayLayers = 1,
-            Samples = SampleCountFlags.Count1Bit,
-            Tiling = ImageTiling.Optimal,
-            Usage = ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit,
-            SharingMode = SharingMode.Exclusive,
-            InitialLayout = ImageLayout.Undefined,
-        };
-        api.CreateImage(_context.Device, &imageInfo, null, out var image).Check();
-        api.GetImageMemoryRequirements(_context.Device, image, out var requirements);
-        var memory = _context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
-        api.BindImageMemory(_context.Device, image, memory.Memory, memory.Offset).Check();
-
-        var viewInfo = new ImageViewCreateInfo
-        {
-            SType = StructureType.ImageViewCreateInfo,
-            Image = image,
-            ViewType = ImageViewType.Type3D,
-            Format = VolumeFormat,
-            SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1),
-        };
-        api.CreateImageView(_context.Device, &viewInfo, null, out var view).Check();
-
-        _context.SubmitAndWait(cmd =>
-        {
-            api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.General,
-                PipelineStageFlags2.None, AccessFlags2.None,
-                PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit);
-            var value = clear;
-            var range = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1);
-            api.CmdClearColorImage(cmd, image, ImageLayout.General, &value, 1, &range);
-            api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-                ImageLayout.General, ImageLayout.General,
-                PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
-                PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit,
-                AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderStorageReadBit);
-        });
-        return new Volume(image, memory, view);
+        _context.Api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
+        _sets.Dispose();
     }
 }

@@ -5,26 +5,16 @@ namespace Rendition.Vulkan;
 /// <summary>A range of device memory handed out by <see cref="GpuMemory"/>.</summary>
 internal readonly unsafe struct GpuAllocation
 {
-    public readonly DeviceMemory Memory;
-    public readonly ulong Offset;
-    public readonly ulong Size;
+    public DeviceMemory Memory { get; init; }
+    public ulong Offset { get; init; }
+    public ulong Size { get; init; }
 
     /// <summary>CPU address of the range, or null when the memory isn't host visible.</summary>
-    public readonly void* Mapped;
+    public void* Mapped { get; init; }
 
     /// <summary>Which pool and block the range came from, or -1 for a dedicated allocation.</summary>
-    internal readonly int Pool;
-    internal readonly int Block;
-
-    internal GpuAllocation(DeviceMemory memory, ulong offset, ulong size, void* mapped, int pool, int block)
-    {
-        Memory = memory;
-        Offset = offset;
-        Size = size;
-        Mapped = mapped;
-        Pool = pool;
-        Block = block;
-    }
+    internal int Pool { get; init; }
+    internal int Block { get; init; }
 }
 
 /// <summary>
@@ -122,14 +112,13 @@ internal sealed unsafe class GpuMemory(VulkanContext context) : IDisposable
 
     private GpuAllocation Allocate(in MemoryRequirements requirements, MemoryPropertyFlags properties, bool images)
     {
-        uint memoryType = context.FindMemoryType(requirements.MemoryTypeBits, properties);
+        uint memoryType = FindMemoryType(requirements.MemoryTypeBits, properties);
         bool hostVisible = (properties & MemoryPropertyFlags.HostVisibleBit) != 0;
 
         if (requirements.Size > BlockSize)
         {
             var memory = AllocateRaw(requirements.Size, memoryType, hostVisible, out byte* mapped);
-            _dedicated += requirements.Size;
-            return new GpuAllocation(memory, 0, requirements.Size, mapped, -1, -1);
+            return new GpuAllocation { Memory = memory, Size = requirements.Size, Mapped = mapped, Pool = -1, Block = -1 };
         }
 
         int poolIndex = FindPool(memoryType, images, hostVisible);
@@ -153,8 +142,29 @@ internal sealed unsafe class GpuMemory(VulkanContext context) : IDisposable
         return Make(block, poolIndex, pool.Blocks.Count - 1, fresh, requirements.Size);
     }
 
-    private static GpuAllocation Make(Block block, int pool, int index, ulong offset, ulong size) =>
-        new(block.Memory, offset, size, block.Mapped == null ? null : block.Mapped + offset, pool, index);
+    private static GpuAllocation Make(Block block, int pool, int index, ulong offset, ulong size) => new()
+    {
+        Memory = block.Memory,
+        Offset = offset,
+        Size = size,
+        Mapped = block.Mapped == null ? null : block.Mapped + offset,
+        Pool = pool,
+        Block = index,
+    };
+
+    private uint FindMemoryType(uint typeBits, MemoryPropertyFlags required)
+    {
+        context.Api.GetPhysicalDeviceMemoryProperties(context.PhysicalDevice, out var memory);
+        for (int i = 0; i < memory.MemoryTypeCount; i++)
+        {
+            if ((typeBits & (1u << i)) != 0 && (memory.MemoryTypes[i].PropertyFlags & required) == required)
+            {
+                return (uint)i;
+            }
+        }
+
+        throw new InvalidOperationException($"No GPU memory type supports {required}.");
+    }
 
     private int FindPool(uint memoryType, bool images, bool hostVisible)
     {

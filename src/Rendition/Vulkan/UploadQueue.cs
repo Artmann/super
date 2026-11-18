@@ -87,33 +87,27 @@ internal sealed unsafe class UploadQueue(VulkanContext context)
 
         if (anyBuffer)
         {
-            var barrier = new MemoryBarrier2
-            {
-                SType = StructureType.MemoryBarrier2,
-                SrcStageMask = PipelineStageFlags2.AllTransferBit,
-                SrcAccessMask = AccessFlags2.TransferWriteBit,
-                DstStageMask = PipelineStageFlags2.VertexInputBit,
-                DstAccessMask = AccessFlags2.VertexAttributeReadBit | AccessFlags2.IndexReadBit,
-            };
-
-            // Where the device can trace, a mesh's bytes are also read by the build of its acceleration structure, and
-            // by tracing shaders, which fetch a hit's vertices and indices through their buffer addresses.
-            if (context.CanTrace)
-            {
-                barrier.DstStageMask |= PipelineStageFlags2.AccelerationStructureBuildBitKhr | RayTracing.TraceStages;
-                barrier.DstAccessMask |= AccessFlags2.ShaderReadBit | AccessFlags2.ShaderStorageReadBit;
-            }
-
-            var dependency = new DependencyInfo
-            {
-                SType = StructureType.DependencyInfo,
-                MemoryBarrierCount = 1,
-                PMemoryBarriers = &barrier,
-            };
-            context.Api.CmdPipelineBarrier2(cmd, &dependency);
+            RecordBufferBarrier(cmd);
         }
 
         _pending.Clear();
+    }
+
+    // Makes the copied meshes' bytes visible to the draws that read them as vertices and indices.
+    private void RecordBufferBarrier(CommandBuffer cmd)
+    {
+        var stages = PipelineStageFlags2.VertexInputBit;
+        var access = AccessFlags2.VertexAttributeReadBit | AccessFlags2.IndexReadBit;
+
+        // Where the device can trace, a mesh's bytes are also read by the build of its acceleration structure, and
+        // by tracing shaders, which fetch a hit's vertices and indices through their buffer addresses.
+        if (context.CanTrace)
+        {
+            stages |= PipelineStageFlags2.AccelerationStructureBuildBitKhr | RayTracing.TraceStages;
+            access |= AccessFlags2.ShaderReadBit | AccessFlags2.ShaderStorageReadBit;
+        }
+
+        context.Api.MemoryBarrier(cmd, (PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit), (stages, access));
     }
 
     /// <summary>Runs every waiting copy now and waits for it. For paths that record their own work.</summary>

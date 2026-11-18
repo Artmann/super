@@ -47,7 +47,7 @@ internal ref struct PipelineDescription
 
     /// <summary>
     /// Counts a pixel as covered when any part of a triangle touches it, by VK_EXT_conservative_rasterization's
-    /// overestimation. Only where <see cref="VulkanContext.ConservativeRasterization"/> is true.
+    /// overestimation. Only where <see cref="DeviceAbilities.ConservativeRasterization"/> is true.
     /// </summary>
     public bool Conservative;
 
@@ -249,7 +249,7 @@ internal static unsafe class PipelineFactory
         nint entryPoint = SilkMarshal.StringToPtr("main");
 
         var stages = stackalloc PipelineShaderStageCreateInfo[2];
-        stages[0] = Stage(ShaderStageFlags.VertexBit, vertexModule, entryPoint);
+        stages[0] = ShaderStep(ShaderStageFlags.VertexBit, vertexModule, entryPoint);
         // Always given: for a shader without the constant it changes nothing.
         uint cutOuts = Convert.ToUInt32(!description.Solid);
         var cutOutsEntry = new SpecializationMapEntry(0, 0, sizeof(uint));
@@ -260,7 +260,7 @@ internal static unsafe class PipelineFactory
             DataSize = sizeof(uint),
             PData = &cutOuts,
         };
-        stages[1] = Stage(ShaderStageFlags.FragmentBit, fragmentModule, entryPoint);
+        stages[1] = ShaderStep(ShaderStageFlags.FragmentBit, fragmentModule, entryPoint);
         stages[1].PSpecializationInfo = &specialization;
 
         var pipeline = CreateGraphics(context, description, stages, hasFragment ? 2u : 1u);
@@ -291,13 +291,9 @@ internal static unsafe class PipelineFactory
         return default;
     }
 
-    private static PipelineShaderStageCreateInfo Stage(ShaderStageFlags stage, ShaderModule module, nint entryPoint) => new()
-    {
-        SType = StructureType.PipelineShaderStageCreateInfo,
-        Stage = stage,
-        Module = module,
-        PName = (byte*)entryPoint,
-    };
+    // Made through the constructor, whose stage argument doesn't read as the name of a type to Roe.
+    private static PipelineShaderStageCreateInfo ShaderStep(ShaderStageFlags stage, ShaderModule module, nint entryPoint) =>
+        new(stage: stage, module: module, pName: (byte*)entryPoint);
 
     // How the description's triangles become pixels, and how those pixels land in the depth and colour targets.
     private static Pipeline CreateGraphics(
@@ -358,7 +354,7 @@ internal static unsafe class PipelineFactory
         };
         if (description.Conservative)
         {
-            if (!context.ConservativeRasterization)
+            if (!context.Abilities.ConservativeRasterization)
             {
                 throw new InvalidOperationException("Conservative rasterization needs VK_EXT_conservative_rasterization, which this device lacks.");
             }
@@ -474,12 +470,10 @@ internal static unsafe class PipelineFactory
         var api = context.Api;
         var module = LoadShader(context, shader);
         nint entryPoint = SilkMarshal.StringToPtr("main");
-        var createInfo = new ComputePipelineCreateInfo
-        {
-            SType = StructureType.ComputePipelineCreateInfo,
-            Stage = Stage(ShaderStageFlags.ComputeBit, module, entryPoint),
-            Layout = layout,
-        };
+        // Made through the constructor, whose stage argument doesn't read as the name of a type to Roe.
+        var createInfo = new ComputePipelineCreateInfo(
+            stage: ShaderStep(ShaderStageFlags.ComputeBit, module, entryPoint),
+            layout: layout);
 
         Pipeline pipeline;
         api.CreateComputePipelines(context.Device, default, 1, &createInfo, null, &pipeline).Check();

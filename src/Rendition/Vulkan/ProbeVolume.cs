@@ -121,7 +121,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
         _context = context;
         _skySampler = skySampler;
         _sky = sky;
-        Supported = context.StorageImageExtendedFormats && context.Multiview;
+        Supported = context.Abilities.StorageImageExtendedFormats && context.Abilities.Multiview;
         var api = context.Api;
 
         var samplerInfo = new SamplerCreateInfo

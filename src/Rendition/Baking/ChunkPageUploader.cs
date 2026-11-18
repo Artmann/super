@@ -95,7 +95,7 @@ internal sealed unsafe class ChunkPageUploader(VulkanContext context, ResourceTa
 
             int start = page.Texture.RowsSize(band.FirstRow);
             page.Source!.Pixels.AsSpan(start, band.Bytes).CopyTo(new Span<byte>((byte*)staging.Mapped + offset, band.Bytes));
-            page.Texture.RecordRows(cmd, staging, offset, band.FirstRow, band.Rows, first, last);
+            page.Texture.RecordRows(cmd, staging, new TextureRows(offset, band.FirstRow, band.Rows, first, last));
             page.RowsDone = band.FirstRow + band.Rows;
             if (last)
             {
