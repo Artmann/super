@@ -73,12 +73,6 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
-    // The suns' four coefficients ahead of the chunks in each frame's chunk buffer.
-    private const int SunShBytes = 4 * 16;
-
-    // Then the space's table from the frame's mask slots to its bake's channels, four ints, and then the chunks.
-    private const int ChunkHeaderBytes = SunShBytes + 4 * sizeof(int);
-
     private readonly VulkanContext _context;
     private bool _disableVsync;
     private bool _vsyncChanged;
@@ -114,14 +108,6 @@ public sealed unsafe class Renderer : IDisposable
     private readonly EnvironmentMap _environment;
     private readonly ReflectionProbes _probes;
 
-    // The light probe atlases, which hold nothing until the first frame with the probes on, and the
-    // pass that draws a few probes' faces each frame, with the sun's shadow map they use.
-    private readonly ProbeVolume _lightProbes;
-    private readonly ProbeCapturePass _probeUpdatePass;
-    private ProbeSunShadow? _probeSun;
-
-    // Where the GPU can trace, probes are updated with rays instead, and need neither the faces nor the sun map.
-    private readonly ProbeTracePass? _probeTracePass;
     private readonly VolumetricFogVolume _volumetricFog;
 
     // The reflection probe this frame captures, or -1 for none, and where it's placed.
@@ -129,55 +115,14 @@ public sealed unsafe class Renderer : IDisposable
     private int _reflectionCaptureSlot = -1;
     private ReflectionProbe _reflectionCaptureProbe;
 
-    // Whether surfaces read the light probes this frame: they're on, the GPU can draw them, and the
-    // view has any.
-    private bool _lightProbesInUse;
+    /// <summary>The live light probes. Tests reach their atlases, cascades and switches through this.</summary>
+    internal LightProbes LightProbes { get; }
 
-    // Latched: the probes have settled at least once since their storage was made. Reflection captures
-    // hash this rather than the live ProbesSettled, which flips on every cell the camera crosses.
-    private bool _probesSettledOnce;
+    /// <summary>What tests do to the live light probes.</summary>
+    internal ProbeTestHooks ProbeTests { get; }
 
-    // The four probe cascades that follow the camera, moved to it every frame the probes are on.
-    // Their tiles live in layers 0 to 3 of the light probe atlases. Made anew with the quality.
-    private ProbeCascades _probeCascades = new(ProbeQuality.High);
-    private ProbeQuality _probeQuality = ProbeQuality.High;
-
-    // Which probes to update next, made with the atlases, and this frame's batch of them.
-    private ProbeScheduler? _probeScheduler;
-    private readonly List<ProbeId> _probeBatch = [];
-    private readonly List<Vector3> _probeBatchPositions = [];
-    private readonly List<float> _probeBatchSpacings = [];
-
-    // The cascades' moves and the fixed grid's changes that this frame must clear from the atlases.
-    private readonly List<ProbeInvalidation> _probeInvalidations = [];
-
-    // What the probes were last updated for, to see what changed: the fixed grid, the lighting that
-    // reaches everything, and each point and spot light by its key.
-    private ProbeVolumeSettings? _probeGrid;
-    private int _probeLightingKey;
-    private readonly ProbeLightTracker _probeLights = new();
-
-    // How far a probe already captured moves towards a new rasterized capture: halfway, so its light
-    // settles over a few updates instead of flickering. A first capture is taken whole.
-    private const float RasterBlend = 0.5f;
-
-    // A traced update sees only 128 rays, so it moves a quarter of the way: the noise of a few updates averages
-    // out. A first capture is still taken whole.
-    private const float TracedBlend = 0.25f;
-
-    // A traced update whose tile's mean light changed by this share or more is taken whole, and a smaller change moves
-    // in proportion, never less than TracedBlend. Big changes, such as bounce arriving, land at once, while noise
-    // still averages out. Lower than 0.05 and a dim probe flickers more.
-    private const float TracedSnap = 0.05f;
-
-    // What this frame's folds fill the sky with, where a probe saw nothing.
-    private float _probeEnvironmentIntensity;
-
-    // The frame whose uniforms Render wrote last, so SampleProbeIrradiance reads what that frame did.
+    // The frame whose uniforms Render wrote last, so the probe test hooks read what that frame did.
     private int _uniformFrame;
-
-    /// <summary>One layer's cells to clear, as <see cref="ProbeVolume.RecordInvalidate"/> takes them.</summary>
-    private readonly record struct ProbeInvalidation(int Layer, Int3 Origin, Int3 Counts, Int3 SlabStart, Int3 SlabCount);
 
     // Goes up with every SetEnvironment, so the light probes see the sky has changed.
     private int _environmentVersion;
@@ -567,13 +512,6 @@ public sealed unsafe class Renderer : IDisposable
     private int[] _cameraSources = [];
     private int[] _cameraChunks = [];
 
-    // The frame's relit chunks, written into the frame's chunk buffer, and each draw's chunk, -1 for none. See
-    // FindRelitChunks.
-    private readonly GpuChunk[] _chunkData = new GpuChunk[BakeFiles.MaxChunks];
-    private readonly Vector4[] _sunSh = new Vector4[4];
-    private int[] _drawChunks = [];
-    private int _chunkCount;
-    private bool _relightChunks;
     private SkySh _skySh = null!;
 
     // The world-space ball round each draw this frame, for fitting sun shadows to what casts them.
@@ -622,7 +560,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _resources = new ResourceTable(_context);
         _retired = new RetiredResources(_ring, _meshStore, _resources);
-        _chunkPool = new ChunkBakePool(_context, _resources, ChunkBakePool.ChunkUploadBudget, ChunkUnreadable);
+        _chunkPool = new ChunkBakePool(_context, _resources, ChunkBakePool.ChunkUploadBudget, _readableBakes.ChunkUnreadable);
         if (_context.CanTrace)
         {
             _tracing = new RayTracing(_context, _resources, MeshFor, _uploads.IsPending,
@@ -660,15 +598,13 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _probes = new ReflectionProbes(_context, _environment.Sampler, FrameRing.Count);
-        _reflectionCapture = new ReflectionCapturePass(_context, _kit.FrameSetLayout, _resources, new CaptureScene(_meshStore.MeshSlots, _meshStore.DetailSlots, _shadowPass),
+        var captureScene = new CaptureScene(_meshStore.MeshSlots, _meshStore.DetailSlots, _shadowPass);
+        _reflectionCapture = new ReflectionCapturePass(_context, _kit.FrameSetLayout, _resources, captureScene,
             new DescriptorImageInfo(_environment.Sampler, _environment.Sky, ImageLayout.ShaderReadOnlyOptimal));
-        _lightProbes = new ProbeVolume(_context, _environment.Sampler, _environment.Sky);
-        _probeUpdatePass = new ProbeCapturePass(_context, _kit.FrameSetLayout, _resources);
-        if (_tracing is not null && _lightProbes.Supported)
-        {
-            _probeTracePass = new ProbeTracePass(_context, FrameRing.Count, _kit.FrameSetLayout, _resources,
-                ProbeBudget.For(ProbeQuality.High).Traced);
-        }
+        var probeVolume = new ProbeVolume(_context, _environment.Sampler, _environment.Sky);
+        LightProbes = new LightProbes(_context, _environment, _kit,
+            new LightProbes.Sources(_resources, _tracing, captureScene, _ring, probeVolume));
+        ProbeTests = new ProbeTestHooks(_context, LightProbes, _kit, () => _frames[_uniformFrame].Set, WriteTargetDescriptors);
 
         _volumetricFog = new VolumetricFogVolume(_context, _kit.FrameSetLayout, _kit.LinearSampler);
 
@@ -719,10 +655,12 @@ public sealed unsafe class Renderer : IDisposable
         _gpuWork = _context.PipelineStatistics ? new GpuWorkCounter(_context, FrameRing.Count, GpuTimer.FramePasses) : null;
         _gpuTimer = new GpuTimer(_context, FrameRing.Count, counter: _gpuWork);
         _areaInputs = new AreaInputs(_meshStore.PartBounds, () => EnvironmentHash);
+        var spaceBake = new SpaceBake(_readableBakes, data => CreateTexture(data, TextureEdges.Clamp), DestroyTexture);
+        _frameBakes = new FrameBakes(_readableBakes, _chunkPool, _retired, _areaInputs, spaceBake);
         BakeJobs = new BakeJobs(_context, new PreparedBakers(_context, _environment, () => new Baker(_context, this)),
             _meshStore, _resources, _areaInputs);
         BackgroundBakes = new BackgroundBakes(_context, _ring, _retired, BakeJobs,
-            new BackgroundBakes.BakeWants(_bakeResolver, _readableBakes, _areaInputs.Lights));
+            new BackgroundBakes.BakeWants(_frameBakes.Resolver, _readableBakes, _areaInputs.Lights));
     }
 
     /// <summary>
@@ -759,29 +697,11 @@ public sealed unsafe class Renderer : IDisposable
     internal RayTracing? Tracing => _tracing;
 
     /// <summary>
-    /// The probe cascades, where the last frame moved them. For tests, which find a probe's slot with
-    /// <see cref="ProbeCascades.Slot"/>.
-    /// </summary>
-    internal ProbeCascades LightProbeCascades => _probeCascades;
-
-    /// <summary>How many light probes the last frame updated: none while they're off, or settled and unchanged.</summary>
-    internal int ProbeUpdatesLastFrame { get; private set; }
-
-    /// <summary>For tests: whether the light probes' atlases exist, which they don't while the probes are off.</summary>
-    internal bool ProbeStorageAllocated => _lightProbes.Allocated;
-
-    /// <summary>
     /// Whether every probe near the camera, in the two finest cascades and the fixed grid, has been
     /// updated since its light last changed. Screenshots wait for it. False while the probes are switched off and
     /// before their first frame, but true on a GPU that can't run them, as there is nothing to wait for there.
     /// </summary>
-    public bool ProbesSettled => _probeScheduler?.Settled ?? !_lightProbes.Supported;
-
-    /// <summary>For tests: while true, no probe is updated, so what a test writes into the atlases stays.</summary>
-    internal bool ProbeUpdatesPaused { get; set; }
-
-    /// <summary>For tests: the most triangles a frame draws round its probes, as <see cref="ProbeCapturePass.MaxTrianglesPerFrame"/>.</summary>
-    internal long ProbeTrianglesPerFrame { get; set; } = ProbeCapturePass.MaxTrianglesPerFrame;
+    public bool ProbesSettled => LightProbes.Batch.Scheduler?.Settled ?? !LightProbes.Volume.Supported;
 
     /// <summary>
     /// How many light probes follow the camera, and how many are updated a frame: see
@@ -790,211 +710,10 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public ProbeQuality ProbeQuality
     {
-        get => _probeQuality;
-        set
-        {
-            if (!Enum.IsDefined(value))
-            {
-                throw new ArgumentOutOfRangeException(nameof(value), value, "Probe quality can be Low, Medium or High.");
-            }
-
-            _probeQuality = value;
-        }
-    }
-
-    /// <summary>For tests: clears every probe tile, in every layer, so each probe is uncaptured. Waits for the GPU.</summary>
-    internal void ClearProbesForTest()
-    {
-        EnsureProbeStorage();
-        _context.WaitIdle();
-        _context.SubmitAndWait(_lightProbes.RecordClear);
-        _probesSettledOnce = false;
-    }
-
-    /// <summary>
-    /// For tests that share a renderer: makes the probes' atlases, cascades and scheduler anew, as a new renderer
-    /// would have them, so every probe is uncaptured and the scheduler's frames count from 0 again. Waits for the GPU.
-    /// </summary>
-    internal void ResetProbesForTest()
-    {
-        _context.WaitIdle();
-        if (_lightProbes.Release())
-        {
-            WriteTargetDescriptors();
-        }
-
-        _probeScheduler = null;
-        _probeBatch.Clear();
-        _probeInvalidations.Clear();
-        _probesSettledOnce = false;
-        ProbeUpdatesLastFrame = 0;
-        EnsureProbeStorage();
-    }
-
-    /// <summary>
-    /// For tests: marks every probe within <paramref name="range"/> of <paramref name="center"/> for an update, as a
-    /// light changing there would.
-    /// </summary>
-    internal void MarkProbesDirtyForTest(Vector3 center, float range) => _probeScheduler?.LightChanged(center, range);
-
-    /// <summary>
-    /// For tests: writes a probe's tiles as if it had been captured seeing <paramref name="irradiance"/>
-    /// all round and nothing within 100 m, through the staging buffer and the blend, so storage can be
-    /// tested without a capture. Waits for the GPU.
-    /// </summary>
-    internal void WriteProbeTileForTest(ProbeId id, Vector3 irradiance)
-    {
-        const int irradianceTexels = (ProbeVolume.IrradianceTexels + 2) * (ProbeVolume.IrradianceTexels + 2);
-        const int depthTexels = (ProbeVolume.DepthTexels + 2) * (ProbeVolume.DepthTexels + 2);
-
-        EnsureProbeStorage();
-        _context.WaitIdle();
-        using var source = GpuBuffer.CreateHostVisible(_context, ProbeVolume.StagedTileBytes, BufferUsageFlags.TransferSrcBit);
-        var irradianceTile = new Span<Vector4>(source.Mapped, irradianceTexels);
-        irradianceTile.Fill(new Vector4(irradiance, 0f));
-        var depthTile = new Span<Vector2>((Vector4*)source.Mapped + irradianceTexels, depthTexels);
-        depthTile.Fill(new Vector2(100f, 100f * 100f));
-
-        _context.SubmitAndWait(cmd =>
-        {
-            var copy = new BufferCopy(0, 0, ProbeVolume.StagedTileBytes);
-            _api.CmdCopyBuffer(cmd, source.Handle, _lightProbes.StagingTiles, 1, &copy);
-            _lightProbes.RecordBlend(cmd, [id], 1f);
-        });
-    }
-
-    /// <summary>
-    /// For tests: the light probes' soft light at each point, facing its normal, from the same
-    /// probeIrradiance the lighting pass calls, with the uniforms of the last frame rendered. -1 where
-    /// no probe can tell, which the lighting turns into the sky. Waits for the GPU, so never on the frame path.
-    /// </summary>
-    internal Vector3[] SampleProbeIrradiance(ReadOnlySpan<(Vector3 Point, Vector3 Normal)> samples)
-    {
-        _context.WaitIdle();
-        int count = samples.Length;
-        ulong bytes = (ulong)Math.Max(count, 1) * 32;
-        using var input = GpuBuffer.CreateHostVisible(_context, bytes, BufferUsageFlags.StorageBufferBit);
-        using var output = GpuBuffer.CreateHostVisible(_context, bytes / 2, BufferUsageFlags.StorageBufferBit);
-        var points = new Span<Vector4>(input.Mapped, count * 2);
-        for (int i = 0; i < count; i++)
-        {
-            points[i * 2] = new Vector4(samples[i].Point, 1f);
-            points[i * 2 + 1] = new Vector4(samples[i].Normal, 0f);
-        }
-
-        return SampleProbes(input, output, count);
-    }
-
-    /// <summary>
-    /// Runs probe_sample.comp over <paramref name="count"/> points in <paramref name="input"/>, with a pipeline of its
-    /// own, and reads what it wrote to <paramref name="output"/>. Waits for the GPU.
-    /// </summary>
-    private Vector3[] SampleProbes(GpuBuffer input, GpuBuffer output, int count)
-    {
-        var device = _context.Device;
-        var setLayout = _context.CreateSetLayout(
-        [
-            new(0, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
-            new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
-            new(11, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-            new(12, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-        ]);
-        var pool = _context.CreateDescriptorPool(
-            1,
-            new DescriptorPoolSize(DescriptorType.StorageBuffer, 2),
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 2));
-        var pipelineLayout = _context.CreatePipelineLayout(
-            [_kit.FrameSetLayout, setLayout],
-            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, sizeof(int)));
-        var pipeline = PipelineFactory.CreateCompute(_context, "probe_sample.comp", pipelineLayout);
-
-        try
-        {
-            var set = _context.AllocateSet(pool, setLayout);
-            WriteProbeSampleSet(set, input, output);
-            var sets = stackalloc DescriptorSet[] { _frames[_uniformFrame].Set, set };
-            _context.SubmitAndWait(cmd => RecordProbeSample(cmd, pipeline, pipelineLayout, sets, count));
-            return ReadSampledIrradiance(output, count);
-        }
-        finally
-        {
-            pipeline.Destroy();
-            _api.DestroyPipelineLayout(device, pipelineLayout, null);
-            _api.DestroyDescriptorPool(device, pool, null);
-            _api.DestroyDescriptorSetLayout(device, setLayout, null);
-        }
-    }
-
-    // The irradiance probe_sample.comp wrote for each point, the first three of each four floats.
-    private static Vector3[] ReadSampledIrradiance(GpuBuffer output, int count)
-    {
-        var results = new Vector3[count];
-        var read = new ReadOnlySpan<Vector4>(output.Mapped, count);
-        for (int i = 0; i < count; i++)
-        {
-            results[i] = new Vector3(read[i].X, read[i].Y, read[i].Z);
-        }
-
-        return results;
-    }
-
-    // Points probe_sample.comp's set at the points, the results and the probes' atlases.
-    private void WriteProbeSampleSet(DescriptorSet set, GpuBuffer input, GpuBuffer output)
-    {
-        var inputInfo = new DescriptorBufferInfo(input.Handle, 0, Vk.WholeSize);
-        var outputInfo = new DescriptorBufferInfo(output.Handle, 0, Vk.WholeSize);
-        var irradianceInfo = new DescriptorImageInfo(_kit.LinearSampler, _lightProbes.IrradianceView, ImageLayout.General);
-        var depthInfo = new DescriptorImageInfo(_kit.LinearSampler, _lightProbes.DepthView, ImageLayout.General);
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet, DstSet = set, DstBinding = 0, DescriptorCount = 1,
-                DescriptorType = DescriptorType.StorageBuffer, PBufferInfo = &inputInfo,
-            },
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet, DstSet = set, DstBinding = 1, DescriptorCount = 1,
-                DescriptorType = DescriptorType.StorageBuffer, PBufferInfo = &outputInfo,
-            },
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet, DstSet = set, DstBinding = 11, DescriptorCount = 1,
-                DescriptorType = DescriptorType.CombinedImageSampler, PImageInfo = &irradianceInfo,
-            },
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet, DstSet = set, DstBinding = 12, DescriptorCount = 1,
-                DescriptorType = DescriptorType.CombinedImageSampler, PImageInfo = &depthInfo,
-            },
-        };
-        _api.UpdateDescriptorSets(_context.Device, 4, writes, 0, null);
-    }
-
-    // Runs probe_sample.comp over the points, and makes what it wrote visible to the CPU.
-    private void RecordProbeSample(
-        CommandBuffer cmd, LivePipeline pipeline, PipelineLayout pipelineLayout, DescriptorSet* sets, int count)
-    {
-        int pushed = count;
-        _api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, pipeline);
-        _api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, pipelineLayout, 0, 2, sets, 0, null);
-        _api.CmdPushConstants(cmd, pipelineLayout, ShaderStageFlags.ComputeBit, 0, sizeof(int), &pushed);
-        _api.CmdDispatch(cmd, (uint)(count + 63) / 64, 1, 1);
-        var barrier = new MemoryBarrier2
-        {
-            SType = StructureType.MemoryBarrier2,
-            SrcStageMask = PipelineStageFlags2.ComputeShaderBit,
-            SrcAccessMask = AccessFlags2.ShaderStorageWriteBit,
-            DstStageMask = PipelineStageFlags2.HostBit,
-            DstAccessMask = AccessFlags2.HostReadBit,
-        };
-        var dependency = new DependencyInfo
-        {
-            SType = StructureType.DependencyInfo,
-            MemoryBarrierCount = 1,
-            PMemoryBarriers = &barrier,
-        };
-        _api.CmdPipelineBarrier2(cmd, &dependency);
+        get => LightProbes.Quality;
+        set => LightProbes.Quality = Enum.IsDefined(value)
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "Probe quality can be Low, Medium or High.");
     }
 
     /// <summary>The bindless textures and materials, which a shader that traces rays reads hits through.</summary>
@@ -1234,8 +953,8 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public float BakeFadeSeconds
     {
-        get => _bakeResolver.FadeSeconds;
-        set => _bakeResolver.FadeSeconds = value is >= 0f and <= MaxBakeFadeSeconds
+        get => _frameBakes.Resolver.FadeSeconds;
+        set => _frameBakes.Resolver.FadeSeconds = value is >= 0f and <= MaxBakeFadeSeconds
             ? value
             : throw new ArgumentOutOfRangeException(nameof(value), string.Create(
                 CultureInfo.InvariantCulture, $"BakeFadeSeconds must be from 0 to {MaxBakeFadeSeconds}, not {value}."));
@@ -1248,47 +967,13 @@ public sealed unsafe class Renderer : IDisposable
     /// What the last frame's baked areas came to, or null when it named no baked space or chunk. See "Baked lighting"
     /// in docs/rendering.md.
     /// </summary>
-    public BakeFrame? LastBakeFrame { get; private set; }
+    public BakeFrame? LastBakeFrame => _frameBakes.Last;
 
     private readonly AreaInputs _areaInputs;
-    private readonly BakeResolver _bakeResolver = new(NoBakes.Instance) { FadeSeconds = 0.5f };
-    private DirectionalLight[] _bakeKeptSuns = [];
-    private LocalLight[] _bakeKeptLights = [];
     private bool _drawingWithoutBakedLights;
-
-    // How far the frame's space bake has faded in, for the frame uniforms: 1 unless one is fading in.
-    private float _spaceFade = 1f;
-
-    // Whether a bake this frame draws is still fading in: the space's, or a relit chunk's. Reflection captures see it.
-    private bool _bakesFading;
-    private bool _chunksFading;
-
-    // A Baked light while its bake fades in, its radiance scaled by what the bake doesn't give yet.
-    private static readonly Func<DirectionalLight, float, DirectionalLight> DimSun = static (sun, left) =>
-    {
-        sun.Radiance *= left;
-        return sun;
-    };
-
-    private static readonly Func<LocalLight, float, LocalLight> DimLocalLight = static (light, left) =>
-    {
-        light.Radiance *= left;
-        return light;
-    };
 
     // Bakes is asked through this, so a bake that can't be read counts as missing until the store reloads.
     private readonly ReadableBakes _readableBakes = new();
-
-    // The space bake whose lightmaps are on the GPU, kept while it isn't drawn so turning it back on reads nothing.
-    private LoadedBake _loadedBake;
-
-    // The space's lightmap rectangles this frame draws, by bake id: the loaded space bake's while it is drawn, or null.
-    // A chunk's rectangles are kept apart, in _chunkLightmaps, because copies of one chunk name can have different bakes
-    // with the same ids.
-    private IReadOnlyDictionary<ulong, GpuLightmapRect>? _activeLightmaps;
-
-    // Whether this frame draws the loaded space bake's lightmaps.
-    private bool _spaceLightmapsActive;
 
     // The chunk bakes on the GPU, shared by every copy of a chunk.
     private readonly ChunkBakePool _chunkPool;
@@ -1296,464 +981,8 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The chunk bakes being read, uploaded or on the GPU. For tests.</summary>
     internal ChunkBakePool ChunkBakes => _chunkPool;
 
-    // The resident chunk bakes this frame names, in the order first named.
-    private readonly List<ChunkBakePool.Entry> _namedChunks = [];
-
-    // The lightmap rectangles of each chunk this frame relights, by bake id, or null. A draw reads only its own chunk's.
-    private readonly IReadOnlyDictionary<ulong, GpuLightmapRect>?[] _chunkLightmaps =
-        new IReadOnlyDictionary<ulong, GpuLightmapRect>?[BakeFiles.MaxChunks];
-
-    // A hash of the chunk bakes this frame draws, 0 for none, for the reflection probes to see one come or go.
-    private ulong _chunkLightmapsHash;
-    private Func<string, BakeInputs, bool>? _chunkResident;
-
-    // While this frame draws a bake, which of its Mixed lights reads each of the frame's four mask slots.
-    private readonly FrameMaskSlots _maskSlots = new();
-
-    // The pool entry of each chunk this frame relights, or null.
-    private readonly ChunkBakePool.Entry?[] _relitEntries = new ChunkBakePool.Entry?[BakeFiles.MaxChunks];
-
-    // The loaded bake's probes while this frame lights the baked space with them, or null when it doesn't.
-    private BakedProbes? _activeBakedProbes;
-
-    /// <summary>
-    /// The bake whose lightmaps are uploaded, and which file, inputs and store reload it came from. Channels is each
-    /// listed local light's shadow mask channel, by key. Probes is its light probes, whose atlases are among Pages.
-    /// </summary>
-    private record struct LoadedBake(
-        string? File, ulong Inputs, IBakeStore? Store, int Reloads, Dictionary<ulong, GpuLightmapRect>? Rects, List<TextureHandle> Pages,
-        Dictionary<int, int>? Channels, BakedProbes? Probes);
-
-    /// <summary>A bake's light probes: their grid, and the material table slots of their irradiance and depth atlases.</summary>
-    private sealed record BakedProbes(ProbeVolumeSettings Settings, int Irradiance, int Depth);
-
-    /// <summary>
-    /// Makes sure the space's fresh bake has its lightmaps on the GPU, reading it when it isn't the one already loaded.
-    /// False, logged once, when it can't be read; then the file counts as missing until the store reloads.
-    /// </summary>
-    private bool LoadSpaceBake(string space, BakeInputs inputs)
-    {
-        string file = _bakeResolver.SpaceFile(space);
-        var store = _readableBakes.Inner;
-        ulong combined = inputs.Combined;
-        if (_loadedBake.File == file && _loadedBake.Inputs == combined && ReferenceEquals(_loadedBake.Store, store)
-            && _loadedBake.Reloads == store.Reloads)
-        {
-            return true;
-        }
-
-        UnloadBake();
-        if (!TryReadBake(store, file, out var bake))
-        {
-            return false;
-        }
-
-        // A store with no Load of its own still has the area baked; its surfaces take their soft light live.
-        var pages = _loadedBake.Pages ?? [];
-        Dictionary<ulong, GpuLightmapRect>? rects = null;
-        Dictionary<int, int>? channels = null;
-        BakedProbes? probes = null;
-        if (bake is not null)
-        {
-            channels = [];
-            foreach (var (lightKey, channel) in bake.Channels)
-            {
-                channels[lightKey] = channel;
-            }
-
-            (rects, probes) = UploadPages(bake, pages);
-        }
-
-        _loadedBake = new LoadedBake(file, combined, store, store.Reloads, rects, pages, channels, probes);
-        return true;
-    }
-
-    /// <summary>
-    /// Reads and checks a space's bake. Null for a store with no Load of its own. False, logged once, when it can't be
-    /// read; then the file counts as missing until the store reloads.
-    /// </summary>
-    private bool TryReadBake(IBakeStore store, string file, out LightBakeFile? bake)
-    {
-        try
-        {
-            bake = store.Load(file);
-            if (bake is not null)
-            {
-                BakePages.CheckSpace(bake, file);
-            }
-            else if (_readableBakes.GivesLightmaps(store))
-            {
-                // Its header was fresh a moment ago, so the file was removed or renamed since, without a reload.
-                throw new InvalidDataException("The file is gone, though its header was read as fresh.");
-            }
-
-            return true;
-        }
-        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
-        {
-            Console.Error.WriteLine($"The bake {file} can't be read, so its area is lit live: {e.Message}");
-            _readableBakes.Unreadable.Add(file);
-            bake = null;
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Puts a space bake's pages in the material table, three to a lightmap page, irradiance, direction and mask, and
-    /// then its probe atlases, which so live and die with the lightmaps. Returns each draw's rectangle, and the probes.
-    /// </summary>
-    private (Dictionary<ulong, GpuLightmapRect> Rects, BakedProbes? Probes) UploadPages(LightBakeFile bake, List<TextureHandle> pages)
-    {
-        try
-        {
-            // CheckPages made sure a space's bake has both.
-            var irradiancePages = bake.Irradiance!;
-            var directionPages = bake.Direction!;
-            int count = irradiancePages.Count;
-            for (int page = 0; page < count; page++)
-            {
-                pages.Add(CreateTexture(BakePages.Texture(irradiancePages[page]), TextureEdges.Clamp));
-                pages.Add(CreateTexture(BakePages.Texture(directionPages[page]), TextureEdges.Clamp));
-                pages.Add(page < bake.Mask.Count ? CreateTexture(BakePages.Texture(bake.Mask[page]), TextureEdges.Clamp) : new TextureHandle(-1));
-            }
-
-            var rects = BakePages.Rects(bake, pages);
-            BakedProbes? probes = null;
-            if (bake is { ProbeIrradiance: { } probeIrradiance, ProbeDepth: { } probeDepth, Probes: { } probeSettings })
-            {
-                pages.Add(CreateTexture(BakePages.Texture(probeIrradiance), TextureEdges.Clamp));
-                pages.Add(CreateTexture(BakePages.Texture(probeDepth), TextureEdges.Clamp));
-                probes = new BakedProbes(probeSettings, pages[^2].Index, pages[^1].Index);
-            }
-
-            return (rects, probes);
-        }
-        catch
-        {
-            // Such as running out of device memory part way: the pages made so far go the usual way, and the
-            // error goes on, since it isn't the file's fault.
-            ReleasePages(pages);
-            throw;
-        }
-    }
-
-    /// <summary>Lets the loaded bake's pages go, once the frames drawing them are done.</summary>
-    private void UnloadBake()
-    {
-        if (_loadedBake.Pages is { } pages)
-        {
-            ReleasePages(pages);
-        }
-
-        _loadedBake = _loadedBake with { File = null, Inputs = 0, Store = null, Rects = null, Channels = null, Probes = null };
-        _activeBakedProbes = null;
-    }
-
-    /// <summary>Lets a bake's pages go, once the frames drawing them are done, and empties the list.</summary>
-    private void ReleasePages(List<TextureHandle> pages)
-    {
-        foreach (var page in pages)
-        {
-            if (page.Index >= 0)
-            {
-                DestroyTexture(page);
-            }
-        }
-
-        pages.Clear();
-    }
-
-    /// <summary>
-    /// Works out the frame's baked areas, and is true when a fresh bake takes some lights over: then
-    /// <paramref name="lit"/> is the frame without them. A frame with no baked area is left alone, unhashed.
-    /// </summary>
-    private bool ResolveBakes(in FrameView view, ReadOnlySpan<DrawItem> draws, out FrameView lit)
-    {
-        lit = default;
-        _maskSlots.Reset();
-        if (view.BakedSpace is null && view.BakedChunks.IsEmpty)
-        {
-            ForgetBakedAreas();
-            return false;
-        }
-
-        FollowBakeStore();
-        var bakes = ResolveFrameBakes(view, draws);
-        UseBakes(view, draws.Length, bakes);
-        if (bakes.DroppedSuns.Count == 0 && bakes.DroppedLocalLights.Count == 0
-            && bakes.FadingSuns.Count == 0 && bakes.FadingLocalLights.Count == 0)
-        {
-            return false;
-        }
-
-        // A Baked light whose bake is still fading in stays, dimmed as the bake comes, so the two always add up.
-        lit = view;
-        lit.Lights = BakeFreshness.Without(
-            view.Lights, bakes.DroppedSuns, bakes.FadingSuns, DimSun, ref _bakeKeptSuns);
-        lit.LocalLights = BakeFreshness.Without(
-            view.LocalLights, bakes.DroppedLocalLights, bakes.FadingLocalLights, DimLocalLight, ref _bakeKeptLights);
-        return true;
-    }
-
-    /// <summary>For a frame that names no baked area: draws no bake, and forgets when the last bakes arrived.</summary>
-    private void ForgetBakedAreas()
-    {
-        LastBakeFrame = null;
-        _activeLightmaps = null;
-        _spaceLightmapsActive = false;
-        _chunkLightmapsHash = 0;
-        _activeBakedProbes = null;
-        _relightChunks = false;
-        _spaceFade = 1f;
-        _bakesFading = false;
-        // The next frame that names an area is its first, so a bake fresh then shows at once.
-        _bakeResolver.ForgetArrivals();
-    }
-
-    /// <summary>
-    /// Follows <see cref="Bakes"/>: a bake that couldn't be read is tried again only once the store is another or its
-    /// files may have changed. The chunk bakes on the GPU go too, so each is read again from the store as it is now.
-    /// </summary>
-    private void FollowBakeStore()
-    {
-        if (!ReferenceEquals(_readableBakes.Inner, Bakes) || _readableBakes.ReloadsSeen != Bakes.Reloads)
-        {
-            _readableBakes.Inner = Bakes;
-            _readableBakes.ReloadsSeen = Bakes.Reloads;
-            _readableBakes.Unreadable.Clear();
-            var destroying = _retired.AfterLastSubmitted;
-            _chunkPool.Clear(destroying.FreedTextures, destroying.FreedOthers);
-        }
-
-        // Files the store forgot one at a time are read again, and only those: the other chunk bakes stay up.
-        foreach (string file in Bakes.TakeForgotten())
-        {
-            _readableBakes.Unreadable.Remove(file);
-            var destroying = _retired.AfterLastSubmitted;
-            _chunkPool.Forget(file, destroying.FreedTextures, destroying.FreedOthers);
-        }
-    }
-
-    /// <summary>
-    /// Works out which of the frame's baked areas are fresh, and loads the space's bake. With baked lighting off, every
-    /// bake counts as missing, so the frame is drawn as if nothing were baked.
-    /// </summary>
-    private BakeFrame ResolveFrameBakes(in FrameView view, ReadOnlySpan<DrawItem> draws)
-    {
-        _bakeResolver.Store = view.Off.HasFlag(RenderEffects.BakedLighting) ? NoBakes.Instance : _readableBakes;
-        _bakeResolver.ChunkResident = _chunkResident ??= ChunkResident;
-        _namedChunks.Clear();
-        var bakes = _areaInputs.ResolveAreas(_bakeResolver, view, draws);
-        if (bakes.SpaceFresh && !LoadSpaceBake(view.BakedSpace!.Value.Name, bakes.Space!.Value))
-        {
-            // Its file is now unreadable, so the space is worked out again as unbaked: its Baked lights come back.
-            _namedChunks.Clear();
-            bakes = _areaInputs.ResolveAreas(_bakeResolver, view, draws);
-        }
-
-        return bakes;
-    }
-
-    /// <summary>
-    /// Draws the fresh bakes this frame: the space's lightmaps and probes, the relit chunks and the mask slots, faded
-    /// in as far as they have come.
-    /// </summary>
-    private void UseBakes(in FrameView view, int drawCount, BakeFrame bakes)
-    {
-        var spaceRects = bakes.SpaceFresh && _loadedBake.Rects is { Count: > 0 } rects ? rects : null;
-        _spaceLightmapsActive = spaceRects is not null;
-        _activeLightmaps = spaceRects;
-        _chunkLightmapsHash = ChunkLightmapsHash();
-        FindRelitChunks(view, drawCount, bakes);
-        _activeBakedProbes = bakes.SpaceFresh ? _loadedBake.Probes : null;
-        if (spaceRects is not null || _relightChunks)
-        {
-            FindMaskSlots(view, bakes, spaceRects is not null);
-        }
-
-        LastBakeFrame = bakes;
-        _spaceFade = spaceRects is not null || _activeBakedProbes is not null ? bakes.SpaceFade : 1f;
-        _bakesFading = _spaceFade < 1f || _chunksFading;
-    }
-
-    /// <summary>
-    /// The resolver's question for a chunk whose bake is fresh in the store: is every page of it on the GPU? A store
-    /// with no Load of its own has no lightmaps to wait for, so its fresh chunks count at once. Otherwise the pool is
-    /// asked, which starts reading the bake the first time, and a resident bake joins the frame's named chunks.
-    /// </summary>
-    private bool ChunkResident(string file, BakeInputs inputs)
-    {
-        var store = _readableBakes.Inner;
-        if (!_readableBakes.GivesLightmaps(store))
-        {
-            return true;
-        }
-
-        if (_chunkPool.Use(file, store) is not { } entry)
-        {
-            return false;
-        }
-
-        if (!_namedChunks.Contains(entry))
-        {
-            _namedChunks.Add(entry);
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// Works out which placed chunks this frame relights by its sky and suns: each fresh one whose bake is on the GPU
-    /// with its transfer pages. Fills their GpuChunk data, the suns' coefficients, and the chunk each draw is relit as,
-    /// from the resolver's owners. A frame with none leaves <see cref="_relightChunks"/> off and is drawn as before. See
-    /// "Chunk transfer" in docs/design.md.
-    /// </summary>
-    private void FindRelitChunks(in FrameView view, int drawCount, BakeFrame bakes)
-    {
-        _relightChunks = false;
-        _chunksFading = false;
-        _chunkCount = 0;
-        var chunks = view.BakedChunks;
-        var store = _readableBakes.Inner;
-        if (chunks.IsEmpty || !_readableBakes.GivesLightmaps(store))
-        {
-            return;
-        }
-
-        for (int c = 0; c < chunks.Length; c++)
-        {
-            _relitEntries[c] = null;
-            _chunkLightmaps[c] = null;
-            // A chunk not relit keeps last frame's _chunkData, which is harmless: its draws get chunk -1, so no shader reads it.
-            if (!bakes.ChunkFresh[c] || _chunkPool.Use(bakes.ChunkFile(c), store) is not { IsResident: true } entry
-                || entry.Transfer[0] < 0)
-            {
-                continue;
-            }
-
-            _relitEntries[c] = entry;
-            _chunkLightmaps[c] = entry.Rects;
-            _relightChunks = true;
-            _chunksFading |= bakes.ChunkFade(c) < 1f;
-            _chunkData[c] = RelitChunk(chunks[c], entry, bakes.ChunkFade(c));
-        }
-
-        if (!_relightChunks)
-        {
-            return;
-        }
-
-        _chunkCount = chunks.Length;
-        FindDrawChunks(drawCount);
-        ProjectBakedSuns(view.Lights);
-    }
-
-    /// <summary>
-    /// A placed chunk's data for the shaders: the way into its space, its box, how far its bake has faded in, and the
-    /// pages of its transfer and mask.
-    /// </summary>
-    private static GpuChunk RelitChunk(in BakedChunk chunk, ChunkBakePool.Entry entry, float fade)
-    {
-        var m = chunk.Transform;
-        var t = m.Translation;
-        var transfer = entry.Transfer;
-        return new GpuChunk
-        {
-            // A chunk only turns and moves, so the way back is the turn's transpose after taking the move off.
-            IntoX = new Vector4(m.M11, m.M12, m.M13, -(t.X * m.M11 + t.Y * m.M12 + t.Z * m.M13)),
-            IntoY = new Vector4(m.M21, m.M22, m.M23, -(t.X * m.M21 + t.Y * m.M22 + t.Z * m.M23)),
-            IntoZ = new Vector4(m.M31, m.M32, m.M33, -(t.X * m.M31 + t.Y * m.M32 + t.Z * m.M33)),
-            Min = new Vector4(chunk.Min, chunk.EdgeBlend),
-            Max = new Vector4(chunk.Max, fade),
-            // No slot reads the mask until FindMaskSlots gives the chunk's lights theirs.
-            Mask0 = -1, Mask1 = -1, Mask2 = -1, Mask3 = -1,
-            SkyRed = transfer[0], SkyGreen = transfer[1], SkyBlue = transfer[2], Sun = transfer[3],
-            Tint = transfer[4],
-            MaskPage = entry.MaskPage,
-        };
-    }
-
-    // The chunk each draw is relit as, from the resolver's owners, or -1 for a draw no relit chunk owns.
-    private void FindDrawChunks(int drawCount)
-    {
-        if (_drawChunks.Length < drawCount)
-        {
-            _drawChunks = new int[drawCount * 2];
-        }
-
-        var owners = _bakeResolver.Owners;
-        for (int d = 0; d < drawCount; d++)
-        {
-            int owner = d < owners.Length ? owners[d] : BakeAreas.None;
-            _drawChunks[d] = owner >= 0 && _relitEntries[owner] is not null ? owner : -1;
-        }
-    }
-
-    /// <summary>
-    /// Projects every sun a bake's bounce can follow, as deltas: each one's radiance times the basis towards it.
-    /// </summary>
-    private void ProjectBakedSuns(ReadOnlySpan<DirectionalLight> suns)
-    {
-        _sunSh.AsSpan().Clear();
-        foreach (var sun in suns)
-        {
-            if (sun.Mode == LightMode.Realtime)
-            {
-                continue;
-            }
-
-            var towards = Vector3.Normalize(sun.Direction);
-            var radiance = new Vector4(sun.Radiance, 0f);
-            _sunSh[0] += ShL1.Y0 * radiance;
-            _sunSh[1] += ShL1.Y1 * towards.Y * radiance;
-            _sunSh[2] += ShL1.Y1 * towards.Z * radiance;
-            _sunSh[3] += ShL1.Y1 * towards.X * radiance;
-        }
-    }
-
-    /// <summary>
-    /// A hash of the resident chunk bakes this frame names, 0 for none, so the reflection probes see one come or go.
-    /// A file's name is its chunk's name and inputs, so its hash says which bake it is.
-    /// </summary>
-    private ulong ChunkLightmapsHash()
-    {
-        if (_namedChunks.Count == 0)
-        {
-            return 0;
-        }
-
-        ulong hash = 0;
-        foreach (var chunk in _namedChunks)
-        {
-            hash = hash * 31 + (ulong)StringComparer.Ordinal.GetHashCode(chunk.File);
-        }
-
-        return hash == 0 ? 1 : hash;
-    }
-
-    // A chunk bake the pool couldn't read, check or put on the GPU: reported once, and missing until the store reloads.
-    private void ChunkUnreadable(string file, string problem, string message)
-    {
-        Console.Error.WriteLine($"The bake {file} {problem}, so its area is lit live: {message}");
-        _readableBakes.Unreadable.Add(file);
-    }
-
-    /// <summary>Gives the frame's Mixed lights their mask slots: see <see cref="FrameMaskSlots"/>.</summary>
-    private void FindMaskSlots(in FrameView view, BakeFrame bakes, bool spaceDrawn)
-    {
-        _maskSlots.Begin(view.LocalLights.Length);
-        if (spaceDrawn)
-        {
-            _maskSlots.AddSpace(view.Lights.Length, bakes, _loadedBake.Channels);
-        }
-
-        if (_relightChunks)
-        {
-            _maskSlots.AddChunks(view.LocalLights, bakes, _bakeResolver, _relitEntries);
-        }
-
-        _maskSlots.Assign(bakes, _chunkData);
-    }
+    // The frame's baked areas and what it draws of them.
+    private readonly FrameBakes _frameBakes;
 
     /// <summary>
     /// Makes the jobs that bake a frame's space or chunks, on the baker it prepares. Tests prepare it and make jobs
@@ -2087,9 +1316,9 @@ public sealed unsafe class Renderer : IDisposable
         // what it sees, and so does a chunk bake arriving or going. A bake that arrives on screen is still fading in
         // then, so a capture would keep its half-faded picture; the fade ending changes the hash once more, and the
         // capture after it sees the bake whole, as one made when the level loads with the bake saved does.
-        ulong lightmaps = (_spaceLightmapsActive || _activeBakedProbes is not null ? _loadedBake.Inputs : 0) ^ _chunkLightmapsHash;
         return HashCode.Combine(
-            ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, _probesSettledOnce, lightmaps, _bakesFading);
+            ReflectionLightingHash(view, _environmentVersion), LightProbes.InUse, LightProbes.SettledOnce, _frameBakes.DrawnKey,
+            _frameBakes.Fading);
     }
 
     /// <summary>
@@ -2170,56 +1399,21 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void ManageProbeStorage()
     {
-        if (_off.HasFlag(RenderEffects.LightProbes) || !_lightProbes.Supported)
+        bool atlasesChanged;
+        if (_off.HasFlag(RenderEffects.LightProbes) || !LightProbes.Volume.Supported)
         {
-            if (_lightProbes.Release())
-            {
-                WriteTargetDescriptors();
-            }
-
-            _probeScheduler = null;
-            _probeBatch.Clear();
-            _probesSettledOnce = false;
-            _probeInvalidations.Clear();
-            _lightProbesInUse = false;
-            ProbeUpdatesLastFrame = 0;
-            return;
+            atlasesChanged = LightProbes.Release();
+            LightProbes.InUse = false;
+        }
+        else
+        {
+            atlasesChanged = LightProbes.Ensure();
         }
 
-        EnsureProbeStorage();
-    }
-
-    /// <summary>
-    /// Makes the atlases for <see cref="ProbeQuality"/> if they aren't already, and with them new
-    /// cascades and a new scheduler, so every probe starts uncaptured. Waits for the GPU when it makes them.
-    /// </summary>
-    private void EnsureProbeStorage()
-    {
-        if (!_lightProbes.Supported || !_lightProbes.EnsureStorage(_probeQuality))
+        if (atlasesChanged)
         {
-            return;
+            WriteTargetDescriptors();
         }
-
-        _probeCascades = new ProbeCascades(_probeQuality);
-        _probeScheduler = new ProbeScheduler(_probeCascades, 0);
-        _probesSettledOnce = false;
-        _probeSun ??= new ProbeSunShadow(_context, _resources.GetFlags);
-        _probeBatch.Clear();
-        _probeGrid = null;
-        _probeLightingKey = 0;
-        _probeLights.Clear();
-        _probeInvalidations.Clear();
-
-        WriteTargetDescriptors();
-        _probeUpdatePass.WriteSet(
-            new DescriptorImageInfo(_kit.LinearSampler, _lightProbes.IrradianceView, ImageLayout.General),
-            new DescriptorImageInfo(_kit.LinearSampler, _lightProbes.DepthView, ImageLayout.General),
-            new DescriptorImageInfo(_kit.ShadowSampler, _probeSun.View, ImageLayout.ShaderReadOnlyOptimal));
-        _probeTracePass?.WriteSet(
-            new DescriptorImageInfo(_kit.LinearSampler, _lightProbes.IrradianceView, ImageLayout.General),
-            new DescriptorImageInfo(_kit.LinearSampler, _lightProbes.DepthView, ImageLayout.General),
-            _lightProbes.StagingTiles,
-            new DescriptorImageInfo(_environment.Sampler, _environment.Sky, ImageLayout.ShaderReadOnlyOptimal));
     }
 
     /// <summary>
@@ -2227,213 +1421,9 @@ public sealed unsafe class Renderer : IDisposable
     /// the camera, tells the scheduler what changed, picks the batch of probes to update and where they
     /// are, and plans the probes' sun shadow map. Returns how many instances the work will draw.
     /// </summary>
-    private int PlanProbes(in FrameView view, ReadOnlySpan<DrawItem> draws)
-    {
-        _probeBatch.Clear();
-        _probeBatchPositions.Clear();
-        _probeBatchSpacings.Clear();
-        if (_probeScheduler is not { } scheduler)
-        {
-            _lightProbesInUse = false;
-            return 0;
-        }
-
-        _lightProbesInUse = true;
-        MoveProbeCascades(view, scheduler);
-        FollowProbeGrid(view, scheduler);
-        FollowProbeLighting(view, scheduler);
-
-        // Rays need no faces to draw into, so the traced path takes a bigger batch, as many as there are staging slots.
-        bool traced = _probeTracePass is not null;
-        if (!ProbeUpdatesPaused)
-        {
-            TakeProbeBatch(view, scheduler, traced);
-        }
-
-        if (_probeBatch.Count == 0)
-        {
-            return 0;
-        }
-
-        FindProbeBatchPositions();
-        _probeEnvironmentIntensity = view.EnvironmentIntensity;
-
-        // Traced probes find the sun with shadow rays, through the frame's top-level structure, and draw nothing.
-        return traced ? 0 : PlanProbeCaptures(view, draws);
-    }
-
-    /// <summary>
-    /// Moves the cascades with the camera. The cells the cascades left are cleared on the GPU, and the new probes in
-    /// their slots are uncaptured.
-    /// </summary>
-    private void MoveProbeCascades(in FrameView view, ProbeScheduler scheduler)
-    {
-        var scroll = _probeCascades.Move(view.CameraPosition);
-        scheduler.Scrolled(scroll);
-        for (int c = 0; c < ProbeCascades.Count; c++)
-        {
-            var x = scroll.Slabs[c * 3];
-            var y = scroll.Slabs[c * 3 + 1];
-            var z = scroll.Slabs[c * 3 + 2];
-            if (x.Count == 0 && y.Count == 0 && z.Count == 0)
-            {
-                continue;
-            }
-
-            var layout = _probeCascades.Layout(c);
-            _probeInvalidations.Add(new ProbeInvalidation(c, _probeCascades.Origin(c),
-                new Int3(layout.CountX, layout.CountY, layout.CountZ),
-                new Int3(x.Start, y.Start, z.Start), new Int3(x.Count, y.Count, z.Count)));
-        }
-    }
-
-    // Tells the scheduler which probes the frame's light changed: the suns and the sky reach every probe, a point or
-    // spot light only those in its range.
-    private void FollowProbeLighting(in FrameView view, ProbeScheduler scheduler)
-    {
-        int lightingKey = ProbeLightingKey(view, _environmentVersion, _off);
-        if (lightingKey != _probeLightingKey)
-        {
-            _probeLightingKey = lightingKey;
-            scheduler.EverythingChanged();
-        }
-
-        _probeLights.Follow(DrawnLocalLights(view), scheduler);
-    }
-
-    // A new box for the fixed grid starts it again, with its old probes cleared.
-    private void FollowProbeGrid(in FrameView view, ProbeScheduler scheduler)
-    {
-        if (view.LightProbes == _probeGrid)
-        {
-            return;
-        }
-
-        _probeGrid = view.LightProbes;
-        if (_probeGrid is { } grid)
-        {
-            var (countX, countY, countZ) = ProbeGrid.Counts(grid);
-            scheduler.SetFixedGrid(grid.Min, countX, countY, countZ, grid.Spacing);
-        }
-        else
-        {
-            scheduler.ClearFixedGrid();
-        }
-
-        _probeInvalidations.Add(new ProbeInvalidation(ProbeVolume.FixedGridLayer, default,
-            new Int3(ProbeGrid.MaxProbes, 1, 1), default, new Int3(ProbeGrid.MaxProbes, 0, 0)));
-    }
-
-    /// <summary>
-    /// Takes this frame's batch from the scheduler, nearest and most in view first. The traced path takes a bigger
-    /// batch, since rays need no faces to draw into.
-    /// </summary>
-    private void TakeProbeBatch(in FrameView view, ProbeScheduler scheduler, bool traced)
-    {
-        var forward = -new Vector3(view.View.M13, view.View.M23, view.View.M33);
-        int budget = traced
-            ? Math.Min(ProbeBudget.For(_probeQuality).Traced, _lightProbes.StagingSlots)
-            : Math.Min(ProbeBudget.For(_probeQuality).Raster, Math.Min(_lightProbes.FaceSlots, _lightProbes.StagingSlots));
-
-        // The scheduler refills its list on every call, and the triangle budget may cut this frame's copy short.
-        // Once the near probes are settled, the traced path refreshes only a quarter of its budget a frame.
-        int refresh = traced ? ProbeBudget.For(_probeQuality).TracedRefresh : budget;
-        var next = scheduler.Next(budget, view.CameraPosition, forward, refresh);
-        for (int i = 0; i < next.Count; i++)
-        {
-            _probeBatch.Add(next[i]);
-        }
-    }
-
-    // Where each probe of the batch is, and how far apart its layer's probes are.
-    private void FindProbeBatchPositions()
-    {
-        foreach (var id in _probeBatch)
-        {
-            if (id.Cascade == ProbeScheduler.FixedGrid)
-            {
-                var grid = _probeGrid!.Value;
-                _probeBatchPositions.Add(ProbeGrid.Position(grid, id.Slot));
-                _probeBatchSpacings.Add(grid.Spacing);
-            }
-            else
-            {
-                _probeBatchPositions.Add(_probeCascades.Position(id.Cascade, id.Slot));
-                _probeBatchSpacings.Add(_probeCascades.Layout(id.Cascade).Spacing);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Plans the probes' sun shadow map and which draws each probe's faces take, within the frame's triangle budget.
-    /// Returns how many instances the captures will draw.
-    /// </summary>
-    private int PlanProbeCaptures(in FrameView view, ReadOnlySpan<DrawItem> draws)
-    {
-        // The probes' own sun shadow map reaches across the coarsest cascade, which holds every probe.
-        var coarsest = _probeCascades.Layout(ProbeCascades.Count - 1);
-        float reach = 0.5f * coarsest.Spacing * new Vector3(coarsest.CountX, coarsest.CountY, coarsest.CountZ).Length();
-        _probeSun!.Plan(ShadowSun(view), view.CameraPosition, reach, _frameNumber);
-
-        var (taken, captured) = _probeUpdatePass.Prepare(draws, _meshStore.DetailSlots,
-            CollectionsMarshal.AsSpan(_probeBatchPositions), CollectionsMarshal.AsSpan(_probeBatchSpacings), ProbeTrianglesPerFrame);
-
-        // Probes past the frame's triangle budget stay as they are in the scheduler, so a later frame picks them.
-        if (taken < _probeBatch.Count)
-        {
-            _probeBatch.RemoveRange(taken, _probeBatch.Count - taken);
-        }
-
-        return captured + (_probeSun.Redraw ? draws.Length : 0);
-    }
-
-    /// <summary>
-    /// Records this frame's light probe work, after the lights' shadow tiles: clears the cells the
-    /// cascades left, then draws the batch's probes, folds their faces and blends them into the atlases.
-    /// Where the GPU can trace, the batch's probes are traced through <paramref name="traced"/> instead.
-    /// </summary>
-    private void RecordProbeUpdate(
-        CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, InstanceBuffer instances, TopLevelStructure? traced)
-    {
-        foreach (var invalidation in _probeInvalidations)
-        {
-            _lightProbes.RecordInvalidate(cmd, invalidation.Layer, invalidation.Origin,
-                invalidation.Counts.X, invalidation.Counts.Y, invalidation.Counts.Z, invalidation.SlabStart, invalidation.SlabCount);
-        }
-
-        _probeInvalidations.Clear();
-
-        var batch = _probeBatch;
-        ProbeUpdatesLastFrame = batch.Count;
-        if (batch.Count == 0 || _probeScheduler is not { } scheduler)
-        {
-            return;
-        }
-
-        if (_probeTracePass is { } tracePass && traced is { } scene)
-        {
-            _lightProbes.BeginFolds(cmd);
-            tracePass.Record(cmd, batch, scene, _tracing!, _ring.Index, frameSet,
-                CollectionsMarshal.AsSpan(_probeBatchPositions), CollectionsMarshal.AsSpan(_probeBatchSpacings),
-                (uint)scheduler.Frame, _probeEnvironmentIntensity);
-            _lightProbes.RecordBlend(cmd, batch, TracedBlend, TracedSnap);
-            scheduler.Updated(batch);
-            _probesSettledOnce |= scheduler.Settled;
-            return;
-        }
-
-        _probeSun!.Record(_api, cmd, _shadowPass, frameSet, draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances);
-        _probeUpdatePass.Record(cmd, _lightProbes, frameSet, draws, _meshStore.MeshSlots, instances);
-        _lightProbes.BeginFolds(cmd);
-        for (int i = 0; i < batch.Count; i++)
-        {
-            _lightProbes.RecordFold(cmd, i, _probeBatchSpacings[i], _probeEnvironmentIntensity);
-        }
-
-        _lightProbes.RecordBlend(cmd, batch, RasterBlend);
-        scheduler.Updated(batch);
-        _probesSettledOnce |= scheduler.Settled;
-    }
+    private int PlanProbes(in FrameView view, ReadOnlySpan<DrawItem> draws) =>
+        LightProbes.Plan(view, draws, DrawnLocalLights(view),
+            new ProbePlanInputs(ProbeLightingKey(view, _environmentVersion, _off), ShadowSun(view), _frameNumber));
 
     /// <summary>
     /// Takes the reflection probe at the front of the line for this frame's capture, when there is one and reflections
@@ -2883,7 +1873,7 @@ public sealed unsafe class Renderer : IDisposable
         // Worked out once, from the original view: a frame drawn again without its baked sun keeps the sky that sun
         // lights, and its disc.
         BakeSky(view);
-        bool relit = ResolveBakes(view, draws, out var withoutBakedLights);
+        bool relit = _frameBakes.TryResolve(view, draws, Bakes, out var withoutBakedLights);
 
         // From the frame with every light, since a bake takes the lights a fresh bake would drop.
         BackgroundBakes.Update(view, draws, LastBakeFrame);
@@ -3027,14 +2017,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
-        // The space's slots go every frame, so a frame drawing only the space reads its mask as it always has.
-        var spaceSlots = _maskSlots.SpaceSlots;
-        spaceSlots.AsSpan().CopyTo(new Span<int>((byte*)frame.Chunks.Mapped + SunShBytes, spaceSlots.Length));
-        if (_relightChunks)
-        {
-            _sunSh.AsSpan().CopyTo(new Span<Vector4>(frame.Chunks.Mapped, _sunSh.Length));
-            _chunkData.AsSpan(0, _chunkCount).CopyTo(new Span<GpuChunk>((byte*)frame.Chunks.Mapped + ChunkHeaderBytes, _chunkCount));
-        }
+        _frameBakes.Relight.WriteTo(frame.Chunks, _frameBakes.MaskSlots.SpaceSlots);
 
         return cameraCount;
     }
@@ -3082,7 +2065,7 @@ public sealed unsafe class Renderer : IDisposable
         // One top-level structure a frame, shared by the trace debug view and the traced probe updates, made only on
         // a frame that traces something.
         TopLevelStructure? traced = null;
-        if (_traceView || (_probeTracePass is not null && _probeBatch.Count > 0))
+        if (_traceView || LightProbes.TracesBatch)
         {
             // After the uploads, so a mesh made this frame is traced this frame. From here until the submit below,
             // nothing may destroy or change a material: see RayTracing.TopLevel.
@@ -3222,7 +2205,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private int SelectCameraDraws(in DetailView camera, ReadOnlySpan<DrawItem> draws)
     {
-        if (!_relightChunks)
+        if (!_frameBakes.Relight.Active)
         {
             return DrawSelection.Select(camera, draws, _meshStore.DetailSlots, _cameraDraws, _windReach, fades: _fadeRules);
         }
@@ -3236,7 +2219,7 @@ public sealed unsafe class Renderer : IDisposable
         int cameraCount = DrawSelection.Select(camera, draws, _meshStore.DetailSlots, _cameraDraws, _windReach, _cameraSources, _fadeRules);
         for (int i = 0; i < cameraCount; i++)
         {
-            _cameraChunks[i] = _drawChunks[_cameraSources[i]];
+            _cameraChunks[i] = _frameBakes.Relight.DrawChunks[_cameraSources[i]];
         }
 
         return cameraCount;
@@ -3459,11 +2442,8 @@ public sealed unsafe class Renderer : IDisposable
     private void DisposeProbesAndSky()
     {
         _probes.Dispose();
-        _lightProbes.Dispose();
+        LightProbes.Dispose();
         _volumetricFog.Dispose();
-        _probeUpdatePass.Dispose();
-        _probeTracePass?.Dispose();
-        _probeSun?.Dispose();
         _reflectionCapture.Dispose();
         _skySh.Dispose();
         _environment.Dispose();
@@ -3800,7 +2780,7 @@ public sealed unsafe class Renderer : IDisposable
     private void RecordLightSetup(CommandBuffer cmd, DescriptorSet frameSet, in FrameDraws draws, InstanceBuffer instances)
     {
         // After the lights' tiles, which the probes' captures read for point and spot light shadows.
-        RecordProbeUpdate(cmd, frameSet, draws.Scene, instances, draws.Traced);
+        LightProbes.Record(cmd, frameSet, draws.Scene, instances, draws.Traced);
         _gpuTimer.Mark(cmd);
 
         // After the light probes, whose light the capture's surfaces take.
@@ -3865,15 +2845,15 @@ public sealed unsafe class Renderer : IDisposable
         CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, InstanceBuffer instances)
     {
         // A chunk's bake is relit by the frame's sky and suns: its sky is projected first, for writeBaked.
-        if (_relightChunks)
+        if (_frameBakes.Relight.Active)
         {
             _skySh.Record(cmd);
             instances.Chunks = _cameraChunks;
-            instances.ChunkLightmaps = _chunkLightmaps;
+            instances.ChunkLightmaps = _frameBakes.Relight.Lightmaps;
         }
 
         instances.History = _motion;
-        instances.Lightmaps = _activeLightmaps;
+        instances.Lightmaps = _frameBakes.SpaceLightmaps;
         bool late = _decalPass.Count > 0 && SceneDraws.AnyIn(draws, _resources, ScenePass.OpaqueAfterDecals);
         _gBufferPass.Record(cmd, targets, frameSet, draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances, DepthFirstView,
             late ? ScenePass.OpaqueTakingDecals : ScenePass.Opaque);
@@ -3959,10 +2939,10 @@ public sealed unsafe class Renderer : IDisposable
             _particlePass, _ring.Index, _particleCount, _particleCamera, _windReach);
 
         // With the probes off there are no spheres, and no atlases to read.
-        if (_probeView && _lightProbesInUse)
+        if (_probeView && LightProbes.InUse)
         {
-            uint spheres = (uint)_probeCascades.Layout(0).Total;
-            if (_probeGrid is { } grid)
+            uint spheres = (uint)LightProbes.Batch.Cascades.Layout(0).Total;
+            if (LightProbes.Batch.Grid is { } grid)
             {
                 var (x, y, z) = ProbeGrid.Counts(grid);
                 spheres += (uint)(x * y * z);
@@ -4269,7 +3249,7 @@ public sealed unsafe class Renderer : IDisposable
         // Probe updates and reflection probe captures light their faces with every point and spot light of the frame,
         // and see the sun's shadow through maps of their own, each zero when there is none this frame.
         uniforms->ProbeLightCount = _localLights.ProbeLightCount;
-        uniforms->ProbeSunMatrix = _probeSun is not null ? _probeSun.Matrix : default;
+        uniforms->ProbeSunMatrix = LightProbes.SunMatrix;
         uniforms->ReflectionSunMatrix = _reflectionCaptureSlot >= 0 ? _reflectionCapture.SunMatrix : default;
         return castsShadow;
     }
@@ -4310,7 +3290,8 @@ public sealed unsafe class Renderer : IDisposable
     private void WriteLightProbes(FrameUniforms* uniforms, in FrameView view)
     {
         // The fixed grid, read wherever it has a probe updated.
-        if (_lightProbesInUse && view.LightProbes is { } lightProbes)
+        bool inUse = LightProbes.InUse;
+        if (inUse && view.LightProbes is { } lightProbes)
         {
             var (x, y, z) = ProbeGrid.Counts(lightProbes);
             uniforms->LightProbeMin = new Vector4(lightProbes.Min, lightProbes.Spacing);
@@ -4323,14 +3304,15 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         // The cascades, read once any of their probes holds an update.
+        var cascades = LightProbes.Batch.Cascades;
         for (int c = 0; c < ProbeCascades.Count; c++)
         {
-            var origin = _probeCascades.Origin(c);
-            uniforms->ProbeCascadeOrigins[c] = new Vector4(origin.X, origin.Y, origin.Z, _probeCascades.Layout(c).Spacing);
+            var origin = cascades.Origin(c);
+            uniforms->ProbeCascadeOrigins[c] = new Vector4(origin.X, origin.Y, origin.Z, cascades.Layout(c).Spacing);
         }
 
-        bool readCascades = _lightProbesInUse && _lightProbes.CascadesWritten;
-        var cascadeLayout = _probeCascades.Layout(0);
+        bool readCascades = inUse && LightProbes.Volume.CascadesWritten;
+        var cascadeLayout = cascades.Layout(0);
         uniforms->ProbeCascadeCounts = new Vector4(
             cascadeLayout.CountX, cascadeLayout.CountY, cascadeLayout.CountZ, readCascades ? 1f : 0f);
     }
@@ -4342,7 +3324,7 @@ public sealed unsafe class Renderer : IDisposable
         // probe spacing in from the box's faces, or, with BakedProbeBand off for a test, cut off hard at them. The
         // shader's box is the probe grid's Min..Max, which is the space's box: the space's box is in the bake's input
         // hash, so a fresh bake's grid matches it.
-        if (_activeBakedProbes is { } baked)
+        if (_frameBakes.SpaceProbes is { } baked)
         {
             var (x, y, z) = ProbeGrid.Counts(baked.Settings);
             uniforms->BakedProbeMin = new Vector4(baked.Settings.Min, baked.Settings.Spacing);
@@ -4359,7 +3341,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         // How far the space's bake has faded in, which weighs its lightmaps and probes against the live light.
-        uniforms->BakedFade = new Vector4(_spaceFade, 0f, 0f, 0f);
+        uniforms->BakedFade = new Vector4(_frameBakes.SpaceFade, 0f, 0f, 0f);
     }
 
     /// <summary>The camera's place, the environment's light, the sky's sun and night, and the shadows' settings.</summary>
@@ -4436,7 +3418,7 @@ public sealed unsafe class Renderer : IDisposable
             uniforms->Lights[i] = new GpuLight
             {
                 Direction = new Vector4(direction, casts ? 1f : 0f),
-                Radiance = new Vector4(light.Radiance, i == _maskSlots.Sun ? 0f : -1f),
+                Radiance = new Vector4(light.Radiance, i == _frameBakes.MaskSlots.Sun ? 0f : -1f),
             };
         }
 
@@ -4561,7 +3543,7 @@ public sealed unsafe class Renderer : IDisposable
             new Span<GpuLocalLight>(frame.Lights.Mapped, LocalLight.MaxPerFrame),
             new Span<GpuShadowTile>(frame.ShadowTiles.Mapped, LocalLights.MaxTiles),
             shadows: !_off.HasFlag(RenderEffects.LightShadows),
-            maskChannels: _maskSlots.Channels,
+            maskChannels: _frameBakes.MaskSlots.Channels,
             cover: _probes.Order.Count > 0 ? (_probes.Order.NearDepth, _probes.Order.FarDepth) : null);
         _tileCount = _localLights.TileCount;
         _clustersNeeded = _localLights.LightCount > 0 || _probes.Order.Count > 0;
@@ -4766,7 +3748,7 @@ public sealed unsafe class Renderer : IDisposable
         frame.Clusters = new GpuBuffer(
             _context, LocalLights.ClusterBytes, BufferUsageFlags.StorageBufferBit, MemoryPropertyFlags.DeviceLocalBit);
         frame.Chunks = GpuBuffer.CreateHostVisible(
-            _context, (ulong)(ChunkHeaderBytes + BakeFiles.MaxChunks * sizeof(GpuChunk)), BufferUsageFlags.StorageBufferBit);
+            _context, (ulong)(ChunkRelight.HeaderBytes + BakeFiles.MaxChunks * sizeof(GpuChunk)), BufferUsageFlags.StorageBufferBit);
         frame.ReflectionProbes = GpuBuffer.CreateHostVisible(
             _context, (ulong)(ReflectionProbeOrder.MaxProbes * sizeof(GpuReflectionProbe)), BufferUsageFlags.StorageBufferBit);
     }
@@ -4947,8 +3929,8 @@ public sealed unsafe class Renderer : IDisposable
             new(_kit.NearestSampler, _gBuffer.AoBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_kit.LinearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _probes.Cubes.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, _lightProbes.IrradianceView, ImageLayout.General),
-            new(_kit.LinearSampler, _lightProbes.DepthView, ImageLayout.General),
+            new(_kit.LinearSampler, LightProbes.Volume.IrradianceView, ImageLayout.General),
+            new(_kit.LinearSampler, LightProbes.Volume.DepthView, ImageLayout.General),
             new(_kit.NearestSampler, _gBuffer.Baked.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_kit.NearestSampler, _gBuffer.Mask.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_kit.NearestSampler, _gBuffer.Traced.View, ImageLayout.ShaderReadOnlyOptimal),
@@ -4956,8 +3938,8 @@ public sealed unsafe class Renderer : IDisposable
             new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         _reflectionCapture.WriteSet(
-            new(_kit.LinearSampler, _lightProbes.IrradianceView, ImageLayout.General),
-            new(_kit.LinearSampler, _lightProbes.DepthView, ImageLayout.General),
+            new(_kit.LinearSampler, LightProbes.Volume.IrradianceView, ImageLayout.General),
+            new(_kit.LinearSampler, LightProbes.Volume.DepthView, ImageLayout.General),
             new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
             _kit.ShadowSampler);
         WriteImages(_reflectionSet,
@@ -5020,8 +4002,8 @@ public sealed unsafe class Renderer : IDisposable
         _volumetricFog.SetSources(
             new(_kit.ShadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, _lightProbes.IrradianceView, ImageLayout.General),
-            new(_kit.LinearSampler, _lightProbes.DepthView, ImageLayout.General));
+            new(_kit.LinearSampler, LightProbes.Volume.IrradianceView, ImageLayout.General),
+            new(_kit.LinearSampler, LightProbes.Volume.DepthView, ImageLayout.General));
         foreach (ref var frame in _frames.AsSpan())
         {
             WriteVolumetricDescriptor(frame);

@@ -61,7 +61,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
 
         // Facing down, each reads the floor under it. The spot's 30° cone reaches 0.9 m from the origin on the floor,
         // so (0, 0, -1.5), 45° off its axis, is outside it; a point light would light it a third as brightly.
-        var samples = probes.Gpu.Renderer.SampleProbeIrradiance(
+        var samples = probes.Gpu.Renderer.ProbeTests.SampleIrradiance(
         [
             (new Vector3(0f, 0.3f, 0f), -Vector3.UnitY),
             (new Vector3(0f, 0.3f, -1.5f), -Vector3.UnitY),
@@ -101,7 +101,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         var scene = probes.Scene(ProbeScenes.ClosedBox);
         Settle(probes.Gpu, scene);
 
-        var samples = probes.Gpu.Renderer.SampleProbeIrradiance(
+        var samples = probes.Gpu.Renderer.ProbeTests.SampleIrradiance(
         [
             (new Vector3(0.2f, 0.2f, 0.2f), Vector3.UnitY),
             (new Vector3(3f, 0.5f, 0f), Vector3.UnitX),
@@ -129,7 +129,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         Settle(probes.Gpu, scene);
 
         var expected = new Vector3(0.32f, 0.48f, 0.8f);
-        var samples = probes.Gpu.Renderer.SampleProbeIrradiance(
+        var samples = probes.Gpu.Renderer.ProbeTests.SampleIrradiance(
         [
             (new Vector3(0.2f, 0.2f, 0.2f), Vector3.UnitY),
             (new Vector3(0.2f, 0.2f, 0.2f), -Vector3.UnitY),
@@ -163,7 +163,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         float spacing = ProbeCascades.Layouts(ProbeQuality.High)[2].Spacing;
         Assert.True(spacing > 1.1f, $"Cascade 2's probes are {spacing} m apart, inside the box.");
 
-        var inside = gpu.Renderer.SampleProbeIrradiance([(new Vector3(0.2f, 0.2f, 0.2f), Vector3.UnitY)])[0];
+        var inside = gpu.Renderer.ProbeTests.SampleIrradiance([(new Vector3(0.2f, 0.2f, 0.2f), Vector3.UnitY)])[0];
 
         Assert.True(inside == new Vector3(-1f) || inside.X > 1f, $"Inside the solid box the probes read {inside}.");
         Assert.Equal(0, probes.NewValidationErrors);
@@ -192,7 +192,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         {
             if (frame % 50 == 0)
             {
-                readings.Add(gpu.Renderer.SampleProbeIrradiance([(centre, Vector3.UnitY)])[0].X);
+                readings.Add(gpu.Renderer.ProbeTests.SampleIrradiance([(centre, Vector3.UnitY)])[0].X);
             }
 
             Render(gpu, scene, Vector3.Zero);
@@ -218,17 +218,17 @@ public sealed class LiveProbeTests(GpuFixture shared)
 
         // The first capture sees the walls lit only by the lamp; each refresh after it adds another bounce.
         var centre = new Vector3(0.2f, 1.3f, 0.2f);
-        float first = gpu.Renderer.SampleProbeIrradiance([(centre, Vector3.UnitY)])[0].X;
+        float first = gpu.Renderer.ProbeTests.SampleIrradiance([(centre, Vector3.UnitY)])[0].X;
         const int Refreshes = 12;
         for (int round = 0; round < Refreshes; round++)
         {
-            gpu.Renderer.MarkProbesDirtyForTest(new Vector3(0f, 1.5f, 0f), 2.8f);
+            gpu.Renderer.ProbeTests.MarkDirty(new Vector3(0f, 1.5f, 0f), 2.8f);
             Settle(gpu, scene);
         }
 
-        float early = gpu.Renderer.SampleProbeIrradiance([(centre, Vector3.UnitY)])[0].X;
+        float early = gpu.Renderer.ProbeTests.SampleIrradiance([(centre, Vector3.UnitY)])[0].X;
         Bounce(gpu, scene, traced: true);
-        float full = gpu.Renderer.SampleProbeIrradiance([(centre, Vector3.UnitY)])[0].X;
+        float full = gpu.Renderer.ProbeTests.SampleIrradiance([(centre, Vector3.UnitY)])[0].X;
 
         // Moving a quarter of the way each refresh, 12 refreshes gave about 40% of the bounce, and 80% took about 40.
         Assert.True(full > 2f * first, $"The first capture read {first}, the filled-in room {full}.");
@@ -261,9 +261,9 @@ public sealed class LiveProbeTests(GpuFixture shared)
         var readings = new List<float>();
         for (int update = 0; update < 20; update++)
         {
-            gpu.Renderer.MarkProbesDirtyForTest(new Vector3(0f, 1.5f, 0f), 2.8f);
+            gpu.Renderer.ProbeTests.MarkDirty(new Vector3(0f, 1.5f, 0f), 2.8f);
             Settle(gpu, scene);
-            readings.Add(Luminance(gpu.Renderer.SampleProbeIrradiance([(probe, Vector3.UnitY)])[0]));
+            readings.Add(Luminance(gpu.Renderer.ProbeTests.SampleIrradiance([(probe, Vector3.UnitY)])[0]));
         }
 
         Assert.Equal(0, probes.NewValidationErrors);
@@ -366,10 +366,10 @@ public sealed class LiveProbeTests(GpuFixture shared)
         var scene = ProbeScenes.RedWall(gpu, lightIsSpot: false);
         Settle(gpu, scene);
         var point = new Vector3(0.7f, 0.3f, 0f);
-        var before = gpu.Renderer.SampleProbeIrradiance([(point, Vector3.UnitX)])[0];
+        var before = gpu.Renderer.ProbeTests.SampleIrradiance([(point, Vector3.UnitX)])[0];
 
         Render(gpu, scene, new Vector3(0f, 0f, 1f));
-        var after = gpu.Renderer.SampleProbeIrradiance([(point, Vector3.UnitX)])[0];
+        var after = gpu.Renderer.ProbeTests.SampleIrradiance([(point, Vector3.UnitX)])[0];
 
         Assert.True(before.X > 0.01f, $"Before the move the probes read {before}.");
         Assert.True(Vector3.Distance(before, after) <= 0.01f * before.Length(), $"Before the move {before}, after it {after}.");
@@ -384,7 +384,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
 
         Render(gpu, scene, Vector3.Zero);
 
-        Assert.InRange(gpu.Renderer.ProbeUpdatesLastFrame, 1, ProbeBudget.For(ProbeQuality.High).Raster);
+        Assert.InRange(gpu.Renderer.LightProbes.UpdatesLastFrame, 1, ProbeBudget.For(ProbeQuality.High).Raster);
         Assert.False(gpu.Renderer.ProbesSettled);
         Assert.Equal(0, gpu.ValidationErrors);
     }
@@ -397,14 +397,14 @@ public sealed class LiveProbeTests(GpuFixture shared)
 
         // One triangle is less than any probe sees here, so only the first probe of each batch is drawn; the rest
         // stay uncaptured for a later frame rather than being marked as done.
-        gpu.Renderer.ProbeTrianglesPerFrame = 1;
+        gpu.Renderer.LightProbes.TrianglesPerFrame = 1;
         Render(gpu, scene, Vector3.Zero);
-        int capped = gpu.Renderer.ProbeUpdatesLastFrame;
-        gpu.Renderer.ProbeTrianglesPerFrame = Rendition.Passes.ProbeCapturePass.MaxTrianglesPerFrame;
+        int capped = gpu.Renderer.LightProbes.UpdatesLastFrame;
+        gpu.Renderer.LightProbes.TrianglesPerFrame = Rendition.Passes.ProbeCapturePass.MaxTrianglesPerFrame;
         Render(gpu, scene, Vector3.Zero);
 
         Assert.Equal(1, capped);
-        Assert.Equal(ProbeBudget.For(ProbeQuality.High).Raster, gpu.Renderer.ProbeUpdatesLastFrame);
+        Assert.Equal(ProbeBudget.For(ProbeQuality.High).Raster, gpu.Renderer.LightProbes.UpdatesLastFrame);
         Assert.Equal(0, gpu.ValidationErrors);
     }
 
@@ -414,14 +414,14 @@ public sealed class LiveProbeTests(GpuFixture shared)
         using var gpu = new GpuFixture(disableRayTracing: true);
         var scene = ProbeScenes.RedWall(gpu, lightIsSpot: false);
         Settle(gpu, scene);
-        var before = gpu.Renderer.SampleProbeIrradiance([(new Vector3(0.7f, 0.3f, 0f), Vector3.UnitX)])[0];
+        var before = gpu.Renderer.ProbeTests.SampleIrradiance([(new Vector3(0.7f, 0.3f, 0f), Vector3.UnitX)])[0];
 
         // Cascade 0 is 32 probes 0.5 m apart, so 20 m is wider than its box and every one of its slots is new. The probes
         // round x = 16.7 take the slots the probes round x = 0.7 had, with the same weights, so if the slots kept their
         // tiles the red wall's light would read there unchanged. No probe is updated, so only the invalidation can clear them.
-        gpu.Renderer.ProbeUpdatesPaused = true;
+        gpu.Renderer.LightProbes.UpdatesPaused = true;
         Render(gpu, scene, new Vector3(20f, 0f, 0f));
-        var after = gpu.Renderer.SampleProbeIrradiance([(new Vector3(16.7f, 0.3f, 0f), Vector3.UnitX)])[0];
+        var after = gpu.Renderer.ProbeTests.SampleIrradiance([(new Vector3(16.7f, 0.3f, 0f), Vector3.UnitX)])[0];
 
         Assert.True(before.X > 0.01f && before.X > 2f * before.Y, $"Before the teleport the probes read {before}.");
         Assert.True(Vector3.Distance(before, after) > 0.1f * before.Length(), $"Before the teleport {before}, after it {after}.");
@@ -453,8 +453,8 @@ public sealed class LiveProbeTests(GpuFixture shared)
     public void Scrolling_forgets_the_probes_it_left()
     {
         using var gpu = new GpuFixture(disableRayTracing: true);
-        gpu.Renderer.ClearProbesForTest();
-        gpu.Renderer.ProbeUpdatesPaused = true;
+        gpu.Renderer.ProbeTests.Clear();
+        gpu.Renderer.LightProbes.UpdatesPaused = true;
         Render(gpu, new ProbeScene([], [], Vector3.Zero), Vector3.Zero);
 
         // Cascade 0 is 16 m across, so moving 4 m along x hands the slots of the probes round x = -6.3 to the probes
@@ -463,11 +463,11 @@ public sealed class LiveProbeTests(GpuFixture shared)
 
         // Surfaces read the cascades once a frame starts with one written, so a frame in place comes first.
         Render(gpu, new ProbeScene([], [], Vector3.Zero), Vector3.Zero);
-        var written = gpu.Renderer.SampleProbeIrradiance([(new Vector3(-6.3f, 0.3f, 0.2f), Vector3.UnitY)])[0];
+        var written = gpu.Renderer.ProbeTests.SampleIrradiance([(new Vector3(-6.3f, 0.3f, 0.2f), Vector3.UnitY)])[0];
         Assert.True(Vector3.Distance(written, new Vector3(0f, 1f, 0f)) < 1e-3f, $"The written probes read {written}.");
 
         Render(gpu, new ProbeScene([], [], Vector3.Zero), new Vector3(4f, 0f, 0f));
-        var moved = gpu.Renderer.SampleProbeIrradiance([(new Vector3(9.7f, 0.3f, 0.2f), Vector3.UnitY)])[0];
+        var moved = gpu.Renderer.ProbeTests.SampleIrradiance([(new Vector3(9.7f, 0.3f, 0.2f), Vector3.UnitY)])[0];
 
         Assert.True(moved.Y < 0.5f, $"The probes round x = 9.7 read {moved}.");
         Assert.Equal(0, gpu.ValidationErrors);
@@ -490,7 +490,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         Settle(gpu, scene);
 
         var point = new Vector3(0.7f, 0.3f, 1.5f);
-        var before = gpu.Renderer.SampleProbeIrradiance([(point, Vector3.UnitX)])[0];
+        var before = gpu.Renderer.ProbeTests.SampleIrradiance([(point, Vector3.UnitX)])[0];
         var start = scene.Lights[0].Position;
 
         // The light slides 2 m towards +z, nearer the point, over 100 frames. Half way through the 400 frames the
@@ -509,16 +509,16 @@ public sealed class LiveProbeTests(GpuFixture shared)
 
             if (frame == LowFrom)
             {
-                beforeLow = gpu.Renderer.SampleProbeIrradiance([(point, Vector3.UnitX)])[0];
+                beforeLow = gpu.Renderer.ProbeTests.SampleIrradiance([(point, Vector3.UnitX)])[0];
                 gpu.Renderer.ProbeQuality = ProbeQuality.Low;
             }
 
             Render(gpu, scene, Vector3.Zero);
             var quality = frame >= LowFrom ? ProbeQuality.Low : ProbeQuality.High;
-            budgets.Add((frame, gpu.Renderer.ProbeUpdatesLastFrame, Budget(quality, traced)));
+            budgets.Add((frame, gpu.Renderer.LightProbes.UpdatesLastFrame, Budget(quality, traced)));
         }
 
-        var after = gpu.Renderer.SampleProbeIrradiance([(point, Vector3.UnitX)])[0];
+        var after = gpu.Renderer.ProbeTests.SampleIrradiance([(point, Vector3.UnitX)])[0];
 
         Assert.All(budgets, entry => Assert.True(
             entry.Updated <= entry.Budget, $"Frame {entry.Frame} updated {entry.Updated} probes, over its budget of {entry.Budget}."));
@@ -577,7 +577,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         // From 3 m back the probe at (0.5, 0.5, 0) has only black sky behind it, so without a sphere the pixel is black.
         // The point 5 cm to its +x is on its sphere, 7.5 cm in radius, where the surface faces the red wall at x = 1.1.
         // No probe is updated, so the sphere shows what settled.
-        gpu.Renderer.ProbeUpdatesPaused = true;
+        gpu.Renderer.LightProbes.UpdatesPaused = true;
         byte[] pixels = Capture(gpu, scene, DebugView.Probes, RenderEffects.AntiAliasing);
         var (r, g, b) = PixelAt(pixels, new Vector3(0.55f, 0.5f, 0f));
 
@@ -596,7 +596,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         var (r, g, b) = PixelAt(pixels, new Vector3(0.55f, 0.5f, 0f));
 
         Assert.Equal((0, 0, 0), (r, g, b));
-        Assert.False(gpu.Renderer.ProbeStorageAllocated);
+        Assert.False(gpu.Renderer.LightProbes.Volume.Allocated);
         Assert.Equal(0, gpu.ValidationErrors);
     }
 
@@ -644,7 +644,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         }
 
         Assert.True(shared.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
-        shared.Renderer.ResetProbesForTest();
+        shared.Renderer.ProbeTests.Reset();
         return new ProbeRenderer(shared, owned: false);
     }
 
@@ -655,7 +655,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         using var probes = Open(traced);
         var scene = probes.Scene(make);
         int mostUpdated = Settle(probes.Gpu, scene);
-        var sample = probes.Gpu.Renderer.SampleProbeIrradiance([(point, normal)])[0];
+        var sample = probes.Gpu.Renderer.ProbeTests.SampleIrradiance([(point, normal)])[0];
         Assert.Equal(0, probes.NewValidationErrors);
         return (sample, mostUpdated);
     }
@@ -669,7 +669,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         var scene = probes.Scene(ProbeScenes.WhiteRoom);
         Settle(gpu, scene);
         Bounce(gpu, scene, traced);
-        var samples = gpu.Renderer.SampleProbeIrradiance(points);
+        var samples = gpu.Renderer.ProbeTests.SampleIrradiance(points);
         Assert.Equal(0, probes.NewValidationErrors);
         return samples;
     }
@@ -683,7 +683,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         int rounds = traced ? 80 : 35;
         for (int round = 0; round < rounds; round++)
         {
-            gpu.Renderer.MarkProbesDirtyForTest(new Vector3(0f, 1.5f, 0f), 2.8f);
+            gpu.Renderer.ProbeTests.MarkDirty(new Vector3(0f, 1.5f, 0f), 2.8f);
             Settle(gpu, scene);
         }
     }
@@ -695,7 +695,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         for (int frame = 0; frame < MaxFrames; frame++)
         {
             Render(gpu, scene, Vector3.Zero);
-            mostUpdated = Math.Max(mostUpdated, gpu.Renderer.ProbeUpdatesLastFrame);
+            mostUpdated = Math.Max(mostUpdated, gpu.Renderer.LightProbes.UpdatesLastFrame);
             if (gpu.Renderer.ProbesSettled)
             {
                 return mostUpdated;
@@ -779,7 +779,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
     // Writes the eight cascade-0 probes round a point, as the lookup finds them for a normal facing up.
     private static void WriteAround(GpuFixture gpu, Vector3 point, Vector3 irradiance)
     {
-        var cascades = gpu.Renderer.LightProbeCascades;
+        var cascades = gpu.Renderer.LightProbes.Batch.Cascades;
         float spacing = ProbeCascades.Layouts(ProbeQuality.High)[0].Spacing;
         var biased = point + new Vector3(0f, 0.2f * spacing, 0f);
         var cell = new Int3(
@@ -787,7 +787,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
         for (int corner = 0; corner < 8; corner++)
         {
             var at = new Int3(cell.X + (corner & 1), cell.Y + ((corner >> 1) & 1), cell.Z + ((corner >> 2) & 1));
-            gpu.Renderer.WriteProbeTileForTest(new ProbeId(0, cascades.Slot(0, at)), irradiance);
+            gpu.Renderer.ProbeTests.WriteTile(new ProbeId(0, cascades.Slot(0, at)), irradiance);
         }
     }
 
@@ -843,8 +843,8 @@ public sealed class LiveProbeTests(GpuFixture shared)
             }
 
             renderer.ProbeQuality = ProbeQuality.High;
-            renderer.ProbeUpdatesPaused = false;
-            renderer.ResetProbesForTest();
+            renderer.LightProbes.UpdatesPaused = false;
+            renderer.ProbeTests.Reset();
         }
     }
 }

@@ -20,8 +20,8 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
     public void A_written_tile_reads_back_through_the_lookup()
     {
         int errors = gpu.ValidationErrors;
-        gpu.Renderer.ClearProbesForTest();
-        gpu.Renderer.ProbeUpdatesPaused = true;
+        gpu.Renderer.ProbeTests.Clear();
+        gpu.Renderer.LightProbes.UpdatesPaused = true;
         try
         {
             Render();
@@ -36,8 +36,8 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.ProbeUpdatesPaused = false;
-            gpu.Renderer.ClearProbesForTest();
+            gpu.Renderer.LightProbes.UpdatesPaused = false;
+            gpu.Renderer.ProbeTests.Clear();
         }
     }
 
@@ -45,12 +45,12 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
     public void A_point_whose_fine_probes_are_uncaptured_falls_back_to_the_coarser_cascade()
     {
         int errors = gpu.ValidationErrors;
-        gpu.Renderer.ClearProbesForTest();
-        gpu.Renderer.ProbeUpdatesPaused = true;
+        gpu.Renderer.ProbeTests.Clear();
+        gpu.Renderer.LightProbes.UpdatesPaused = true;
         try
         {
             Render();
-            Assert.Equal(0, gpu.Renderer.LightProbeCascades.Finest(Point));
+            Assert.Equal(0, gpu.Renderer.LightProbes.Batch.Cascades.Finest(Point));
             WriteAround(cascade: 1, Point, new Vector3(1f, 0f, 0f));
             Render();
 
@@ -61,8 +61,8 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.ProbeUpdatesPaused = false;
-            gpu.Renderer.ClearProbesForTest();
+            gpu.Renderer.LightProbes.UpdatesPaused = false;
+            gpu.Renderer.ProbeTests.Clear();
         }
     }
 
@@ -70,14 +70,14 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
     public void A_point_with_no_captured_probes_reads_as_no_probe()
     {
         int errors = gpu.ValidationErrors;
-        gpu.Renderer.ClearProbesForTest();
-        gpu.Renderer.ProbeUpdatesPaused = true;
+        gpu.Renderer.ProbeTests.Clear();
+        gpu.Renderer.LightProbes.UpdatesPaused = true;
         try
         {
             // One probe 6 m away is captured, so the frame does look in the cascades, but none round the point is.
             Render();
             var far = Cell(0, new Vector3(6f, 0f, 0f));
-            gpu.Renderer.WriteProbeTileForTest(new ProbeId(0, gpu.Renderer.LightProbeCascades.Slot(0, far)), new Vector3(1f));
+            gpu.Renderer.ProbeTests.WriteTile(new ProbeId(0, gpu.Renderer.LightProbes.Batch.Cascades.Slot(0, far)), new Vector3(1f));
             Render();
 
             var sample = Sample(Point);
@@ -88,8 +88,8 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.ProbeUpdatesPaused = false;
-            gpu.Renderer.ClearProbesForTest();
+            gpu.Renderer.LightProbes.UpdatesPaused = false;
+            gpu.Renderer.ProbeTests.Clear();
         }
     }
 
@@ -97,8 +97,8 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
     public void The_fixed_grid_wins_inside_its_box()
     {
         int errors = gpu.ValidationErrors;
-        gpu.Renderer.ClearProbesForTest();
-        gpu.Renderer.ProbeUpdatesPaused = true;
+        gpu.Renderer.ProbeTests.Clear();
+        gpu.Renderer.LightProbes.UpdatesPaused = true;
 
         // 5 by 5 by 5 probes a metre apart, from -2 to 2.
         var box = new ProbeVolumeSettings(new Vector3(-2f), new Vector3(2f), 1f);
@@ -116,7 +116,7 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
                 int x = 2 + (corner & 1);
                 int y = 2 + ((corner >> 1) & 1);
                 int z = 2 + ((corner >> 2) & 1);
-                gpu.Renderer.WriteProbeTileForTest(new ProbeId(ProbeScheduler.FixedGrid, x + 5 * (y + 5 * z)), green);
+                gpu.Renderer.ProbeTests.WriteTile(new ProbeId(ProbeScheduler.FixedGrid, x + 5 * (y + 5 * z)), green);
             }
 
             var red = new Vector3(1f, 0f, 0f);
@@ -124,7 +124,7 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
             WriteAround(cascade: 0, outside, red);
             Render(box);
 
-            var samples = gpu.Renderer.SampleProbeIrradiance([(Point, Vector3.UnitY), (outside, Vector3.UnitY)]);
+            var samples = gpu.Renderer.ProbeTests.SampleIrradiance([(Point, Vector3.UnitY), (outside, Vector3.UnitY)]);
 
             AssertNear(green, samples[0]);
             AssertNear(red, samples[1]);
@@ -132,8 +132,8 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.ProbeUpdatesPaused = false;
-            gpu.Renderer.ClearProbesForTest();
+            gpu.Renderer.LightProbes.UpdatesPaused = false;
+            gpu.Renderer.ProbeTests.Clear();
         }
     }
 
@@ -152,18 +152,18 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
         gpu.Renderer.Render(view, []);
     }
 
-    private Vector3 Sample(Vector3 point) => gpu.Renderer.SampleProbeIrradiance([(point, Vector3.UnitY)])[0];
+    private Vector3 Sample(Vector3 point) => gpu.Renderer.ProbeTests.SampleIrradiance([(point, Vector3.UnitY)])[0];
 
     // The lookup first moves a point 0.2 spacings along its normal, here up, so its eight probes are round that.
     private void WriteAround(int cascade, Vector3 point, Vector3 irradiance)
     {
-        var cascades = gpu.Renderer.LightProbeCascades;
+        var cascades = gpu.Renderer.LightProbes.Batch.Cascades;
         float spacing = ProbeCascades.Layouts(ProbeQuality.High)[cascade].Spacing;
         var cell = Cell(cascade, point + new Vector3(0f, 0.2f * spacing, 0f));
         for (int corner = 0; corner < 8; corner++)
         {
             var at = new Int3(cell.X + (corner & 1), cell.Y + ((corner >> 1) & 1), cell.Z + ((corner >> 2) & 1));
-            gpu.Renderer.WriteProbeTileForTest(new ProbeId(cascade, cascades.Slot(cascade, at)), irradiance);
+            gpu.Renderer.ProbeTests.WriteTile(new ProbeId(cascade, cascades.Slot(cascade, at)), irradiance);
         }
     }
 
