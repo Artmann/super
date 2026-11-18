@@ -5,7 +5,7 @@ namespace Super.Ui;
 /// does, and holds what must last: state and layout. Bringing a node up to date with a
 /// new view is the reconciler, as in React.
 /// </summary>
-internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
+internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view) : IUiReconciled
 {
     private readonly UiSizeMemo _sizes = new();
 
@@ -18,6 +18,8 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
     public UiNode? Parent { get; } = parent;
 
     public UiView View { get; private set; } = view;
+
+    UiView IUiReconciled.ShownView => View;
 
     public TextStyle Style { get; private set; }
 
@@ -54,13 +56,14 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
 
         if (view is PrimitiveView primitive)
         {
-            Children = UiChildren.Reconcile(this, primitive.Children, primitive.Inherit(style));
+            Children = UiChildren.Reconcile(this, Children, primitive.Children, primitive.Inherit(style), static (parent, child) => new UiNode(parent.Tree, parent, child));
         }
         else
         {
             // A component's one child is what its Body describes, run with its hooks.
             _hooks ??= new UiBodyHooks(MarkDirty);
-            Children = UiChildren.Reconcile(this, [_hooks.Run(view, static component => component.Body)], style);
+            var body = _hooks.Run(view, static component => component.Body);
+            Children = UiChildren.Reconcile(this, Children, [body], style, static (parent, child) => new UiNode(parent.Tree, parent, child));
         }
 
         return true;
