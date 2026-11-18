@@ -134,7 +134,7 @@ internal sealed unsafe class MaterialImporter
             var (color, surface) = OpacityInColor(graph.Pixels);
             return (
                 textures.AddPixels(graph.Key + "#color-opacity", size, size, TextureKind.Color, color,
-                    alphaCutoff: TextureCompression.TextureCutoff(cutoff, _rule.Opacity)),
+                    alphaCutoff: CoverageClaims.TextureCutoff(cutoff, _rule.Opacity)),
                 textures.AddPixels(graph.Key + "#surface-opaque", size, size, TextureKind.Linear, surface));
         }
 
@@ -190,7 +190,7 @@ internal sealed unsafe class MaterialImporter
             Roughness = _rule.Roughness ?? file.Roughness ?? 0.6f,
             AlphaCutoff = alphaCutoff,
         };
-        return WithFileTextures(material, file, TextureCompression.TextureCutoff(alphaCutoff, baseColor.W));
+        return WithFileTextures(material, file, CoverageClaims.TextureCutoff(alphaCutoff, baseColor.W));
     }
 
     /// <summary>
