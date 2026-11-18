@@ -128,6 +128,22 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void Reads_stats_in_a_window_and_with_a_screenshot()
+    {
+        Assert.True(GameArguments.Parse(["--stats"]).Stats);
+        Assert.True(GameArguments.Parse(["--stats", "--screenshot", "day.png"]).Stats);
+        Assert.False(GameArguments.Parse([]).Stats);
+    }
+
+    [Fact]
+    public void Stats_cant_run_with_a_profile()
+    {
+        Assert.Equal(
+            "--stats can't run with --profile, which measures the frames itself and writes what it found to its report.",
+            Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--stats", "--profile", "reef.txt"])).Message);
+    }
+
+    [Fact]
     public void Reads_no_materials_in_a_window_and_with_a_screenshot()
     {
         Assert.True(GameArguments.Parse(["--no-materials"]).NoMaterials);

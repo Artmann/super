@@ -57,6 +57,7 @@ public static class Game
         };
         host.Script = FindScript<TGame>(host, arguments.ScriptName);
         host.Ui.Scale = arguments.UiScale ?? options.UiScale;
+        host.Stats.Shown = arguments.Stats;
 
         // Validation would swamp the timings, so a profile runs without it.
         bool validate = hidden && arguments.ProfilePath is null;

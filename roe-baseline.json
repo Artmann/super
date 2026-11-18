@@ -141,12 +141,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.GameWindow.ListenForInput",
-      "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Materials.BlendNode.Combine",
       "file": "src/Super.Materials/Blend.cs",
       "metric": 11
@@ -282,12 +276,6 @@
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
       "metric": 34
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.GameWindow.ListenForInput",
-      "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 17
     },
     {
       "kind": "high-cognitive-complexity",
@@ -827,7 +815,7 @@
       "kind": "long-method",
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
-      "metric": 150
+      "metric": 151
     },
     {
       "kind": "long-method",
@@ -845,13 +833,7 @@
       "kind": "long-method",
       "name": "Super.GameWindow.GameWindow",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 48
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.GameWindow.ListenForInput",
-      "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 70
+      "metric": 49
     },
     {
       "kind": "long-method",
@@ -1535,7 +1517,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 6155
+      "metric": 6169
     },
     {
       "kind": "large-file",
@@ -1559,13 +1541,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/GameWindow.cs",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 835
+      "metric": 784
     },
     {
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1251
+      "metric": 1255
     },
     {
       "kind": "large-file",
@@ -1709,7 +1691,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 473
+      "metric": 475
     },
     {
       "kind": "large-type",
@@ -1877,7 +1859,7 @@
       "kind": "large-type",
       "name": "Super.GameWindow",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 52
+      "metric": 45
     },
     {
       "kind": "large-type",
@@ -1937,7 +1919,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 117
+      "metric": 119
     },
     {
       "kind": "large-type",
@@ -2070,6 +2052,7 @@
         "Rendition.IBakeStore",
         "Rendition.LastFrame",
         "Rendition.LightBakeFile",
+        "Rendition.LightBakeStore",
         "Rendition.LightmapLayout",
         "Rendition.Material",
         "Rendition.ModelData",
@@ -2154,7 +2137,39 @@
         "Rendition.Vulkan.UploadQueue",
         "Rendition.Vulkan.VolumetricFogVolume",
         "Rendition.WindReach",
+        "Super.ActionDefinition",
+        "Super.AmbienceReader",
+        "Super.AnimationControllerBase",
+        "Super.AnimationPose",
+        "Super.Animator",
+        "Super.AnimatorRunner",
+        "Super.BakeIdentity",
+        "Super.BakeSaver",
+        "Super.Binding",
+        "Super.BoneMask",
+        "Super.Catalog<T>",
+        "Super.ClipEventTable",
         "Super.Color",
+        "Super.Content",
+        "Super.ContentLoader<TLoaded>",
+        "Super.ContentNames",
+        "Super.ContentReader",
+        "Super.ContentSchema",
+        "Super.ContentValidator",
+        "Super.CookedFolder",
+        "Super.CookedTexture",
+        "Super.CursorLook",
+        "Super.DecalRequest",
+        "Super.EventTracker",
+        "Super.GeneratedMesh",
+        "Super.Gpu",
+        "Super.GradientNode",
+        "Super.Graphics",
+        "Super.HeldJoints",
+        "Super.ICatalog",
+        "Super.Input",
+        "Super.Keys",
+        "Super.Limb",
         "Super.Materials.ArrayNode",
         "Super.Materials.BlendNode",
         "Super.Materials.BlurNode",
@@ -2204,7 +2219,64 @@
         "Super.Materials.ToGrayNode",
         "Super.Materials.TransformNode",
         "Super.Materials.WarpNode",
-        "Super.Materials.WhiteNode"
+        "Super.Materials.WhiteNode",
+        "Super.MemorySlots<T>",
+        "Super.ModelDraw",
+        "Super.Motion",
+        "Super.ParticleEffect",
+        "Super.ParticleEmitter",
+        "Super.PoseLayer",
+        "Super.Rig",
+        "Super.SceneRenderer",
+        "Super.Shapes",
+        "Super.SharedMaterials",
+        "Super.Shot",
+        "Super.SkeletonSpace",
+        "Super.Source",
+        "Super.Spline",
+        "Super.StateDefinition",
+        "Super.StatsOverlay",
+        "Super.Surface",
+        "Super.TickEvents",
+        "Super.Transition",
+        "Super.Ui.BoxModifier",
+        "Super.Ui.Button",
+        "Super.Ui.ClickModifier",
+        "Super.Ui.Container",
+        "Super.Ui.DragModifier",
+        "Super.Ui.DropModifier",
+        "Super.Ui.DropModifier<T>",
+        "Super.Ui.FixedSizeModifier",
+        "Super.Ui.FrameModifier",
+        "Super.Ui.GameImage",
+        "Super.Ui.GlyphAtlas",
+        "Super.Ui.Grid",
+        "Super.Ui.HStack",
+        "Super.Ui.IWatchedState",
+        "Super.Ui.IgnoresPointerModifier",
+        "Super.Ui.Image",
+        "Super.Ui.Modifier",
+        "Super.Ui.PaddingModifier",
+        "Super.Ui.PointerModifier",
+        "Super.Ui.Pressable",
+        "Super.Ui.PrimitiveView",
+        "Super.Ui.ShownText",
+        "Super.Ui.Spacer",
+        "Super.Ui.Stack",
+        "Super.Ui.State<T>",
+        "Super.Ui.StyleModifier",
+        "Super.Ui.Text",
+        "Super.Ui.TextStyle",
+        "Super.Ui.TooltipModifier",
+        "Super.Ui.UiExtensions",
+        "Super.Ui.UiNode",
+        "Super.Ui.UiTree",
+        "Super.Ui.UiView",
+        "Super.Ui.VStack",
+        "Super.View",
+        "Super.ViewMemory",
+        "Super.ViewRecording",
+        "Super.WrittenBakes"
       ]
     },
     {
@@ -2232,60 +2304,6 @@
         "Rendition.Vulkan.GpuMemory",
         "Rendition.Vulkan.LivePipeline",
         "Rendition.Vulkan.VulkanContext"
-      ]
-    },
-    {
-      "members": [
-        "Super.ActionDefinition",
-        "Super.AmbienceReader",
-        "Super.AnimationControllerBase",
-        "Super.AnimationPose",
-        "Super.Animator",
-        "Super.AnimatorRunner",
-        "Super.BakeIdentity",
-        "Super.Binding",
-        "Super.BoneMask",
-        "Super.Catalog<T>",
-        "Super.Content",
-        "Super.ContentLoader<TLoaded>",
-        "Super.ContentReader",
-        "Super.ContentSchema",
-        "Super.ContentValidator",
-        "Super.CookedFolder",
-        "Super.EventTracker",
-        "Super.HeldJoints",
-        "Super.ICatalog",
-        "Super.Keys",
-        "Super.Limb",
-        "Super.ModelDraw",
-        "Super.Motion",
-        "Super.PoseLayer",
-        "Super.Rig",
-        "Super.SceneRenderer",
-        "Super.Shapes",
-        "Super.SkeletonSpace",
-        "Super.StateDefinition",
-        "Super.TickEvents",
-        "Super.Ui.Button",
-        "Super.Ui.ClickModifier",
-        "Super.Ui.Container",
-        "Super.Ui.FrameModifier",
-        "Super.Ui.GlyphAtlas",
-        "Super.Ui.Grid",
-        "Super.Ui.IWatchedState",
-        "Super.Ui.Image",
-        "Super.Ui.Modifier",
-        "Super.Ui.PointerModifier",
-        "Super.Ui.Pressable",
-        "Super.Ui.PrimitiveView",
-        "Super.Ui.State<T>",
-        "Super.Ui.Text",
-        "Super.Ui.UiNode",
-        "Super.Ui.UiTree",
-        "Super.Ui.UiView",
-        "Super.View",
-        "Super.ViewMemory",
-        "Super.ViewRecording"
       ]
     },
     {
@@ -2339,22 +2357,10 @@
     },
     {
       "members": [
-        "Super.ParticleEffect",
-        "Super.ParticleEmitter"
-      ]
-    },
-    {
-      "members": [
         "Super.Tween",
         "Super.Tween<T>",
         "Super.TweenGroup<T>",
         "Super.TweenSequence<T>"
-      ]
-    },
-    {
-      "members": [
-        "Super.Ui.Spacer",
-        "Super.Ui.Stack"
       ]
     }
   ]

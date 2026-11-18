@@ -25,6 +25,9 @@ internal sealed unsafe class GameWindow : IDisposable
 
     private bool _takingShot;
 
+    // A profile sets the renderer's measuring itself, so the stats panel leaves it alone.
+    private bool _profiling;
+
     private const int RecordingSettleFrames = 16;
 
     /// <summary>Frames played before measuring, so results don't include .NET still warming up.</summary>
@@ -35,17 +38,7 @@ internal sealed unsafe class GameWindow : IDisposable
     private readonly Glfw _glfw;
     private readonly WindowHandle* _window;
     private readonly SceneRenderer _scene;
-    private readonly float[] _gamepadAxes = new float[Input.GamepadAxisCount];
-    private readonly bool[] _gamepadButtons = new bool[Input.GamepadButtonCount];
-
-    // GLFW keeps only a pointer to each callback, so the delegates live here to stay alive.
-    private GlfwCallbacks.KeyCallback? _onKey;
-    private GlfwCallbacks.MouseButtonCallback? _onMouseButton;
-    private GlfwCallbacks.CursorPosCallback? _onCursorPos;
-    private GlfwCallbacks.CursorEnterCallback? _onCursorEnter;
-    private GlfwCallbacks.ScrollCallback? _onScroll;
-    private GlfwCallbacks.CharCallback? _onChar;
-    private readonly Func<int, bool> _isGamepad;
+    private readonly WindowInput _input;
     private readonly WindowCursor _cursor = new();
 
     /// <summary>Without a window, recordings and profiles wait for the display whatever Graphics.Vsync says, and screenshots don't.</summary>
@@ -58,7 +51,6 @@ internal sealed unsafe class GameWindow : IDisposable
     {
         _hidden = hidden;
         _glfw = Glfw.GetApi();
-        _isGamepad = slot => _glfw.JoystickIsGamepad(slot);
         StartGlfw(_glfw, hidden);
 
         // Windows shrinks a window whose title bar would push it past the screen's height,
@@ -74,6 +66,8 @@ internal sealed unsafe class GameWindow : IDisposable
             _glfw.Terminate();
             throw new InvalidOperationException("Could not create a window.");
         }
+
+        _input = new WindowInput(_glfw, _window);
 
         if (!hidden)
         {
@@ -182,7 +176,7 @@ internal sealed unsafe class GameWindow : IDisposable
         double played = 0;
         if (host.Script is null)
         {
-            ListenForInput(host.Input);
+            _input.Listen(host.Input, host.Stats);
         }
 
         // Only here can a player see a loading screen, and only here may real time decide its length.
@@ -228,7 +222,7 @@ internal sealed unsafe class GameWindow : IDisposable
         _glfw.PollEvents();
         if (host.Script is null)
         {
-            PollGamepad(host.Input);
+            _input.PollGamepad(host.Input);
         }
 
         double now = realTime.Elapsed.TotalSeconds;
@@ -342,6 +336,7 @@ internal sealed unsafe class GameWindow : IDisposable
         // Reflection probes are photographed one a frame and each waits in line once at most, so after a frame for every
         // probe each holds a picture taken in the settled light.
         Settle(host, time, _scene.ReflectionProbeCount);
+        MeasureForStats(host, time);
 
         host.Capture.Screenshot(path);
         Show(host, time);
@@ -487,6 +482,7 @@ internal sealed unsafe class GameWindow : IDisposable
         double step = 1.0 / ProfileFramesPerSecond;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
 
+        _profiling = true;
         _scene.MeasureGpu = true;
         var warmup = new ProfiledFrame[ProfileWarmupFrames];
         var gpu = new Dictionary<string, double>();
@@ -499,6 +495,7 @@ internal sealed unsafe class GameWindow : IDisposable
         MeasureFrames(host, clock, step, measured, gpu);
         var stacks = sampler.Stop(nameof(MeasureFrames));
         _scene.MeasureGpu = false;
+        _profiling = false;
 
         foreach (string pass in gpu.Keys)
         {
@@ -589,6 +586,29 @@ internal sealed unsafe class GameWindow : IDisposable
         }
     }
 
+    /// <summary>
+    /// With the stats panel shown, draws the settled frame over and over until the panel has measured half a second of
+    /// them, so a screenshot shows the figures of frames like its own. Nothing ticks, so the shot is the same.
+    /// </summary>
+    private void MeasureForStats<TGame>(GameHost<TGame> host, float time)
+        where TGame : class, IGame
+    {
+        if (!host.Stats.Shown)
+        {
+            return;
+        }
+
+        host.Stats.Restart();
+        for (int i = 0; i < StatsFrames && !host.Stats.Latest.Render.Measured; i++)
+        {
+            Show(host, time);
+            Draw(host, 1f);
+        }
+    }
+
+    /// <summary>The most frames a screenshot draws for the stats panel to measure.</summary>
+    private const int StatsFrames = 600;
+
     private void Settle<TGame>(GameHost<TGame> host, float time, int frames)
         where TGame : class, IGame
     {
@@ -665,17 +685,43 @@ internal sealed unsafe class GameWindow : IDisposable
     {
         _glfw.GetFramebufferSize(_window, out int width, out int height);
 
+        // The renderer is measured only while the stats panel shows it, as the measuring costs a little. A profile
+        // measures for itself.
+        bool measured = host.Stats.Shown && !_profiling;
+        if (!_profiling)
+        {
+            _scene.MeasureGpu = measured;
+        }
+
         // A minimized window has no pixels to read.
         if (!host.Capture.WantsFrame || width == 0 || height == 0)
         {
             ApplyGraphics(host.Graphics);
             _scene.Render(host.View, host.Content, width, height, time);
-            return;
+        }
+        else
+        {
+            ApplyGraphics(host.Graphics);
+            byte[] pixels = _scene.Capture(host.View, host.Content, width, height, time, out int capturedWidth, out int capturedHeight);
+            host.Capture.Accept(pixels, capturedWidth, capturedHeight);
         }
 
-        ApplyGraphics(host.Graphics);
-        byte[] pixels = _scene.Capture(host.View, host.Content, width, height, time, out int capturedWidth, out int capturedHeight);
-        host.Capture.Accept(pixels, capturedWidth, capturedHeight);
+        if (measured)
+        {
+            AddRenderStats(host.Stats, width, height);
+        }
+    }
+
+    /// <summary>Hands the frame the renderer just drew to the stats panel.</summary>
+    private void AddRenderStats(GameStats stats, int width, int height)
+    {
+        var triangles = _scene.DrawnTriangles;
+        var tiles = _scene.ShadowTiles;
+        var memory = _scene.GpuMemoryBytes;
+        var counts = new RenderStats(
+            0.0, 0.0, null, _scene.DrawCalls, triangles.Camera, triangles.Shadows, tiles.Drawn, tiles.Kept,
+            memory.Used, memory.Reserved, width, height);
+        stats.AddRender(_scene.GpuTimes, _scene.WaitMilliseconds, counts);
     }
 
     /// <summary>Hands the game's graphics settings, as they are now, to the renderer for the next frame.</summary>
@@ -712,103 +758,6 @@ internal sealed unsafe class GameWindow : IDisposable
         return (graphics.Off, hidden ? !takingShot : graphics.Vsync, graphics.ShadowResolution, graphics.ShadowCascades,
             graphics.MeshDetail, graphics.RenderScale, graphics.Upscaler, graphics.ProbeQuality, graphics.ReflectionResolution,
             graphics.OcclusionResolution, graphics.VolumetricFogCellSize, graphics.VolumetricFogSlices, debugView);
-    }
-
-    /// <summary>Feeds the window's events into the game's input. Only the interactive loop does this.</summary>
-    private void ListenForInput(Input input)
-    {
-        _onKey = (_, key, _, action, _) =>
-        {
-            if (action == InputAction.Repeat || !GlfwInput.TryMapKey((int)key, out var mapped))
-            {
-                return;
-            }
-
-            if (action == InputAction.Press)
-            {
-                input.KeyDown(mapped);
-            }
-            else
-            {
-                input.KeyUp(mapped);
-            }
-        };
-        _onMouseButton = (_, button, action, _) =>
-        {
-            if ((int)button >= Input.MouseButtonCount)
-            {
-                return;
-            }
-
-            if (action == InputAction.Press)
-            {
-                input.MouseButtonDown((MouseButton)button);
-            }
-            else if (action == InputAction.Release)
-            {
-                input.MouseButtonUp((MouseButton)button);
-            }
-        };
-        _onCursorPos = (_, x, y) =>
-        {
-            _glfw.GetWindowSize(_window, out int windowWidth, out int windowHeight);
-            _glfw.GetFramebufferSize(_window, out int framebufferWidth, out int framebufferHeight);
-            input.MouseMoved(GlfwInput.ToFramebuffer(x, y, windowWidth, windowHeight, framebufferWidth, framebufferHeight));
-        };
-        _onCursorEnter = (_, entered) =>
-        {
-            if (!entered)
-            {
-                input.MouseLeftWindow();
-            }
-        };
-        _onScroll = (_, _, offsetY) => input.Scrolled((float)offsetY);
-        _onChar = (_, codepoint) =>
-        {
-            foreach (char character in char.ConvertFromUtf32((int)codepoint))
-            {
-                input.TypedCharacter(character);
-            }
-        };
-
-        _glfw.SetKeyCallback(_window, _onKey);
-        _glfw.SetMouseButtonCallback(_window, _onMouseButton);
-        _glfw.SetCursorPosCallback(_window, _onCursorPos);
-        _glfw.SetCursorEnterCallback(_window, _onCursorEnter);
-        _glfw.SetScrollCallback(_window, _onScroll);
-        _glfw.SetCharCallback(_window, _onChar);
-
-        // The cursor may already be over the window, and a first click shouldn't need a move.
-        _glfw.GetCursorPos(_window, out double cursorX, out double cursorY);
-        _glfw.GetWindowSize(_window, out int width, out int height);
-        if (cursorX >= 0 && cursorY >= 0 && cursorX < width && cursorY < height)
-        {
-            _onCursorPos(_window, cursorX, cursorY);
-        }
-    }
-
-    /// <summary>Reads the first gamepad, if one is plugged in, so a tick sees it as it is now.</summary>
-    private void PollGamepad(Input input)
-    {
-        int slot = GlfwInput.FirstGamepad(_isGamepad);
-        if (slot >= 0 && _glfw.GetGamepadState(slot, out GamepadState state))
-        {
-            for (int i = 0; i < Input.GamepadAxisCount; i++)
-            {
-                _gamepadAxes[i] = state.Axes[i];
-            }
-
-            for (int i = 0; i < Input.GamepadButtonCount; i++)
-            {
-                _gamepadButtons[i] = state.Buttons[i] != 0;
-            }
-
-            input.Gamepad(true, _gamepadAxes, _gamepadButtons);
-        }
-        else
-        {
-            input.Gamepad(false, default, default);
-        }
     }
 
     private ulong CreateSurface(nint instance)

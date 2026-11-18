@@ -35,7 +35,7 @@ public class BakeOverlayTests
         Assert.Null(BakeOverlay.Text(null));
         Assert.Null(BakeOverlay.Over(null, null));
         var over = Assert.IsType<ZStack>(BakeOverlay.Over(game, null));
-        Assert.Equal(new UiView?[] { game, null }, over);
+        Assert.Equal(new UiView?[] { game, null, null }, over);
     }
 
     [Fact]
@@ -45,9 +45,9 @@ public class BakeOverlayTests
 
         var over = Assert.IsType<ZStack>(BakeOverlay.Over(game, new BakeProgress("cottage", 0.5f, 0, 1f)));
 
-        Assert.Equal(2, over.Count());
+        Assert.Equal(3, over.Count());
         Assert.Same(game, over.First());
-        Assert.NotNull(over.Last());
+        Assert.NotNull(over.ElementAt(1));
     }
 
     private sealed class Scored : IGame

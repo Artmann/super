@@ -4028,7 +4028,10 @@ that texture in its material, so it gets one of its own and destroys it with the
 
 Device memory is sub-allocated from 64 MB blocks in `GpuMemory`, one set of pools
 per memory type, kept apart for buffers and images and for host-visible memory.
-Anything larger than a block gets its own allocation.
+Anything larger than a block gets its own allocation. `UsedBytes` adds up what every
+block's arena has handed out and the allocations of their own, and `ReservedBytes` counts
+every block whole, for the stats panel's GPU memory. Both walk the pools, which number a
+handful, so they are read once a frame at most.
 
 Where `VulkanContext.CanTrace` is true, every device memory allocation, block or dedicated,
 carries `MemoryAllocateFlagsInfo` with `DeviceAddressBit`, so any buffer made later can have a
@@ -4733,7 +4736,30 @@ after waiting for the old one.
 `GameWindow.PlayFrame` hands `Renderer.BakeProgress` to `GameHost.BakeProgress` before `Draw`, and in play
 (`GameHost.ShowsBakes`) `GameHost.Interface` puts the game's interface in a `ZStack` with `BakeOverlay`'s line. The
 game's view is always the first child, and the line's place is null when nothing bakes, so the root's type never
-changes and the game's interface keeps its state as the line comes and goes.
+changes and the game's interface keeps its state as the line comes and goes. The stats
+panel (`StatsOverlay`, shown while `GameStats.Shown` is on) takes the third place in the same
+`ZStack`, null while hidden, for the same reason.
+
+### The stats panel
+
+While `GameStats.Shown` is on, `GameWindow.Show` turns on `Renderer.MeasureGpu`, unless a
+`--profile` run is measuring, and after each frame hands `GameStats.AddRender` the GPU's pass
+times, the wait for the GPU and the display, and the frame's counts. The pass times arrive a
+frame or two late and are empty on frames the GPU didn't time, so GPU time is averaged over
+the frames that had times and the wait over every rendered frame. `EndFrame` takes the
+averages and the five slowest passes into `FrameStats.Render` twice a second.
+
+Draw calls come from `SceneDraws.Issued`, a static counter that `Recorder.Issue` bumps with
+`Interlocked.Increment` after each `CmdDrawIndexed`, since the scene's draws are recorded on
+several threads. `Renderer.RenderTinted` reads it before and after `RecordCommands` and keeps
+the difference in `DrawCalls`, which is 0 while the renderer isn't measured. Triangles and
+shadow tiles are the counters the renderer already keeps for `--profile`, and GPU memory is
+`GpuMemory.UsedBytes` and `ReservedBytes`.
+
+F3 is handled in `GameWindow`'s key callback and not forwarded to `Input`. A `--stats`
+screenshot calls `GameStats.Restart` after the probes settle and then renders until the first
+update with the renderer measured, up to 600 frames, so the shot's panel shows the scene as
+captured and not the settling frames.
 
 Where the GPU can't trace, `SceneRenderer.SaysWhyNotBaking` is set from source, and after `Render` the first frame
 with a space that isn't fresh, or a chunk that is neither fresh nor pending, logs `Not baking {name}: {reason}` once.

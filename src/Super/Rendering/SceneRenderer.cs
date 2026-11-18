@@ -264,6 +264,10 @@ internal sealed class SceneRenderer : IDisposable
 
     public (int Drawn, int Kept) ShadowTiles => _renderer.ShadowTiles;
 
+    public int DrawCalls => _renderer.DrawCalls;
+
+    public (long Used, long Reserved) GpuMemoryBytes => _renderer.GpuMemoryBytes;
+
     public void Render(View view, Content content, int width, int height, float time)
     {
         Prepare(content, view);

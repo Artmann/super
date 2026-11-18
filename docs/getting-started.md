@@ -239,7 +239,7 @@ container, so it works just like ASP.NET. These are already registered:
 | `Input`, `Actions<T>` | [Input](input.md) for any enum of actions |
 | `States<T>` | [Game states](states.md) for any enum |
 | `GameCapture` | [Screenshots and video from code](command-line.md#capturing-from-code) |
-| `GameStats` | [Frame rate and memory figures](interfaces.md#showing-how-the-game-runs) |
+| `GameStats` | [The F3 stats panel, and frame rate, GPU and memory figures](interfaces.md#showing-how-the-game-runs) |
 
 Everything is wired up at startup, and nothing is looked up while the game runs. Super
 keeps no global state, so several games can run side by side in one process, which is

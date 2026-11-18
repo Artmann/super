@@ -100,6 +100,9 @@ class Console(Input input)
 | `CaptureMouse` | Set to true to hide the cursor and lock it to the window, as a first-person camera needs. While it is on, `MouseDelta` comes from the mouse itself, without the system's pointer acceleration, where the system allows it |
 | `HideCursor` | Set to true to hide the system cursor over the window but leave it free, when the game draws its own pointer in the interface |
 
+F3 belongs to the engine, which uses it to show and hide the
+[stats panel](interfaces.md#showing-how-the-game-runs), so `Input` never reports it.
+
 ## When input is read
 
 Input is a snapshot taken once per tick, so every system in `Update` sees the same thing.
