@@ -74,8 +74,8 @@ public class FoliageTests
     {
         var surface = new Surface();
 
-        Assert.False(surface.Foliage);
-        Assert.Equal(0.6f, surface.Translucency);
+        Assert.Null(surface.Foliage);
+        Assert.Equal(0.6f, new Foliage().Translucency);
         Assert.Equal(0f, surface.Wind);
     }
 
@@ -144,7 +144,7 @@ public class FoliageTests
     [Fact]
     public void A_surfaces_foliage_translucency_and_wind_reach_its_material()
     {
-        var surface = new Surface { Foliage = true, Translucency = 0.3f, Wind = 0.5f, Puddles = true };
+        var surface = new Surface { Foliage = new Foliage(0.3f), Wind = 0.5f, Features = SurfaceFeatures.Puddles };
 
         var material = SurfaceMaterials.MaterialOf(surface);
 
@@ -157,7 +157,7 @@ public class FoliageTests
     [Fact]
     public void A_glass_surface_keeps_its_other_switches_and_stays_see_through()
     {
-        var material = SurfaceMaterials.MaterialOf(new Surface { Opacity = 0.4f, WorldVariation = true });
+        var material = SurfaceMaterials.MaterialOf(new Surface { Opacity = 0.4f, Features = SurfaceFeatures.WorldVariation });
 
         Assert.Equal(MaterialFlags.Transparent | MaterialFlags.WorldVariation, material.Flags);
     }

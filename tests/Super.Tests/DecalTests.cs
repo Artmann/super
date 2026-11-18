@@ -167,7 +167,7 @@ public class DecalTests
     {
         var content = new Content(new MemoryContent());
         var view = new View { Content = content };
-        var shaded = new Surface { Shader = content.Shader("ripples") };
+        var shaded = new Surface { Shader = new SurfaceShader(content.Shader("ripples")) };
 
         var error = Assert.Throws<ArgumentException>(() => view.Decal(1, Matrix4x4.Identity, shaded));
 

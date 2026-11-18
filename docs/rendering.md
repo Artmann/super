@@ -1614,7 +1614,7 @@ view.Puddles(0.2f, band: 0.03f); // higher water and a narrower damp band
 ![The Courtyard puddle before, a flat grey sheet, and after, dark silty water at the level that mirrors the flagstones, the grass and the wall behind it](media/puddles-before-after.webp)
 
 Only materials that ask for it get wet: a model sidecar's rule with `"puddles": true`, or a
-`Surface` with `Puddles = true`. Each pixel's height is where it is in the world, less how
+`Surface` with `Features = SurfaceFeatures.Puddles`. Each pixel's height is where it is in the world, less how
 deep its height map sinks it (the material's `heightDepth` times how far below white the
 height is), so the mortar between flagstones and the hollows in mud fill before the tops.
 A pixel below the level is water. It mirrors the sky and what's on screen with roughness
@@ -1702,7 +1702,7 @@ ending in a line. Give a `Surface` a `FadeDistance`, from where the fade starts 
 nothing is left, in metres from the camera:
 
 ```csharp
-var grass = new Surface { Color = new Vector3(0.4f, 0.6f, 0.2f), Foliage = true, FadeDistance = new DistanceFade(50f, 60f) };
+var grass = new Surface { Color = new Vector3(0.4f, 0.6f, 0.2f), Foliage = new Foliage(), FadeDistance = new DistanceFade(50f, 60f) };
 ```
 
 A draw can have a fade of its own, which wins over its surfaces' fades, so one model can be
@@ -1831,7 +1831,7 @@ Leaves that aren't one rounded shape, such as ivy on a wall or grass across a ya
 the surface the leaves grow on in your modelling tool. As one crown, ivy whose rule also
 covers ivy spilling into the yard would have its wall leaves facing into the wall, and
 lit dark.
-A `Surface` sets the same with `Foliage = true` and `Translucency`, and is drawn from both
+A `Surface` sets the same with `Foliage = new Foliage(Translucency: 0.5f)`, and is drawn from both
 sides too. A Rendition `Material` takes `MaterialFlags.Foliage` and `Translucency`, and needs
 `MaterialFlags.TwoSided` as well to show its back. Both start at a translucency of 0.6. To make the leaves move,
 add a [`wind`](#wind) rule.
@@ -2381,7 +2381,7 @@ ModelRef rock = content.Mesh(mesh);
 
 Meshes with the same surface share one material, so a game can load as many chunks or
 pieces as it likes from one `Surface` without running out of the renderer's 1024 materials.
-Surfaces match by value, `Parameters`, `ShaderTextures` and `ShaderArrays` included, so a
+Surfaces match by value, the shader's `Parameters`, `Textures` and `Arrays` included, so a
 surface built again with the same values shares too. The material keeps the values it was
 made from: changing an array of a surface in place gives the meshes loaded after it a new
 material, and leaves the ones already loaded as they were. The material goes when the last
@@ -2438,16 +2438,17 @@ go as soon as the array is made.
 
 A height map sinks the low parts of a flat surface, such as the mortar between bricks or
 the joints of a street, so they move with the view as deep ones would instead of looking
-painted on. It's a linear texture where white is the top and black is `HeightDepth`
-metres down. Pair it with the normal map of the same height, which shades the grooves.
+painted on. A surface takes it as `Height = new HeightMap(map, depth)`: a linear texture
+where white is the top and black is `depth` metres down. Pair it with the normal map of the
+same height, which shades the grooves.
 
 A detail map adds grain finer than a surface's own textures, such as grit on stone or the
-weave of cloth, without a bigger texture. `DetailColorTexture` is linear and multiplies
-the colour, with mid grey (128) leaving it as it is, so a detail colour around mid grey
-keeps the surface's own colour on average. `DetailNormalTexture` is a normal map laid
-over the surface's own normal. Both repeat `DetailScale` times (8 if left out) for each
-time the surface's textures repeat. With `DetailMask`, the surface texture's blue
-channel says how strongly the detail shows, from none at 0 to full at 1.
+weave of cloth, without a bigger texture. A surface takes it as a `DetailMap` in `Detail`.
+Its `ColorTexture` is linear and multiplies the colour, with mid grey (128) leaving it as it
+is, so a detail colour around mid grey keeps the surface's own colour on average. Its
+`NormalTexture` is a normal map laid over the surface's own normal. Both repeat `Scale`
+times (8 if left out) for each time the surface's textures repeat. With `Mask`, the surface
+texture's blue channel says how strongly the detail shows, from none at 0 to full at 1.
 
 ```csharp
 TextureRef height = content.Texture("textures/bricks-height.png");
@@ -2458,11 +2459,8 @@ ModelRef wall = content.Mesh(Shapes.Box(new Vector3(16f, 3f, 0.4f), new Surface
 {
     ColorTexture = bricks,
     NormalTexture = bricksNormal,
-    HeightTexture = height,
-    HeightDepth = 0.025f,
-    DetailColorTexture = grit,
-    DetailNormalTexture = gritNormal,
-    DetailScale = 6f,
+    Height = new HeightMap(height, 0.025f),
+    Detail = new DetailMap { ColorTexture = grit, NormalTexture = gritNormal, Scale = 6f },
 }, uvPerMetre: 1f / 0.9f));
 ```
 
@@ -2474,7 +2472,7 @@ the main graph's width over the detail graph's. A graph material gets its height
 its graph.
 
 The depth shows up close: it fades out between 15 and 25 metres from the camera, where
-the normal map alone looks the same and costs less. Keep `HeightDepth` to a few
+the normal map alone looks the same and costs less. Keep the height map's depth to a few
 centimetres. Deeper looks stretched at low angles, because the surface's edge and its
 shadows stay flat. Transparent surfaces ignore height and detail maps. The [Bricks
 example](../examples/Bricks) shows a wall and a street; P turns the height maps off and D the detail.
@@ -2495,13 +2493,13 @@ off leaves the map on, as it's part of the material; `Graphics.Materials` off, o
 ModelRef wall = content.Mesh(Shapes.Box(new Vector3(16f, 3f, 0.4f), new Surface
 {
     ColorTexture = bricks,
-    OcclusionTexture = bricksOcclusion,
+    Occlusion = new OcclusionMap(bricksOcclusion),
 }, uvPerMetre: 1f / 0.9f));
 ```
 
 The map is read through the first UV set and moves with a height map like the other
 textures. Many models bake occlusion onto a layout of its own, the second UV set
-(`Vertex.Uv2`, glTF's `TEXCOORD_1`), and `OcclusionOnUv2 = true` reads it there. That set is
+(`Vertex.Uv2`, glTF's `TEXCOORD_1`), and `new OcclusionMap(map, OnUv2: true)` reads it there. That set is
 also the one lighting uses, so it must stay as it is: [`content.Mesh`](#meshes-made-by-code)
 with `isStatic`, and `WithLightmapUvs`, throw rather than replace a `Uv2` that doesn't fit a
 lightmap while the surface reads its occlusion through it:
@@ -2555,7 +2553,7 @@ var snow = new Surface
 {
     Color = new Vector3(0.92f, 0.94f, 1f),
     Toon = new Toon(Steps: 2, Rim: new Vector3(0.25f, 0.3f, 0.4f)),
-    Outline = true,
+    Features = SurfaceFeatures.Outline,
 };
 ModelRef ball = content.Mesh(Shapes.Sphere(0.6f, surface: snow));
 ```
@@ -2656,10 +2654,12 @@ var field = new Heightfield((x, z) => Noise.Hills(x, z) * 30f, spacing: 1f);
 
 var ground = content.Mesh(field.Chunk(chunk.X, chunk.Z, quads: 32, new Surface
 {
-    Shader = content.Shader("terrain"),
-    Parameters = [new Vector4(snowHeight, snowFade, rockSteepness, rockFade)],
-    ShaderTextures = [splat],
-    ShaderArrays = [groundColors, groundNormals],
+    Shader = new SurfaceShader(content.Shader("terrain"))
+    {
+        Parameters = [new Vector4(snowHeight, snowFade, rockSteepness, rockFade)],
+        Textures = [splat],
+        Arrays = [groundColors, groundNormals],
+    },
 }, uvPerMetre: 0.125f));
 ```
 
@@ -2696,11 +2696,11 @@ shader only changes what it cares about. A shader can also read `inUv`, the seco
 writes. It's 1, no occlusion, in a shader that builds its `Surface` by hand, and a shader
 can set its own, from 0 to 1, before `writeSurface`.
 
-| From the `Surface` | In the shader |
+| From the `SurfaceShader` | In the shader |
 | --- | --- |
 | `Parameters`, up to 8 `Vector4` | `materials[draw.material].shaderParameters[i]` |
-| `ShaderTextures`, up to 4 | `shaderTexture(slot, uv)` |
-| `ShaderArrays`, up to 4 | `shaderLayer(slot, uv, layer)`, where a fractional layer blends two |
+| `Textures`, up to 4 | `shaderTexture(slot, uv)` |
+| `Arrays`, up to 4 | `shaderLayer(slot, uv, layer)`, where a fractional layer blends two |
 
 A shader that moves its UVs can still use the material: `materialUv()` is `inUv` moved by
 the material's height map, and `materialSurface(uv)` reads the material at any UV.
@@ -2727,13 +2727,13 @@ package needs nothing more. A game in this repository imports the targets file:
 <Import Project="..\..\src\Shaders.targets" />
 ```
 
-Then name the shader by its file name:
+Then name the shader by its file name, and give the surface a `SurfaceShader` with it and
+what it reads:
 
 ```csharp
 var surface = new Surface
 {
-    Shader = content.Shader("pulse"),
-    Parameters = [new Vector4(1f, 0.4f, 0.1f, 0f)],
+    Shader = new SurfaceShader(content.Shader("pulse")) { Parameters = [new Vector4(1f, 0.4f, 0.1f, 0f)] },
 };
 ```
 

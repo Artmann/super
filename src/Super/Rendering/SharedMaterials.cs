@@ -9,8 +9,8 @@ namespace Super;
 /// meshes from one surface, such as terrain chunks, would otherwise run out of the renderer's materials.
 /// </summary>
 /// <remarks>
-/// Surfaces match by value, their <see cref="Surface.Parameters"/>, <see cref="Surface.ShaderTextures"/> and
-/// <see cref="Surface.ShaderArrays"/> included. A material keeps a copy of the surface it was made from, so a game
+/// Surfaces match by value, their shader's <see cref="SurfaceShader.Parameters"/>, <see cref="SurfaceShader.Textures"/> and
+/// <see cref="SurfaceShader.Arrays"/> included. A material keeps a copy of the surface it was made from, so a game
 /// that changes one of those arrays in place gets a new material for the meshes it adds after, as before sharing.
 /// A mesh that carries its own texture never comes here, since its material names that texture.
 /// </remarks>
@@ -42,9 +42,9 @@ internal sealed class SharedMaterials(Action<MaterialHandle> destroy)
     {
         var copy = surface with
         {
-            Parameters = [.. surface.Parameters],
-            ShaderTextures = [.. surface.ShaderTextures],
-            ShaderArrays = [.. surface.ShaderArrays],
+            Shader = surface.Shader is { } shader
+                ? shader with { Parameters = [.. shader.Parameters], Textures = [.. shader.Textures], Arrays = [.. shader.Arrays] }
+                : null,
         };
         _materials.Add(copy, (handle, 1));
         _surfaces.Add(handle, copy);
@@ -73,25 +73,25 @@ internal sealed class SharedMaterials(Action<MaterialHandle> destroy)
         public bool Equals(Surface? x, Surface? y) =>
             ReferenceEquals(x, y) || (x is not null && y is not null
                 && WithoutArrays(x) == WithoutArrays(y)
-                && x.Parameters.AsSpan().SequenceEqual(y.Parameters)
-                && x.ShaderTextures.AsSpan().SequenceEqual(y.ShaderTextures)
-                && x.ShaderArrays.AsSpan().SequenceEqual(y.ShaderArrays));
+                && (x.Shader?.Parameters ?? []).AsSpan().SequenceEqual(y.Shader?.Parameters ?? [])
+                && (x.Shader?.Textures ?? []).AsSpan().SequenceEqual(y.Shader?.Textures ?? [])
+                && (x.Shader?.Arrays ?? []).AsSpan().SequenceEqual(y.Shader?.Arrays ?? []));
 
         public int GetHashCode(Surface surface)
         {
             var hash = new HashCode();
             hash.Add(WithoutArrays(surface));
-            foreach (var parameter in surface.Parameters)
+            foreach (var parameter in surface.Shader?.Parameters ?? [])
             {
                 hash.Add(parameter);
             }
 
-            foreach (var texture in surface.ShaderTextures)
+            foreach (var texture in surface.Shader?.Textures ?? [])
             {
                 hash.Add(texture);
             }
 
-            foreach (var array in surface.ShaderArrays)
+            foreach (var array in surface.Shader?.Arrays ?? [])
             {
                 hash.Add(array);
             }
@@ -101,6 +101,6 @@ internal sealed class SharedMaterials(Action<MaterialHandle> destroy)
 
         // Empty collection expressions are one shared empty array, so what's left compares as a record does.
         private static Surface WithoutArrays(Surface surface) =>
-            surface with { Parameters = [], ShaderTextures = [], ShaderArrays = [] };
+            surface with { Shader = surface.Shader is { } shader ? shader with { Parameters = [], Textures = [], Arrays = [] } : null };
     }
 }

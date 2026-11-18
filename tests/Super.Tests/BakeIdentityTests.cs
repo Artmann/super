@@ -198,7 +198,7 @@ public class BakeIdentityTests
                 Assert.Equal("glow", name);
                 return spirv;
             };
-            var model = content.Mesh(Mesh(Triangle, new Surface { Shader = content.Shader("glow") }), isStatic: true);
+            var model = content.Mesh(Mesh(Triangle, new Surface { Shader = new SurfaceShader(content.Shader("glow")) }), isStatic: true);
             return IdOf(content, model, InChunk);
         }
 

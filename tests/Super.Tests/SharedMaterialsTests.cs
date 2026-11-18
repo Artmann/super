@@ -6,6 +6,8 @@ namespace Super.Tests;
 /// <summary>Generated meshes with the same surface share one material, and it is destroyed when the last of them goes.</summary>
 public sealed class SharedMaterialsTests
 {
+    private static readonly ShaderRef Glow = new(7);
+
     private readonly List<MaterialHandle> _destroyed = [];
     private int _made;
 
@@ -42,8 +44,8 @@ public sealed class SharedMaterialsTests
     {
         var materials = Materials();
 
-        Upload(materials, new Surface { Parameters = [new Vector4(1f, 2f, 3f, 4f)], ShaderTextures = [new TextureRef(5)] });
-        Upload(materials, new Surface { Parameters = [new Vector4(1f, 2f, 3f, 4f)], ShaderTextures = [new TextureRef(5)] });
+        Upload(materials, new Surface { Shader = new SurfaceShader(Glow) { Parameters = [new Vector4(1f, 2f, 3f, 4f)], Textures = [new TextureRef(5)] } });
+        Upload(materials, new Surface { Shader = new SurfaceShader(Glow) { Parameters = [new Vector4(1f, 2f, 3f, 4f)], Textures = [new TextureRef(5)] } });
 
         Assert.Equal(1, _made);
     }
@@ -56,13 +58,14 @@ public sealed class SharedMaterialsTests
     public void Surfaces_that_differ_get_their_own_materials(string what)
     {
         var materials = Materials();
-        var surface = new Surface { Parameters = [Vector4.One], ShaderTextures = [new TextureRef(1)], ShaderArrays = [new TextureArrayRef(2)] };
+        var shader = new SurfaceShader(Glow) { Parameters = [Vector4.One], Textures = [new TextureRef(1)], Arrays = [new TextureArrayRef(2)] };
+        var surface = new Surface { Shader = shader };
         var other = what switch
         {
             "color" => surface with { Color = new(0.1f) },
-            "parameter" => surface with { Parameters = [Vector4.Zero] },
-            "texture" => surface with { ShaderTextures = [new TextureRef(3)] },
-            _ => surface with { ShaderArrays = [new TextureArrayRef(4)] },
+            "parameter" => surface with { Shader = shader with { Parameters = [Vector4.Zero] } },
+            "texture" => surface with { Shader = shader with { Textures = [new TextureRef(3)] } },
+            _ => surface with { Shader = shader with { Arrays = [new TextureArrayRef(4)] } },
         };
 
         var first = Upload(materials, surface);
@@ -76,14 +79,14 @@ public sealed class SharedMaterialsTests
     public void A_parameter_changed_in_place_gets_a_new_material_for_later_meshes()
     {
         var materials = Materials();
-        var surface = new Surface { Parameters = [new Vector4(0.2f)] };
+        var surface = new Surface { Shader = new SurfaceShader(Glow) { Parameters = [new Vector4(0.2f)] } };
         var before = Upload(materials, surface);
 
-        surface.Parameters[0] = new Vector4(0.9f);
+        surface.Shader.Parameters[0] = new Vector4(0.9f);
         var after = Upload(materials, surface);
 
         Assert.NotEqual(before, after);
-        Assert.Equal(after, Upload(materials, new Surface { Parameters = [new Vector4(0.9f)] }));
+        Assert.Equal(after, Upload(materials, new Surface { Shader = new SurfaceShader(Glow) { Parameters = [new Vector4(0.9f)] } }));
 
         materials.Release(before);
         Assert.Equal([before], _destroyed);

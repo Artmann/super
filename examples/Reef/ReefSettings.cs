@@ -36,7 +36,7 @@ internal class ReefSettings
     /// so they don't need the cook.
     /// </summary>
     public virtual Surface Material(Content content, string name) =>
-        content.Surface($"materials/{name}.material.cs") with { WorldVariation = true };
+        content.Surface($"materials/{name}.material.cs") with { Features = SurfaceFeatures.WorldVariation };
 
     /// <summary>Fish stay within this distance of the centre, sideways.</summary>
     public float Radius => 55f;

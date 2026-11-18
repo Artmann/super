@@ -110,13 +110,11 @@ public sealed class Clearing
         {
             Color = new Vector3(0.7f, 0.82f, 0.45f),
             Roughness = 0.95f,
-            Shader = content.Shader("clearing"),
-            Parameters =
-            [
-                new Vector4(Middle.X, Middle.Z, ForestStart, ForestFull),
-                new Vector4(Worn.X, Worn.Z, WornRadius, 0f),
-            ],
-            ShaderArrays = [content.TextureArray(colors), content.TextureArray(normals)],
+            Shader = new SurfaceShader(content.Shader("clearing"))
+            {
+                Parameters = [new Vector4(Middle.X, Middle.Z, ForestStart, ForestFull), new Vector4(Worn.X, Worn.Z, WornRadius, 0f)],
+                Arrays = [content.TextureArray(colors), content.TextureArray(normals)],
+            },
         };
 
         // The arrays keep their own copy of each layer.

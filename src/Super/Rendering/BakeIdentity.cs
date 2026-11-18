@@ -180,14 +180,14 @@ internal static class BakeIdentity
         AddTexture(hasher, surface.SurfaceTexture, items);
         hasher.Add(surface.TileWidth is null ? 0 : 1).Add(surface.TileWidth ?? 0f);
         hasher.Add(surface.Opacity).Add(surface.Ior);
-        AddTexture(hasher, surface.HeightTexture, items);
-        hasher.Add(surface.HeightDepth);
-        AddTexture(hasher, surface.DetailColorTexture, items);
-        AddTexture(hasher, surface.DetailNormalTexture, items);
-        hasher.Add(surface.DetailScale);
-        hasher.Add(surface.DetailMask ? 1 : 0).Add(surface.WorldVariation ? 1 : 0).Add(surface.Dithered ? 1 : 0);
-        hasher.Add(surface.Puddles ? 1 : 0).Add(surface.Foliage ? 1 : 0);
-        hasher.Add(surface.Translucency).Add(surface.Wind);
+        AddTexture(hasher, surface.Height?.Map, items);
+        hasher.Add(surface.Height?.Depth ?? 0f);
+        AddTexture(hasher, surface.Detail?.ColorTexture, items);
+        AddTexture(hasher, surface.Detail?.NormalTexture, items);
+        hasher.Add((surface.Detail ?? new DetailMap()).Scale);
+        hasher.Add(surface.Detail is { Mask: true } ? 1 : 0).Add(surface.Features.HasFlag(SurfaceFeatures.WorldVariation) ? 1 : 0).Add(surface.Features.HasFlag(SurfaceFeatures.Dithered) ? 1 : 0);
+        hasher.Add(surface.Features.HasFlag(SurfaceFeatures.Puddles) ? 1 : 0).Add(surface.Foliage is null ? 0 : 1);
+        hasher.Add((surface.Foliage ?? new Foliage()).Translucency).Add(surface.Wind);
         hasher.Add(surface.Subsurface.Radius).Add(surface.Subsurface.Color).Add(surface.Subsurface.Transmission);
     }
 
@@ -196,7 +196,7 @@ internal static class BakeIdentity
     {
         if (surface.Shader is { } shader)
         {
-            string shaderName = ((ShaderItem)items[shader.Index - 1]).Name;
+            string shaderName = ((ShaderItem)items[shader.Fragment.Index - 1]).Name;
             hasher.Add(1).Add(shaderName).Add(HashBytes(shaderBytes(shaderName)));
         }
         else
@@ -204,20 +204,20 @@ internal static class BakeIdentity
             hasher.Add(0);
         }
 
-        hasher.Add(surface.Parameters.Length);
-        foreach (var parameter in surface.Parameters)
+        hasher.Add(surface.Shader?.Parameters.Length ?? 0);
+        foreach (var parameter in surface.Shader?.Parameters ?? [])
         {
             hasher.Add(parameter.X).Add(parameter.Y).Add(parameter.Z).Add(parameter.W);
         }
 
-        hasher.Add(surface.ShaderTextures.Length);
-        foreach (var texture in surface.ShaderTextures)
+        hasher.Add(surface.Shader?.Textures.Length ?? 0);
+        foreach (var texture in surface.Shader?.Textures ?? [])
         {
             AddTexture(hasher, texture, items);
         }
 
-        hasher.Add(surface.ShaderArrays.Length);
-        foreach (var array in surface.ShaderArrays)
+        hasher.Add(surface.Shader?.Arrays.Length ?? 0);
+        foreach (var array in surface.Shader?.Arrays ?? [])
         {
             var layers = ((TextureArrayItem)items[array.Index - 1]).Layers;
             hasher.Add(layers.Length);
@@ -232,10 +232,10 @@ internal static class BakeIdentity
     // hash only when the surface has it, so every mesh made before it existed keeps its hash and its bake.
     private static void AddLaterLooks(StableHasher hasher, Surface surface, IReadOnlyList<object> items)
     {
-        if (surface.OcclusionTexture is not null)
+        if (surface.Occlusion is { } occlusion)
         {
-            AddTexture(hasher, surface.OcclusionTexture, items);
-            hasher.Add(surface.OcclusionOnUv2 ? 1 : 0);
+            AddTexture(hasher, occlusion.Map, items);
+            hasher.Add(occlusion.OnUv2 ? 1 : 0);
         }
 
         if (surface.Toon is { } toon)
@@ -244,7 +244,7 @@ internal static class BakeIdentity
             AddTexture(hasher, toon.Ramp, items);
         }
 
-        if (surface.Outline)
+        if (surface.Features.HasFlag(SurfaceFeatures.Outline))
         {
             hasher.Add("outline");
         }

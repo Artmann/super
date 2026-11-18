@@ -16,15 +16,112 @@ public sealed record GeneratedTexture(int Size, byte[] Pixels);
 /// <param name="Rim">Light added along the outline of the shape, zero for none.</param>
 public sealed record Toon(int Steps = 3, TextureRef? Ramp = null, Vector3 Rim = default);
 
-/// <summary>How a generated mesh looks. Everything is optional; the default is matte grey.</summary>
-public sealed record Surface
+/// <summary>
+/// A height map for <see cref="Surface.Height"/>: white in red at the top of the surface. The other textures shift
+/// with it as the view moves, so grooves such as mortar look sunk in.
+/// </summary>
+/// <param name="Map">The height map, in red.</param>
+/// <param name="Depth">How far below the top black in the height map lies, in metres, such as 0.02 for brick.</param>
+public sealed record HeightMap(TextureRef Map, float Depth);
+
+/// <summary>
+/// Fine grain for <see cref="Surface.Detail"/>, tiled <see cref="Scale"/> times as often as the surface's other
+/// textures.
+/// </summary>
+public sealed record DetailMap
+{
+    /// <summary>
+    /// Grain over the colour. Make it linear data: mid grey (128) changes nothing, lighter brightens and darker darkens.
+    /// </summary>
+    public TextureRef? ColorTexture { get; init; }
+
+    /// <summary>A second normal map, blended over the surface's own.</summary>
+    public TextureRef? NormalTexture { get; init; }
+
+    /// <summary>How many times the detail textures repeat for each repeat of the others.</summary>
+    public float Scale { get; init; } = 8f;
+
+    /// <summary>Lets the surface texture's blue channel say where the detail shows, from none at black to full at white.</summary>
+    public bool Mask { get; init; }
+}
+
+/// <summary>
+/// How much soft light reaches each point of a surface, for <see cref="Surface.Occlusion"/>: white for all, black for
+/// none, as in the cracks between planks. It darkens the light from the sky, the light probes and the bake, and dims
+/// reflections, but not the sun's or a lamp's direct light.
+/// </summary>
+/// <param name="Map">The occlusion, in red. Cook it as linear data, with <c>"texture": { "linear": true }</c> in a <c>cook.json</c> rule.</param>
+/// <param name="OnUv2">
+/// Reads the map through the second UV set, <see cref="Vertex.Uv2"/>, instead of the first, for occlusion baked onto
+/// a layout of its own. <see cref="Content.Mesh"/> with <c>isStatic</c> refuses a mesh whose <see cref="Vertex.Uv2"/>
+/// it would have to replace.
+/// </param>
+public sealed record OcclusionMap(TextureRef Map, bool OnUv2 = false);
+
+/// <summary>
+/// Leaves or blades, for <see cref="Surface.Foliage"/>: sunlight shines through from behind, both sides are lit as the
+/// front, and there are no contact shadows, which thin cut-out leaves would only spoil.
+/// </summary>
+/// <param name="Translucency">How much sunlight shines through from behind, from 0 to 1.</param>
+public sealed record Foliage(float Translucency = Rendition.Material.DefaultTranslucency);
+
+/// <summary>Switches a <see cref="Surface"/> can turn on, combined with <c>|</c>.</summary>
+[Flags]
+public enum SurfaceFeatures
+{
+    None = 0,
+
+    /// <summary>Draws an ink line round the surface's outline and along its creases, as <see cref="View.Outlines"/> sets it.</summary>
+    Outline = 1,
+
+    /// <summary>
+    /// Darkens and lightens the colour in broad patches laid by where the surface is in the world, so a texture that
+    /// repeats across a big wall or floor doesn't show it.
+    /// </summary>
+    WorldVariation = 2,
+
+    /// <summary>
+    /// Opacity fades the surface out softly instead of cutting it, through a pattern of pixels that anti-aliasing
+    /// blends. For decals such as stains and grime laid just in front of another surface.
+    /// </summary>
+    Dithered = 4,
+
+    /// <summary>
+    /// Water stands on the surface where it lies below the level set with <see cref="View.Puddles"/>, and it is damp
+    /// for a band above. Its height map counts, so hollows fill first. Without a level it stays dry.
+    /// </summary>
+    Puddles = 8,
+
+    /// <summary>
+    /// <see cref="View.Decal"/>s don't lay on the surface, so a prop standing in a stain or a crate in a scorch mark
+    /// keeps its own look. Animated characters never take decals.
+    /// </summary>
+    NoDecals = 16,
+}
+
+/// <summary>A fragment shader of the game's own for <see cref="Surface.Shader"/>, and what it reads.</summary>
+/// <param name="Fragment">The shader, named through <see cref="Content.Shader"/>.</param>
+public sealed record SurfaceShader(ShaderRef Fragment)
 {
     /// <summary>How many numbers a surface shader can take.</summary>
     public const int MaxParameters = Rendition.ShaderParameters.Length;
 
     /// <summary>How many textures, and how many texture arrays, a surface shader can take.</summary>
-    public const int MaxShaderTextures = Rendition.ShaderTextures.Length;
+    public const int MaxTextures = Rendition.ShaderTextures.Length;
 
+    /// <summary>Numbers the shader reads as shaderParameters[i]. Up to <see cref="MaxParameters"/>.</summary>
+    public Vector4[] Parameters { get; init; } = [];
+
+    /// <summary>Textures the shader reads with shaderTexture(i, uv). Up to <see cref="MaxTextures"/>.</summary>
+    public TextureRef[] Textures { get; init; } = [];
+
+    /// <summary>Texture arrays the shader reads with shaderLayer(i, uv, layer). Up to <see cref="MaxTextures"/>.</summary>
+    public TextureArrayRef[] Arrays { get; init; } = [];
+}
+
+/// <summary>How a generated mesh looks. Everything is optional; the default is matte grey.</summary>
+public sealed record Surface
+{
     public Vector3 Color { get; init; } = new(0.7f);
     public float Roughness { get; init; } = 0.4f;
     public float Metallic { get; init; }
@@ -47,43 +144,14 @@ public sealed record Surface
     /// <summary>How much glass bends what's behind it: 1 is straight through, as a window, and about 1.5 is a bottle or a marble.</summary>
     public float Ior { get; init; } = 1f;
 
-    /// <summary>
-    /// A height map in red, white at the top of the surface. The other textures shift with
-    /// it as the view moves, so grooves such as mortar look sunk in. Needs <see cref="HeightDepth"/>.
-    /// </summary>
-    public TextureRef? HeightTexture { get; init; }
+    /// <summary>A height map that makes grooves such as mortar look sunk in, or null for none.</summary>
+    public HeightMap? Height { get; init; }
 
-    /// <summary>How far below the top black in the height map lies, in metres, such as 0.02 for brick.</summary>
-    public float HeightDepth { get; init; }
+    /// <summary>Fine grain over the colour and normals, tiled more often than the other textures, or null for none.</summary>
+    public DetailMap? Detail { get; init; }
 
-    /// <summary>
-    /// Fine grain over the colour, tiled <see cref="DetailScale"/> times as often. Make it
-    /// linear data: mid grey (128) changes nothing, lighter brightens and darker darkens.
-    /// </summary>
-    public TextureRef? DetailColorTexture { get; init; }
-
-    /// <summary>A second normal map, tiled <see cref="DetailScale"/> times as often and blended over the first.</summary>
-    public TextureRef? DetailNormalTexture { get; init; }
-
-    /// <summary>How many times the detail textures repeat for each repeat of the others.</summary>
-    public float DetailScale { get; init; } = 8f;
-
-    /// <summary>Lets the surface texture's blue channel say where the detail shows, from none at black to full at white.</summary>
-    public bool DetailMask { get; init; }
-
-    /// <summary>
-    /// How much soft light reaches each point, in red: white for all, black for none, as in the cracks between planks.
-    /// It darkens the light from the sky, the light probes and the bake, and dims reflections, but not the sun's or a
-    /// lamp's direct light. Cook it as linear data, with <c>"texture": { "linear": true }</c> in a <c>cook.json</c> rule.
-    /// </summary>
-    public TextureRef? OcclusionTexture { get; init; }
-
-    /// <summary>
-    /// Reads <see cref="OcclusionTexture"/> through the second UV set, <see cref="Vertex.Uv2"/>, instead of the first,
-    /// for occlusion baked onto a layout of its own. <see cref="Content.Mesh"/> with <c>isStatic</c> refuses a mesh
-    /// whose <see cref="Vertex.Uv2"/> it would have to replace.
-    /// </summary>
-    public bool OcclusionOnUv2 { get; init; }
+    /// <summary>How much soft light reaches each point, or null for all of it everywhere.</summary>
+    public OcclusionMap? Occlusion { get; init; }
 
     /// <summary>
     /// Cel shading instead of the physically based kind, for a cartoon look. The soft light from the sky stays
@@ -92,42 +160,11 @@ public sealed record Surface
     /// </summary>
     public Toon? Toon { get; init; }
 
-    /// <summary>Draws an ink line round the surface's outline and along its creases, as <see cref="View.Outlines"/> sets it.</summary>
-    public bool Outline { get; init; }
+    /// <summary>Switches such as outlines and puddles. None by default.</summary>
+    public SurfaceFeatures Features { get; init; }
 
-    /// <summary>
-    /// Darkens and lightens the colour in broad patches laid by where the surface is in the world, so a texture that
-    /// repeats across a big wall or floor doesn't show it.
-    /// </summary>
-    public bool WorldVariation { get; init; }
-
-    /// <summary>
-    /// Opacity fades the surface out softly instead of cutting it, through a pattern of pixels that anti-aliasing
-    /// blends. For decals such as stains and grime laid just in front of another surface.
-    /// </summary>
-    public bool Dithered { get; init; }
-
-    /// <summary>
-    /// Water stands on the surface where it lies below the level set with <see cref="View.Puddles"/>, and it is damp
-    /// for a band above. Its height map counts, so hollows fill first. Without a level it stays dry.
-    /// </summary>
-    public bool Puddles { get; init; }
-
-    /// <summary>
-    /// <see cref="View.Decal"/>s don't lay on the surface, so a prop standing in a stain or a crate in a scorch mark
-    /// keeps its own look. Animated characters never take decals.
-    /// </summary>
-    public bool NoDecals { get; init; }
-
-    /// <summary>
-    /// The surface is leaves or blades: sunlight shines through it from behind, as much as <see cref="Translucency"/>
-    /// says, both sides are lit as the front, and it gets no contact shadows, which thin cut-out leaves would only
-    /// spoil.
-    /// </summary>
-    public bool Foliage { get; init; }
-
-    /// <summary>For <see cref="Foliage"/>, how much sunlight shines through from behind, from 0 to 1.</summary>
-    public float Translucency { get; init; } = Rendition.Material.DefaultTranslucency;
+    /// <summary>Lights the surface as leaves or blades, or null, the default, for a solid surface.</summary>
+    public Foliage? Foliage { get; init; }
 
     /// <summary>
     /// How far the surface sways in the wind set with <see cref="View.Wind"/>, as a share of it: 1 for grass, less for
@@ -153,17 +190,8 @@ public sealed record Surface
     /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
     public Subsurface Subsurface { get; init; }
 
-    /// <summary>A fragment shader named through <see cref="Content.Shader"/>, or the standard one.</summary>
-    public ShaderRef? Shader { get; init; }
-
-    /// <summary>Numbers the shader reads as shaderParameters[i]. Up to <see cref="MaxParameters"/>.</summary>
-    public Vector4[] Parameters { get; init; } = [];
-
-    /// <summary>Textures the shader reads with shaderTexture(i, uv). Up to <see cref="MaxShaderTextures"/>.</summary>
-    public TextureRef[] ShaderTextures { get; init; } = [];
-
-    /// <summary>Texture arrays the shader reads with shaderLayer(i, uv, layer). Up to <see cref="MaxShaderTextures"/>.</summary>
-    public TextureArrayRef[] ShaderArrays { get; init; } = [];
+    /// <summary>A fragment shader of the game's own and what it reads, or null for the standard one.</summary>
+    public SurfaceShader? Shader { get; init; }
 }
 
 /// <summary>
@@ -192,7 +220,7 @@ public sealed record GeneratedMesh(Vertex[] Vertices, uint[] Indices, Surface Su
     /// </summary>
     /// <exception cref="InvalidOperationException">
     /// The charts don't fit even the largest page, or the set must be replaced but the surface reads its
-    /// <see cref="Surface.OcclusionTexture"/> through it.
+    /// <see cref="Surface.Occlusion"/> through it.
     /// </exception>
     public GeneratedMesh WithLightmapUvs()
     {
@@ -202,7 +230,7 @@ public sealed record GeneratedMesh(Vertex[] Vertices, uint[] Indices, Surface Su
         }
 
         // The occlusion was painted for this set, so on a new one it would land in the wrong places.
-        if (Surface.OcclusionOnUv2 && Surface.OcclusionTexture is not null)
+        if (Surface.Occlusion is { OnUv2: true })
         {
             throw new InvalidOperationException(
                 $"The surface reads its occlusion texture through Uv2, so Uv2 can't be replaced to fit a lightmap. {problem} Fix the mesh's Uv2, or read the occlusion through Uv.");

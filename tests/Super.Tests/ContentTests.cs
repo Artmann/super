@@ -36,9 +36,9 @@ public class ContentTests
         var shader = content.Shader("terrain");
 
         var problem = Assert.Throws<ArgumentException>(() =>
-            content.Mesh(Mesh(new Surface { ShaderTextures = [new TextureRef(shader.Index)] })));
+            content.Mesh(Mesh(new Surface { Shader = new SurfaceShader(shader) { Textures = [new TextureRef(shader.Index)] } })));
 
-        Assert.Contains("ShaderTextures[0]", problem.Message);
+        Assert.Contains("Shader.Textures[0]", problem.Message);
     }
 
     [Fact]
@@ -251,9 +251,10 @@ public class ContentTests
     }
 
     [Theory]
-    [InlineData(nameof(Surface.HeightTexture))]
-    [InlineData(nameof(Surface.DetailColorTexture))]
-    [InlineData(nameof(Surface.DetailNormalTexture))]
+    [InlineData("Height.Map")]
+    [InlineData("Detail.ColorTexture")]
+    [InlineData("Detail.NormalTexture")]
+    [InlineData("Occlusion.Map")]
     public void Mesh_naming_an_unloaded_height_or_detail_texture_says_which(string field)
     {
         var content = new Content(Textures("textures/splat.png"));
@@ -266,9 +267,10 @@ public class ContentTests
     }
 
     [Theory]
-    [InlineData(nameof(Surface.HeightTexture))]
-    [InlineData(nameof(Surface.DetailColorTexture))]
-    [InlineData(nameof(Surface.DetailNormalTexture))]
+    [InlineData("Height.Map")]
+    [InlineData("Detail.ColorTexture")]
+    [InlineData("Detail.NormalTexture")]
+    [InlineData("Occlusion.Map")]
     public void Height_or_detail_texture_a_live_mesh_names_cannot_be_unloaded(string field)
     {
         var content = new Content(Textures("textures/splat.png"));
@@ -282,9 +284,10 @@ public class ContentTests
 
     private static Surface Naming(string field, TextureRef texture) => field switch
     {
-        nameof(Surface.HeightTexture) => new Surface { HeightTexture = texture, HeightDepth = 0.02f },
-        nameof(Surface.DetailColorTexture) => new Surface { DetailColorTexture = texture },
-        nameof(Surface.DetailNormalTexture) => new Surface { DetailNormalTexture = texture },
+        "Height.Map" => new Surface { Height = new HeightMap(texture, 0.02f) },
+        "Detail.ColorTexture" => new Surface { Detail = new DetailMap { ColorTexture = texture } },
+        "Detail.NormalTexture" => new Surface { Detail = new DetailMap { NormalTexture = texture } },
+        "Occlusion.Map" => new Surface { Occlusion = new OcclusionMap(texture) },
         _ => throw new ArgumentException($"No surface field {field}.", nameof(field)),
     };
 
@@ -293,7 +296,7 @@ public class ContentTests
     {
         var content = new Content(Textures("textures/splat.png"));
         var texture = content.Texture("textures/splat.png");
-        var model = content.Mesh(Mesh(new Surface { ShaderTextures = [texture] }));
+        var model = content.Mesh(Mesh(new Surface { Shader = new SurfaceShader(content.Shader("terrain")) { Textures = [texture] } }));
 
         var problem = Assert.Throws<InvalidOperationException>(() => content.Unload(texture));
         Assert.Contains(model.Index.ToString(), problem.Message);

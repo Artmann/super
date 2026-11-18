@@ -15,8 +15,8 @@ internal sealed class Ground
     private const float Spacing = 2f;
     private const float PathLift = 0.05f;
 
-    private static readonly Surface Grass = new() { Color = new Vector3(0.24f, 0.33f, 0.15f), Roughness = 0.95f, WorldVariation = true };
-    private static readonly Surface Earth = new() { Color = new Vector3(0.38f, 0.3f, 0.21f), Roughness = 0.95f, WorldVariation = true };
+    private static readonly Surface Grass = new() { Color = new Vector3(0.24f, 0.33f, 0.15f), Roughness = 0.95f, Features = SurfaceFeatures.WorldVariation };
+    private static readonly Surface Earth = new() { Color = new Vector3(0.38f, 0.3f, 0.21f), Roughness = 0.95f, Features = SurfaceFeatures.WorldVariation };
 
     private readonly List<ModelRef> _models = [];
 

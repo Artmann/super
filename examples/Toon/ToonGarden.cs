@@ -114,10 +114,10 @@ public sealed class ToonGarden(Content content, Input input) : IGame
             Roughness = roughness,
             Metallic = metallic,
             Toon = new Toon(steps, Rim: rim),
-            Outline = outline,
+            Features = outline ? SurfaceFeatures.Outline : SurfaceFeatures.None,
         };
 
     // Each piece twice: toon, and plain for T.
     private void Add(GeneratedMesh mesh, Matrix4x4 place) =>
-        _pieces.Add((content.Mesh(mesh), content.Mesh(mesh with { Surface = mesh.Surface with { Toon = null, Outline = false } }), place));
+        _pieces.Add((content.Mesh(mesh), content.Mesh(mesh with { Surface = mesh.Surface with { Toon = null, Features = SurfaceFeatures.None } }), place));
 }
