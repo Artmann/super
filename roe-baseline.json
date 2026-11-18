@@ -21,12 +21,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Hamlet.Village.Place",
-      "file": "examples/Hamlet/Village.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.BakeFiles.IsRigid",
       "file": "src/Rendition/Baking/BakeFiles.cs",
       "metric": 14
@@ -549,12 +543,6 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Hamlet.Village.Place",
-      "file": "examples/Hamlet/Village.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Rendition.BakeJob.Finish",
       "file": "src/Rendition/Baking/BakeJob.cs",
       "metric": 16
@@ -1013,12 +1001,6 @@
       "kind": "long-method",
       "name": "Hamlet.Tower.Build",
       "file": "examples/Hamlet/Tower.cs",
-      "metric": 66
-    },
-    {
-      "kind": "long-method",
-      "name": "Hamlet.Village.Place",
-      "file": "examples/Hamlet/Village.cs",
       "metric": 66
     },
     {
@@ -2747,7 +2729,7 @@
       "kind": "large-type",
       "name": "Hamlet.Village",
       "file": "examples/Hamlet/Village.cs",
-      "metric": 22
+      "metric": 25
     },
     {
       "kind": "large-type",
