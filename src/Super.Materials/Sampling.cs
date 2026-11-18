@@ -11,33 +11,7 @@ internal static class Sampling
     }
 
     /// <summary>
-    /// Reads one channel of an interleaved image at (u, v), as fractions of the image,
-    /// blending the four nearest pixels and wrapping at the edges.
-    /// </summary>
-    public static float Bilinear(float[] image, int size, int channels, int channel, float u, float v)
-    {
-        var fx = u * size - 0.5f;
-        var fy = v * size - 0.5f;
-        var x0 = (int)MathF.Floor(fx);
-        var y0 = (int)MathF.Floor(fy);
-        var tx = fx - x0;
-        var ty = fy - y0;
-        var x1 = Wrap(x0 + 1, size);
-        var y1 = Wrap(y0 + 1, size);
-
-        x0 = Wrap(x0, size);
-        y0 = Wrap(y0, size);
-
-        float At(int x, int y) => image[(y * size + x) * channels + channel];
-
-        var top = At(x0, y0) + (At(x1, y0) - At(x0, y0)) * tx;
-        var bottom = At(x0, y1) + (At(x1, y1) - At(x0, y1)) * tx;
-
-        return top + (bottom - top) * ty;
-    }
-
-    /// <summary>
-    /// Reads a one-channel image at (u, v) like <see cref="Bilinear"/>, but holds the edge pixels past the edges
+    /// Reads a one-channel image at (u, v) like <see cref="InterleavedImage.Bilinear"/>, but holds the edge pixels past the edges
     /// instead of wrapping, so a read near one edge never takes in the other.
     /// </summary>
     public static float BilinearClamped(float[] image, int size, float u, float v)
@@ -59,4 +33,34 @@ internal static class Sampling
 
         return top + (bottom - top) * ty;
     }
+}
+
+/// <summary>An image of <paramref name="size"/> by <paramref name="size"/> pixels, each <paramref name="channels"/> floats side by side.</summary>
+internal readonly struct InterleavedImage(float[] values, int size, int channels)
+{
+    /// <summary>
+    /// Reads one channel at (u, v), as fractions of the image, blending the four nearest pixels and wrapping at the
+    /// edges.
+    /// </summary>
+    public float Bilinear(int channel, float u, float v)
+    {
+        var fx = u * size - 0.5f;
+        var fy = v * size - 0.5f;
+        var x0 = (int)MathF.Floor(fx);
+        var y0 = (int)MathF.Floor(fy);
+        var tx = fx - x0;
+        var ty = fy - y0;
+        var x1 = Sampling.Wrap(x0 + 1, size);
+        var y1 = Sampling.Wrap(y0 + 1, size);
+
+        x0 = Sampling.Wrap(x0, size);
+        y0 = Sampling.Wrap(y0, size);
+
+        var top = Texel(x0, y0, channel) + (Texel(x1, y0, channel) - Texel(x0, y0, channel)) * tx;
+        var bottom = Texel(x0, y1, channel) + (Texel(x1, y1, channel) - Texel(x0, y1, channel)) * tx;
+
+        return top + (bottom - top) * ty;
+    }
+
+    float Texel(int x, int y, int channel) => values[(y * size + x) * channels + channel];
 }

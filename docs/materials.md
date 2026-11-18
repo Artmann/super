@@ -490,7 +490,8 @@ of rows.
 
 ### Filters
 
-These are methods on `Gray`. `Blur`, `Warp`, `DirectionalWarp` and `SlopeBlur` work on `Rgb` too.
+These are called on a `Gray`, as `image.Blur(0.01f)`. `Blur`, `Warp`, `DirectionalWarp` and `SlopeBlur` work on `Rgb` too.
+For a grey image, `Warp`, `DirectionalWarp` and `SlopeBlur` are extension methods in the `GrayWarps` class.
 
 `Levels(inLow = 0, inHigh = 1, outLow = 0, outHigh = 1, gamma = 1)` clamps the input to
 `inLow`..`inHigh` and stretches it onto `outLow`..`outHigh`. `inHigh` must differ from
@@ -647,7 +648,8 @@ The result is the image lerped towards `mode(image, top)` by `mask` × `opacity`
 | `Screen` | `1 − (1 − a)(1 − b)` |
 
 No mode clamps. `Add`, `Subtract`, `Multiply`, `Min` and `Max` are short forms, and each
-takes a `Gray` or a number. `Rgb.Multiply` takes a `Gray`, which multiplies every channel,
+takes a `Gray` or a number. On a `Gray` they are extension methods in the `GrayArithmetic`
+class, called as `image.Add(other)`. `Rgb.Multiply` takes a `Gray`, which multiplies every channel,
 or an `Rgb`.
 
 `Gray.HeightBlend(bottom, top, offset = 0.5f, contrast = 0.9f)` lays one height map over

@@ -42,36 +42,6 @@ public sealed partial class Gray
         return new Gray(new BlendNode(1, Node, top.Node, mask?.Node, mode, opacity));
     }
 
-    /// <summary>Adds <paramref name="other"/>. Shorthand for <see cref="Blend"/> with <see cref="BlendMode.Add"/>.</summary>
-    public Gray Add(Gray other) => Blend(other, BlendMode.Add);
-
-    /// <summary>Adds a number to every pixel.</summary>
-    public Gray Add(float value) => Blend(Of(value), BlendMode.Add);
-
-    /// <summary>Subtracts <paramref name="other"/>.</summary>
-    public Gray Subtract(Gray other) => Blend(other, BlendMode.Subtract);
-
-    /// <summary>Subtracts a number from every pixel.</summary>
-    public Gray Subtract(float value) => Blend(Of(value), BlendMode.Subtract);
-
-    /// <summary>Multiplies by <paramref name="other"/>.</summary>
-    public Gray Multiply(Gray other) => Blend(other, BlendMode.Multiply);
-
-    /// <summary>Multiplies every pixel by a number.</summary>
-    public Gray Multiply(float value) => Blend(Of(value), BlendMode.Multiply);
-
-    /// <summary>The smaller of this and <paramref name="other"/>, pixel by pixel.</summary>
-    public Gray Min(Gray other) => Blend(other, BlendMode.Min);
-
-    /// <summary>The smaller of each pixel and a number.</summary>
-    public Gray Min(float value) => Blend(Of(value), BlendMode.Min);
-
-    /// <summary>The larger of this and <paramref name="other"/>, pixel by pixel.</summary>
-    public Gray Max(Gray other) => Blend(other, BlendMode.Max);
-
-    /// <summary>The larger of each pixel and a number.</summary>
-    public Gray Max(float value) => Blend(Of(value), BlendMode.Max);
-
     /// <summary>
     /// Lays one height map over another so the higher one wins, with a soft seam. Raising
     /// <paramref name="offset"/> above 0.5 lifts the top; a higher <paramref name="contrast"/> makes the seam sharper.
@@ -83,6 +53,40 @@ public sealed partial class Gray
             new Gray(new HeightBlendNode(bottom.Node, top.Node, offset, contrast, false)),
             new Gray(new HeightBlendNode(bottom.Node, top.Node, offset, contrast, true)));
     }
+}
+
+/// <summary>Shorthands for <see cref="Gray.Blend"/> with the arithmetic modes, written as <c>image.Add(other)</c>.</summary>
+public static class GrayArithmetic
+{
+    /// <summary>Adds <paramref name="other"/>. Shorthand for <see cref="Gray.Blend"/> with <see cref="BlendMode.Add"/>.</summary>
+    public static Gray Add(this Gray image, Gray other) => image.Blend(other, BlendMode.Add);
+
+    /// <summary>Adds a number to every pixel.</summary>
+    public static Gray Add(this Gray image, float value) => image.Blend(Gray.Of(value), BlendMode.Add);
+
+    /// <summary>Subtracts <paramref name="other"/>.</summary>
+    public static Gray Subtract(this Gray image, Gray other) => image.Blend(other, BlendMode.Subtract);
+
+    /// <summary>Subtracts a number from every pixel.</summary>
+    public static Gray Subtract(this Gray image, float value) => image.Blend(Gray.Of(value), BlendMode.Subtract);
+
+    /// <summary>Multiplies by <paramref name="other"/>.</summary>
+    public static Gray Multiply(this Gray image, Gray other) => image.Blend(other, BlendMode.Multiply);
+
+    /// <summary>Multiplies every pixel by a number.</summary>
+    public static Gray Multiply(this Gray image, float value) => image.Blend(Gray.Of(value), BlendMode.Multiply);
+
+    /// <summary>The smaller of this and <paramref name="other"/>, pixel by pixel.</summary>
+    public static Gray Min(this Gray image, Gray other) => image.Blend(other, BlendMode.Min);
+
+    /// <summary>The smaller of each pixel and a number.</summary>
+    public static Gray Min(this Gray image, float value) => image.Blend(Gray.Of(value), BlendMode.Min);
+
+    /// <summary>The larger of this and <paramref name="other"/>, pixel by pixel.</summary>
+    public static Gray Max(this Gray image, Gray other) => image.Blend(other, BlendMode.Max);
+
+    /// <summary>The larger of each pixel and a number.</summary>
+    public static Gray Max(this Gray image, float value) => image.Blend(Gray.Of(value), BlendMode.Max);
 }
 
 public sealed partial class Rgb
@@ -146,6 +150,16 @@ sealed class BlendNode(int width, Node baseImage, Node top, Node? mask, BlendMod
                 return a - b;
             case BlendMode.Multiply:
                 return a * b;
+            default:
+                return CombineShaped(mode, a, b);
+        }
+    }
+
+    /// <summary>The modes that pick or shape rather than do plain arithmetic: min, max, overlay and screen.</summary>
+    static float CombineShaped(BlendMode mode, float a, float b)
+    {
+        switch (mode)
+        {
             case BlendMode.Min:
                 return MathF.Min(a, b);
             case BlendMode.Max:

@@ -28,7 +28,7 @@ public static class Noise
         Arguments.AtLeast(scale, 1, nameof(scale));
         Arguments.Between(octaves, 1, 12, nameof(octaves));
 
-        return new Gray(new PerlinNode(scale, scale, new Direction(1, 0, 0f), octaves, persistence, seed));
+        return new Gray(new PerlinNode(new PerlinLattice(scale, scale, new Direction(1, 0, 0f)), octaves, persistence, seed));
     }
 
     /// <summary>
@@ -50,7 +50,7 @@ public static class Noise
         var across = Math.Max(1, (int)MathF.Floor(scale / direction.Length + 0.5f));
         var along = Math.Max(1, (int)MathF.Floor(scale / (direction.Length * stretch) + 0.5f));
 
-        return new Gray(new PerlinNode(along, across, direction, octaves, 0.5f, seed));
+        return new Gray(new PerlinNode(new PerlinLattice(along, across, direction), octaves, 0.5f, seed));
     }
 
     /// <summary>
@@ -69,6 +69,14 @@ public static class Noise
     public static Gray White(int? seed = null) => new(new WhiteNode(seed));
 }
 
+/// <summary>
+/// The coarsest octave's lattice of a <see cref="PerlinNode"/>: <paramref name="Along"/> cells per period along
+/// <paramref name="Direction"/> and <paramref name="Across"/> across it. With a direction of run a and rise b, the
+/// lattice coordinates are <c>s = a u - b v</c> and <c>t = b u + a v</c> (v points down the image, rise up), which move
+/// by whole numbers when u or v does, so the noise tiles.
+/// </summary>
+readonly record struct PerlinLattice(int Along, int Across, Direction Direction);
+
 sealed class PerlinNode : Node
 {
     // Above this many lattice points per side the gradients are worked out per pixel instead of stored.
@@ -81,16 +89,12 @@ sealed class PerlinNode : Node
     readonly float _persistence;
 
     /// <summary>
-    /// The lattice has <paramref name="along"/> cells per period along <paramref name="direction"/> and
-    /// <paramref name="across"/> across it. With a direction of run a and rise b, the lattice coordinates are
-    /// <c>s = a u - b v</c> and <c>t = b u + a v</c> (v points down the image, rise up), which move by whole numbers
-    /// when u or v does, so the noise tiles.
+    /// Noise of <paramref name="octaves"/> octaves on <paramref name="lattice"/>, each octave counting
+    /// <paramref name="persistence"/> times as much as the one before.
     /// </summary>
-    public PerlinNode(int along, int across, Direction direction, int octaves, float persistence, int? seed) : base(1)
+    public PerlinNode(PerlinLattice lattice, int octaves, float persistence, int? seed) : base(1)
     {
-        _along = along;
-        _across = across;
-        _direction = direction;
+        (_along, _across, _direction) = lattice;
         _octaves = octaves;
         _persistence = persistence;
 

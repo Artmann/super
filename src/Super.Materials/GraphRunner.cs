@@ -70,32 +70,40 @@ public static class GraphRunner
 
             width = material.Width;
             heightDepth = material.Height is null ? 0f : material.Depth;
-
-            var height = material.Height ?? Gray.Of(0.5f);
-            var normal = height.HeightToNormal(material.Width, material.Depth);
-
-            if (material.Normal is not null)
-            {
-                normal = new Normals(new NormalOverNode(normal.Node, material.Normal.Node));
-            }
-
-            var occlusion = height.HeightToOcclusion(material.Width, material.Depth);
-            var color = new Rgb(new OccludedColorNode((material.Color ?? Rgb.Of(0.5f, 0.5f, 0.5f)).Node, occlusion.Node, material.Occlusion));
-
-            roots =
-            [
-                color.Node,
-                normal.Node,
-                (material.Roughness ?? Gray.Of(0.6f)).Node,
-                (material.Metallic ?? Gray.Of(0f)).Node,
-                (material.Opacity ?? Gray.Of(1f)).Node,
-                height.Node
-            ];
+            roots = Roots(material);
         }
 
         var parts = Execute(roots, size, maxThreads ?? -1);
 
         return new MaterialImages(size, width, parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]) { HeightDepth = heightDepth };
+    }
+
+    /// <summary>
+    /// The six images a material is cooked to, in the order <see cref="MaterialImages"/> takes them: colour darkened by
+    /// the occlusion, normal, roughness, metallic, opacity and height, each with its default when the graph leaves it out.
+    /// </summary>
+    static Node[] Roots(Material material)
+    {
+        var height = material.Height ?? Gray.Of(0.5f);
+        var normal = height.HeightToNormal(material.Width, material.Depth);
+
+        if (material.Normal is not null)
+        {
+            normal = new Normals(new NormalOverNode(normal.Node, material.Normal.Node));
+        }
+
+        var occlusion = height.HeightToOcclusion(material.Width, material.Depth);
+        var color = new Rgb(new OccludedColorNode((material.Color ?? Rgb.Of(0.5f, 0.5f, 0.5f)).Node, occlusion.Node, material.Occlusion));
+
+        return
+        [
+            color.Node,
+            normal.Node,
+            (material.Roughness ?? Gray.Of(0.6f)).Node,
+            (material.Metallic ?? Gray.Of(0f)).Node,
+            (material.Opacity ?? Gray.Of(1f)).Node,
+            height.Node
+        ];
     }
 
     /// <summary>

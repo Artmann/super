@@ -1,6 +1,6 @@
 namespace Super.Materials;
 
-/// <summary>How <see cref="Gray.SlopeBlur"/> combines the reads along the slope.</summary>
+/// <summary>How <see cref="GrayWarps.SlopeBlur"/> combines the reads along the slope.</summary>
 public enum SlopeBlurMode
 {
     Average,
@@ -8,17 +8,18 @@ public enum SlopeBlurMode
     Max
 }
 
-public sealed partial class Gray
+/// <summary>Moves a grey image's pixels by another image, written as <c>image.Warp(by, amount)</c>.</summary>
+public static class GrayWarps
 {
     /// <summary>
     /// Each pixel reads from where it is moved to by <paramref name="amount"/> times the slope of <paramref name="by"/>.
     /// A 0 to 1 ramp across the whole image moves pixels by <paramref name="amount"/> of the image. Wraps at the edges.
     /// </summary>
-    public Gray Warp(Gray by, float amount)
+    public static Gray Warp(this Gray image, Gray by, float amount)
     {
         Arguments.Between(amount, -1f, 1f, nameof(amount));
 
-        return new Gray(new WarpNode(Node, 1, by.Node, amount));
+        return new Gray(new WarpNode(image.Node, 1, by.Node, amount));
     }
 
     /// <summary>
@@ -27,30 +28,30 @@ public sealed partial class Gray
     /// <paramref name="amount"/> of 0.25 shifts the image a quarter of its width. A negative amount moves the other way.
     /// Wraps at the edges, and the angle does not snap, since the image is moved rather than patterned.
     /// </summary>
-    public Gray DirectionalWarp(Gray by, float amount, float angle)
+    public static Gray DirectionalWarp(this Gray image, Gray by, float amount, float angle)
     {
         Arguments.Between(amount, -1f, 1f, nameof(amount));
         Arguments.Finite(angle, nameof(angle));
 
-        return new Gray(new DirectionalWarpNode(Node, 1, by.Node, amount, angle));
+        return new Gray(new DirectionalWarpNode(image.Node, 1, by.Node, amount, angle));
     }
 
     /// <summary>
     /// Blurs along the slope of <paramref name="slope"/>, reaching <paramref name="amount"/> of the image, from
     /// <paramref name="samples"/> reads. Where the slope is flat, the pixel is copied.
     /// </summary>
-    public Gray SlopeBlur(Gray slope, float amount, int samples = 16, SlopeBlurMode mode = SlopeBlurMode.Average)
+    public static Gray SlopeBlur(this Gray image, Gray slope, float amount, int samples = 16, SlopeBlurMode mode = SlopeBlurMode.Average)
     {
         Arguments.Between(amount, 0f, 1f, nameof(amount));
         Arguments.AtLeast(samples, 1, nameof(samples));
 
-        return new Gray(new SlopeBlurNode(Node, 1, slope.Node, amount, samples, mode));
+        return new Gray(new SlopeBlurNode(image.Node, 1, slope.Node, amount, samples, mode));
     }
 }
 
 public sealed partial class Rgb
 {
-    /// <summary>The same as <see cref="Gray.Warp"/>, for each channel.</summary>
+    /// <summary>The same as <see cref="GrayWarps.Warp"/>, for each channel.</summary>
     public Rgb Warp(Gray by, float amount)
     {
         Arguments.Between(amount, -1f, 1f, nameof(amount));
@@ -58,7 +59,7 @@ public sealed partial class Rgb
         return new Rgb(new WarpNode(Node, 3, by.Node, amount));
     }
 
-    /// <summary>The same as <see cref="Gray.DirectionalWarp"/>, for each channel.</summary>
+    /// <summary>The same as <see cref="GrayWarps.DirectionalWarp"/>, for each channel.</summary>
     public Rgb DirectionalWarp(Gray by, float amount, float angle)
     {
         Arguments.Between(amount, -1f, 1f, nameof(amount));
@@ -67,7 +68,7 @@ public sealed partial class Rgb
         return new Rgb(new DirectionalWarpNode(Node, 3, by.Node, amount, angle));
     }
 
-    /// <summary>The same as <see cref="Gray.SlopeBlur"/>, for each channel.</summary>
+    /// <summary>The same as <see cref="GrayWarps.SlopeBlur"/>, for each channel.</summary>
     public Rgb SlopeBlur(Gray slope, float amount, int samples = 16, SlopeBlurMode mode = SlopeBlurMode.Average)
     {
         Arguments.Between(amount, 0f, 1f, nameof(amount));
@@ -94,7 +95,7 @@ sealed class WarpNode(Node input, int channels, Node by, float amount) : Node(ch
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
     {
         var size = context.Size;
-        var source = inputs[0];
+        var source = new InterleavedImage(inputs[0], size, Channels);
         var map = inputs[1];
 
         context.Rows(y =>
@@ -107,7 +108,7 @@ sealed class WarpNode(Node input, int channels, Node by, float amount) : Node(ch
 
                 for (var c = 0; c < Channels; c++)
                 {
-                    output[(y * size + x) * Channels + c] = Sampling.Bilinear(source, size, Channels, c, u, v);
+                    output[(y * size + x) * Channels + c] = source.Bilinear(c, u, v);
                 }
             }
         });
@@ -119,7 +120,7 @@ sealed class DirectionalWarpNode(Node input, int channels, Node by, float amount
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
     {
         var size = context.Size;
-        var source = inputs[0];
+        var source = new InterleavedImage(inputs[0], size, Channels);
         var map = inputs[1];
         var radians = angle * (MathF.PI / 180f);
 
@@ -137,7 +138,7 @@ sealed class DirectionalWarpNode(Node input, int channels, Node by, float amount
 
                 for (var c = 0; c < Channels; c++)
                 {
-                    output[(y * size + x) * Channels + c] = Sampling.Bilinear(source, size, Channels, c, u, v);
+                    output[(y * size + x) * Channels + c] = source.Bilinear(c, u, v);
                 }
             }
         });
@@ -151,6 +152,7 @@ sealed class SlopeBlurNode(Node input, int channels, Node slope, float amount, i
     {
         var size = context.Size;
         var source = inputs[0];
+        var pixels = new InterleavedImage(source, size, Channels);
         var map = inputs[1];
 
         context.Rows(y =>
@@ -176,14 +178,14 @@ sealed class SlopeBlurNode(Node input, int channels, Node slope, float amount, i
                 for (var c = 0; c < Channels; c++)
                 {
                     // The first read is the pixel itself, taken exactly.
-                    output[at + c] = Along(source, size, c, source[at + c], line);
+                    output[at + c] = Along(pixels, c, source[at + c], line);
                 }
             }
         });
     }
 
     /// <summary>The channel's samples down the slope from a pixel, combined by the mode.</summary>
-    float Along(float[] source, int size, int channel, float first, Line line)
+    float Along(InterleavedImage pixels, int channel, float first, Line line)
     {
         var sum = first;
         var low = first;
@@ -192,7 +194,7 @@ sealed class SlopeBlurNode(Node input, int channels, Node slope, float amount, i
         for (var i = 1; i < samples; i++)
         {
             var t = i * amount / samples;
-            var value = Sampling.Bilinear(source, size, Channels, channel, line.U + line.Dx * t, line.V + line.Dy * t);
+            var value = pixels.Bilinear(channel, line.U + line.Dx * t, line.V + line.Dy * t);
 
             sum += value;
             low = MathF.Min(low, value);

@@ -147,7 +147,24 @@ public static class DMath
             return x;
         }
 
-        // x = m * 2^e with m in [sqrt(1/2), sqrt(2)).
+        var (m, e) = SplitNearOne(x);
+
+        // log(m) = 2 * atanh(s), s = (m - 1) / (m + 1), and |s| < 0.172.
+        var s = (m - 1.0) / (m + 1.0);
+        var s2 = s * s;
+        var sum = 0.0;
+
+        for (var n = 25; n >= 1; n -= 2)
+        {
+            sum = 1.0 / n + sum * s2;
+        }
+
+        return e * Ln2 + 2.0 * s * sum;
+    }
+
+    /// <summary>A positive, finite <paramref name="x"/> as m * 2^e with m in [sqrt(1/2), sqrt(2)).</summary>
+    static (double M, int E) SplitNearOne(double x)
+    {
         var e = 0;
 
         if (x < 2.2250738585072014e-308)
@@ -168,17 +185,7 @@ public static class DMath
             e++;
         }
 
-        // log(m) = 2 * atanh(s), s = (m - 1) / (m + 1), and |s| < 0.172.
-        var s = (m - 1.0) / (m + 1.0);
-        var s2 = s * s;
-        var sum = 0.0;
-
-        for (var n = 25; n >= 1; n -= 2)
-        {
-            sum = 1.0 / n + sum * s2;
-        }
-
-        return e * Ln2 + 2.0 * s * sum;
+        return (m, e);
     }
 
     static double PowD(double x, double y)
@@ -221,14 +228,9 @@ public static class DMath
             return double.NaN;
         }
 
-        if (y == 0.0)
+        if (y == 0.0 || x == 0.0)
         {
-            return double.IsNegative(x) ? (double.IsNegative(y) ? -Math.PI : Math.PI) : y;
-        }
-
-        if (x == 0.0)
-        {
-            return y > 0.0 ? Math.PI / 2 : -Math.PI / 2;
+            return Atan2OnAxis(y, x);
         }
 
         var ax = Math.Abs(x);
@@ -246,6 +248,17 @@ public static class DMath
         }
 
         return y < 0.0 ? -angle : angle;
+    }
+
+    /// <summary>atan2 of a point on an axis, where <paramref name="y"/> or <paramref name="x"/> is 0, keeping the signs of zeros.</summary>
+    static double Atan2OnAxis(double y, double x)
+    {
+        if (y == 0.0)
+        {
+            return double.IsNegative(x) ? (double.IsNegative(y) ? -Math.PI : Math.PI) : y;
+        }
+
+        return y > 0.0 ? Math.PI / 2 : -Math.PI / 2;
     }
 
     // atan of t in 0..1. Past tan(pi/8) it uses atan(t) = pi/4 + atan((t - 1) / (t + 1)), which keeps the series short.

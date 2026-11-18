@@ -52,7 +52,7 @@ public readonly ref struct PixelArgs
     {
         Check(input, 1, "SampleGray", "SampleRgb");
 
-        return Sampling.Bilinear(_inputs[input], _size, 1, 0, uv.X, uv.Y);
+        return new InterleavedImage(_inputs[input], _size, 1).Bilinear(0, uv.X, uv.Y);
     }
 
     /// <summary>Input <paramref name="input"/> read bilinearly at <paramref name="uv"/>, as fractions of the image. Wraps at the edges.</summary>
@@ -60,12 +60,9 @@ public readonly ref struct PixelArgs
     {
         Check(input, 3, "SampleRgb", "SampleGray");
 
-        var values = _inputs[input];
+        var values = new InterleavedImage(_inputs[input], _size, 3);
 
-        return new Vector3(
-            Sampling.Bilinear(values, _size, 3, 0, uv.X, uv.Y),
-            Sampling.Bilinear(values, _size, 3, 1, uv.X, uv.Y),
-            Sampling.Bilinear(values, _size, 3, 2, uv.X, uv.Y));
+        return new Vector3(values.Bilinear(0, uv.X, uv.Y), values.Bilinear(1, uv.X, uv.Y), values.Bilinear(2, uv.X, uv.Y));
     }
 
     void Check(int input, int channels, string used, string instead)
