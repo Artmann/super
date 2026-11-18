@@ -73,9 +73,14 @@ internal ref struct PipelineDescription
 /// <summary>
 /// A pipeline, used wherever its handle is. With <see cref="RendererOptions.LiveShaders"/> it also remembers how it
 /// was made, so <see cref="PipelineFactory.Reload"/> can build it again from changed shaders and swap the handle.
-/// So keep this object, never a copy of <see cref="Handle"/>, and end it with <see cref="Destroy"/>.
+/// So keep this object, never a copy of <see cref="Handle"/>, and end it with <see cref="Destroy"/>. Its owner is the
+/// device it was made on and the set of live pipelines it leaves when destroyed, null without live shaders.
 /// </summary>
-internal sealed class LivePipeline(VulkanContext context, Pipeline handle, Func<Pipeline>? rebuild, string[] shaders)
+internal sealed class LivePipeline(
+    (Vk Api, Device Device, HashSet<LivePipeline>? Live) owner,
+    Pipeline handle,
+    Func<Pipeline>? rebuild,
+    string[] shaders)
 {
     public Pipeline Handle { get; private set; } = handle;
 
@@ -93,8 +98,8 @@ internal sealed class LivePipeline(VulkanContext context, Pipeline handle, Func<
 
     public unsafe void Destroy()
     {
-        context.LivePipelines?.Remove(this);
-        context.Api.DestroyPipeline(context.Device, Handle, null);
+        owner.Live?.Remove(this);
+        owner.Api.DestroyPipeline(owner.Device, Handle, null);
         Handle = default;
     }
 }
@@ -120,13 +125,13 @@ internal static unsafe class PipelineFactory
         var handle = Build(context, description);
         if (context.LivePipelines is not { } live)
         {
-            return new LivePipeline(context, handle, null, []);
+            return new LivePipeline(OwnerOf(context), handle, null, []);
         }
 
         var kept = Keep(description);
         string? fragment = description.FragmentCode is { } code ? code.Name : description.FragmentShader;
         string[] shaders = fragment is null ? [description.VertexShader] : [description.VertexShader, fragment];
-        var pipeline = new LivePipeline(context, handle, () => Build(context, kept.Restore()), shaders);
+        var pipeline = new LivePipeline(OwnerOf(context), handle, () => Build(context, kept.Restore()), shaders);
         live.Add(pipeline);
         return pipeline;
     }
@@ -457,13 +462,16 @@ internal static unsafe class PipelineFactory
         var handle = BuildCompute(context, shader, layout);
         if (context.LivePipelines is not { } live)
         {
-            return new LivePipeline(context, handle, null, []);
+            return new LivePipeline(OwnerOf(context), handle, null, []);
         }
 
-        var pipeline = new LivePipeline(context, handle, () => BuildCompute(context, shader, layout), [shader]);
+        var pipeline = new LivePipeline(OwnerOf(context), handle, () => BuildCompute(context, shader, layout), [shader]);
         live.Add(pipeline);
         return pipeline;
     }
+
+    private static (Vk Api, Device Device, HashSet<LivePipeline>? Live) OwnerOf(VulkanContext context) =>
+        (context.Api, context.Device, context.LivePipelines);
 
     private static Pipeline BuildCompute(VulkanContext context, string shader, PipelineLayout layout)
     {

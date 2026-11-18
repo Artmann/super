@@ -63,7 +63,7 @@ internal sealed unsafe class VulkanContext : IDisposable
         }
 
         Waits = new GpuWaits(Api, Device, Queue, QueueFamily);
-        Memory = new GpuMemory(this);
+        Memory = new GpuMemory(Api, PhysicalDevice, Device, CanTrace);
     }
 
     /// <summary>What the device was made with beyond what every GPU the renderer runs on has.</summary>
