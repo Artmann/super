@@ -45,65 +45,90 @@ internal static class MaskSlots
         }
 
         unslotted.Clear();
-        int spaceHeld = spaceSun >= 0 && spaceSun < ShadowMaskChannels.Count ? 1 << spaceSun : 0;
-        for (int i = 0; i < spaceLights.Length; i++)
-        {
-            int channel = spaceLights[i].SpaceChannel;
-            slots[i] = channel;
-            if (channel >= 0 && channel < ShadowMaskChannels.Count)
-            {
-                spaceHeld |= 1 << channel;
-            }
-        }
-
+        int spaceHeld = HoldSpaceSlots(spaceSun, spaceLights, slots);
         var chunkSlots = slots.Slice(spaceLights.Length, chunkLights.Length);
         chunkSlots.Fill(Waiting);
 
         // The next waiting light by key, ties by index, each time round: no list to sort, so nothing is allocated.
         for (int round = 0; round < chunkLights.Length; round++)
         {
-            int light = -1;
-            for (int i = 0; i < chunkLights.Length; i++)
-            {
-                if (chunkSlots[i] == Waiting && (light < 0 || chunkLights[i].Key < chunkLights[light].Key))
-                {
-                    light = i;
-                }
-            }
-
-            int taken = spaceHeld;
-            var (key, chunk, position, range) = chunkLights[light];
-            for (int other = 0; other < chunkLights.Length; other++)
-            {
-                if (chunkSlots[other] < 0)
-                {
-                    continue;
-                }
-
-                // One placed chunk has one table, which can name only one of its channels per slot, so its lights
-                // never share a slot however far apart. Copies of a chunk each have their own table.
-                float reach = range + chunkLights[other].Range;
-                if (chunkLights[other].Chunk == chunk
-                    || Vector3.DistanceSquared(position, chunkLights[other].Position) < reach * reach)
-                {
-                    taken |= 1 << chunkSlots[other];
-                }
-            }
-
-            chunkSlots[light] = -1;
-            for (int slot = 0; slot < ShadowMaskChannels.Count; slot++)
-            {
-                if ((taken & (1 << slot)) == 0)
-                {
-                    chunkSlots[light] = slot;
-                    break;
-                }
-            }
-
+            int light = NextWaiting(chunkLights, chunkSlots);
+            chunkSlots[light] = FirstFree(spaceHeld | TakenNear(light, chunkLights, chunkSlots));
             if (chunkSlots[light] < 0)
             {
-                unslotted.Add(key);
+                unslotted.Add(chunkLights[light].Key);
             }
         }
+    }
+
+    /// <summary>Gives each space light its own channel as its slot, and returns the slots the space holds as bits.</summary>
+    private static int HoldSpaceSlots(int spaceSun, ReadOnlySpan<(int Key, int SpaceChannel)> spaceLights, Span<int> slots)
+    {
+        int held = spaceSun >= 0 && spaceSun < ShadowMaskChannels.Count ? 1 << spaceSun : 0;
+        for (int i = 0; i < spaceLights.Length; i++)
+        {
+            int channel = spaceLights[i].SpaceChannel;
+            slots[i] = channel;
+            if (channel >= 0 && channel < ShadowMaskChannels.Count)
+            {
+                held |= 1 << channel;
+            }
+        }
+
+        return held;
+    }
+
+    /// <summary>The waiting chunk light with the lowest key, the first one on a tie.</summary>
+    private static int NextWaiting(ReadOnlySpan<(int Key, int Chunk, Vector3 Position, float Range)> chunkLights, Span<int> chunkSlots)
+    {
+        int light = -1;
+        for (int i = 0; i < chunkLights.Length; i++)
+        {
+            if (chunkSlots[i] == Waiting && (light < 0 || chunkLights[i].Key < chunkLights[light].Key))
+            {
+                light = i;
+            }
+        }
+
+        return light;
+    }
+
+    /// <summary>The slots, as bits, already held by chunk lights that <paramref name="light"/> can't share one with.</summary>
+    private static int TakenNear(int light, ReadOnlySpan<(int Key, int Chunk, Vector3 Position, float Range)> chunkLights, Span<int> chunkSlots)
+    {
+        int taken = 0;
+        var (_, chunk, position, range) = chunkLights[light];
+        for (int other = 0; other < chunkLights.Length; other++)
+        {
+            if (chunkSlots[other] < 0)
+            {
+                continue;
+            }
+
+            // One placed chunk has one table, which can name only one of its channels per slot, so its lights
+            // never share a slot however far apart. Copies of a chunk each have their own table.
+            float reach = range + chunkLights[other].Range;
+            if (chunkLights[other].Chunk == chunk
+                || Vector3.DistanceSquared(position, chunkLights[other].Position) < reach * reach)
+            {
+                taken |= 1 << chunkSlots[other];
+            }
+        }
+
+        return taken;
+    }
+
+    /// <summary>The lowest slot not in <paramref name="taken"/>, or -1 when all are.</summary>
+    private static int FirstFree(int taken)
+    {
+        for (int slot = 0; slot < ShadowMaskChannels.Count; slot++)
+        {
+            if ((taken & (1 << slot)) == 0)
+            {
+                return slot;
+            }
+        }
+
+        return -1;
     }
 }
