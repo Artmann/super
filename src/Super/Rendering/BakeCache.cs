@@ -4,8 +4,8 @@ namespace Super;
 /// Chunk bakes made on this machine, by their file name (which holds the input hash), least recently read dropped
 /// first. A file's last-write time is when it was last used, set from the <see cref="TimeProvider"/> on every read and
 /// write. Writes come from the thread pool and reads from the render thread, so a read never waits for another
-/// thread's file work: the lock guards only a small map in memory, and the writing, moving and trimming happen outside
-/// it. See "The bake cache" in docs/design.md.
+/// thread's file work: the lock in <see cref="HeldBakes"/> guards only a small map in memory, and the writing, moving and
+/// trimming happen outside it. See "The bake cache" in docs/design.md.
 /// </summary>
 internal sealed class BakeCache
 {
@@ -15,30 +15,11 @@ internal sealed class BakeCache
     /// <summary>The most bytes of freshly written bakes held in memory, 64 MB.</summary>
     public const long DefaultHeldCapacity = 64L * 1024 * 1024;
 
-    // How many freshly written bakes are also held in memory, until each is read once, within the held capacity.
-    private const int HeldInMemory = 4;
-
-    private const string Unfinished = ".tmp";
-
-    // A temp file this much older than now is left from a crash, not from a write under way.
-    private static readonly TimeSpan AbandonedAfter = TimeSpan.FromHours(1);
-
-    // Guards _held only. Nothing is read, written or deleted while it is taken.
-    private readonly Lock _lock = new();
-
-    // Taken by writes, for the sweep and the trim, so two don't delete the same files. A read never takes it.
-    private readonly Lock _trimLock = new();
-
-    private readonly List<(string File, byte[] Bytes)> _held = [];
-
-    // The bakes read from memory and when, for the next trim to write onto their files, which a read can't without
-    // touching the disk.
-    private readonly Dictionary<string, DateTime> _usedFromMemory = [];
-    private readonly string _folder;
+    private readonly HeldBakes _held;
+    private readonly CachedBakeFiles _files;
+    private readonly BakeCacheTrimmer _trimmer;
     private readonly TimeProvider _time;
     private readonly long _capacity;
-    private readonly long _heldCapacity;
-    private bool _swept;
 
     /// <param name="folder">Where the files go. Made on the first write.</param>
     /// <param name="time">Says when a file was used.</param>
@@ -50,10 +31,11 @@ internal sealed class BakeCache
         ArgumentNullException.ThrowIfNull(time);
         ArgumentOutOfRangeException.ThrowIfNegative(capacity);
         ArgumentOutOfRangeException.ThrowIfNegative(heldCapacity);
-        _folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
+        _files = new CachedBakeFiles(folder);
         _time = time;
         _capacity = capacity;
-        _heldCapacity = heldCapacity;
+        _held = new HeldBakes(time, heldCapacity);
+        _trimmer = new BakeCacheTrimmer(_files, _held, time, capacity);
     }
 
     /// <summary>Runs after a read's file is read and before its use time is set. For tests.</summary>
@@ -63,10 +45,10 @@ internal sealed class BakeCache
     internal Action? BeforeMove { get; set; }
 
     /// <summary>Where the files go, as a full path.</summary>
-    public string Folder => _folder;
+    public string Folder => _files.Folder;
 
     /// <summary>The bytes of bakes kept now.</summary>
-    public long Size => Files().Sum(file => file.Length);
+    public long Size => _files.All().Sum(file => file.Length);
 
     /// <summary>LOCALAPPDATA\{id}\Bakes on Windows, ~/Library/Caches/{id}/Bakes on macOS, $XDG_CACHE_HOME/{id}/bakes or ~/.cache/{id}/bakes on Linux.</summary>
     public static string FolderFor(string gameId, UserDataPlatform platform, Func<string, string?> environment)
@@ -123,45 +105,23 @@ internal sealed class BakeCache
     /// </summary>
     public byte[]? Read(string file)
     {
-        file = Key(file);
-        string path = PathFor(file);
-        lock (_lock)
+        file = HeldBakes.Key(file);
+        string path = _files.PathFor(file);
+        if (_held.Take(file) is { } held)
         {
-            int held = _held.FindIndex(entry => entry.File == file);
-            if (held >= 0)
-            {
-                byte[] bytes = _held[held].Bytes;
-                _held.RemoveAt(held);
-                _usedFromMemory[file] = _time.GetUtcNow().UtcDateTime;
-                return bytes;
-            }
+            return held;
         }
 
-        byte[] read;
-        try
+        // Gone, locked by another handle, or not a file: it isn't kept, so the chunk is baked again.
+        if (CachedBakeFiles.ReadWhole(path) is not { } read)
         {
-            // Sharing delete lets a write move a new file over this one while it is read.
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            read = new byte[stream.Length];
-            stream.ReadExactly(read);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            // Gone, locked by another handle, or not a file: it isn't kept, so the chunk is baked again.
             return null;
         }
 
         AfterRead?.Invoke();
 
-        try
-        {
-            File.SetLastWriteTimeUtc(path, _time.GetUtcNow().UtcDateTime);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            // The bake is good; it only won't count as used now.
-        }
-
+        // A problem here leaves the bake good; it only won't count as used now.
+        CachedBakeFiles.TryMarkUsed(path, _time.GetUtcNow().UtcDateTime);
         return read;
     }
 
@@ -176,180 +136,19 @@ internal sealed class BakeCache
     public void Write(string file, byte[] bytes)
     {
         ArgumentNullException.ThrowIfNull(bytes);
-        file = Key(file);
-        string path = PathFor(file);
+        file = HeldBakes.Key(file);
+        string path = _files.PathFor(file);
         if (bytes.LongLength > _capacity)
         {
-            // Whatever was kept under this name is the old bake, which a new one is meant to replace.
-            Unhold(file);
-            try
-            {
-                File.Delete(path);
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                // Held open by a reader: the old bake stays until a later write or trim gets it.
-            }
-
+            // Whatever was kept under this name is the old bake, which a new one is meant to replace. Held open by a
+            // reader, the old bake stays until a later write or trim gets it.
+            _held.Drop(file);
+            CachedBakeFiles.TryDelete(path);
             return;
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        string unfinished = $"{path}.{Guid.NewGuid():N}{Unfinished}";
-        try
-        {
-            File.WriteAllBytes(unfinished, bytes);
-            File.SetLastWriteTimeUtc(unfinished, _time.GetUtcNow().UtcDateTime);
-            BeforeMove?.Invoke();
-            File.Move(unfinished, path, overwrite: true);
-        }
-        catch
-        {
-            File.Delete(unfinished);
-            throw;
-        }
-
-        lock (_lock)
-        {
-            _held.RemoveAll(entry => entry.File == file);
-            _usedFromMemory.Remove(file);
-            if (bytes.LongLength <= _heldCapacity)
-            {
-                _held.Add((file, bytes));
-                long heldBytes = _held.Sum(entry => entry.Bytes.LongLength);
-                while (_held.Count > HeldInMemory || heldBytes > _heldCapacity)
-                {
-                    heldBytes -= _held[0].Bytes.LongLength;
-                    _held.RemoveAt(0);
-                }
-            }
-        }
-
-        Trim(path);
-    }
-
-    // Takes a key from Key.
-    private void Unhold(string file)
-    {
-        lock (_lock)
-        {
-            _held.RemoveAll(entry => entry.File == file);
-            _usedFromMemory.Remove(file);
-        }
-    }
-
-    // A name as the cache keys it, with forward slashes, so a name given either way finds the same bake in memory.
-    private static string Key(string file)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(file);
-        return file.Replace('\\', '/');
-    }
-
-    // Sweeps temp files left by a crash the first time, then deletes the oldest files, by use then name, until the total
-    // fits, leaving out the file just written. What to delete is worked out first and deleted after; a delete that
-    // fails is left for the next trim.
-    private void Trim(string written)
-    {
-        lock (_trimLock)
-        {
-            if (!_swept)
-            {
-                _swept = true;
-                Sweep();
-            }
-
-            KeyValuePair<string, DateTime>[] used;
-            lock (_lock)
-            {
-                used = [.. _usedFromMemory];
-                _usedFromMemory.Clear();
-            }
-
-            foreach (var (name, at) in used)
-            {
-                try
-                {
-                    File.SetLastWriteTimeUtc(PathFor(name), at);
-                }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-                {
-                    // Gone or locked: it simply isn't counted as used then.
-                }
-            }
-
-            var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-                ? StringComparison.OrdinalIgnoreCase
-                : StringComparison.Ordinal;
-            var files = Files().ToList();
-            long total = files.Sum(file => file.Length);
-            var oldestFirst = files
-                .Where(file => !string.Equals(file.FullName, written, comparison))
-                .OrderBy(file => file.LastWriteTimeUtc)
-                .ThenBy(file => file.FullName, StringComparer.Ordinal);
-            foreach (var file in oldestFirst)
-            {
-                if (total <= _capacity)
-                {
-                    break;
-                }
-
-                long length = file.Length;
-                try
-                {
-                    file.Delete();
-                    total -= length;
-                    Unhold(Key(Path.GetRelativePath(_folder, file.FullName)));
-                }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-                {
-                    // In use or locked: the cache is over its capacity until a later trim gets it.
-                }
-            }
-        }
-    }
-
-    private void Sweep()
-    {
-        if (!Directory.Exists(_folder))
-        {
-            return;
-        }
-
-        // Last written, not created: creation times aren't kept on every file system.
-        var cutoff = _time.GetUtcNow().UtcDateTime - AbandonedAfter;
-        foreach (var file in new DirectoryInfo(_folder).EnumerateFiles("*" + Unfinished, SearchOption.AllDirectories))
-        {
-            try
-            {
-                if (file.LastWriteTimeUtc < cutoff)
-                {
-                    file.Delete();
-                }
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                // Left for the next session.
-            }
-        }
-    }
-
-    // The bakes kept, leaving out temp files.
-    private IEnumerable<FileInfo> Files() =>
-        Directory.Exists(_folder)
-            ? new DirectoryInfo(_folder).EnumerateFiles("*", SearchOption.AllDirectories)
-                .Where(file => !file.Name.EndsWith(Unfinished, StringComparison.Ordinal))
-            : [];
-
-    private string PathFor(string file)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(file);
-        string path = Path.GetFullPath(Path.Combine(_folder, file));
-        string inside = _folder.EndsWith(Path.DirectorySeparatorChar) ? _folder : _folder + Path.DirectorySeparatorChar;
-        if (Path.IsPathRooted(file) || !path.StartsWith(inside, StringComparison.Ordinal))
-        {
-            throw new ArgumentException($"The bake name '{file}' must stay inside the cache folder.", nameof(file));
-        }
-
-        return path;
+        _files.WriteWhole(path, bytes, _time.GetUtcNow().UtcDateTime, BeforeMove);
+        _held.Hold(file, bytes);
+        _trimmer.Trim(path);
     }
 }
