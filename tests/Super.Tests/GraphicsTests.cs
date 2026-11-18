@@ -59,7 +59,7 @@ public class GraphicsTests
 
         host.Game.Graphics.OcclusionResolution = OcclusionResolution.Full;
 
-        Assert.Equal(OcclusionResolution.Full, GameWindow.RendererSettings(host.Graphics, hidden: false).OcclusionResolution);
+        Assert.Equal(OcclusionResolution.Full, WindowFrames.RendererSettings(host.Graphics, hidden: false).OcclusionResolution);
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public class GraphicsTests
 
         host.Game.Graphics.ReflectionResolution = ReflectionResolution.Full;
 
-        Assert.Equal(ReflectionResolution.Full, GameWindow.RendererSettings(host.Graphics, hidden: false).ReflectionResolution);
+        Assert.Equal(ReflectionResolution.Full, WindowFrames.RendererSettings(host.Graphics, hidden: false).ReflectionResolution);
     }
 
     [Fact]
@@ -118,18 +118,18 @@ public class GraphicsTests
 
         host.Game.Graphics.ProbeQuality = ProbeQuality.Medium;
 
-        Assert.Equal(ProbeQuality.Medium, GameWindow.RendererSettings(host.Graphics, hidden: false).ProbeQuality);
+        Assert.Equal(ProbeQuality.Medium, WindowFrames.RendererSettings(host.Graphics, hidden: false).ProbeQuality);
     }
 
     [Fact]
     public void A_debug_view_the_game_sets_reaches_the_renderer_next_frame()
     {
         using var host = new GameHost<Settings>(1, 30, null, graphics: new Graphics());
-        Assert.Equal(DebugView.None, GameWindow.RendererSettings(host.Graphics, hidden: false).DebugView);
+        Assert.Equal(DebugView.None, WindowFrames.RendererSettings(host.Graphics, hidden: false).DebugView);
 
         host.Game.Graphics.DebugView = DebugView.Probes;
 
-        Assert.Equal(DebugView.Probes, GameWindow.RendererSettings(host.Graphics, hidden: false).DebugView);
+        Assert.Equal(DebugView.Probes, WindowFrames.RendererSettings(host.Graphics, hidden: false).DebugView);
     }
 
     [Theory]
@@ -142,7 +142,7 @@ public class GraphicsTests
     {
         var graphics = new Graphics { DebugView = game };
 
-        Assert.Equal(expected, GameWindow.RendererSettings(graphics, hidden: false, commandLineDebugView: commandLine).DebugView);
+        Assert.Equal(expected, WindowFrames.RendererSettings(graphics, hidden: false, commandLineDebugView: commandLine).DebugView);
     }
 
     [Fact]
@@ -150,8 +150,8 @@ public class GraphicsTests
     {
         var graphics = new Graphics { DebugView = DebugView.Trace };
 
-        Assert.Equal(DebugView.None, GameWindow.RendererSettings(graphics, hidden: false, canTrace: false).DebugView);
-        Assert.Equal(DebugView.Trace, GameWindow.RendererSettings(graphics, hidden: false, canTrace: true).DebugView);
+        Assert.Equal(DebugView.None, WindowFrames.RendererSettings(graphics, hidden: false, canTrace: false).DebugView);
+        Assert.Equal(DebugView.Trace, WindowFrames.RendererSettings(graphics, hidden: false, canTrace: true).DebugView);
     }
 
     [Theory]
@@ -166,7 +166,7 @@ public class GraphicsTests
     {
         var graphics = new Graphics { Vsync = vsync };
 
-        Assert.Equal(expected, GameWindow.RendererSettings(graphics, hidden, takingShot).Vsync);
+        Assert.Equal(expected, WindowFrames.RendererSettings(graphics, hidden, takingShot).Vsync);
     }
 
     [Theory]
@@ -257,7 +257,7 @@ public class GraphicsTests
         host.Game.Graphics.RenderScale = 1.5f;
 
         // What the window hands the renderer before the next frame, which draws the scene this size.
-        float scale = GameWindow.RendererSettings(host.Graphics, hidden: false).RenderScale;
+        float scale = WindowFrames.RendererSettings(host.Graphics, hidden: false).RenderScale;
         Assert.Equal((2400, 1350), Renderer.SceneSize(1600, 900, scale));
     }
 
@@ -293,7 +293,7 @@ public class GraphicsTests
         host.Game.Graphics.ShadowResolution = 4096;
 
         // What the window hands the renderer before the next frame.
-        Assert.Equal(4096, GameWindow.RendererSettings(host.Graphics, hidden: false).ShadowResolution);
+        Assert.Equal(4096, WindowFrames.RendererSettings(host.Graphics, hidden: false).ShadowResolution);
     }
 
     [Theory]
@@ -393,10 +393,10 @@ public class GraphicsTests
         using var host = new GameHost<Settings>(1, 30, null, graphics: given);
 
         host.Game.Graphics.Upscaler = Upscaler.Fsr;
-        Assert.Equal(Upscaler.Fsr, GameWindow.RendererSettings(host.Graphics, hidden: false).Upscaler);
+        Assert.Equal(Upscaler.Fsr, WindowFrames.RendererSettings(host.Graphics, hidden: false).Upscaler);
 
         host.Game.Graphics.Upscaler = Upscaler.Taa;
-        Assert.Equal(Upscaler.Taa, GameWindow.RendererSettings(host.Graphics, hidden: false).Upscaler);
+        Assert.Equal(Upscaler.Taa, WindowFrames.RendererSettings(host.Graphics, hidden: false).Upscaler);
     }
 
     [Fact]
