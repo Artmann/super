@@ -65,7 +65,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         {
             var room = Room(gpu, quad);
             var view = RoomView(gpu, room);
-            int jobs = gpu.Renderer.LiveBakeJobs;
+            int jobs = gpu.Renderer.BakeJobs.Bakers.LiveJobs;
             gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], dones.Add);
 
             // Far enough in that the job holds the baker's pages.
@@ -91,7 +91,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             // to hold the baker's pages.
             gpu.Renderer.AutoBake = null;
             RenderUntil(view, room, () => false, first: traced + frames, frames: 4);
-            Assert.Equal(jobs, gpu.Renderer.LiveBakeJobs);
+            Assert.Equal(jobs, gpu.Renderer.BakeJobs.Bakers.LiveJobs);
         }
         finally
         {
@@ -114,7 +114,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         {
             var room = Room(gpu, quad, wall);
             var view = RoomView(gpu, room);
-            int jobs = gpu.Renderer.LiveBakeJobs;
+            int jobs = gpu.Renderer.BakeJobs.Bakers.LiveJobs;
             gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], dones.Add);
 
             int traced = RenderUntil(view, room, () => gpu.Renderer.BakeProgress is { Fraction: > 0f } || dones.Count > 0);
@@ -141,7 +141,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             Assert.Equal(Normal(whole), Normal(dones[^1].Bytes));
 
             RenderUntil(view, room, () => false, first: traced + 1 + frames, frames: 4);
-            Assert.Equal(jobs, gpu.Renderer.LiveBakeJobs);
+            Assert.Equal(jobs, gpu.Renderer.BakeJobs.Bakers.LiveJobs);
         }
         finally
         {
@@ -166,7 +166,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         {
             var room = Room(gpu, quad, wall);
             var view = RoomView(gpu, room);
-            int jobs = gpu.Renderer.LiveBakeJobs;
+            int jobs = gpu.Renderer.BakeJobs.Bakers.LiveJobs;
             gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], _ => { });
 
             int traced = RenderUntil(view, room, () => gpu.Renderer.BakeProgress is { Fraction: > 0f });
@@ -183,7 +183,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
 
             gpu.Renderer.AutoBake = null;
             RenderUntil(view, room, () => false, first: traced + 1, frames: 4);
-            Assert.Equal(jobs, gpu.Renderer.LiveBakeJobs);
+            Assert.Equal(jobs, gpu.Renderer.BakeJobs.Bakers.LiveJobs);
         }
         finally
         {
@@ -243,15 +243,15 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Final], d => done = d);
 
             // The first slices find out how long a pass takes, so only those from the fourth on must fit.
-            int measured = gpu.Renderer.BakeSlicesMeasured;
+            int measured = gpu.Renderer.BackgroundBakes.Slicer.Timer.SlicesMeasured;
             int slices = 0;
             float largest = 0f;
             int largestAt = -1;
             int frames = RenderUntil(view, room, () =>
             {
-                if (gpu.Renderer.BakeSlicesMeasured != measured && gpu.Renderer.BakeProgress is { } progress)
+                if (gpu.Renderer.BackgroundBakes.Slicer.Timer.SlicesMeasured != measured && gpu.Renderer.BakeProgress is { } progress)
                 {
-                    measured = gpu.Renderer.BakeSlicesMeasured;
+                    measured = gpu.Renderer.BackgroundBakes.Slicer.Timer.SlicesMeasured;
                     slices++;
                     if (slices >= 4 && progress.LastSliceMilliseconds > largest)
                     {
@@ -301,9 +301,9 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             int frames = RenderUntil(view, room, () =>
             {
                 frame++;
-                if (gpu.Renderer.BakeStepCpuMilliseconds > largest)
+                if (gpu.Renderer.BackgroundBakes.Slicer.StepCpuMilliseconds > largest)
                 {
-                    largest = gpu.Renderer.BakeStepCpuMilliseconds;
+                    largest = gpu.Renderer.BackgroundBakes.Slicer.StepCpuMilliseconds;
                     largestAt = frame;
                 }
 

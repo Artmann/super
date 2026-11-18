@@ -2724,7 +2724,7 @@ here as it is at a lightmap texel, since the frame draws it live; its light stil
 a bounce through `pathFrom`. `Baked` lights, emission and the sky count in full.
 
 The fold is the live one. The baker keeps a `ProbeVolume` of its own at `ProbeQuality.Low`, made by
-`Renderer.PrepareBaking` (`Baker.EnsureProbeVolume`), and
+`PreparedBakers.Prepare` (`Baker.EnsureProbeVolume`), and
 for each group of up to `FaceSlots` (8) probes copies their faces into `FacesImage`, one slot each,
 calls `ProbeVolume.RecordFold` per slot, and `RecordStagingReadBack` copies the staging slots to a
 host buffer. So the tiles, borders, depth moments and inside marks come from `probe_fold.comp`
@@ -2749,15 +2749,16 @@ lightmap's.
 ## Baking as a job
 
 A bake runs as a `BakeJob` (`src/Rendition/Baking/BakeJob.cs`): a series of steps, each recording a slice of the work
-into a command buffer the caller submits. `Renderer.CreateSpaceJob` and `Renderer.CreateChunkJob` make one. They do
-every check `Bake` and `BakeChunk` do, resolve the inputs, lay out the draws and take the lights, and copy the draws and
-lights into the job, but record nothing and never wait for the GPU. Making the `Baker` and its probe volume does wait,
-so `Renderer.PrepareBaking` makes them, once, outside a frame; a `Create*Job` before it throws rather than wait. The
-probe volume is the same size for every space, since a bake folds its probes a few at a time through its slots, so the
-one `PrepareBaking` makes serves every bake. A chunk has no probes, so `PrepareBaking(probes: false)` makes only the
-`Baker`, and a chunk still bakes on a GPU the probe fold can't run on. `Bake` and `BakeChunk` still wait for the GPU,
-flush uploads, bake the sky and call `PrepareBaking`, then make the same job and step it to the end, one `SubmitAndWait` a step. A background bake can instead run a few
-steps a frame.
+into a command buffer the caller submits. `BakeJobs.CreateSpaceJob` and `BakeJobs.CreateChunkJob`
+(`src/Rendition/BakeJobs.cs`) make one. They do every check `Bake` and `BakeChunk` do, resolve the inputs, lay out the
+draws and take the lights, and copy the draws and lights into the job, but record nothing and never wait for the GPU.
+Making the `Baker` and its probe volume does wait, so `PreparedBakers.Prepare` makes them, once, outside a frame; a
+`Create*Job` before it throws rather than wait. The probe volume is the same size for every space, since a bake folds
+its probes a few at a time through its slots, so the one `Prepare` makes serves every bake. A chunk has no probes, so
+`Prepare(probes: false)` makes only the `Baker`, and a chunk still bakes on a GPU the probe fold can't run on. `Bake`
+and `BakeChunk` still wait for the GPU, flush uploads, bake the sky and call `Prepare`, then make the same job and step
+it to the end with `BakeJobs.RunToEnd`, one `SubmitAndWait` a step. A background bake can instead run a few steps a
+frame.
 
 `Step(cmd, passes)` returns `Continue`, `AwaitGpu`, `AwaitCpu` or `Done`, and traces at most `passes` passes.
 `AwaitCpu` means the step started work on the thread pool: turning a readback into arrays and filling the next upload,
@@ -2808,12 +2809,12 @@ With `Renderer.AutoBake` set, the renderer bakes the areas a frame names whose b
 `BakeJob` at a time, a step a frame inside the frame's own command buffer. Nothing waits for the GPU: the frames
 (`AutoBakeGpuTests`) never move `VulkanContext.SubmitAndWaitCount`.
 
-Setting `AutoBake` stops the running job and calls `PrepareBaking(probes: Spaces)`, which may wait the first time, so it
-is set outside a frame. A device that can't trace skips both, and every frame then does nothing new. A device that
-traces but can't bake (`PrepareBaking` throws) reports it once to the console and bakes nothing until `AutoBake` is set
-again.
+`BackgroundBakes` (`src/Rendition/BackgroundBakes.cs`) does the work. Setting `AutoBake` stops the running job and
+calls `PreparedBakers.Prepare(probes: Spaces)`, which may wait the first time, so it is set outside a frame. A device
+that can't trace skips both, and every frame then does nothing new. A device that traces but can't bake (`Prepare`
+throws) reports it once to the console and bakes nothing until `AutoBake` is set again.
 
-Each frame, after `ResolveBakes`, `UpdateBackgroundBake` lists the frame's wants and hands them to a `BakeQueue`
+Each frame, after `ResolveBakes`, `BackgroundBakes.Update` lists the frame's wants (`BakeWants`) and hands them to a `BakeQueue`
 (`src/Rendition/Baking/BakeQueue.cs`). Nothing is wanted before `AnimatedLights.Settled`, since a light that moves may
 not have been seen moving yet. The space is wanted when `AutoBake.Spaces` is set and the store has no fresh bake of its
 inputs (`IsFreshQuietly`, so a frame doesn't log). A chunk is wanted the same way unless its fresh bake is
@@ -2832,24 +2833,25 @@ without telling the queue it stopped. A job whose area the frame doesn't name ca
 no job runs and no area waits; while areas wait and none runs yet it has an empty name. The queue reuses its lists, so a frame with no wants allocates
 nothing.
 
-`RecordBakeSlice` runs after the chunk uploads are recorded and before the frame's top-level build. It records one
-step between two timestamps of a `GpuTimer` of its own ("Background bake"), read back by `MeasureBakeSlice` once the
+`BakeSlicer.RecordSlice` (`src/Rendition/BakeSlicer.cs`) runs after the chunk uploads are recorded and before the
+frame's top-level build. It records one step between two timestamps of a `GpuTimer` of its own ("Background bake"), read
+back by `BakeSliceTimer.Measure` once the
 slot's fence has passed. A trace step's passes start at one and become `clamp(budget / msPerPass, 1, 2 × last)` from
 each measurement. The measurement comes two frames late, so the passes double about every other frame. A step that
 traces nothing (setup, readbacks, filters, folds) starts the count over at one, and an epoch number stops a slice
 measured from before then from resizing the next stage. A step that returns `AwaitGpu` holds the job until as many more
 frames as there are frames in flight have been submitted, since by then the fence of the frame that carried the step
 has passed and its readback has landed. A step that returns `AwaitCpu` leaves the job to the thread pool, and each
-frame's step until that work is done records nothing and takes microseconds. `Renderer.BakeStepCpuMilliseconds` is how
+frame's step until that work is done records nothing and takes microseconds. `BakeSlicer.StepCpuMilliseconds` is how
 long the last step took on the render thread: at 180 texels a metre the readback steps take one or two milliseconds,
 where turning the readbacks into arrays on the render thread took over 500 ms in one frame
 (`AutoBakeGpuTests` checks every step of such a bake stays within the budget). Until a job's setup step has run, the baker's pages may still be held by the
 last job's file being made, so the slice waits for them.
 
-The running job is one field of the renderer, `_bake`, holding a `SteppingBake` (with the frame count an `AwaitGpu`
-waits for), a `FinishingBake`, or nothing. Each carries the job with the area and quality it bakes.
+The running job is one property of the slicer, `BakeSlicer.Running`, holding a `SteppingBake` (with the frame count an
+`AwaitGpu` waits for), a `FinishingBake`, or nothing. Each carries the job with the area and quality it bakes.
 
-At `Done` the job's `Finish` runs on the thread pool, since encoding the pages takes longer than a frame. The job stays
+At `Done` the job's `Finish` runs on the thread pool (`BakeFinisher`), since encoding the pages takes longer than a frame. The job stays
 the running one meanwhile, as a `FinishingBake`, holding the baker's pages, so no other job sets up. A later `Render` takes the bytes from a
 `ConcurrentQueue`, disposes the job, tells the queue, and calls `AutoBake.Done` on the render thread before it resolves
 the frame's bakes. Nothing catches an exception from `Done`, so it passes out of `Render`.
@@ -2857,9 +2859,9 @@ the frame's bakes. Nothing catches an exception from `Done`, so it passes out of
 A stopped job may have steps in frames still in flight, so it is disposed with the destroyed resources of the last
 submitted frame's slot. A job that never stepped holds nothing the GPU reads and goes at once. A job whose work on the
 thread pool still runs when its slot comes round is parked instead, and the first frame that draws baked lights after that work ends disposes
-it, so `Render` never waits for it; `DropBackgroundBakes` waits. The job's held top-level
+it, so `Render` never waits for it; `BackgroundBakes.DropAll` waits. The job's held top-level
 structure points at bottom-level structures it doesn't own, so anything that frees one of those, or what they read,
-must stop it first. Every such path goes through `StopBakeThatReads`: `DestroyMesh`, destroying a material or a
+must stop it first. Every such path goes through `BackgroundBakes.StopIfReads`: `DestroyMesh`, destroying a material or a
 texture, and `UpdateMaterial` when the change makes `ForgetMaterial` drop the material's structures. Each stops the
 running job when its draws use the mesh or material, a texture through the materials of its draws, and the queue starts
 the area again from the scene. A job whose file is being made reads nothing on the GPU, so it is left to finish.
@@ -4000,8 +4002,8 @@ lighting"), and so do reflection probe captures. `CreateSurfaceShader` and `SetO
 still wait, and say so: they're for loading screens.
 
 Destroying returns at once. The resource is added to the destroy slot of the frame
-most recently submitted, and released when a later `Render` has waited on that
-frame's fence, so no frame in flight can still read it. Destroying something whose
+most recently submitted (`RetiredResources`, `src/Rendition/RetiredResources.cs`), and released when a later `Render`
+has waited on that frame's fence, so no frame in flight can still read it. Destroying something whose
 upload is still queued cancels the copy first, so the copy never runs into freed
 memory. A released texture's descriptor slot is rewritten to the white texture, so
 whatever takes the slot next starts from something harmless; a material that still
@@ -4375,7 +4377,7 @@ so a background bake counts a fresh area as done), so a store that only answers
 its own, `LightBakeStore` among them, has no such excuse: when its `Load` gives null for a file
 it called fresh, the file went after its header was read, such as when it is removed without a
 reload calling `Forget`, and the renderer treats it as unreadable (see "Drawing a bake").
-`Renderer.GivesLightmaps` tells the two apart from the store type's interface map, once a type.
+`ReadableBakes.GivesLightmaps` tells the two apart from the store type's interface map, once a type.
 `GameWindow.BakeCheck` asks the same store's `Saved` and prints what `Changes` names, so
 `--bake-check` judges the bake the game would draw with.
 
