@@ -5113,8 +5113,10 @@ asked for, which today is `--debug-view trace`, whose start-up error carries it.
 needs it, so a GPU that can't trace plays as before.
 
 `Renderer.Tracing` is a `RayTracing`, made only where `VulkanContext.CanTrace` is true; it is
-null everywhere else, and nothing below runs. It loads `KhrAccelerationStructure` from the device
-once and reads `minAccelerationStructureScratchOffsetAlignment` from the device's properties.
+null everywhere else, and nothing below runs. Its `StructureBuilder` loads `KhrAccelerationStructure`
+from the device once, reads `minAccelerationStructureScratchOffsetAlignment` from the device's properties
+and keeps the shared scratch buffer; `BottomLevels` keeps the bottom-level structures and `TopLevelPool`
+the top-level ones.
 
 Bottom-level structures are built the first time something traces a mesh.
 `BottomLevel(cmd, mesh, parts)` returns the structure's device address. The first call for a mesh
@@ -5175,7 +5177,7 @@ so it is the transpose: row r of the result is column r of the transform.
 
 `TopLevel(cmd, instances)` builds each instance's bottom-level structure if it isn't built yet, then
 records a build of the whole top-level structure, rebuilt from scratch every call with
-`PreferFastTrace` and no refitting. `RayTracing.Pack` writes the instances: an instance's custom
+`PreferFastTrace` and no refitting. `TraceEncoding.Pack` writes the instances: an instance's custom
 index is where its first part sits in the geometry table, which lists every instance's parts in
 order, so a hit's entry is `gl_InstanceCustomIndexEXT + gl_GeometryIndexEXT`. The mask is `0xFF`,
 with bit `0x02` clear on see-through instances so later features can skip them with a cull mask.

@@ -129,7 +129,7 @@ public class TraceSceneTests
     public void Two_floats_pack_as_half_floats_the_first_in_the_low_half(float low, float high, uint expected)
     {
         // 1.0 is 0x3C00 as a half, 0.5 is 0x3800, 2.0 is 0x4000 and 0.25 is 0x3400.
-        Assert.Equal(expected, RayTracing.Half2(low, high));
+        Assert.Equal(expected, TraceEncoding.Half2(low, high));
     }
 
     [Fact]
@@ -213,7 +213,7 @@ public class TraceSceneTests
         var packed = new AccelerationStructureInstanceKHR[3];
         var geometries = new List<TraceGeometry>();
 
-        RayTracing.Pack(instances, bottomLevels, packed, geometries);
+        TraceEncoding.Pack(instances, bottomLevels, packed, geometries);
 
         Assert.Equal([0u, 2u, 3u], packed.Select(i => i.InstanceCustomIndex).ToArray());
         Assert.Equal([0x1000ul, 0x2000ul, 0x3000ul], packed.Select(i => i.AccelerationStructureReference).ToArray());
@@ -240,7 +240,7 @@ public class TraceSceneTests
         ];
         var packed = new AccelerationStructureInstanceKHR[3];
 
-        RayTracing.Pack(instances, [1, 2, 3], packed, []);
+        TraceEncoding.Pack(instances, [1, 2, 3], packed, []);
 
         Assert.Equal([0xFFu, 0xFFu, 0xFDu], packed.Select(i => i.Mask).ToArray());
     }
@@ -253,7 +253,7 @@ public class TraceSceneTests
     public void A_materials_trace_flags_come_from_its_cutouts_and_transparency(
         bool cutouts, MaterialFlags flags, TraceFlags expected)
     {
-        Assert.Equal(expected, RayTracing.TraceFlagsFor(cutouts, flags));
+        Assert.Equal(expected, TraceEncoding.TraceFlagsFor(cutouts, flags));
     }
 
     private static float At(TransformMatrixKHR m, int row, int column) =>
