@@ -63,12 +63,7 @@ public static class BakeFiles
     /// </summary>
     public static bool IsRigid(in Matrix4x4 transform)
     {
-        if (!(transform.M14 == 0f && transform.M24 == 0f && transform.M34 == 0f && transform.M44 == 1f))
-        {
-            return false;
-        }
-
-        if (!(float.IsFinite(transform.M41) && float.IsFinite(transform.M42) && float.IsFinite(transform.M43)))
+        if (!IsAffineAndFinite(transform))
         {
             return false;
         }
@@ -76,14 +71,21 @@ public static class BakeFiles
         var x = new Vector3(transform.M11, transform.M12, transform.M13);
         var y = new Vector3(transform.M21, transform.M22, transform.M23);
         var z = new Vector3(transform.M31, transform.M32, transform.M33);
-        bool unit = MathF.Abs(x.Length() - 1f) <= RigidTolerance
-            && MathF.Abs(y.Length() - 1f) <= RigidTolerance
-            && MathF.Abs(z.Length() - 1f) <= RigidTolerance;
-        bool square = MathF.Abs(Vector3.Dot(x, y)) <= RigidTolerance
-            && MathF.Abs(Vector3.Dot(y, z)) <= RigidTolerance
-            && MathF.Abs(Vector3.Dot(z, x)) <= RigidTolerance;
+        bool unit = IsUnit(x) && IsUnit(y) && IsUnit(z);
+        bool square = AreSquare(x, y) && AreSquare(y, z) && AreSquare(z, x);
         return unit && square && Vector3.Dot(x, Vector3.Cross(y, z)) > 0f;
     }
+
+    // The last column is (0, 0, 0, 1) and the move is finite.
+    private static bool IsAffineAndFinite(in Matrix4x4 transform)
+    {
+        return transform.M14 == 0f && transform.M24 == 0f && transform.M34 == 0f && transform.M44 == 1f
+            && float.IsFinite(transform.M41) && float.IsFinite(transform.M42) && float.IsFinite(transform.M43);
+    }
+
+    private static bool IsUnit(Vector3 row) => MathF.Abs(row.Length() - 1f) <= RigidTolerance;
+
+    private static bool AreSquare(Vector3 a, Vector3 b) => MathF.Abs(Vector3.Dot(a, b)) <= RigidTolerance;
 
     /// <summary>Throws unless the chunk's transform <see cref="IsRigid"/>. <paramref name="index"/> is its place in the frame.</summary>
     public static void CheckChunkTransform(int index, string name, in Matrix4x4 transform, string? paramName)
