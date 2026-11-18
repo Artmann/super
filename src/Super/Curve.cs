@@ -169,23 +169,26 @@ public sealed class Curve
 
         for (int i = 0; i < keys.Length; i++)
         {
-            var key = keys[i];
-            if (!float.IsFinite(key.Time) || !float.IsFinite(key.Value) || !float.IsFinite(key.In) || !float.IsFinite(key.Out))
-            {
-                throw new ArgumentException($"Curve key {i} must have a finite time, value and slopes.");
-            }
-
-            if (key.Tangent != CurveTangent.Custom && (key.In != 0f || key.Out != 0f))
-            {
-                throw new ArgumentException($"Curve key {i} sets in or out slopes, which only a custom tangent uses.");
-            }
-
-            if (i > 0 && key.Time <= keys[i - 1].Time)
+            CheckKey(keys[i], i);
+            if (i > 0 && keys[i].Time <= keys[i - 1].Time)
             {
                 throw new ArgumentException(string.Create(
                     CultureInfo.InvariantCulture,
-                    $"Curve keys must be in order of time, but key {i} at {key.Time} comes after {keys[i - 1].Time}."));
+                    $"Curve keys must be in order of time, but key {i} at {keys[i].Time} comes after {keys[i - 1].Time}."));
             }
+        }
+    }
+
+    private static void CheckKey(CurveKey key, int index)
+    {
+        if (!float.IsFinite(key.Time) || !float.IsFinite(key.Value) || !float.IsFinite(key.In) || !float.IsFinite(key.Out))
+        {
+            throw new ArgumentException($"Curve key {index} must have a finite time, value and slopes.");
+        }
+
+        if (key.Tangent != CurveTangent.Custom && (key.In != 0f || key.Out != 0f))
+        {
+            throw new ArgumentException($"Curve key {index} sets in or out slopes, which only a custom tangent uses.");
         }
     }
 
