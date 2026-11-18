@@ -53,6 +53,31 @@ static class DistanceTransform
             return result;
         }
 
+        var columns = Columns(context, seeds);
+
+        context.Rows(() => new Line(size), (y, line) =>
+        {
+            for (var k = 0; k < 3 * size; k++)
+            {
+                line.F[k] = float.IsPositiveInfinity(columns[y * size + k % size]) ? Far : columns[y * size + k % size];
+            }
+
+            line.Run();
+
+            for (var x = 0; x < size; x++)
+            {
+                result[y * size + x] = (float)line.D[size + x];
+            }
+        });
+
+        return result;
+    }
+
+    /// <summary>The first pass: for every pixel, the squared distance down its column to the nearest seed.</summary>
+    static float[] Columns(EvaluationContext context, bool[] seeds)
+    {
+        var size = context.Size;
+
         // Squared distances along a column are at most (size / 2)^2, so a float holds them exactly up to size 8192.
         var columns = new float[size * size];
 
@@ -74,22 +99,7 @@ static class DistanceTransform
             }
         });
 
-        context.Rows(() => new Line(size), (y, line) =>
-        {
-            for (var k = 0; k < 3 * size; k++)
-            {
-                line.F[k] = float.IsPositiveInfinity(columns[y * size + k % size]) ? Far : columns[y * size + k % size];
-            }
-
-            line.Run();
-
-            for (var x = 0; x < size; x++)
-            {
-                result[y * size + x] = (float)line.D[size + x];
-            }
-        });
-
-        return result;
+        return columns;
     }
 
     sealed class Line(int size)
@@ -104,6 +114,16 @@ static class DistanceTransform
 
         public void Run()
         {
+            BuildEnvelope();
+            ReadEnvelope();
+        }
+
+        /// <summary>
+        /// The lower envelope of the parabolas rooted at each place: <c>_v</c> holds the places whose parabolas
+        /// make it, and <c>_z</c> where each takes over from the one before.
+        /// </summary>
+        void BuildEnvelope()
+        {
             var k = 0;
 
             _v[0] = 0;
@@ -112,22 +132,13 @@ static class DistanceTransform
 
             for (var q = 1; q < _n; q++)
             {
-                double s;
+                var s = Crossing(q, _v[k]);
 
-                while (true)
+                // Parabolas q hides entirely drop off the envelope.
+                while (s <= _z[k])
                 {
-                    var p = _v[k];
-
-                    s = (F[q] + (double)q * q - (F[p] + (double)p * p)) / (2.0 * q - 2.0 * p);
-
-                    if (s <= _z[k])
-                    {
-                        k--;
-
-                        continue;
-                    }
-
-                    break;
+                    k--;
+                    s = Crossing(q, _v[k]);
                 }
 
                 k++;
@@ -135,8 +146,14 @@ static class DistanceTransform
                 _z[k] = s;
                 _z[k + 1] = double.PositiveInfinity;
             }
+        }
 
-            k = 0;
+        /// <summary>Where the parabolas rooted at q and p cross.</summary>
+        double Crossing(int q, int p) => (F[q] + (double)q * q - (F[p] + (double)p * p)) / (2.0 * q - 2.0 * p);
+
+        void ReadEnvelope()
+        {
+            var k = 0;
 
             for (var q = 0; q < _n; q++)
             {
