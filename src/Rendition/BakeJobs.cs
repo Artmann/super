@@ -257,7 +257,7 @@ internal sealed class BakeJobs(
         {
             if (view.BakedSpace is not { } space)
             {
-                throw new InvalidOperationException("Bake needs a baked space in the frame; call view.BakedLighting first.");
+                throw new InvalidOperationException("Bake needs a baked space in the frame; call view.Indirect.BakedLighting first.");
             }
 
             if (settings.TexelsPerMetre != space.TexelsPerMetre)
