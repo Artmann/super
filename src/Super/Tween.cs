@@ -24,32 +24,32 @@ public enum Repeat
 public static class Tween
 {
     /// <summary>A number from one value to another.</summary>
-    public static Tween<float> Between(float from, float to, float seconds, Easing easing = Easing.Linear) => new(from, to, seconds, easing);
+    public static TweenValue<float> Between(float from, float to, float seconds, Easing easing = Easing.Linear) => new(from, to, seconds, easing);
 
     /// <summary>A 2D point or size from one value to another.</summary>
-    public static Tween<Vector2> Between(Vector2 from, Vector2 to, float seconds, Easing easing = Easing.Linear) => new(from, to, seconds, easing);
+    public static TweenValue<Vector2> Between(Vector2 from, Vector2 to, float seconds, Easing easing = Easing.Linear) => new(from, to, seconds, easing);
 
     /// <summary>A position, scale or other 3D value from one to another.</summary>
-    public static Tween<Vector3> Between(Vector3 from, Vector3 to, float seconds, Easing easing = Easing.Linear) => new(from, to, seconds, easing);
+    public static TweenValue<Vector3> Between(Vector3 from, Vector3 to, float seconds, Easing easing = Easing.Linear) => new(from, to, seconds, easing);
 
     /// <summary>A 4D value from one to another.</summary>
-    public static Tween<Vector4> Between(Vector4 from, Vector4 to, float seconds, Easing easing = Easing.Linear) => new(from, to, seconds, easing);
+    public static TweenValue<Vector4> Between(Vector4 from, Vector4 to, float seconds, Easing easing = Easing.Linear) => new(from, to, seconds, easing);
 
     /// <summary>A rotation from one to another, taking the short way round.</summary>
-    public static Tween<Quaternion> Between(Quaternion from, Quaternion to, float seconds, Easing easing = Easing.Linear) => new(from, to, seconds, easing);
+    public static TweenValue<Quaternion> Between(Quaternion from, Quaternion to, float seconds, Easing easing = Easing.Linear) => new(from, to, seconds, easing);
 
     /// <summary>A color from one to another, blending each channel and the opacity.</summary>
-    public static Tween<Color> Between(Color from, Color to, float seconds, Easing easing = Easing.Linear) => new(from, to, seconds, easing);
+    public static TweenValue<Color> Between(Color from, Color to, float seconds, Easing easing = Easing.Linear) => new(from, to, seconds, easing);
 
     /// <summary>
     /// Tweens that play one after another, as one value. Each keeps its own delay, easing
     /// and repeats, but none can repeat forever, or those after it would never play.
     /// </summary>
-    public static TweenSequence<T> Sequence<T>(params Tween<T>[] steps)
+    public static TweenSequence<T> Sequence<T>(params TweenValue<T>[] steps)
         where T : struct => new(steps);
 
     /// <summary>Tweens that play at the same time and finish when the longest does. Read each with the indexer.</summary>
-    public static TweenGroup<T> Parallel<T>(params Tween<T>[] tweens)
+    public static TweenGroup<T> Parallel<T>(params TweenValue<T>[] tweens)
         where T : struct => new(tweens);
 }
 
@@ -220,12 +220,12 @@ public readonly record struct TweenTiming
 /// <see cref="Value"/>. It follows <see cref="GameTime.DeltaSeconds"/>, so it replays the
 /// same from a seed and slows with the time scale. Make one with <c>Tween.Between</c>.
 /// </summary>
-public struct Tween<T>
+public struct TweenValue<T>
     where T : struct
 {
     private TweenPlayhead _playhead;
 
-    internal Tween(T from, T to, float seconds, Easing easing)
+    internal TweenValue(T from, T to, float seconds, Easing easing)
     {
         if (!(seconds > 0f) || !float.IsFinite(seconds))
         {
@@ -264,7 +264,7 @@ public struct Tween<T>
     public readonly bool Completed => !Timing.IsEndless && _playhead.Elapsed >= Duration;
 
     /// <summary>Waits this many seconds before starting.</summary>
-    public readonly Tween<T> After(float seconds)
+    public readonly TweenValue<T> After(float seconds)
     {
         if (!(seconds >= 0f) || !float.IsFinite(seconds))
         {
@@ -275,17 +275,17 @@ public struct Tween<T>
     }
 
     /// <summary>Uses an easing.</summary>
-    public readonly Tween<T> Ease(Easing easing) => this with { Timing = Timing with { Easing = easing, Curve = null } };
+    public readonly TweenValue<T> Ease(Easing easing) => this with { Timing = Timing with { Easing = easing, Curve = null } };
 
     /// <summary>Follows a curve instead of an easing, such as one an artist tuned in content.</summary>
-    public readonly Tween<T> Ease(Curve curve) =>
+    public readonly TweenValue<T> Ease(Curve curve) =>
         this with { Timing = Timing with { Curve = curve ?? throw new ArgumentNullException(nameof(curve)) } };
 
     /// <summary>Plays this many times, jumping back to the start each time. 0 means forever.</summary>
-    public readonly Tween<T> Loop(int times = 0) => this with { Timing = Timing.Repeating(Repeat.Loop, times) };
+    public readonly TweenValue<T> Loop(int times = 0) => this with { Timing = Timing.Repeating(Repeat.Loop, times) };
 
     /// <summary>Plays to the end and back. Each way counts as one of the times, so 2 is there and back. 0 means forever.</summary>
-    public readonly Tween<T> Yoyo(int times = 0) => this with { Timing = Timing.Repeating(Repeat.Yoyo, times) };
+    public readonly TweenValue<T> Yoyo(int times = 0) => this with { Timing = Timing.Repeating(Repeat.Yoyo, times) };
 
     /// <summary>Moves on by this tick's <see cref="GameTime.DeltaSeconds"/>.</summary>
     public void Update(GameTime time) => Advance(time.DeltaSeconds);
@@ -330,10 +330,10 @@ public struct Tween<T>
 public struct TweenSequence<T>
     where T : struct
 {
-    private readonly Tween<T>[] _steps;
+    private readonly TweenValue<T>[] _steps;
     private TweenPlayhead _playhead;
 
-    internal TweenSequence(Tween<T>[] steps)
+    internal TweenSequence(TweenValue<T>[] steps)
     {
         ArgumentNullException.ThrowIfNull(steps);
         if (steps.Length == 0)
@@ -357,7 +357,7 @@ public struct TweenSequence<T>
     }
 
     /// <summary>The tweens, in the order they play.</summary>
-    public readonly IReadOnlyList<Tween<T>> Steps => _steps ?? [];
+    public readonly IReadOnlyList<TweenValue<T>> Steps => _steps ?? [];
 
     /// <summary>Every tween's duration added up.</summary>
     public float Duration { get; }
@@ -383,7 +383,7 @@ public struct TweenSequence<T>
 
     public void Restart() => Elapsed = 0f;
 
-    /// <inheritdoc cref="Tween{T}.Smooth"/>
+    /// <inheritdoc cref="TweenValue{T}.Smooth"/>
     public readonly T Smooth(float blend) => At(_playhead.Blended(blend));
 
     /// <summary>The value at that many seconds from the beginning. It doesn't move the sequence.</summary>
@@ -414,10 +414,10 @@ public struct TweenSequence<T>
 public struct TweenGroup<T>
     where T : struct
 {
-    private readonly Tween<T>[] _tweens;
+    private readonly TweenValue<T>[] _tweens;
     private TweenPlayhead _playhead;
 
-    internal TweenGroup(Tween<T>[] tweens)
+    internal TweenGroup(TweenValue<T>[] tweens)
     {
         ArgumentNullException.ThrowIfNull(tweens);
         if (tweens.Length == 0)

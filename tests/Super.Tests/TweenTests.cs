@@ -6,9 +6,9 @@ public class TweenTests
 {
     private const float Tolerance = 0.0001f;
 
-    private static Tween<float> Ten(float seconds = 2f) => Tween.Between(0f, 10f, seconds);
+    private static TweenValue<float> Ten(float seconds = 2f) => Tween.Between(0f, 10f, seconds);
 
-    private static Tween<float> At(Tween<float> tween, float seconds)
+    private static TweenValue<float> At(TweenValue<float> tween, float seconds)
     {
         tween.Advance(seconds);
         return tween;
@@ -250,7 +250,7 @@ public class TweenTests
     [Fact]
     public void A_type_a_tween_cant_blend_is_explained()
     {
-        var tween = default(Tween<int>) with { From = 1, To = 2, Timing = new TweenTiming { Seconds = 1f } };
+        var tween = default(TweenValue<int>) with { From = 1, To = 2, Timing = new TweenTiming { Seconds = 1f } };
 
         var error = Assert.Throws<NotSupportedException>(() => tween.Value);
 

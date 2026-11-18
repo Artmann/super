@@ -31,7 +31,7 @@ public readonly record struct CurveKey(float Time, float Value, CurveTangent Tan
 /// <summary>
 /// A value that changes over time, drawn by its keys and smooth between them, like an
 /// animation curve in an editor. Load one from JSON content as a field of a record, or
-/// make one in code. A <see cref="Tween{T}"/> can follow one instead of an easing.
+/// make one in code. A <see cref="TweenValue{T}"/> can follow one instead of an easing.
 /// </summary>
 public sealed class Curve
 {
