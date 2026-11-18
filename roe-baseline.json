@@ -15,48 +15,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Rendition.BakeFiles.IsRigid",
-      "file": "src/Rendition/Baking/BakeFiles.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.BakeJob.Finish",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.BakeJob.Step",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Baker.ReadTexels/5",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightBakeFile.Read",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightBakeFile.ReadPage",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightBakeFile.ToBytes",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 17
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.LightmapLayout.Single",
       "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
       "metric": 11
@@ -249,18 +207,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Rendition.ShadowMaskChannels.Assign",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.ShadowMaskChannels.AssignChunk",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.SkylinePacker.TryPack",
       "file": "src/Rendition/Lightmaps/SkylinePacker.cs",
       "metric": 18
@@ -321,30 +267,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Cook.CacheFolder.Trim/4",
-      "file": "src/Super.Cook/CacheTrim.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.CookCache.TryRestore",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.CookReport.Summary",
-      "file": "src/Super.Cook/CookReport.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.CookSettings.LoadRules",
-      "file": "src/Super.Cook/CookSettings.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Cook.Materials.GraphCompiler.Banned",
       "file": "src/Super.Cook.Materials/GraphCompiler.cs",
       "metric": 12
@@ -384,24 +306,6 @@
       "name": "Super.Cook.Models.RigImporter.RigImporter",
       "file": "src/Super.Cook.Models/RigImporter.cs",
       "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.TextureCompression.Compress/4",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.TextureCompression.Compress/5",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.TextureCompression.Coverage",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 13
     },
     {
       "kind": "high-complexity",
@@ -534,24 +438,6 @@
       "name": "Bricks.ToneTable",
       "file": "examples/Courtyard/content/materials/bricks.material.cs",
       "metric": 27
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.BakeJob.Finish",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Baker.DrawMultisampled",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightBakeFile.ToBytes",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 16
     },
     {
       "kind": "high-cognitive-complexity",
@@ -705,18 +591,6 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Rendition.ShadowMaskChannels.Assign",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 24
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.ShadowMaskChannels.AssignChunk",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 23
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Rendition.SkylinePacker.TryPack",
       "file": "src/Rendition/Lightmaps/SkylinePacker.cs",
       "metric": 28
@@ -732,36 +606,6 @@
       "name": "Super.ContentValidator.Fields",
       "file": "src/Super/Data/ContentValidator.cs",
       "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.CacheFolder.Trim/4",
-      "file": "src/Super.Cook/CacheTrim.cs",
-      "metric": 23
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.CookCache.TryRestore",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 28
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.CookSettings.For",
-      "file": "src/Super.Cook/CookSettings.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.CookSettings.LoadRules",
-      "file": "src/Super.Cook/CookSettings.cs",
-      "metric": 24
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Glob.MatchSegment",
-      "file": "src/Super.Cook/Glob.cs",
-      "metric": 18
     },
     {
       "kind": "high-cognitive-complexity",
@@ -786,24 +630,6 @@
       "name": "Super.Cook.Models.RigImporter.RigImporter",
       "file": "src/Super.Cook.Models/RigImporter.cs",
       "metric": 26
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Sources.Gather",
-      "file": "src/Super.Cook/SourceRoot.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.TextureCompression.Compress/5",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 23
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.TextureCompression.Coverage",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 20
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1029,18 +855,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.BakeJob.Finish",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 55
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.BakeJob.TraceProbes",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 50
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Baker.Baker",
       "file": "src/Rendition/Baking/Baker.cs",
       "metric": 110
@@ -1053,27 +867,15 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Baker.DrawMultisampled",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 82
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Baker.ReadSumsBack",
       "file": "src/Rendition/Baking/Baker.cs",
       "metric": 59
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Baker.ReadTexels/5",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 69
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Baker.RecordTexels",
       "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 79
+      "metric": 67
     },
     {
       "kind": "long-method",
@@ -1098,24 +900,6 @@
       "name": "Rendition.FoliageNormals.PointOutOfCrown",
       "file": "src/Rendition/FoliageNormals.cs",
       "metric": 42
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightBakeFile.Read",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 101
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightBakeFile.ReadPage",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 63
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightBakeFile.ToBytes",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 99
     },
     {
       "kind": "long-method",
@@ -1473,18 +1257,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.ShadowMaskChannels.Assign",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 69
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.ShadowMaskChannels.AssignChunk",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 64
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.SkylinePacker.Raise",
       "file": "src/Rendition/Lightmaps/SkylinePacker.cs",
       "metric": 50
@@ -1683,66 +1455,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Cook.Bc6hEncoder.Encode",
-      "file": "src/Super.Cook/Cookers/LightBakeCooker.cs",
-      "metric": 55
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CacheFolder.Trim/4",
-      "file": "src/Super.Cook/CacheTrim.cs",
-      "metric": 58
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookCache.HashFile",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 43
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookCache.Save",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 47
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookCache.TryRestore",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 109
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookDurations.Save",
-      "file": "src/Super.Cook/CookDurations.cs",
-      "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookReport.Summary",
-      "file": "src/Super.Cook/CookReport.cs",
-      "metric": 50
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookSettings.For",
-      "file": "src/Super.Cook/CookSettings.cs",
-      "metric": 43
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookSettings.LoadRules",
-      "file": "src/Super.Cook/CookSettings.cs",
-      "metric": 66
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookWatcher.CookNow",
-      "file": "src/Super.Cook/CookWatcher.cs",
-      "metric": 42
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Cook.Materials.GraphCompiler.CompileNew",
       "file": "src/Super.Cook.Materials/GraphCompiler.cs",
       "metric": 51
@@ -1830,30 +1542,6 @@
       "name": "Super.Cook.Models.RigImporter.Skin",
       "file": "src/Super.Cook.Models/RigImporter.cs",
       "metric": 55
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Sources.Gather",
-      "file": "src/Super.Cook/SourceRoot.cs",
-      "metric": 48
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.TextureCompression.Compress/5",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 82
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.TextureCompression.Coverage",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 50
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.TextureCompression.KeepCompressedCoverage",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 44
     },
     {
       "kind": "long-method",
@@ -2123,12 +1811,6 @@
       "kind": "too-many-parameters",
       "name": "Hamlet.PlanBuilder.Build",
       "file": "examples/Hamlet/BuildingPlan.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.BakeFrame.AddChunk",
-      "file": "src/Rendition/Baking/BakeFreshness.cs",
       "metric": 6
     },
     {
@@ -2445,12 +2127,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Super.Cook.CookCache.Save",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Super.Cook.Models.Bvh.Build",
       "file": "src/Super.Cook.Models/Bvh.cs",
       "metric": 7
@@ -2619,15 +2295,9 @@
     },
     {
       "kind": "large-file",
-      "name": "src/Rendition/Baking/BakeJob.cs",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 775
-    },
-    {
-      "kind": "large-file",
       "name": "src/Rendition/Baking/Baker.cs",
       "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 1532
+      "metric": 1540
     },
     {
       "kind": "large-file",
@@ -2735,13 +2405,13 @@
       "kind": "large-type",
       "name": "Rendition.BakeJob",
       "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 80
+      "metric": 85
     },
     {
       "kind": "large-type",
       "name": "Rendition.Baker",
       "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 76
+      "metric": 80
     },
     {
       "kind": "large-type",
@@ -2949,15 +2619,9 @@
     },
     {
       "kind": "large-type",
-      "name": "Super.Cook.CookCache",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 23
-    },
-    {
-      "kind": "large-type",
       "name": "Super.Cook.CookInput",
       "file": "src/Super.Cook/CookInput.cs",
-      "metric": 31
+      "metric": 27
     },
     {
       "kind": "large-type",
@@ -2976,12 +2640,6 @@
       "name": "Super.Cook.Models.RigImporter",
       "file": "src/Super.Cook.Models/RigImporter.cs",
       "metric": 29
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Cook.TextureCompression",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 24
     },
     {
       "kind": "large-type",
@@ -3426,13 +3084,6 @@
       "members": [
         "Super.Cook.CacheFolder",
         "Super.Cook.CacheUsage"
-      ]
-    },
-    {
-      "members": [
-        "Super.Cook.CookCache",
-        "Super.Cook.CookInput",
-        "Super.Cook.StepCache"
       ]
     },
     {
