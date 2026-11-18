@@ -281,30 +281,28 @@ internal sealed class ProbeScheduler
             layout.Spacing,
             _cascades.Origin(cascade),
             new Int3(layout.CountX, layout.CountY, layout.CountZ));
-        for (int z = cells.First.Z; z <= cells.Last.Z; z++)
-        {
-            for (int y = cells.First.Y; y <= cells.Last.Y; y++)
-            {
-                for (int x = cells.First.X; x <= cells.Last.X; x++)
-                {
-                    MarkIfInRange(cascade, ProbeCascades.Wrap(new Int3(x, y, z), layout), center, range);
-                }
-            }
-        }
+        MarkCells(cascade, cells, layout, center, range);
     }
 
     // Marks the captured probes of the fixed grid within range, looking only at the cells the light's sphere overlaps.
+    // Those cells are all inside the grid, so wrapping them leaves each at its own slot.
     private void MarkGridCells(Vector3 center, float range)
     {
         var cells = CellBox.Overlapping(
             center - new Vector3(range) - _gridMin, center + new Vector3(range) - _gridMin, _gridSpacing, default, _gridCount);
+        var layout = new ProbeCascadeLayout(_gridSpacing, _gridCount.X, _gridCount.Y, _gridCount.Z);
+        MarkCells(FixedGrid, cells, layout, center, range);
+    }
+
+    private void MarkCells(int group, CellBox cells, ProbeCascadeLayout layout, Vector3 center, float range)
+    {
         for (int z = cells.First.Z; z <= cells.Last.Z; z++)
         {
             for (int y = cells.First.Y; y <= cells.Last.Y; y++)
             {
                 for (int x = cells.First.X; x <= cells.Last.X; x++)
                 {
-                    MarkIfInRange(FixedGrid, x + _gridCount.X * (y + _gridCount.Y * z), center, range);
+                    MarkIfInRange(group, ProbeCascades.Wrap(new Int3(x, y, z), layout), center, range);
                 }
             }
         }

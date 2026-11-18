@@ -65,15 +65,7 @@ internal sealed unsafe class ExposureMeter : IDisposable
         _adapt = PipelineFactory.CreateCompute(context, "exposure_adapt.comp", _pipelineLayout);
 
         var stateInfo = new DescriptorBufferInfo(_state.Handle, 0, StateSize);
-        var write = new WriteDescriptorSet
-        {
-            SType = StructureType.WriteDescriptorSet,
-            DstSet = Set,
-            DstBinding = 0,
-            DescriptorCount = 1,
-            DescriptorType = DescriptorType.StorageBuffer,
-            PBufferInfo = &stateInfo,
-        };
+        var write = Descriptors.BufferWrite(Set, 0, &stateInfo);
         api.UpdateDescriptorSets(context.Device, 1, &write, 0, null);
 
         // Empty bins and an exposure of 0 EV. The first metered frame snaps, so the 0 is never seen.

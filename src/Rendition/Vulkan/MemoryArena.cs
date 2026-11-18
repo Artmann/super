@@ -20,28 +20,7 @@ internal sealed class MemoryArena(ulong size)
 
     public bool TryAllocate(ulong size, ulong alignment, out ulong offset)
     {
-        int best = -1;
-        ulong bestWaste = ulong.MaxValue;
-        ulong bestStart = 0;
-        for (int i = 0; i < _free.Count; i++)
-        {
-            var (start, length) = _free[i];
-            ulong aligned = Align(start, alignment);
-            ulong padding = aligned - start;
-            if (padding >= length || length - padding < size)
-            {
-                continue;
-            }
-
-            ulong waste = length - size;
-            if (waste < bestWaste)
-            {
-                best = i;
-                bestWaste = waste;
-                bestStart = aligned;
-            }
-        }
-
+        var (best, bestStart) = BestFit(size, alignment);
         if (best < 0)
         {
             offset = 0;
@@ -66,6 +45,35 @@ internal sealed class MemoryArena(ulong size)
         Used += size;
         offset = bestStart;
         return true;
+    }
+
+    // The free range that fits the allocation with the least left over, and where in it the aligned allocation starts.
+    // An index of -1 when none fits.
+    private (int Index, ulong Start) BestFit(ulong size, ulong alignment)
+    {
+        int best = -1;
+        ulong bestWaste = ulong.MaxValue;
+        ulong bestStart = 0;
+        for (int i = 0; i < _free.Count; i++)
+        {
+            var (start, length) = _free[i];
+            ulong aligned = Align(start, alignment);
+            ulong padding = aligned - start;
+            if (padding >= length || length - padding < size)
+            {
+                continue;
+            }
+
+            ulong waste = length - size;
+            if (waste < bestWaste)
+            {
+                best = i;
+                bestWaste = waste;
+                bestStart = aligned;
+            }
+        }
+
+        return (best, bestStart);
     }
 
     public void Free(ulong offset)
