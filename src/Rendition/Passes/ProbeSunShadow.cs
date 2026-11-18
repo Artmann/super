@@ -78,7 +78,7 @@ internal sealed class ProbeSunShadow : IDisposable
             _drawnFrame = frame;
             _drawn = true;
             Redraw = true;
-            Matrix = ShadowPass.CreateMatrix(direction, camera, radius, radius, (int)_resolution);
+            Matrix = ShadowCascades.CreateMatrix(direction, camera, radius, radius, (int)_resolution);
         }
     }
 
@@ -86,9 +86,7 @@ internal sealed class ProbeSunShadow : IDisposable
     /// Draws the map if <see cref="Plan"/> asked for it, through <paramref name="shadows"/>' pipelines,
     /// and leaves it readable. The first frame readies it even without a sun, as the capture binds it.
     /// </summary>
-    public void Record(
-        Vk api, CommandBuffer cmd, ShadowPass shadows, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes,
-        List<PartDetail> details, InstanceBuffer instances)
+    public void Record(Vk api, CommandBuffer cmd, ShadowPass shadows, DescriptorSet frameSet, in SceneGeometry scene)
     {
         const PipelineStageFlags2 readStages = PipelineStageFlags2.FragmentShaderBit;
         const AccessFlags2 read = AccessFlags2.ShaderSampledReadBit;
@@ -99,9 +97,10 @@ internal sealed class ProbeSunShadow : IDisposable
         {
             api.Transition(cmd, _target.Image, ImageAspectFlags.DepthBit,
                 ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, readStages, read, depthStages, depthAccess);
-            int count = Casters(draws, _flagsOf, ref _casters);
-            shadows.RecordInto(cmd, frameSet, _casters.AsSpan(0, count), meshes, details, instances, _target.View,
-                new Extent2D(_resolution, _resolution), cascade: -1, still: true);
+            int count = Casters(scene.Draws, _flagsOf, ref _casters);
+            var casters = new SceneGeometry(_casters.AsSpan(0, count), scene.Meshes, scene.Details, scene.Instances);
+            shadows.RecordInto(cmd, frameSet, casters, (_target.View, new Extent2D(_resolution, _resolution)),
+                new SceneDrawOptions(ScenePass.Shadow) { Cascade = -1, Still = true });
             api.Transition(cmd, _target.Image, ImageAspectFlags.DepthBit,
                 ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, depthStages, AccessFlags2.DepthStencilAttachmentWriteBit, readStages, read);
             _ready = true;

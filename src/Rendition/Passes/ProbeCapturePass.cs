@@ -173,8 +173,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
     /// Draws each probe <see cref="Prepare"/> picked into the slot of the same index in
     /// <paramref name="volume"/>'s faces, and leaves the faces ready for <see cref="ProbeVolume.RecordFold"/>.
     /// </summary>
-    public void Record(
-        CommandBuffer cmd, ProbeVolume volume, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, InstanceBuffer instances)
+    public void Record(CommandBuffer cmd, ProbeVolume volume, DescriptorSet frameSet, in SceneGeometry scene)
     {
         int probes = _positions.Count;
         if (probes == 0)
@@ -203,7 +202,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
                 kept[i] = _kept[start + i];
             }
 
-            _faces.Draw(cmd, draws, kept, meshes, instances);
+            _faces.Draw(cmd, scene.Draws, kept, scene.Meshes, scene.Instances);
             api.CmdEndRendering(cmd);
         }
 

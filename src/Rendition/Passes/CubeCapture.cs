@@ -88,14 +88,16 @@ internal sealed unsafe class CubeCapture(
     /// </summary>
     public void Draw(CommandBuffer cmd, ReadOnlySpan<DrawItem> draws, Span<int> kept, List<Mesh?> meshes, InstanceBuffer instances)
     {
-        var api = context.Api;
+        var target = new SceneTarget(context.Api, cmd, layout);
+        var scene = new ScenePipelines(pipelines, resources);
         SceneDraws.Batch(draws, kept, keepOrder: false, _batches);
         var bound = new SceneDraws.Bound();
         foreach (var batch in _batches)
         {
             // No wind: a probe sees things at rest.
             var constants = SceneDraws.Constants(draws[kept[batch.First]], 0);
-            SceneDraws.Draw(api, cmd, layout, pipelines, resources, draws, kept.Slice(batch.First, batch.Count), meshes, instances, constants, null, ref bound);
+            var copies = new SceneCopies(draws, kept.Slice(batch.First, batch.Count), meshes, instances);
+            SceneDraws.Draw(target, scene, copies, constants, ref bound);
         }
     }
 }

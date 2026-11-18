@@ -96,15 +96,8 @@ internal sealed unsafe class GBufferPass : IDisposable
     /// first round and the decals left in the targets, so where they stand in front of a decal they cover it.
     /// </summary>
     public void Record(
-        CommandBuffer cmd,
-        GBuffer targets,
-        DescriptorSet frameSet,
-        ReadOnlySpan<DrawItem> draws,
-        List<Mesh?> meshes,
-        List<PartDetail> details,
-        InstanceBuffer instances,
-        DetailView? depthFirst = null,
-        ScenePass pass = ScenePass.Opaque)
+        CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, in SceneGeometry scene, ScenePass pass = ScenePass.Opaque,
+        DetailView? depthFirst = null)
     {
         var api = _context.Api;
         Begin(cmd, targets, clear: pass != ScenePass.OpaqueAfterDecals, frameSet);
@@ -115,8 +108,8 @@ internal sealed unsafe class GBufferPass : IDisposable
         }
 
         SceneDraws.Record(
-            api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, pass,
-            solids: _solids, depthFirst: depthFirst is null ? null : _depthFirst);
+            new SceneTarget(api, cmd, _layout), new ScenePipelines(_pipelines, _resources) { Solids = _solids }, scene,
+            new SceneDrawOptions(pass) { DepthFirst = depthFirst is null ? null : _depthFirst });
 
         api.CmdEndRendering(cmd);
     }

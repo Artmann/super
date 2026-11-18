@@ -135,7 +135,7 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
     public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, InstanceBuffer instances)
     {
         var api = _context.Api;
-        _sun.Record(api, cmd, _scene.Shadows, frameSet, draws, _scene.Meshes, _scene.Details, instances);
+        _sun.Record(api, cmd, _scene.Shadows, frameSet, new SceneGeometry(draws, _scene.Meshes, _scene.Details, instances));
         Cube.RecordStart(cmd);
 
         _faces.Begin(cmd, Cube.Faces, Cube.Depth, Vector4.Zero);

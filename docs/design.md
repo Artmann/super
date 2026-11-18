@@ -1342,8 +1342,8 @@ to four cascades, each a ball three times the radius of the one before.
 `Renderer.MaxShadowCascades` (`Graphics.Shadowing.ShadowCascades`) caps how many are drawn, keeping the
 nearest, so a lower setting gives up the far shadows and keeps the near ones as sharp.
 
-`Renderer.FitCascades` lays the balls along the view. `ShadowPass.Spread` reads how far a
-frustum corner leaves the view axis per metre of depth, and `ShadowPass.FitSlice` finds the
+`Renderer.FitCascades` lays the balls along the view. `ShadowCascades.Spread` reads how far a
+frustum corner leaves the view axis per metre of depth, and `ShadowCascades.FitSlice` finds the
 deepest slice of the frustum, starting where the last one ended, whose corners still fit in
 a ball of the cascade's radius. The ball's size never depends on the camera's angle, and
 `CreateMatrix` snaps its centre to whole texels in the light's view, so edges don't crawl
@@ -1352,7 +1352,7 @@ centred on the target instead. The light's depth range reaches past the ball tow
 sun at least as far as a ball round the target would, so a tall caster just out of view
 still shadows the ground in front of the camera. It also reaches far enough to take in
 every draw whose ball overlaps the column the map sees towards the sun
-(`ShadowPass.CasterReach`, over the balls `DrawSelection.Bounds` works out each frame), so
+(`ShadowCascades.CasterReach`, over the balls `DrawSelection.Bounds` works out each frame), so
 a tree out of frame still dapples a wall in it. A caster can stretch the reach to no more
 than six radii (`ShadowPass.MaxReach`). A longer reach spreads depth thinner, and
 `FrameUniforms.ShadowDepthScales` carries the ratio so the shaders scale their bias to match.
@@ -1390,7 +1390,7 @@ quarter of the ray fades, and the whole effect fades over the outer tenth of the
 cascade's map (the length of the point's x and y in its matrix) and stops past it. The
 result multiplies the PCSS visibility. The length is 0, so the walk is skipped, when
 `RenderEffects.ContactShadows` is left out and during probe captures
-(`ShadowPass.ContactLength`), and the sun's shadows left out skip it with the rest.
+(`ShadowCascades.ContactLength`), and the sun's shadows left out skip it with the rest.
 
 One sun casts the shadows: the one the game marks with `shadows: true`, or else the first
 (`FrameMaker.ShadowSun`).

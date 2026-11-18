@@ -12,7 +12,7 @@ public class ShadowCascadeTests
         // Up and down are 45° each, and twice as wide is 2 across per metre, so a corner is root 5 out.
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 2f, 2f, 0.1f, 100f);
 
-        Assert.Equal(MathF.Sqrt(5f), ShadowPass.Spread(projection)!.Value, 4);
+        Assert.Equal(MathF.Sqrt(5f), ShadowCascades.Spread(projection)!.Value, 4);
     }
 
     [Fact]
@@ -20,7 +20,7 @@ public class ShadowCascadeTests
     {
         var projection = Matrix4x4.CreateOrthographic(20f, 10f, 0.1f, 100f);
 
-        Assert.Null(ShadowPass.Spread(projection));
+        Assert.Null(ShadowCascades.Spread(projection));
     }
 
     [Fact]
@@ -28,7 +28,7 @@ public class ShadowCascadeTests
     {
         // Slice [0, f] with corners f out at depth f: the ball centred at f touches the eye
         // and the far corners, both f away, so f equals the radius.
-        var (center, end) = ShadowPass.FitSlice(0f, 10f, 1f);
+        var (center, end) = ShadowCascades.FitSlice(0f, 10f, 1f);
 
         Assert.Equal(10f, center, 3);
         Assert.Equal(10f, end, 3);
@@ -39,7 +39,7 @@ public class ShadowCascadeTests
     {
         // Centre 0.625f: the eye is 0.625f away and a far corner sqrt(0.375² + 0.5²) f = 0.625f,
         // so the slice ends at 10 / 0.625 = 16 with its centre at 10.
-        var (center, end) = ShadowPass.FitSlice(0f, 10f, 0.5f);
+        var (center, end) = ShadowCascades.FitSlice(0f, 10f, 0.5f);
 
         Assert.Equal(10f, center, 3);
         Assert.Equal(16f, end, 3);
@@ -49,7 +49,7 @@ public class ShadowCascadeTests
     public void Slice_too_wide_for_the_ball_ends_where_it_starts()
     {
         // At 30 m the view is already 15 m from its axis, wider than a 10 m ball.
-        var (center, end) = ShadowPass.FitSlice(30f, 10f, 0.5f);
+        var (center, end) = ShadowCascades.FitSlice(30f, 10f, 0.5f);
 
         Assert.Equal(30f, center);
         Assert.Equal(30f, end);
@@ -62,7 +62,7 @@ public class ShadowCascadeTests
     [InlineData(0.5f, 3f, 2f)]
     public void Ball_holds_every_corner_of_its_slice(float start, float radius, float spread)
     {
-        var (center, end) = ShadowPass.FitSlice(start, radius, spread);
+        var (center, end) = ShadowCascades.FitSlice(start, radius, spread);
 
         Assert.True(end > start, $"the slice from {start} ended at {end}");
         foreach (float depth in new[] { start, end })
@@ -78,7 +78,7 @@ public class ShadowCascadeTests
     {
         var sun = Vector3.UnitY;
         var center = new Vector3(0f, 0f, 0f);
-        var matrix = ShadowPass.CreateMatrix(sun, center, radius: 10f, reach: 30f, resolution: 2048);
+        var matrix = ShadowCascades.CreateMatrix(sun, center, radius: 10f, reach: 30f, resolution: 2048);
 
         // Reversed-Z: the point 30 m sunward is the near plane at 1, the one 10 m away the far plane at 0.
         Assert.Equal(1f, Depth(matrix, new Vector3(0f, 30f, 0f)), 4);
@@ -89,7 +89,7 @@ public class ShadowCascadeTests
     [Fact]
     public void Cascade_reaching_less_than_its_radius_reaches_its_radius()
     {
-        var matrix = ShadowPass.CreateMatrix(Vector3.UnitY, Vector3.Zero, radius: 10f, reach: 2f, resolution: 2048);
+        var matrix = ShadowCascades.CreateMatrix(Vector3.UnitY, Vector3.Zero, radius: 10f, reach: 2f, resolution: 2048);
 
         Assert.Equal(1f, Depth(matrix, new Vector3(0f, 10f, 0f)), 4);
         Assert.Equal(0.5f, Depth(matrix, Vector3.Zero), 4);
@@ -101,7 +101,7 @@ public class ShadowCascadeTests
     [InlineData(10f, 4f, 1f)]
     public void Depth_scale_is_map_width_over_depth_span(float radius, float reach, float expected)
     {
-        Assert.Equal(expected, ShadowPass.DepthScale(radius, reach), 5);
+        Assert.Equal(expected, ShadowCascades.DepthScale(radius, reach), 5);
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public class ShadowCascadeTests
     // A cascade round the origin with a radius of 2 and the sun straight up. Its map sees a
     // square column up to the sun whose corners are 2√2 ≈ 2.83 out.
     private static float Reach(Vector4 caster, float reach = 2f) =>
-        ShadowPass.CasterReach(Vector3.Zero, 2f, Vector3.UnitY, reach, [caster]);
+        ShadowCascades.CasterReach(Vector3.Zero, 2f, Vector3.UnitY, reach, [caster]);
 
     [Fact]
     public void Caster_up_sun_stretches_the_reach_to_its_far_side()
@@ -250,7 +250,7 @@ public class ShadowCascadeTests
     {
         var shadows = new ShadowSettings { ContactLength = 0.4f };
 
-        Assert.Equal(0.4f, ShadowPass.ContactLength(shadows, RenderEffects.Bloom));
+        Assert.Equal(0.4f, ShadowCascades.ContactLength(shadows, RenderEffects.Bloom));
     }
 
     [Fact]
@@ -259,7 +259,7 @@ public class ShadowCascadeTests
         var graphics = new Graphics { Shadowing = { ContactShadows = false } };
         var shadows = new ShadowSettings { ContactLength = 0.4f };
 
-        Assert.Equal(0f, ShadowPass.ContactLength(shadows, GraphicsSwitches.Off(graphics)));
+        Assert.Equal(0f, ShadowCascades.ContactLength(shadows, GraphicsSwitches.Off(graphics)));
     }
 
     [Theory]
@@ -290,8 +290,8 @@ public class ShadowCascadeTests
         // A centre 0.6 cm aside snaps back to 0 on the coarse map, so the origin is in the
         // middle, and one texel aside on the fine map, so the origin sits 0.488 cm / 10 m off it.
         var center = new Vector3(0.006f, 0f, 0f);
-        var coarse = ShadowPass.CreateMatrix(Vector3.UnitY, center, radius: 10f, reach: 10f, resolution: 1024);
-        var fine = ShadowPass.CreateMatrix(Vector3.UnitY, center, radius: 10f, reach: 10f, resolution: 4096);
+        var coarse = ShadowCascades.CreateMatrix(Vector3.UnitY, center, radius: 10f, reach: 10f, resolution: 1024);
+        var fine = ShadowCascades.CreateMatrix(Vector3.UnitY, center, radius: 10f, reach: 10f, resolution: 4096);
         var origin = new Vector4(0f, 0f, 0f, 1f);
 
         Assert.Equal(0f, Vector4.Transform(origin, coarse).X, 6);
