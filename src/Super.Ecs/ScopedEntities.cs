@@ -3,8 +3,11 @@ namespace Super.Ecs;
 /// <summary>Clears away the entities a game scoped to a state with <see cref="ScopedTo{TState}"/> when it leaves it.</summary>
 internal static class ScopedEntities
 {
-    /// <summary>Destroys every entity scoped to this state. Collects first, since destroying moves rows.</summary>
-    public static void DestroyScopedTo<TState>(World world, TState state, List<Entity> leaving)
+    /// <summary>
+    /// Destroys every entity scoped to this state. Collects first, since destroying moves rows, into a list made only
+    /// when there is something to destroy.
+    /// </summary>
+    public static void DestroyScopedTo<TState>(World world, TState state)
         where TState : struct, Enum
     {
         var archetypes = world.Archetypes;
@@ -17,6 +20,7 @@ internal static class ScopedEntities
         var same = EqualityComparer<TState>.Default;
         ulong mask = 1UL << scopedType;
         int index = -1;
+        List<Entity>? leaving = null;
         while (archetypes.NextMatching(ref index, mask) is { } archetype)
         {
             var scopes = archetype.Column<ScopedTo<TState>>(scopedType).Values;
@@ -24,16 +28,19 @@ internal static class ScopedEntities
             {
                 if (same.Equals(scopes[i].State, state))
                 {
-                    leaving.Add(archetype.Entities[i]);
+                    (leaving ??= []).Add(archetype.Entities[i]);
                 }
             }
+        }
+
+        if (leaving is null)
+        {
+            return;
         }
 
         foreach (var entity in leaving)
         {
             world.Destroy(entity);
         }
-
-        leaving.Clear();
     }
 }

@@ -95,7 +95,7 @@ public readonly ref struct Query<T1>(World world)
         internal Enumerator(World world)
         {
             _world = world;
-            _type1 = world.Archetypes.TypeId<T1>();
+            _type1 = world.TypeId<T1>();
             _cursor = new ArchetypeCursor(world, 1UL << _type1);
             _values1 = [];
             world.BeginIteration();
@@ -141,8 +141,8 @@ public readonly ref struct Query<T1, T2>(World world)
         internal Enumerator(World world)
         {
             _world = world;
-            _type1 = world.Archetypes.TypeId<T1>();
-            _type2 = world.Archetypes.TypeId<T2>();
+            _type1 = world.TypeId<T1>();
+            _type2 = world.TypeId<T2>();
             _cursor = new ArchetypeCursor(world, (1UL << _type1) | (1UL << _type2));
             _values1 = [];
             _values2 = [];
@@ -200,9 +200,9 @@ public readonly ref struct Query<T1, T2, T3>(World world)
         internal Enumerator(World world)
         {
             _world = world;
-            _type1 = world.Archetypes.TypeId<T1>();
-            _type2 = world.Archetypes.TypeId<T2>();
-            _type3 = world.Archetypes.TypeId<T3>();
+            _type1 = world.TypeId<T1>();
+            _type2 = world.TypeId<T2>();
+            _type3 = world.TypeId<T3>();
             _cursor = new ArchetypeCursor(world, (1UL << _type1) | (1UL << _type2) | (1UL << _type3));
             _values1 = [];
             _values2 = [];
@@ -265,10 +265,10 @@ public readonly ref struct Query<T1, T2, T3, T4>(World world)
         internal Enumerator(World world)
         {
             _world = world;
-            _type1 = world.Archetypes.TypeId<T1>();
-            _type2 = world.Archetypes.TypeId<T2>();
-            _type3 = world.Archetypes.TypeId<T3>();
-            _type4 = world.Archetypes.TypeId<T4>();
+            _type1 = world.TypeId<T1>();
+            _type2 = world.TypeId<T2>();
+            _type3 = world.TypeId<T3>();
+            _type4 = world.TypeId<T4>();
             _cursor = new ArchetypeCursor(world, (1UL << _type1) | (1UL << _type2) | (1UL << _type3) | (1UL << _type4));
             _values1 = [];
             _values2 = [];
