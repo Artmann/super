@@ -25,7 +25,7 @@ public static class Tiles
             throw new ArgumentException(FormattableString.Invariant($"offset × rows must be a whole number so the bricks tile, not {offset} × {rows} = {shift}. Use an even number of rows, or an offset of 0 or 1."));
         }
 
-        return new Gray(new BricksNode(columns, rows, gap, bevel, offset, heightVariation, seed));
+        return new Gray(new BricksNode(new BrickLayout(columns, rows, gap, bevel, offset, heightVariation), seed));
     }
 
     /// <summary><see cref="Bricks"/> with no offset between rows.</summary>
@@ -33,23 +33,72 @@ public static class Tiles
         => Bricks(columns, rows, gap, bevel, 0f, heightVariation, seed);
 }
 
+/// <summary>
+/// The shape of a wall of bricks, and the height it has at each pixel. <see cref="Gap"/> and <see cref="Bevel"/> are
+/// fractions of a brick's height, and each row shifts by <see cref="Offset"/> of a brick times its row number.
+/// </summary>
+readonly record struct BrickLayout(int Columns, int Rows, float Gap, float Bevel, float Offset, float HeightVariation)
+{
+    /// <summary>The row of bricks pixel row <paramref name="y"/> crosses.</summary>
+    public int BrickRowAt(int y, int size) => Math.Min((int)MathF.Floor((y + 0.5f) / size * Rows), Rows - 1);
+
+    /// <summary>How far pixel row <paramref name="y"/> is from the top or bottom of its brick, in brick heights.</summary>
+    public float BrickEdgeDistanceY(int y, int size, int row)
+    {
+        var fy = (y + 0.5f) / size * Rows - row;
+
+        return Math.Min(fy, 1f - fy);
+    }
+
+    /// <summary>
+    /// The height at pixel <paramref name="x"/> of a row that crosses brick row <paramref name="row"/>
+    /// <paramref name="distanceY"/> from its top or bottom: 0 in the gap, rising over the bevel to 1, and lowered at
+    /// random per brick by up to <see cref="HeightVariation"/>.
+    /// </summary>
+    public float BrickHeightAt(int x, int size, int row, float distanceY, ulong seed)
+    {
+        // Distances are measured in brick heights, so a brick that is wider than tall has a longer way to its side.
+        var widthInHeights = (float)Rows / Columns;
+        var along = (x + 0.5f) / size * Columns - Offset * row;
+        var brick = MathF.Floor(along);
+        var fx = along - brick;
+        var column = (((int)brick % Columns) + Columns) % Columns;
+        var value = Profile(Math.Min(Math.Min(fx, 1f - fx) * widthInHeights, distanceY));
+
+        if (HeightVariation != 0f)
+        {
+            value *= 1f - HeightVariation * Hash.Unit(seed, column, row);
+        }
+
+        return value;
+    }
+
+    /// <summary>0 in the gap, rising over the bevel to 1, for a distance from the brick's nearest edge.</summary>
+    float Profile(float distance)
+    {
+        var halfGap = Gap / 2f;
+
+        if (distance < halfGap)
+        {
+            return 0f;
+        }
+
+        if (Bevel > 0f)
+        {
+            return Math.Min((distance - halfGap) / Bevel, 1f);
+        }
+
+        return 1f;
+    }
+}
+
 sealed class BricksNode : Node
 {
-    readonly int _columns;
-    readonly int _rows;
-    readonly float _gap;
-    readonly float _bevel;
-    readonly float _offset;
-    readonly float _heightVariation;
+    readonly BrickLayout _layout;
 
-    public BricksNode(int columns, int rows, float gap, float bevel, float offset, float heightVariation, int? seed) : base(1)
+    public BricksNode(BrickLayout layout, int? seed) : base(1)
     {
-        _columns = columns;
-        _rows = rows;
-        _gap = gap;
-        _bevel = bevel;
-        _offset = offset;
-        _heightVariation = heightVariation;
+        _layout = layout;
 
         if (seed is { } s)
         {
@@ -61,44 +110,14 @@ sealed class BricksNode : Node
     {
         var size = context.Size;
 
-        // Distances are measured in brick heights, so a brick that is wider than tall has a longer way to its side.
-        var widthInHeights = (float)_rows / _columns;
-        var halfGap = _gap / 2f;
-
         context.Rows(y =>
         {
-            var row = Math.Min((int)MathF.Floor((y + 0.5f) / size * _rows), _rows - 1);
-            var fy = (y + 0.5f) / size * _rows - row;
-            var distanceY = Math.Min(fy, 1f - fy);
+            var row = _layout.BrickRowAt(y, size);
+            var distanceY = _layout.BrickEdgeDistanceY(y, size, row);
 
             for (var x = 0; x < size; x++)
             {
-                var along = (x + 0.5f) / size * _columns - _offset * row;
-                var brick = MathF.Floor(along);
-                var fx = along - brick;
-                var column = (((int)brick % _columns) + _columns) % _columns;
-                var distance = Math.Min(Math.Min(fx, 1f - fx) * widthInHeights, distanceY);
-                float value;
-
-                if (distance < halfGap)
-                {
-                    value = 0f;
-                }
-                else if (_bevel > 0f)
-                {
-                    value = Math.Min((distance - halfGap) / _bevel, 1f);
-                }
-                else
-                {
-                    value = 1f;
-                }
-
-                if (_heightVariation != 0f)
-                {
-                    value *= 1f - _heightVariation * Hash.Unit(Seed, column, row);
-                }
-
-                output[y * size + x] = value;
+                output[y * size + x] = _layout.BrickHeightAt(x, size, row, distanceY, Seed);
             }
         });
     }

@@ -21,11 +21,20 @@ sealed class BlurNode(Node input, int channels, float radius) : Node(channels, i
         }
 
         var (offsets, weights) = Taps(radius * size, size);
-        var pixelLength = Channels;
-        var rowLength = size * pixelLength;
-        var across = new float[size * size * pixelLength];
+        var across = new float[size * size * Channels];
 
         // Each pixel adds its taps in the same order in both passes, whatever the thread count, so the bytes are the same.
+        BlurAcross(context, source, across, offsets, weights);
+        BlurDown(context, across, output, offsets, weights);
+    }
+
+    /// <summary>The first pass: blurs each row of <paramref name="source"/> along x into <paramref name="across"/>, which starts as zeros.</summary>
+    void BlurAcross(EvaluationContext context, float[] source, float[] across, int[] offsets, float[] weights)
+    {
+        var size = context.Size;
+        var pixelLength = Channels;
+        var rowLength = size * pixelLength;
+
         context.Rows(y =>
         {
             var row = new Span<float>(across, y * rowLength, rowLength);
@@ -40,6 +49,13 @@ sealed class BlurNode(Node input, int channels, float radius) : Node(channels, i
                 AddScaled(row[(rowLength - split)..], from[..split], weights[i]);
             }
         });
+    }
+
+    /// <summary>The second pass: blurs <paramref name="across"/> along y into <paramref name="output"/>.</summary>
+    void BlurDown(EvaluationContext context, float[] across, float[] output, int[] offsets, float[] weights)
+    {
+        var size = context.Size;
+        var rowLength = size * Channels;
 
         context.Rows(y =>
         {
@@ -87,6 +103,27 @@ sealed class BlurNode(Node input, int channels, float radius) : Node(channels, i
     static (int[] Offsets, float[] Weights) Taps(float sigma, int size)
     {
         var half = (int)MathF.Ceiling(3f * sigma);
+        var (weights, total) = Kernel(sigma, half);
+
+        if (weights.Length <= size)
+        {
+            return Normalised(weights, total, -half);
+        }
+
+        // Folded: one tap for each pixel of the row, offsets 0 up to size.
+        var folded = new double[size];
+
+        for (var k = -half; k <= half; k++)
+        {
+            folded[Sampling.Wrap(k, size)] += weights[k + half];
+        }
+
+        return Normalised(folded, total, 0);
+    }
+
+    /// <summary>The Gaussian's weights from offset -<paramref name="half"/> to +<paramref name="half"/>, and their sum.</summary>
+    static (double[] Weights, double Total) Kernel(float sigma, int half)
+    {
         var weights = new double[half * 2 + 1];
         double total = 0;
 
@@ -98,37 +135,21 @@ sealed class BlurNode(Node input, int channels, float radius) : Node(channels, i
             total += weight;
         }
 
-        if (weights.Length <= size)
+        return (weights, total);
+    }
+
+    /// <summary>One tap per weight, the first at offset <paramref name="first"/>, each weight divided by <paramref name="total"/>.</summary>
+    static (int[] Offsets, float[] Weights) Normalised(double[] weights, double total, int first)
+    {
+        var offsets = new int[weights.Length];
+        var result = new float[weights.Length];
+
+        for (var i = 0; i < result.Length; i++)
         {
-            var offsets = new int[weights.Length];
-            var result = new float[weights.Length];
-
-            for (var i = 0; i < result.Length; i++)
-            {
-                offsets[i] = i - half;
-                result[i] = (float)(weights[i] / total);
-            }
-
-            return (offsets, result);
+            offsets[i] = first + i;
+            result[i] = (float)(weights[i] / total);
         }
 
-        // Folded: one tap for each pixel of the row, offsets 0 up to size.
-        var folded = new double[size];
-
-        for (var k = -half; k <= half; k++)
-        {
-            folded[Sampling.Wrap(k, size)] += weights[k + half];
-        }
-
-        var foldedOffsets = new int[size];
-        var foldedWeights = new float[size];
-
-        for (var i = 0; i < size; i++)
-        {
-            foldedOffsets[i] = i;
-            foldedWeights[i] = (float)(folded[i] / total);
-        }
-
-        return (foldedOffsets, foldedWeights);
+        return (offsets, result);
     }
 }

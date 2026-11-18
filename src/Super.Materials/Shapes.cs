@@ -71,27 +71,37 @@ sealed class ShapeNode(ShapeKind kind, float size) : Node(1)
     // dx and dy are from the middle, in half widths, so the shape's edge is at 1.
     float Value(float dx, float dy)
     {
-        var box = MathF.Max(MathF.Abs(dx), MathF.Abs(dy));
-
         switch (kind)
         {
             case ShapeKind.Disc:
-                return dx * dx + dy * dy <= 1f ? 1f : 0f;
+                return DiscAt(dx, dy);
             case ShapeKind.Square:
-                return box <= 1f ? 1f : 0f;
+                return SquareAt(SquareDistance(dx, dy));
             case ShapeKind.Gradient:
-                return box <= 1f ? (dx + 1f) / 2f : 0f;
+                return GradientAt(dx, SquareDistance(dx, dy));
             case ShapeKind.Bell:
-            {
-                var r = MathF.Sqrt(dx * dx + dy * dy);
-
-                return r < 1f ? 0.5f + 0.5f * DMath.Cos(MathF.PI * r) : 0f;
-            }
+                return BellAt(dx, dy);
             case ShapeKind.Pyramid:
-                return MathF.Max(1f - box, 0f);
+                return MathF.Max(1f - SquareDistance(dx, dy), 0f);
             default:
                 throw new InvalidOperationException($"Unknown shape {kind}.");
         }
+    }
+
+    // How far out a point is in the square's own measure: the edge is at 1.
+    static float SquareDistance(float dx, float dy) => MathF.Max(MathF.Abs(dx), MathF.Abs(dy));
+
+    static float DiscAt(float dx, float dy) => dx * dx + dy * dy <= 1f ? 1f : 0f;
+
+    static float SquareAt(float box) => box <= 1f ? 1f : 0f;
+
+    static float GradientAt(float dx, float box) => box <= 1f ? (dx + 1f) / 2f : 0f;
+
+    static float BellAt(float dx, float dy)
+    {
+        var r = MathF.Sqrt(dx * dx + dy * dy);
+
+        return r < 1f ? 0.5f + 0.5f * DMath.Cos(MathF.PI * r) : 0f;
     }
 }
 

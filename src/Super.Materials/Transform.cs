@@ -14,7 +14,7 @@ public sealed partial class Gray
     /// </summary>
     public Gray Transform(Vector2 offset = default, float rotate = 0f, float scale = 1f, int tile = 1)
     {
-        return new Gray(TransformNode.Make(Node, 1, offset, rotate, scale, tile));
+        return new Gray(TransformNode.Make(Node, 1, new ImageTransform(offset, rotate, scale, tile)));
     }
 
     /// <summary>
@@ -29,7 +29,7 @@ public sealed partial class Gray
         Arguments.MoreThanUpTo(sizeMin, 0f, SplatterNode.LargestSize, nameof(sizeMin));
         Arguments.Between(sizeMax, sizeMin, SplatterNode.LargestSize, nameof(sizeMax));
 
-        return new Gray(new SplatterNode(Node, count, sizeMin, sizeMax, rotate, mode, seed));
+        return new Gray(new SplatterNode(Node, new SplatterStamps(count, sizeMin, sizeMax, rotate, mode), seed));
     }
 }
 
@@ -38,7 +38,7 @@ public sealed partial class Rgb
     /// <summary>The same as <see cref="Gray.Transform"/>, for each channel.</summary>
     public Rgb Transform(Vector2 offset = default, float rotate = 0f, float scale = 1f, int tile = 1)
     {
-        return new Rgb(TransformNode.Make(Node, 3, offset, rotate, scale, tile));
+        return new Rgb(TransformNode.Make(Node, 3, new ImageTransform(offset, rotate, scale, tile)));
     }
 }
 
@@ -138,6 +138,12 @@ internal static class Directions
     }
 }
 
+/// <summary>What <see cref="Gray.Transform"/> does to an image: move, turn, scale and repeat it.</summary>
+readonly record struct ImageTransform(Vector2 Offset, float Rotate, float Scale, int Tile);
+
+/// <summary>What <see cref="Gray.Splatter"/> stamps: how many, how big, whether turned, and how each is combined.</summary>
+readonly record struct SplatterStamps(int Count, float SizeMin, float SizeMax, bool Rotate, BlendMode Mode);
+
 sealed class TransformNode : Node
 {
     /// <summary>The most copies across, one per pixel at the largest cook size.</summary>
@@ -154,8 +160,10 @@ sealed class TransformNode : Node
         _copies = copies;
     }
 
-    public static TransformNode Make(Node input, int channels, Vector2 offset, float rotate, float scale, int tile)
+    public static TransformNode Make(Node input, int channels, ImageTransform transform)
     {
+        var (offset, rotate, scale, tile) = transform;
+
         Arguments.Finite(offset.X, nameof(offset));
         Arguments.Finite(offset.Y, nameof(offset));
         Arguments.MoreThan(scale, 0f, nameof(scale));
@@ -182,7 +190,7 @@ sealed class TransformNode : Node
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
     {
         var size = context.Size;
-        var source = inputs[0];
+        var source = new InterleavedImage(inputs[0], size, Channels);
         var a = (float)_direction.Run;
         var b = (float)_direction.Rise;
         var k = (float)_copies;
@@ -203,7 +211,7 @@ sealed class TransformNode : Node
 
                 for (var c = 0; c < Channels; c++)
                 {
-                    output[at + c] = Sampling.Bilinear(source, size, Channels, c, u, v);
+                    output[at + c] = source.Bilinear(c, u, v);
                 }
             }
         });
@@ -221,13 +229,9 @@ sealed class SplatterNode : Node
     readonly bool _rotate;
     readonly BlendMode _mode;
 
-    public SplatterNode(Node input, int count, float sizeMin, float sizeMax, bool rotate, BlendMode mode, int? seed) : base(1, input)
+    public SplatterNode(Node input, SplatterStamps stamps, int? seed) : base(1, input)
     {
-        _count = count;
-        _sizeMin = sizeMin;
-        _sizeMax = sizeMax;
-        _rotate = rotate;
-        _mode = mode;
+        (_count, _sizeMin, _sizeMax, _rotate, _mode) = stamps;
 
         if (seed is { } s)
         {
