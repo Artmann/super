@@ -38,9 +38,12 @@ internal sealed class Column<T>(int capacity) : Column
 /// </summary>
 internal sealed class Archetype
 {
+    /// <summary>The most component types a world holds: one bit each in an archetype's mask.</summary>
+    internal const int MaxComponentTypes = 64;
+
     private const int FirstCapacity = 16;
 
-    private readonly Column?[] _columns = new Column?[World.MaxComponentTypes];
+    private readonly Column?[] _columns = new Column?[MaxComponentTypes];
 
     public Archetype(ulong mask, Archetype? source, Column? added, int addedType)
     {

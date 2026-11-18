@@ -8,72 +8,44 @@ public readonly record struct Entity(int Id, int Generation);
 /// run side by side. Queries visit entities in an order that only depends on what was
 /// done to the world, which keeps seeded runs repeatable.
 /// </summary>
-public sealed partial class World
+public sealed class World : ITickHook, IStateHook
 {
-    internal const int MaxComponentTypes = 64;
-
-    private readonly Dictionary<Type, int> _componentTypes = [];
-    private readonly Dictionary<ulong, Archetype> _archetypesByMask = [];
-    private readonly List<Archetype> _archetypes = [];
-    private readonly Stack<int> _freeIds = [];
-    private readonly Archetype _empty;
-    private Slot[] _slots = new Slot[64];
-    private int _nextId;
+    private readonly EntitySlots _entities = new();
+    private readonly List<Entity> _leaving = [];
     private int _iterating;
 
-    public World()
-    {
-        _empty = new Archetype(0, null, null, -1);
-        _archetypesByMask.Add(0, _empty);
-        _archetypes.Add(_empty);
-    }
-
     /// <summary>How many entities are alive.</summary>
-    public int Count { get; private set; }
+    public int Count => _entities.Count;
+
+    /// <summary>The component types and archetypes, which queries walk.</summary>
+    internal ArchetypeTable Archetypes { get; } = new();
 
     public Entity Create()
     {
         ThrowIfIterating();
-        int id = _freeIds.Count > 0 ? _freeIds.Pop() : _nextId++;
-        if (id == _slots.Length)
-        {
-            Array.Resize(ref _slots, id * 2);
-        }
-
-        ref var slot = ref _slots[id];
-        var entity = new Entity(id, slot.Generation);
-        slot.Archetype = _empty;
-        slot.Row = _empty.AddRow(entity);
-        Count++;
-        return entity;
+        return _entities.Create(Archetypes.Empty);
     }
 
     /// <summary>Removes an entity. Its ID can be reused, but old handles to it stop being alive.</summary>
     public void Destroy(Entity entity)
     {
         ThrowIfIterating();
-        ref var slot = ref SlotOf(entity);
-        RemoveFromArchetype(ref slot);
-        slot.Archetype = null;
-        slot.Generation++;
-        _freeIds.Push(entity.Id);
-        Count--;
+        _entities.Free(entity);
     }
 
-    public bool IsAlive(Entity entity) =>
-        entity.Id >= 0 && entity.Id < _nextId && _slots[entity.Id].Archetype is not null && _slots[entity.Id].Generation == entity.Generation;
+    public bool IsAlive(Entity entity) => _entities.IsAlive(entity);
 
     /// <summary>Gives the entity a component, or replaces the one it has.</summary>
     public void Add<T>(Entity entity, T component)
         where T : struct
     {
-        ref var slot = ref SlotOf(entity);
-        int type = TypeId<T>();
+        ref var slot = ref _entities.Of(entity);
+        int type = Archetypes.TypeId<T>();
         ulong bit = 1UL << type;
         if ((slot.Archetype!.Mask & bit) == 0)
         {
             ThrowIfIterating();
-            MoveTo(ref slot, ArchetypeWith<T>(slot.Archetype, type));
+            _entities.MoveTo(ref slot, Archetypes.With<T>(slot.Archetype, type));
         }
 
         slot.Archetype!.Column<T>(type).Values[slot.Row] = component;
@@ -83,34 +55,27 @@ public sealed partial class World
     public void Remove<T>(Entity entity)
         where T : struct
     {
-        ref var slot = ref SlotOf(entity);
-        ulong bit = 1UL << TypeId<T>();
+        ref var slot = ref _entities.Of(entity);
+        ulong bit = 1UL << Archetypes.TypeId<T>();
         if ((slot.Archetype!.Mask & bit) == 0)
         {
             return;
         }
 
         ThrowIfIterating();
-        ulong mask = slot.Archetype.Mask & ~bit;
-        if (!_archetypesByMask.TryGetValue(mask, out var target))
-        {
-            target = new Archetype(mask, slot.Archetype, null, -1);
-            Register(target);
-        }
-
-        MoveTo(ref slot, target);
+        _entities.MoveTo(ref slot, Archetypes.Without(slot.Archetype, bit));
     }
 
     public bool Has<T>(Entity entity)
         where T : struct =>
-        (SlotOf(entity).Archetype!.Mask & (1UL << TypeId<T>())) != 0;
+        (_entities.Of(entity).Archetype!.Mask & (1UL << Archetypes.TypeId<T>())) != 0;
 
     /// <summary>The entity's component, by reference so it can be changed.</summary>
     public ref T Get<T>(Entity entity)
         where T : struct
     {
-        ref var slot = ref SlotOf(entity);
-        int type = TypeId<T>();
+        ref var slot = ref _entities.Of(entity);
+        int type = Archetypes.TypeId<T>();
         if ((slot.Archetype!.Mask & (1UL << type)) == 0)
         {
             throw new InvalidOperationException($"Entity {entity.Id} has no {typeof(T).Name}.");
@@ -119,89 +84,40 @@ public sealed partial class World
         return ref slot.Archetype.Column<T>(type).Values[slot.Row];
     }
 
-    internal int TypeId<T>()
-    {
-        if (!_componentTypes.TryGetValue(typeof(T), out int id))
-        {
-            if (_componentTypes.Count == MaxComponentTypes)
-            {
-                throw new InvalidOperationException($"A world holds at most {MaxComponentTypes} component types.");
-            }
+    // Queries allocate nothing, so they're safe to run every tick and every frame. Each row
+    // hands out references: changing row.First.Value changes the component in the world.
+    public Query<T1> Query<T1>()
+        where T1 : struct =>
+        new(this);
 
-            id = _componentTypes.Count;
-            _componentTypes.Add(typeof(T), id);
-        }
+    public Query<T1, T2> Query<T1, T2>()
+        where T1 : struct
+        where T2 : struct =>
+        new(this);
 
-        return id;
-    }
+    public Query<T1, T2, T3> Query<T1, T2, T3>()
+        where T1 : struct
+        where T2 : struct
+        where T3 : struct =>
+        new(this);
 
-    /// <summary>The type's ID, or -1 if no entity has ever had it. Unlike TypeId, this registers nothing.</summary>
-    internal int TypeIdOrMissing<T>() => _componentTypes.TryGetValue(typeof(T), out int id) ? id : -1;
+    public Query<T1, T2, T3, T4> Query<T1, T2, T3, T4>()
+        where T1 : struct
+        where T2 : struct
+        where T3 : struct
+        where T4 : struct =>
+        new(this);
+
+    void ITickHook.BeforeUpdate() => SmoothedTransforms.Remember(this);
+
+    void IStateHook.Exited<TState>(TState state) => ScopedEntities.DestroyScopedTo(this, state, _leaving);
+
+    // Whatever was just placed for the new state should appear there, not glide from the old one.
+    void IStateHook.Entered() => SmoothedTransforms.Remember(this);
 
     internal void BeginIteration() => _iterating++;
 
     internal void EndIteration() => _iterating--;
-
-    internal Archetype? NextArchetype(ref int index, ulong mask)
-    {
-        while (++index < _archetypes.Count)
-        {
-            var archetype = _archetypes[index];
-            if (archetype.Count > 0 && (archetype.Mask & mask) == mask)
-            {
-                return archetype;
-            }
-        }
-
-        return null;
-    }
-
-    private Archetype ArchetypeWith<T>(Archetype source, int type)
-    {
-        ulong mask = source.Mask | (1UL << type);
-        if (!_archetypesByMask.TryGetValue(mask, out var target))
-        {
-            target = new Archetype(mask, source, new Column<T>(16), type);
-            Register(target);
-        }
-
-        return target;
-    }
-
-    private void Register(Archetype archetype)
-    {
-        _archetypesByMask.Add(archetype.Mask, archetype);
-        _archetypes.Add(archetype);
-    }
-
-    private void MoveTo(ref Slot slot, Archetype target)
-    {
-        var source = slot.Archetype!;
-        int oldRow = slot.Row;
-        int row = target.AddRow(source.Entities[oldRow]);
-        source.CopyRowTo(target, oldRow, row);
-        RemoveFromArchetype(ref slot);
-        slot.Archetype = target;
-        slot.Row = row;
-    }
-
-    private void RemoveFromArchetype(ref Slot slot)
-    {
-        if (slot.Archetype!.RemoveRow(slot.Row) is { } moved)
-        {
-            _slots[moved.Id].Row = slot.Row;
-        }
-    }
-
-    private ref Slot SlotOf(Entity entity)
-    {
-        if (!IsAlive(entity))
-        {
-            throw new InvalidOperationException($"Entity {entity.Id} is not alive.");
-        }
-
-        return ref _slots[entity.Id];
-    }
 
     private void ThrowIfIterating()
     {
@@ -210,12 +126,5 @@ public sealed partial class World
             throw new InvalidOperationException(
                 "Entities can't be created, destroyed or change their components during a query. Collect the changes and make them afterwards.");
         }
-    }
-
-    private struct Slot
-    {
-        public Archetype? Archetype;
-        public int Row;
-        public int Generation;
     }
 }

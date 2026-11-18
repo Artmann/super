@@ -88,7 +88,7 @@ public class ModelsTests
     {
         var entity = Spawn(Transform.At(Vector3.Zero), smoothed: true);
 
-        _world.RememberTransforms();
+        SmoothedTransforms.Remember(_world);
         _world.Get<Transform>(entity).Position = new Vector3(4f, 0f, 0f);
 
         Assert.Equal(1f, Draw(0.25f)[0].Transform.Translation.X, Tolerance);
@@ -100,7 +100,7 @@ public class ModelsTests
     {
         var entity = Spawn(Transform.At(Vector3.Zero));
 
-        _world.RememberTransforms();
+        SmoothedTransforms.Remember(_world);
         _world.Get<Transform>(entity).Position = new Vector3(4f, 0f, 0f);
 
         Assert.Equal(4f, Draw(0.25f)[0].Transform.Translation.X, Tolerance);
@@ -142,7 +142,7 @@ public class ModelsTests
         var child = Spawn(Transform.Identity);
         _world.Add(child, new Parent(parent));
 
-        _world.RememberTransforms();
+        SmoothedTransforms.Remember(_world);
         _world.Get<Transform>(parent).Position = new Vector3(4f, 0f, 0f);
 
         var drawn = Draw(0.5f);
@@ -169,7 +169,7 @@ public class ModelsTests
         var entity = Spawn(Transform.Identity, smoothed: true);
         _world.Add(entity, new Swim(0.1f, 1f, 0f));
 
-        _world.RememberTransforms();
+        SmoothedTransforms.Remember(_world);
         _world.Get<Swim>(entity).Phase = 2f;
 
         Assert.Equal(new SwimMotion(0.1f, 1f, 1f), Draw(0.5f)[0].Swim);

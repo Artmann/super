@@ -26,7 +26,7 @@ public static class ViewExtensions
         try
         {
             int index = -1;
-            while (world.NextArchetype(ref index, 1UL << types.Transform) is { } archetype)
+            while (world.Archetypes.NextMatching(ref index, 1UL << types.Transform) is { } archetype)
             {
                 var rows = ModelRows.Of(archetype, types);
                 if (rows.Models is null && rows.Animated is null)
@@ -65,13 +65,13 @@ public static class ViewExtensions
 
         public static ModelTypes Of(World world) => new()
         {
-            Transform = world.TypeIdOrMissing<Transform>(),
-            Model = world.TypeIdOrMissing<Model>(),
-            Animated = world.TypeIdOrMissing<Animated>(),
-            Smoothed = world.TypeIdOrMissing<Smoothed>(),
-            Parent = world.TypeIdOrMissing<Parent>(),
-            Swim = world.TypeIdOrMissing<Swim>(),
-            Static = world.TypeIdOrMissing<Static>(),
+            Transform = world.Archetypes.TypeIdOrMissing<Transform>(),
+            Model = world.Archetypes.TypeIdOrMissing<Model>(),
+            Animated = world.Archetypes.TypeIdOrMissing<Animated>(),
+            Smoothed = world.Archetypes.TypeIdOrMissing<Smoothed>(),
+            Parent = world.Archetypes.TypeIdOrMissing<Parent>(),
+            Swim = world.Archetypes.TypeIdOrMissing<Swim>(),
+            Static = world.Archetypes.TypeIdOrMissing<Static>(),
         };
     }
 

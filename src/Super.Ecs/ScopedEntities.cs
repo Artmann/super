@@ -1,19 +1,14 @@
 namespace Super.Ecs;
 
-public sealed partial class World : IStateHook
+/// <summary>Clears away the entities a game scoped to a state with <see cref="ScopedTo{TState}"/> when it leaves it.</summary>
+internal static class ScopedEntities
 {
-    private readonly List<Entity> _leaving = [];
-
-    void IStateHook.Exited<TState>(TState state) => DestroyScopedTo(state);
-
-    // Whatever was just placed for the new state should appear there, not glide from the old one.
-    void IStateHook.Entered() => RememberTransforms();
-
     /// <summary>Destroys every entity scoped to this state. Collects first, since destroying moves rows.</summary>
-    private void DestroyScopedTo<TState>(TState state)
+    public static void DestroyScopedTo<TState>(World world, TState state, List<Entity> leaving)
         where TState : struct, Enum
     {
-        int scopedType = TypeIdOrMissing<ScopedTo<TState>>();
+        var archetypes = world.Archetypes;
+        int scopedType = archetypes.TypeIdOrMissing<ScopedTo<TState>>();
         if (scopedType < 0)
         {
             return;
@@ -22,23 +17,23 @@ public sealed partial class World : IStateHook
         var same = EqualityComparer<TState>.Default;
         ulong mask = 1UL << scopedType;
         int index = -1;
-        while (NextArchetype(ref index, mask) is { } archetype)
+        while (archetypes.NextMatching(ref index, mask) is { } archetype)
         {
             var scopes = archetype.Column<ScopedTo<TState>>(scopedType).Values;
             for (int i = 0; i < archetype.Count; i++)
             {
                 if (same.Equals(scopes[i].State, state))
                 {
-                    _leaving.Add(archetype.Entities[i]);
+                    leaving.Add(archetype.Entities[i]);
                 }
             }
         }
 
-        foreach (var entity in _leaving)
+        foreach (var entity in leaving)
         {
-            Destroy(entity);
+            world.Destroy(entity);
         }
 
-        _leaving.Clear();
+        leaving.Clear();
     }
 }
