@@ -25,7 +25,8 @@ public abstract record UiView
     /// the components that read the value run again when it changes.
     /// </summary>
     protected static State<T> UseState<T>(T initial) =>
-        UiNode.Rendering?.UseState(initial) ?? throw new InvalidOperationException("UseState only works while Body runs.");
+        UiBodyHooks.Running?.UseSlot(initial, static value => new State<T>(value))
+        ?? throw new InvalidOperationException("UseState only works while Body runs.");
 }
 
 /// <summary>A view Super draws itself, which makes it the end of the line for Body.</summary>
@@ -41,12 +42,12 @@ public abstract record PrimitiveView : UiView
     internal abstract void Place(UiNode node, UiRect frame);
 
     /// <summary>Draws this view, behind its children.</summary>
-    internal virtual void Emit(UiNode node, UiTree tree)
+    internal virtual void Emit(UiNode node, UiDrawList draw)
     {
     }
 
     /// <summary>Runs after the children, to end what Emit began and draw anything in front of them.</summary>
-    internal virtual void EmitAfter(UiNode node, UiTree tree)
+    internal virtual void EmitAfter(UiNode node, UiDrawList draw)
     {
     }
 
@@ -67,6 +68,20 @@ public abstract record PrimitiveView : UiView
 
     /// <summary>Changes the text style for everything inside this view.</summary>
     internal virtual TextStyle Inherit(TextStyle style) => style;
+
+    /// <summary>
+    /// Where a node shows: a component is where its body is, and a box is where it shows,
+    /// inside its margin.
+    /// </summary>
+    internal static UiRect ShownArea(UiNode node)
+    {
+        while (node.View is not PrimitiveView)
+        {
+            node = node.Children[0]!;
+        }
+
+        return ((PrimitiveView)node.View).HitArea(node);
+    }
 }
 
 public enum HorizontalAlignment

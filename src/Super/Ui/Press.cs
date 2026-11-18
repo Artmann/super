@@ -42,16 +42,7 @@ internal abstract record PointerModifier(UiView Child) : Modifier(Child)
 {
     internal override bool Blocks => true;
 
-    internal override UiRect HitArea(UiNode node)
-    {
-        var inner = Inner(node);
-        while (inner.View is not PrimitiveView)
-        {
-            inner = inner.Children[0]!;
-        }
-
-        return ((PrimitiveView)inner.View).HitArea(inner);
-    }
+    internal override UiRect HitArea(UiNode node) => ShownArea(Inner(node));
 }
 
 internal sealed record ClickModifier(UiView Child, Action? Click, State<PressState>? Look = null, bool Disabled = false) : PointerModifier(Child);

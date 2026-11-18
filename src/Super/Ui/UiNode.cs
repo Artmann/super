@@ -7,22 +7,11 @@ namespace Super.Ui;
 /// </summary>
 internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
 {
-    /// <summary>Layout asks the same question a few times. Four answers cover what stacks ask.</summary>
-    private const int MaxMeasurements = 4;
+    private readonly UiSizeMemo _sizes = new();
 
-    [ThreadStatic]
-    private static UiNode? _rendering;
-
-    private readonly List<object> _states = [];
-    private readonly List<IWatchedState> _watching = [];
-    private readonly (Proposal Proposal, UiSize Size)[] _measurements = new (Proposal, UiSize)[MaxMeasurements];
-    private int _measurementCount;
-    private int _nextState;
-    private bool _dirty = true;
-    private bool _dirtyBelow;
-
-    /// <summary>The component whose Body is running, which is who reads of state belong to.</summary>
-    public static UiNode? Rendering => _rendering;
+    // Only components have hooks, made on their first run of Body.
+    private UiBodyHooks? _hooks;
+    private UiNodeChanges _changes = UiNodeChanges.Self;
 
     public UiTree Tree { get; } = tree;
 
@@ -36,19 +25,8 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
 
     public UiRect Frame { get; private set; }
 
-    /// <summary>How far a scroll view has moved. It's kept here so it survives new descriptions.</summary>
-    public float ScrollOffset { get; set; }
-
-    /// <summary>The length of a scroll view's content, from its last layout.</summary>
-    public float ContentLength { get; set; }
-
-    /// <summary>The length of a scroll view's window on its content, from its last layout.</summary>
-    public float ViewportLength { get; set; }
-
-    public float MaxScroll => Math.Max(ContentLength - ViewportLength, 0f);
-
-    /// <summary>Whether a scroll view's bar is under the mouse.</summary>
-    public bool BarLit { get; set; }
+    /// <summary>A scroll view's position and lengths. It's kept here so it survives new descriptions.</summary>
+    public UiScrollState Scroll => field ??= new UiScrollState();
 
     /// <summary>Whether this is still in the tree. The mouse lets go of anything that isn't.</summary>
     public bool Mounted { get; private set; } = true;
@@ -59,73 +37,54 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
     /// </summary>
     public bool Update(UiView view, TextStyle style)
     {
-        bool changed = _dirty || style != Style || (!ReferenceEquals(view, View) && !view.Equals(View));
-        if (!changed && !_dirtyBelow)
+        bool changed = _changes.HasFlag(UiNodeChanges.Self) || style != Style || (!ReferenceEquals(view, View) && !view.Equals(View));
+        if (!changed && !_changes.HasFlag(UiNodeChanges.Below))
         {
             return false;
         }
 
         View = view;
         Style = style;
-        _dirtyBelow = false;
+        _changes = UiNodeChanges.None;
         if (!changed)
         {
-            return UpdateChildrenInPlace();
+            var inherited = view is PrimitiveView same ? same.Inherit(style) : style;
+            return UiChildren.UpdateInPlace(Children, inherited);
         }
 
-        _dirty = false;
         if (view is PrimitiveView primitive)
         {
-            Reconcile(primitive.Children, primitive.Inherit(style));
+            Children = UiChildren.Reconcile(this, primitive.Children, primitive.Inherit(style));
         }
         else
         {
-            Reconcile([RunBody(view)], style);
+            // A component's one child is what its Body describes, run with its hooks.
+            _hooks ??= new UiBodyHooks(MarkDirty);
+            Children = UiChildren.Reconcile(this, [_hooks.Run(view, static component => component.Body)], style);
         }
 
         return true;
     }
 
-    public State<T> UseState<T>(T initial)
-    {
-        if (_nextState == _states.Count)
-        {
-            _states.Add(new State<T>(initial));
-        }
-
-        if (_states[_nextState++] is not State<T> state)
-        {
-            throw new InvalidOperationException(
-                $"{View.GetType().Name} called UseState in a different order than last time. Call it the same way on every run of Body.");
-        }
-
-        return state;
-    }
-
-    public void Watch(IWatchedState state) => _watching.Add(state);
-
+    /// <summary>Runs this node again on the next update, and lets the nodes above know to look down here.</summary>
     public void MarkDirty()
     {
-        _dirty = true;
+        _changes |= UiNodeChanges.Self;
         for (var node = Parent; node is not null; node = node.Parent)
         {
-            node._dirtyBelow = true;
+            node._changes |= UiNodeChanges.Below;
         }
     }
 
     public UiSize Measure(Proposal proposal)
     {
-        for (int i = 0; i < _measurementCount; i++)
+        if (_sizes.TryRecall(proposal, out var size))
         {
-            if (_measurements[i].Proposal == proposal)
-            {
-                return _measurements[i].Size;
-            }
+            return size;
         }
 
-        var size = View is PrimitiveView primitive ? primitive.Measure(this, proposal) : Children[0]!.Measure(proposal);
-        _measurements[_measurementCount % MaxMeasurements] = (proposal, size);
-        _measurementCount = Math.Min(_measurementCount + 1, MaxMeasurements);
+        size = View is PrimitiveView primitive ? primitive.Measure(this, proposal) : Children[0]!.Measure(proposal);
+        _sizes.Remember(proposal, size);
         return size;
     }
 
@@ -142,19 +101,19 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
         }
     }
 
-    public void Emit()
+    public void Emit(UiDrawList draw)
     {
         if (View is PrimitiveView primitive)
         {
-            primitive.Emit(this, Tree);
+            primitive.Emit(this, draw);
         }
 
         foreach (var child in Children)
         {
-            child?.Emit();
+            child?.Emit(draw);
         }
 
-        (View as PrimitiveView)?.EmitAfter(this, Tree);
+        (View as PrimitiveView)?.EmitAfter(this, draw);
     }
 
     /// <summary>What the mouse touches at this point, front to back, from this node down.</summary>
@@ -188,7 +147,7 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
 
     public void ForgetLayout()
     {
-        _measurementCount = 0;
+        _sizes.Clear();
         foreach (var child in Children)
         {
             child?.ForgetLayout();
@@ -198,111 +157,23 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
     public void Unmount()
     {
         Mounted = false;
-        StopWatching();
+        _hooks?.StopReading();
         foreach (var child in Children)
         {
             child?.Unmount();
         }
     }
+}
 
-    private static bool SameIdentity(UiNode node, UiView view) =>
-        node.View.GetType() == view.GetType() && Equals(node.View.Identity, view.Identity);
+/// <summary>What changed at and below a node since it was last brought up to date.</summary>
+[Flags]
+internal enum UiNodeChanges
+{
+    None = 0,
 
-    private UiView RunBody(UiView view)
-    {
-        StopWatching();
-        _nextState = 0;
-        var outer = _rendering;
-        _rendering = this;
-        try
-        {
-            return view.Body;
-        }
-        finally
-        {
-            _rendering = outer;
-        }
-    }
+    /// <summary>A state this node read changed, so it runs again.</summary>
+    Self = 1,
 
-    private void StopWatching()
-    {
-        foreach (var state in _watching)
-        {
-            state.Forget(this);
-        }
-
-        _watching.Clear();
-    }
-
-    /// <summary>Nothing here changed, but something further down did.</summary>
-    private bool UpdateChildrenInPlace()
-    {
-        var style = View is PrimitiveView primitive ? primitive.Inherit(Style) : Style;
-        bool changed = false;
-        foreach (var child in Children)
-        {
-            if (child is not null)
-            {
-                changed |= child.Update(child.View, style);
-            }
-        }
-
-        return changed;
-    }
-
-    /// <summary>
-    /// Pairs up new views with existing nodes. A pair keeps its state when the type matches
-    /// and the position does too, or the <see cref="UiView.Identity"/> if it has one.
-    /// </summary>
-    private void Reconcile(IReadOnlyList<UiView?> views, TextStyle style)
-    {
-        var previous = Children;
-        var next = new List<UiNode?>(views.Count);
-        for (int i = 0; i < views.Count; i++)
-        {
-            if (views[i] is not { } view)
-            {
-                next.Add(null);
-                continue;
-            }
-
-            var node = TakeMatch(previous, i, view) ?? new UiNode(Tree, this, view);
-            node.Update(view, style);
-            next.Add(node);
-        }
-
-        foreach (var left in previous)
-        {
-            left?.Unmount();
-        }
-
-        Children = next;
-    }
-
-    private static UiNode? TakeMatch(List<UiNode?> previous, int position, UiView view)
-    {
-        if (view.Identity is null)
-        {
-            return position < previous.Count && previous[position] is { } node && SameIdentity(node, view)
-                ? Take(previous, position)
-                : null;
-        }
-
-        for (int i = 0; i < previous.Count; i++)
-        {
-            if (previous[i] is { } node && SameIdentity(node, view))
-            {
-                return Take(previous, i);
-            }
-        }
-
-        return null;
-    }
-
-    private static UiNode? Take(List<UiNode?> previous, int index)
-    {
-        var node = previous[index];
-        previous[index] = null;
-        return node;
-    }
+    /// <summary>Something further down changed.</summary>
+    Below = 2,
 }

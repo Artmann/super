@@ -1,5 +1,3 @@
-using System.Numerics;
-
 namespace Super.Ui;
 
 public enum Axis
@@ -15,9 +13,6 @@ public enum Axis
 /// </summary>
 public sealed record ScrollView(Axis Axis = Axis.Vertical) : Container
 {
-    internal const float BarThickness = 10f;
-    internal const float MinThumb = 28f;
-
     private static readonly Color TrackColor = new(1f, 1f, 1f, 0.05f);
     private static readonly Color ThumbColor = new(1f, 1f, 1f, 0.3f);
     private static readonly Color ThumbLitColor = new(1f, 1f, 1f, 0.5f);
@@ -44,110 +39,65 @@ public sealed record ScrollView(Axis Axis = Axis.Vertical) : Container
     {
         float? cross = Vertical ? proposal.Width : proposal.Height;
         float? main = Vertical ? proposal.Height : proposal.Width;
-        var content = Content(node, cross);
-        float mainLength = main is { } offered && !float.IsInfinity(offered) ? offered : Main(content);
-        if (main is { } limit && Main(content) > limit && cross is { } crossOffer)
+        var content = Measured(node, cross);
+        float mainLength = main is { } offered && !float.IsInfinity(offered) ? offered : Axis.Main(content);
+        if (main is { } limit && Axis.Main(content) > limit && cross is { } crossOffer)
         {
-            content = Content(node, Math.Max(crossOffer - BarThickness, 0f));
-            return Size(mainLength, Math.Min(Cross(content) + BarThickness, crossOffer));
+            content = Measured(node, Math.Max(crossOffer - UiScrollBar.Thickness, 0f));
+            return Axis.SizeOf(mainLength, Math.Min(Axis.Cross(content) + UiScrollBar.Thickness, crossOffer));
         }
 
-        return Size(mainLength, cross is { } most ? Math.Min(Cross(content), most) : Cross(content));
+        return Axis.SizeOf(mainLength, cross is { } most ? Math.Min(Axis.Cross(content), most) : Axis.Cross(content));
     }
 
     internal override void Place(UiNode node, UiRect frame)
     {
         float viewport = Vertical ? frame.Height : frame.Width;
         float cross = Vertical ? frame.Width : frame.Height;
-        var content = Content(node, cross);
-        bool overflows = Main(content) > viewport;
+        var content = Measured(node, cross);
+        bool overflows = Axis.Main(content) > viewport;
         if (overflows)
         {
-            content = Content(node, Math.Max(cross - BarThickness, 0f));
+            content = Measured(node, Math.Max(cross - UiScrollBar.Thickness, 0f));
         }
 
-        node.ContentLength = Main(content);
-        node.ViewportLength = viewport;
-        node.ScrollOffset = Math.Clamp(node.ScrollOffset, 0f, node.MaxScroll);
+        var scroll = node.Scroll;
+        scroll.ContentLength = Axis.Main(content);
+        scroll.ViewportLength = viewport;
+        scroll.Offset = Math.Clamp(scroll.Offset, 0f, scroll.MaxScroll);
         var inner = node.Children[0]!;
         inner.Place(Vertical
-            ? new UiRect(frame.X, frame.Y - node.ScrollOffset, content.Width, content.Height)
-            : new UiRect(frame.X - node.ScrollOffset, frame.Y, content.Width, content.Height));
+            ? new UiRect(frame.X, frame.Y - scroll.Offset, content.Width, content.Height)
+            : new UiRect(frame.X - scroll.Offset, frame.Y, content.Width, content.Height));
     }
 
     internal override bool Blocks => true;
 
     internal override UiRect? ClipArea(UiNode node) => node.Frame;
 
-    internal override bool HitsFirst(UiNode node, float x, float y) => InBar(node, x, y);
+    internal override bool HitsFirst(UiNode node, float x, float y) => BarOf(node).Contains(x, y);
 
-    internal override void Emit(UiNode node, UiTree tree) => tree.PushClip(node.Frame, 0f);
+    internal override void Emit(UiNode node, UiDrawList draw) => draw.Nesting.PushClip(node.Frame, 0f);
 
     /// <summary>The bar comes after the clip ends, so it can't be cut off by what it scrolls.</summary>
-    internal override void EmitAfter(UiNode node, UiTree tree)
+    internal override void EmitAfter(UiNode node, UiDrawList draw)
     {
-        tree.PopClip();
-        if (node.MaxScroll > 0f)
+        draw.Nesting.PopClip();
+        if (node.Scroll.MaxScroll > 0f)
         {
-            float radius = BarThickness / 2f;
-            tree.AddBox(Bar(node), TrackColor, radius, 0f, default);
-            tree.AddBox(Thumb(node), node.BarLit ? ThumbLitColor : ThumbColor, radius, 0f, default);
+            float radius = UiScrollBar.Thickness / 2f;
+            var bar = BarOf(node);
+            draw.AddBox(bar.Track, TrackColor, radius, 0f, default);
+            draw.AddBox(bar.Thumb, node.Scroll.BarLit ? ThumbLitColor : ThumbColor, radius, 0f, default);
         }
     }
 
-    internal bool InBar(UiNode node, float x, float y) => node.MaxScroll > 0f && Bar(node).Contains(x, y);
+    /// <summary>This view's bar, where its node was laid out last.</summary>
+    internal UiScrollBar BarOf(UiNode node) => new(node.Frame, Vertical, node.Scroll);
 
-    /// <summary>Where along the thumb a press holds it. A press off the thumb holds the middle, and jumps there.</summary>
-    internal float Grab(UiNode node, Vector2 position)
-    {
-        float along = Along(position);
-        float start = ThumbStart(node);
-        float length = ThumbLength(node);
-        return along >= start && along < start + length ? along - start : length / 2f;
-    }
-
-    /// <summary>The scroll offset that puts the thumb under the cursor.</summary>
-    internal float OffsetFor(UiNode node, Vector2 position, float grab)
-    {
-        float travel = node.ViewportLength - ThumbLength(node);
-        float origin = Vertical ? node.Frame.Y : node.Frame.X;
-        return travel > 0f ? (Along(position) - origin - grab) / travel * node.MaxScroll : 0f;
-    }
-
-    private float Along(Vector2 position) => Vertical ? position.Y : position.X;
-
-    private static float ThumbLength(UiNode node) =>
-        Math.Min(Math.Max(node.ViewportLength * node.ViewportLength / node.ContentLength, MinThumb), node.ViewportLength);
-
-    private float ThumbStart(UiNode node) =>
-        (Vertical ? node.Frame.Y : node.Frame.X) + node.ScrollOffset / node.MaxScroll * (node.ViewportLength - ThumbLength(node));
-
-    private UiRect Bar(UiNode node)
-    {
-        var frame = node.Frame;
-        return Vertical
-            ? new UiRect(frame.Right - BarThickness, frame.Y, BarThickness, frame.Height)
-            : new UiRect(frame.X, frame.Bottom - BarThickness, frame.Width, BarThickness);
-    }
-
-    private UiRect Thumb(UiNode node)
-    {
-        var bar = Bar(node);
-        float start = ThumbStart(node);
-        float length = ThumbLength(node);
-        return Vertical
-            ? new UiRect(bar.X, start, bar.Width, length)
-            : new UiRect(start, bar.Y, length, bar.Height);
-    }
-
-    private UiSize Content(UiNode node, float? cross) =>
+    /// <summary>The content's size, offered this much room across the axis and as much as it likes along it.</summary>
+    private UiSize Measured(UiNode node, float? cross) =>
         node.Children[0]!.Measure(Vertical ? new Proposal(Finite(cross), null) : new Proposal(null, Finite(cross)));
 
     private static float? Finite(float? length) => length is { } value && float.IsInfinity(value) ? null : length;
-
-    private float Main(UiSize size) => Vertical ? size.Height : size.Width;
-
-    private float Cross(UiSize size) => Vertical ? size.Width : size.Height;
-
-    private UiSize Size(float main, float cross) => Vertical ? new UiSize(cross, main) : new UiSize(main, cross);
 }

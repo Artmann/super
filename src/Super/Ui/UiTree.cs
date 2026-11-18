@@ -1,5 +1,4 @@
 using System.Numerics;
-using System.Runtime.InteropServices;
 using Rendition;
 
 namespace Super.Ui;
@@ -17,35 +16,19 @@ public readonly record struct ShownText(string Text, UiRect Frame, Color Color, 
 /// </summary>
 public sealed class UiTree
 {
-    private const float TooltipOffsetX = 14f;
-    private const float TooltipOffsetY = 18f;
+    private readonly UiDrawList _draw = new();
 
-    private readonly List<OverlayQuad> _quads = [];
-    private readonly List<ShownText> _shownText = [];
-    private readonly List<(int Quad, GameImage Image)> _imageQuads = [];
-    private readonly List<Clip?> _clips = [];
-    private readonly List<float> _opacities = [];
+    // The drag preview and the tooltip, which float above everything.
     private readonly UiNode?[] _overlays = new UiNode?[2];
-    private GlyphAtlas? _atlas;
     private UiNode? _root;
-    private int _treeQuads;
-    private int _treeImageQuads;
-    private int _treeText;
-    private int _width;
-    private int _height;
-    private Clip? _clip;
-    private float _opacity = 1f;
-    private float _scale = 1f;
+    private (int Width, int Height) _screen;
     private bool _layoutWanted;
-#if !DEBUG
-    private bool _reportedTooManyQuads;
-#endif
 
-    public IReadOnlyList<ShownText> ShownText => _shownText;
+    public IReadOnlyList<ShownText> ShownText => _draw.ShownText;
 
-    internal GlyphAtlas Atlas => _atlas ??= new GlyphAtlas { Scale = _scale };
+    internal GlyphAtlas Atlas => field ??= new GlyphAtlas { Scale = Scale };
 
-    internal ReadOnlySpan<OverlayQuad> Quads => CollectionsMarshal.AsSpan(_quads);
+    internal ReadOnlySpan<OverlayQuad> Quads => _draw.Quads;
 
     /// <summary>
     /// How many pixels one unit of the interface covers. At 2, text, padding and frames are
@@ -56,7 +39,7 @@ public sealed class UiTree
     /// </summary>
     public float Scale
     {
-        get => _scale;
+        get => _draw.Scale;
         set
         {
             if (!(value > 0f) || !float.IsFinite(value))
@@ -64,9 +47,9 @@ public sealed class UiTree
                 throw new ArgumentOutOfRangeException(nameof(value), value, "The interface scale must be a number above zero.");
             }
 
-            if (value != _scale)
+            if (value != _draw.Scale)
             {
-                _scale = value;
+                _draw.Scale = value;
                 Atlas.Scale = value;
                 _layoutWanted = true;
             }
@@ -79,9 +62,8 @@ public sealed class UiTree
     /// </summary>
     public void Update(UiView? view, int width, int height)
     {
-        bool changed = Reconcile(view) | width != _width | height != _height | _layoutWanted;
-        _width = width;
-        _height = height;
+        bool changed = Mount(ref _root, view) | (width, height) != _screen | _layoutWanted;
+        _screen = (width, height);
         if (changed)
         {
             _layoutWanted = false;
@@ -115,7 +97,7 @@ public sealed class UiTree
 
         return found.Count switch
         {
-            1 => ShownFrame(found[0]),
+            1 => PrimitiveView.ShownArea(found[0]),
             0 => throw new InvalidOperationException(ids.Count == 0
                 ? $"No view on screen has the id '{id}', and none has an id."
                 : $"No view on screen has the id '{id}'. These ids are: {string.Join(", ", ids)}."),
@@ -147,31 +129,8 @@ public sealed class UiTree
         }
     }
 
-    /// <summary>A component is where its body is, and a box is where it shows, inside its margin.</summary>
-    private static UiRect ShownFrame(UiNode node)
-    {
-        while (node.View is not PrimitiveView)
-        {
-            node = node.Children[0]!;
-        }
-
-        return ((PrimitiveView)node.View).HitArea(node);
-    }
-
     /// <summary>What the mouse touches at this point, in the layout last shown.</summary>
     internal UiNode? Hit(float x, float y) => _root?.Hit(x, y);
-
-    /// <summary>The middle of the view with this id, in screen pixels, for moving the mouse there.</summary>
-    internal Vector2 ScreenMiddle(object id)
-    {
-        var frame = FrameOf(id);
-        return new Vector2(frame.X + frame.Width / 2f, frame.Y + frame.Height / 2f) * _scale;
-    }
-
-    /// <summary>The screen's width in interface units.</summary>
-    private float Wide => _width / _scale;
-
-    private float High => _height / _scale;
 
     /// <summary>
     /// Draws what floats above everything and belongs to no place in the tree, each time
@@ -179,239 +138,74 @@ public sealed class UiTree
     /// </summary>
     internal void ShowOverlays(UiView? dragged, UiView? tooltip, Vector2 cursor)
     {
-        if (_quads.Count > _treeQuads)
-        {
-            _quads.RemoveRange(_treeQuads, _quads.Count - _treeQuads);
-        }
-
-        _imageQuads.RemoveRange(_treeImageQuads, _imageQuads.Count - _treeImageQuads);
-        _shownText.RemoveRange(_treeText, _shownText.Count - _treeText);
-
+        _draw.TrimToTree();
         if (Overlay(0, dragged) is { } preview)
         {
-            var size = preview.Measure(default);
-            preview.Place(new UiRect(cursor.X - size.Width / 2f, cursor.Y - size.Height / 2f, size.Width, size.Height));
-            preview.Emit();
+            preview.Place(UiOverlaySpots.Centered(preview.Measure(default), cursor));
+            preview.Emit(_draw);
         }
 
         if (Overlay(1, tooltip) is { } tip)
         {
-            var size = tip.Measure(default);
-            tip.Place(TooltipFrame(size, cursor));
-            tip.Emit();
+            var screen = new UiSize(_screen.Width / Scale, _screen.Height / Scale);
+            tip.Place(UiOverlaySpots.Beside(tip.Measure(default), cursor, screen));
+            tip.Emit(_draw);
         }
     }
 
     /// <summary>Asks for layout on the next update, for what changes without a new description.</summary>
     internal void RequestLayout() => _layoutWanted = true;
 
-    /// <summary>Draws a filled rectangle, rounded and bordered if asked to be.</summary>
-    internal void AddBox(UiRect frame, Color? fill, float radius, float borderWidth, Color border)
-    {
-        var uv = Atlas.SolidUv;
-        var color = fill ?? default;
-        Add(frame, new OverlayQuad
-        {
-            UvMin = uv,
-            UvMax = uv,
-            Color = Faded(color),
-            BorderColor = Faded(border),
-            BorderWidth = borderWidth,
-            CornerRadius = radius,
-        });
-    }
-
-    internal void AddQuad(UiRect frame, Vector2 uvMin, Vector2 uvMax, Color color)
-    {
-        Add(frame, new OverlayQuad { UvMin = uvMin, UvMax = uvMax, Color = Faded(color) });
-    }
-
-    /// <summary>Draws part of an image. The renderer says which texture that is at <see cref="BindImages"/>.</summary>
-    internal void AddImage(UiRect frame, Vector2 uvMin, Vector2 uvMax, Color tint, GameImage image)
-    {
-        int quad = _quads.Count;
-        AddQuad(frame, uvMin, uvMax, tint);
-        if (_quads.Count > quad)
-        {
-            _imageQuads.Add((quad, image));
-        }
-    }
-
     /// <summary>Writes the texture of each image quad, which only the renderer knows.</summary>
-    internal void BindImages(Func<GameImage, int> textureIndex)
-    {
-        var quads = CollectionsMarshal.AsSpan(_quads);
-        foreach (var (quad, image) in _imageQuads)
-        {
-            quads[quad].TextureIndex = textureIndex(image);
-        }
-    }
-
-    internal void AddText(string text, UiRect frame, in TextStyle style)
-    {
-        if (_clip is not { } clip || clip.Rect.Overlaps(frame))
-        {
-            _shownText.Add(new ShownText(text, frame, style.Color with { A = style.Color.A * _opacity }, style.Size, style.Bold));
-        }
-    }
+    internal void BindImages(Func<GameImage, int> textureIndex) => _draw.BindImages(textureIndex);
 
     /// <summary>
-    /// Everything until the matching <see cref="PopClip"/> stays inside this rectangle.
-    /// A quad has room for one clip, so nested ones intersect and keep the innermost
-    /// radius that's set.
+    /// Brings the node in a slot up to date with a view: the same node when the view's type
+    /// is the same, a new one when it isn't, and none for no view. Returns whether anything changed.
     /// </summary>
-    internal void PushClip(UiRect rectangle, float radius)
-    {
-        _clips.Add(_clip);
-        _clip = _clip is { } outer
-            ? new Clip(outer.Rect.Intersect(rectangle), radius > 0f ? radius : outer.Radius)
-            : new Clip(rectangle, radius);
-    }
-
-    internal void PopClip()
-    {
-        _clip = _clips[^1];
-        _clips.RemoveAt(_clips.Count - 1);
-    }
-
-    /// <summary>Multiplies everything until the matching <see cref="PopOpacity"/>.</summary>
-    internal void PushOpacity(float opacity)
-    {
-        _opacities.Add(_opacity);
-        _opacity *= opacity;
-    }
-
-    internal void PopOpacity()
-    {
-        _opacity = _opacities[^1];
-        _opacities.RemoveAt(_opacities.Count - 1);
-    }
-
-    private Vector4 Faded(Color color) => new(color.R, color.G, color.B, color.A * _opacity);
-
-    private void Add(UiRect frame, OverlayQuad quad)
-    {
-        // Rows out of sight are still laid out, but they cost the renderer nothing.
-        if (_clip is { } clip && !clip.Rect.Overlaps(frame))
-        {
-            return;
-        }
-
-        if (_quads.Count >= OverlayQuad.MaxPerFrame)
-        {
-            ReportTooManyQuads();
-            return;
-        }
-
-        // Laid out in interface units, drawn in pixels.
-        quad.Position = new Vector2(frame.X, frame.Y) * _scale;
-        quad.Size = new Vector2(frame.Width, frame.Height) * _scale;
-        quad.CornerRadius *= _scale;
-        quad.BorderWidth *= _scale;
-        if (_clip is { } active)
-        {
-            quad.Clip = new Vector4(active.Rect.X, active.Rect.Y, active.Rect.Width, active.Rect.Height) * _scale;
-            quad.ClipRadius = active.Radius * _scale;
-        }
-
-        _quads.Add(quad);
-    }
-
-    private void ReportTooManyQuads()
-    {
-        string message = $"This interface draws more than {OverlayQuad.MaxPerFrame} quads, and each character of text is one. The rest won't show.";
-#if DEBUG
-        throw new InvalidOperationException(message);
-#else
-        if (!_reportedTooManyQuads)
-        {
-            _reportedTooManyQuads = true;
-            Console.Error.WriteLine(message);
-        }
-#endif
-    }
-
-    private bool Reconcile(UiView? view)
+    private bool Mount(ref UiNode? node, UiView? view)
     {
         if (view is null)
         {
-            bool had = _root is not null;
-            _root?.Unmount();
-            _root = null;
+            bool had = node is not null;
+            node?.Unmount();
+            node = null;
             return had;
         }
 
-        if (_root is not null && _root.View.GetType() == view.GetType())
+        if (node is not null && node.View.GetType() == view.GetType())
         {
-            return _root.Update(view, TextStyle.Default);
+            return node.Update(view, TextStyle.Default);
         }
 
-        _root?.Unmount();
-        _root = new UiNode(this, null, view);
-        _root.Update(view, TextStyle.Default);
+        node?.Unmount();
+        node = new UiNode(this, null, view);
+        node.Update(view, TextStyle.Default);
         return true;
-    }
-
-    /// <summary>Beside the cursor, flipped to its other side at the window's edges.</summary>
-    private UiRect TooltipFrame(UiSize size, Vector2 cursor)
-    {
-        float x = cursor.X + TooltipOffsetX;
-        float y = cursor.Y + TooltipOffsetY;
-        if (x + size.Width > Wide)
-        {
-            x = cursor.X - TooltipOffsetX - size.Width;
-        }
-
-        if (y + size.Height > High)
-        {
-            y = cursor.Y - TooltipOffsetY - size.Height;
-        }
-
-        return new UiRect(Math.Max(x, 0f), Math.Max(y, 0f), size.Width, size.Height);
     }
 
     private UiNode? Overlay(int slot, UiView? view)
     {
-        ref var node = ref _overlays[slot];
-        if (view is null)
-        {
-            node?.Unmount();
-            node = null;
-            return null;
-        }
-
-        if (node is null || node.View.GetType() != view.GetType())
-        {
-            node?.Unmount();
-            node = new UiNode(this, null, view);
-        }
-
-        node.Update(view, TextStyle.Default);
-        node.ForgetLayout();
+        Mount(ref _overlays[slot], view);
+        var node = _overlays[slot];
+        node?.ForgetLayout();
         return node;
     }
 
     private void Layout()
     {
-        _quads.Clear();
-        _imageQuads.Clear();
-        _shownText.Clear();
-        _treeQuads = 0;
-        _treeImageQuads = 0;
-        _treeText = 0;
+        _draw.Clear();
         if (_root is null)
         {
             return;
         }
 
         _root.ForgetLayout();
-        var screen = new UiRect(0f, 0f, Wide, High);
-        _root.Place(screen.Align(_root.Measure(new Proposal(Wide, High)), Alignment.Center));
-        _root.Emit();
-        _treeQuads = _quads.Count;
-        _treeImageQuads = _imageQuads.Count;
-        _treeText = _shownText.Count;
+        float wide = _screen.Width / Scale;
+        float high = _screen.Height / Scale;
+        var screen = new UiRect(0f, 0f, wide, high);
+        _root.Place(screen.Align(_root.Measure(new Proposal(wide, high)), Alignment.Center));
+        _root.Emit(_draw);
+        _draw.EndTree();
     }
-
-    private readonly record struct Clip(UiRect Rect, float Radius);
 }

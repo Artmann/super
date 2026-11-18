@@ -102,10 +102,10 @@ public sealed record Image(GameImage Source, ImageFit Fit = ImageFit.Stretch, Co
     {
     }
 
-    internal override void Emit(UiNode node, UiTree tree)
+    internal override void Emit(UiNode node, UiDrawList draw)
     {
         var (rectangle, uvMin, uvMax) = Fitted(node.Frame);
-        tree.AddImage(rectangle, uvMin, uvMax, Tint ?? Color.White, Source);
+        draw.AddImage(rectangle, uvMin, uvMax, Tint ?? Color.White, Source);
     }
 
     /// <summary>The frame that decides this image's size, through anything that only wraps it.</summary>
