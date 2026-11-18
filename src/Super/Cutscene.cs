@@ -7,6 +7,13 @@ namespace Super;
 public readonly record struct ShotTime(float Amount, float Seconds);
 
 /// <summary>
+/// The circle a <c>Shot.Orbit</c> rides: its radius, its height above the point looked
+/// at, and the angles it goes from and to, in radians, where 0 looks from +z and a quarter
+/// turn looks from +x.
+/// </summary>
+public readonly record struct OrbitPath(float Radius, float Height, float FromAngle, float ToAngle);
+
+/// <summary>
 /// One camera move in a <see cref="Cutscene"/>, from one cut to the next. Moves that
 /// follow something take a function for where it is, which is asked every tick, so the
 /// camera keeps up with a character as it runs.
@@ -60,24 +67,21 @@ public sealed class Shot
         });
 
     /// <summary>
-    /// Circles something, from one angle round it to another, in radians, where 0 looks
-    /// from +z and a quarter turn looks from +x. Height is above the point looked at.
+    /// Circles something along <paramref name="path"/>, looking at the subject raised by
+    /// <paramref name="look"/>.
     /// </summary>
     public static Shot Orbit(
         float seconds,
         Func<Vector3> subject,
-        float radius,
-        float height,
-        float fromAngle,
-        float toAngle,
+        OrbitPath path,
         Vector3 look = default,
         float fieldOfView = MathF.PI / 4f,
         Easing easing = Easing.InOut) =>
         new(seconds, easing, time =>
         {
             var center = subject() + look;
-            float angle = float.Lerp(fromAngle, toAngle, time.Amount);
-            var offset = new Vector3(MathF.Sin(angle) * radius, height, MathF.Cos(angle) * radius);
+            float angle = float.Lerp(path.FromAngle, path.ToAngle, time.Amount);
+            var offset = new Vector3(MathF.Sin(angle) * path.Radius, path.Height, MathF.Cos(angle) * path.Radius);
             return new Camera(center + offset, center, fieldOfView);
         });
 

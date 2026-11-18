@@ -160,7 +160,7 @@ public sealed class TransitionsGame(Content content, Input input, Director direc
                 new Camera(Warm + new Vector3(3f, 1.8f, 4.5f), Warm + new Vector3(0f, 1f, 0f), 0.75f)),
                 Transition.Fade(1.2f))
             .At(0f, () => _caption = "Fade in")
-            .Then(Shot.Orbit(3f, blue, radius: 6.5f, height: 2.6f, fromAngle: -0.6f, toAngle: 0.4f, look: new Vector3(0f, 0.8f, 0f), fieldOfView: 0.8f),
+            .Then(Shot.Orbit(3f, blue, new OrbitPath(Radius: 6.5f, Height: 2.6f, FromAngle: -0.6f, ToAngle: 0.4f), look: new Vector3(0f, 0.8f, 0f), fieldOfView: 0.8f),
                 Transition.Dissolve(1f))
             .At(3f, () => _caption = "Dissolve")
             .Then(Shot.Move(3f,
@@ -173,7 +173,7 @@ public sealed class TransitionsGame(Content content, Input input, Director direc
             .At(9f, () => _caption = "Iris")
             .Then(Shot.Hold(3f, Spots[1]), Transition.Blend(2f))
             .At(12f, () => _caption = "Blend")
-            .Then(Shot.Orbit(3f, () => Green, radius: 5.5f, height: 1.8f, fromAngle: 0.3f, toAngle: -0.5f, look: new Vector3(0f, 1f, 0f), fieldOfView: 0.8f),
+            .Then(Shot.Orbit(3f, () => Green, new OrbitPath(Radius: 5.5f, Height: 1.8f, FromAngle: 0.3f, ToAngle: -0.5f), look: new Vector3(0f, 1f, 0f), fieldOfView: 0.8f),
                 Transition.Wipe(0.8f, WipeDirection.Down, softness: 0.3f))
             .At(15f, () => _caption = "Soft wipe")
             .Then(Shot.Hold(3f, new Camera(Blue + new Vector3(4f, 1.2f, 4f), Blue + new Vector3(0f, 1.2f, 0f), 0.7f)),

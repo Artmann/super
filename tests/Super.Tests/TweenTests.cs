@@ -137,7 +137,7 @@ public class TweenTests
     {
         var tween = Ten().Ease(Curve.From(Easing.QuadIn)).Ease(Easing.Linear);
 
-        Assert.Null(tween.Curve);
+        Assert.Null(tween.Timing.Curve);
         Assert.Equal(5f, At(tween, 1f).Value, Tolerance);
     }
 
@@ -250,7 +250,7 @@ public class TweenTests
     [Fact]
     public void A_type_a_tween_cant_blend_is_explained()
     {
-        var tween = default(Tween<int>) with { From = 1, To = 2, Seconds = 1f };
+        var tween = default(Tween<int>) with { From = 1, To = 2, Timing = new TweenTiming { Seconds = 1f } };
 
         var error = Assert.Throws<NotSupportedException>(() => tween.Value);
 
