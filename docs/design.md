@@ -2303,7 +2303,7 @@ CPU, `Next` used to scan every probe each frame whatever the budget, which `--pr
 1 ms a frame at High. Reading only the waiting probes and the oldest captures took the Courtyard's
 CPU time from 1.6 to 0.7 ms a frame, and left `Next` under 1% of the game thread's samples.
 
-`ProbeDebugPass` draws `DebugView.Probes`. A frame's `RecordScene` runs it after the transparent pass and only while `_lightProbesInUse`, so with
+`ProbeDebugPass` draws `DebugView.Probes`. A frame's `RecordTransparent` runs it after the transparent pass and only while `_lightProbesInUse`, so with
 the probes off it records nothing and no atlases are made. It needs no buffers: probe_debug.vert
 builds a 12 × 8 UV sphere (576 vertices) from `gl_VertexIndex` and finds its probe from
 `gl_InstanceIndex`. The first instances are cascade 0's cells, placed and slotted with the same
@@ -4377,7 +4377,7 @@ baked again without it each frame (`BakedSunGpuTests`).
 When a frame's space is fresh, `Renderer.ResolveBakes` makes sure its bake is on the GPU
 (`LoadSpaceBake`). The loaded bake is keyed by its file, its combined inputs, the store and the
 store's `Reloads`, so a frame that matches reads nothing. Otherwise the old pages are destroyed,
-`IBakeStore.Load` reads the file, and `CheckPages` checks that the page counts agree, that each
+`IBakeStore.Load` reads the file, and `BakePages.CheckSpace` checks that the page counts agree, that each
 page's bytes fit its size and format (`TextureData.LevelSize`) and that every draw's page
 exists. `CheckProbes` checks the probes: the two atlases and the grid come all or none, the
 grid's spacing and corners are finite and the spacing above 0, it holds at most
@@ -4537,7 +4537,7 @@ Transparent surfaces and particles don't read probes at all, so they are unchang
 
 The mask shadows Mixed lights. `LoadSpaceBake` keeps the file's `Channels` as a key-to-channel
 dictionary in `LoadedBake`. While `_activeLightmaps` is set (the space fresh, `BakedLighting`
-on, rects loaded) or a chunk is relit, `FindMaskSlots` works out the frame's slots (see
+on, rects loaded) or a chunk is relit, `FindMaskSlots` works out the frame's slots in `FrameMaskSlots` (see
 [Shadow mask channels](#shadow-mask-channels) for how chunks share them). For the space, the first sun that
 `BakeFrame.ModeOf` calls Mixed takes channel 0, the same rule `ShadowMaskChannels.Assign`
 followed at bake time over the suns the bake held (Mixed and not moving), so nothing more is
@@ -4589,7 +4589,7 @@ one hash (the same light twice) are told apart by index.
 Those are bake channels, one set of four per bake. A frame draws the space's bake and any
 number of chunk bakes, and the lighting pass reads one mask per pixel, so it works in four
 frame slots instead. `MaskSlots.Assign` (`src/Rendition/Baking/MaskSlots.cs`) hands them out
-each frame, from `Renderer.FindMaskSlots`, without allocating. The space keeps its channels as
+each frame, from `FrameMaskSlots.Assign`, without allocating. The space keeps its channels as
 its slots: the Mixed sun, when drawn, holds slot 0 and each Mixed local light in the file's
 `Channels` its channel, and those slots count as held everywhere, since the space's lights
 carry no position there. Then every Mixed local light owned by a relit chunk
@@ -4858,7 +4858,7 @@ updated, only on frames that draw a relit chunk, so a sky change shows the very 
 
 The frame's chunks are at set 0 binding 11 (`chunks.glsl`): first an 80-byte header (`ChunkHeaderBytes`) of the suns
 and the space's mask table, then a `ChunkData` per placed chunk, up to 256 (`BakeFiles.MaxChunks`), 128 bytes each and
-matching `GpuChunk` in `Renderer.cs`:
+matching `GpuChunk` in `GpuChunk.cs`:
 
 - `sun[4]`: every `Mixed` and `Baked` sun summed as deltas, each its radiance times `Y` towards it, in world space.
   A sun that moves is still counted, so a chunk's bounce follows a moving sun.
