@@ -13,34 +13,25 @@ namespace Reef;
 /// </summary>
 internal sealed class Boids
 {
-    public const float NeighbourCell = 5f;
-
     private const int MaxNeighbours = 14;
     private const float SeparationWeight = 3.2f;
     private const float AlignmentWeight = 1.3f;
     private const float CohesionWeight = 0.9f;
     private const float TargetWeight = 0.35f;
-    private const float BoundsWeight = 2.5f;
-    private const float GroundClearance = 2.5f;
-    private const float SurfaceClearance = 3f;
     private const float MaxTurn = 7f; // Metres per second per second.
-    private const float TargetReached = 8f;
     private const int FishPerBatch = 256;
     public const float StrokesPerMetre = 2.4f;
 
     private readonly World _world;
     private readonly ReefSettings _settings;
-    private readonly RandomStream _random;
-    private readonly Vector3[] _schoolTargets;
+    private readonly SchoolTargets _targets;
+    private readonly ReefBounds _bounds;
+    private readonly NeighbourGrid _grid;
     private readonly Vector3[] _positions;
     private readonly Vector3[] _velocities;
     private readonly Vector3[] _pushes;
     private readonly int[] _schools;
     private readonly int[] _species;
-    private readonly int[] _nextInCell;
-    private readonly int[] _firstInCell;
-    private readonly int _columns;
-    private readonly int _layers;
     private readonly Action<int> _steerBatch;
     private int _fishThisTick;
 
@@ -48,12 +39,8 @@ internal sealed class Boids
     {
         _world = world;
         _settings = settings;
-        _random = random;
-        _schoolTargets = new Vector3[schoolCount];
-        for (int i = 0; i < schoolCount; i++)
-        {
-            _schoolTargets[i] = PickTarget();
-        }
+        _targets = new SchoolTargets(settings, random, schoolCount);
+        _bounds = new ReefBounds(settings);
 
         int fish = settings.Species.Sum(species => species.Count);
         _positions = new Vector3[fish];
@@ -61,17 +48,24 @@ internal sealed class Boids
         _pushes = new Vector3[fish];
         _schools = new int[fish];
         _species = new int[fish];
-        _nextInCell = new int[fish];
-
-        _columns = (int)(settings.Radius * 2f / NeighbourCell) + 3;
-        _layers = (int)(settings.SurfaceHeight / NeighbourCell) + 3;
-        _firstInCell = new int[_columns * _columns * _layers];
+        _grid = new NeighbourGrid(settings.Radius, settings.SurfaceHeight, fish);
         _steerBatch = SteerBatch;
     }
 
     public void Update(float seconds)
     {
-        Array.Fill(_firstInCell, -1);
+        int count = Gather();
+        _targets.Move(_world);
+
+        _fishThisTick = count;
+        Parallel.For(0, (count + FishPerBatch - 1) / FishPerBatch, _steerBatch);
+        MoveFish(seconds);
+    }
+
+    /// <summary>Copies every fish into the arrays the steering reads, and into the grid, and gives how many there are.</summary>
+    private int Gather()
+    {
+        _grid.Clear();
         int count = 0;
         foreach (var row in _world.Query<Transform, Velocity, Fish>())
         {
@@ -79,17 +73,16 @@ internal sealed class Boids
             _velocities[count] = row.Second.Value;
             _schools[count] = row.Third.School;
             _species[count] = row.Third.Species;
-            int cell = CellOf(row.First.Position);
-            _nextInCell[count] = _firstInCell[cell];
-            _firstInCell[cell] = count;
+            _grid.Add(count, row.First.Position);
             count++;
         }
 
-        MoveTargets();
+        return count;
+    }
 
-        _fishThisTick = count;
-        Parallel.For(0, (count + FishPerBatch - 1) / FishPerBatch, _steerBatch);
-
+    /// <summary>Turns each fish by its push, within its species' speeds, and moves it on, in order.</summary>
+    private void MoveFish(float seconds)
+    {
         int index = 0;
         foreach (var row in _world.Query<Transform, Velocity, Fish, Swim>())
         {
@@ -107,7 +100,7 @@ internal sealed class Boids
             velocity = speed > 0f ? velocity * (limited / speed) : Vector3.UnitZ * limited;
 
             row.Second.Value = velocity;
-            row.First = Transform.Facing(Keep(row.First.Position + velocity * seconds), velocity / limited, species.Length);
+            row.First = Transform.Facing(_bounds.Keep(row.First.Position + velocity * seconds), velocity / limited, species.Length);
             row.Fourth.Phase += limited * seconds * StrokesPerMetre / species.Length;
             index++;
         }
@@ -134,28 +127,19 @@ internal sealed class Boids
             push += (flock.Middle / flock.Schoolmates - position) * CohesionWeight;
         }
 
-        var toTarget = _schoolTargets[_schools[fish]] - position;
-        push += SafeNormalize(toTarget) * species.MaxSpeed * TargetWeight;
-        return push + AvoidEdges(position);
+        push += _targets.Toward(_schools[fish], position) * species.MaxSpeed * TargetWeight;
+        return push + _bounds.AvoidEdges(position);
     }
 
     /// <summary>What a fish sees of the others in its cell and the cells round it, up to <see cref="MaxNeighbours"/>.</summary>
     private Flock Look(int fish, Species species)
     {
-        var position = _positions[fish];
         var flock = new Flock();
-        int cellX = CellIndex(position.X + _settings.Radius);
-        int cellY = CellIndex(position.Y);
-        int cellZ = CellIndex(position.Z + _settings.Radius);
-        for (int y = Math.Max(cellY - 1, 0); y <= Math.Min(cellY + 1, _layers - 1); y++)
+        Span<int> cells = stackalloc int[27];
+        int count = _grid.CellsAround(_positions[fish], cells);
+        for (int i = 0; i < count; i++)
         {
-            for (int z = Math.Max(cellZ - 1, 0); z <= Math.Min(cellZ + 1, _columns - 1); z++)
-            {
-                for (int x = Math.Max(cellX - 1, 0); x <= Math.Min(cellX + 1, _columns - 1); x++)
-                {
-                    LookInCell(fish, (y * _columns + z) * _columns + x, species, ref flock);
-                }
-            }
+            LookInCell(fish, cells[i], species, ref flock);
         }
 
         return flock;
@@ -166,7 +150,7 @@ internal sealed class Boids
         var position = _positions[fish];
         float sightSquared = species.Sight * species.Sight;
         float personalSquared = species.Personal * species.Personal;
-        for (int other = _firstInCell[cell]; other >= 0 && flock.Seen < MaxNeighbours; other = _nextInCell[other])
+        for (int other = _grid.First(cell); other >= 0 && flock.Seen < MaxNeighbours; other = _grid.Next(other))
         {
             var offset = position - _positions[other];
             float squared = offset.LengthSquared();
@@ -198,92 +182,5 @@ internal sealed class Boids
         public Vector3 Middle;
         public int Schoolmates;
         public int Seen;
-    }
-
-    private Vector3 AvoidEdges(Vector3 position)
-    {
-        var push = Vector3.Zero;
-        float sideways = MathF.Sqrt(position.X * position.X + position.Z * position.Z);
-        float outside = sideways - (_settings.Radius - 8f);
-        if (outside > 0f)
-        {
-            push -= new Vector3(position.X, 0f, position.Z) / sideways * outside * BoundsWeight;
-        }
-
-        // Most fish are too high to need the seabed's exact height.
-        if (position.Y < Seabed.Highest + GroundClearance)
-        {
-            float ground = Seabed.Height(position.X, position.Z) + GroundClearance;
-            if (position.Y < ground)
-            {
-                push.Y += (ground - position.Y) * BoundsWeight * 2f;
-            }
-        }
-
-        float ceiling = _settings.SurfaceHeight - SurfaceClearance;
-        if (position.Y > ceiling)
-        {
-            push.Y -= (position.Y - ceiling) * BoundsWeight * 2f;
-        }
-
-        return push;
-    }
-
-    /// <summary>The last resort, for a fish that steering didn't turn in time.</summary>
-    private Vector3 Keep(Vector3 position)
-    {
-        float sideways = MathF.Sqrt(position.X * position.X + position.Z * position.Z);
-        if (sideways > _settings.Radius)
-        {
-            position.X *= _settings.Radius / sideways;
-            position.Z *= _settings.Radius / sideways;
-        }
-
-        if (position.Y < Seabed.Highest + 0.3f)
-        {
-            position.Y = MathF.Max(position.Y, Seabed.Height(position.X, position.Z) + 0.3f);
-        }
-
-        position.Y = MathF.Min(position.Y, _settings.SurfaceHeight - 0.5f);
-        return position;
-    }
-
-    private void MoveTargets()
-    {
-        // A school heads somewhere new on reaching its goal, using the first member as its stand-in.
-        Span<bool> checkedSchool = stackalloc bool[_schoolTargets.Length];
-        foreach (var row in _world.Query<Transform, Fish>())
-        {
-            int school = row.Second.School;
-            if (checkedSchool[school])
-            {
-                continue;
-            }
-
-            checkedSchool[school] = true;
-            if (Vector3.DistanceSquared(row.First.Position, _schoolTargets[school]) < TargetReached * TargetReached)
-            {
-                _schoolTargets[school] = PickTarget();
-            }
-        }
-    }
-
-    private Vector3 PickTarget()
-    {
-        var spot = _random.InsideCircle(_settings.Radius * 0.8f);
-        float ground = Seabed.Height(spot.X, spot.Y);
-        return new Vector3(spot.X, _random.Between(ground + 4f, _settings.SurfaceHeight - 5f), spot.Y);
-    }
-
-    private int CellOf(Vector3 position) =>
-        (CellIndex(position.Y) * _columns + CellIndex(position.Z + _settings.Radius)) * _columns + CellIndex(position.X + _settings.Radius);
-
-    // The first cell is a margin, so neighbours just outside the area are safe to reach.
-    private int CellIndex(float metres) => Math.Max((int)(metres / NeighbourCell) + 1, 0);
-
-    private static Vector3 SafeNormalize(Vector3 value)
-    {
-        float length = value.Length();
-        return length > 0.001f ? value / length : Vector3.Zero;
     }
 }

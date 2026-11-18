@@ -35,23 +35,60 @@ public sealed class Clearing
 
     private readonly List<(ModelRef Model, Matrix4x4 Transform, Vector3? Tint)> _things = [];
 
+    // Places the plants, the same every time.
+    private readonly Random _random = new(11);
+
     public Clearing(Content content)
     {
-        var random = new Random(11);
-        var tallGrass = content.Model("props/grass_medium_01/grass_medium_01.gltf#tall");
-        var largeGrass = content.Model("props/grass_medium_01/grass_medium_01.gltf#large");
-        var fern = content.Model("props/fern_02/fern_02.gltf");
-        var shrub = content.Model("props/shrub_02/shrub_02.gltf");
-        var nettle = content.Model("props/nettle_plant/nettle_plant_1k.gltf");
-        var flowers = new[] { content.Model("props/dandelion_01/dandelion_01_1k.gltf#a"), content.Model("props/dandelion_01/dandelion_01_1k.gltf#b") };
-        var periwinkles = new[] { content.Model("props/periwinkle_plant/periwinkle_plant_1k.gltf#a"), content.Model("props/periwinkle_plant/periwinkle_plant_1k.gltf#b") };
-        var mossyRocks = new[] { content.Model("props/rock_moss_set_01/rock_moss_set_01_1k.gltf#a"), content.Model("props/rock_moss_set_01/rock_moss_set_01_1k.gltf#b") };
-        var branches = content.Model("props/dry_branches_medium_01/dry_branches_medium_01_1k.gltf");
-        var youngFir = content.Model("archer-props/firs.glb#young");
-        var firs = new[] { content.Model("archer-props/firs.glb#tall"), content.Model("archer-props/firs.glb#broad"), youngFir };
-
+        var flora = Flora.Load(content);
         AddGround(content);
+        AddLandmarks(content, flora.MossyRocks);
+        Plant(flora);
+    }
 
+    /// <summary>The plants and rocks the clearing is planted with.</summary>
+    private sealed record Flora(
+        ModelRef TallGrass,
+        ModelRef LargeGrass,
+        ModelRef Fern,
+        ModelRef Shrub,
+        ModelRef Nettle,
+        ModelRef[] Flowers,
+        ModelRef[] Periwinkles,
+        ModelRef[] MossyRocks,
+        ModelRef Branches,
+        ModelRef YoungFir,
+        ModelRef[] Firs)
+    {
+        public static Flora Load(Content content)
+        {
+            var tallGrass = content.Model("props/grass_medium_01/grass_medium_01.gltf#tall");
+            var largeGrass = content.Model("props/grass_medium_01/grass_medium_01.gltf#large");
+            var fern = content.Model("props/fern_02/fern_02.gltf");
+            var shrub = content.Model("props/shrub_02/shrub_02.gltf");
+            var nettle = content.Model("props/nettle_plant/nettle_plant_1k.gltf");
+            var flowers = new[] { content.Model("props/dandelion_01/dandelion_01_1k.gltf#a"), content.Model("props/dandelion_01/dandelion_01_1k.gltf#b") };
+            var periwinkles = new[] { content.Model("props/periwinkle_plant/periwinkle_plant_1k.gltf#a"), content.Model("props/periwinkle_plant/periwinkle_plant_1k.gltf#b") };
+            var mossyRocks = new[] { content.Model("props/rock_moss_set_01/rock_moss_set_01_1k.gltf#a"), content.Model("props/rock_moss_set_01/rock_moss_set_01_1k.gltf#b") };
+            var branches = content.Model("props/dry_branches_medium_01/dry_branches_medium_01_1k.gltf");
+            var youngFir = content.Model("archer-props/firs.glb#young");
+            var firs = new[] { content.Model("archer-props/firs.glb#tall"), content.Model("archer-props/firs.glb#broad"), youngFir };
+            return new Flora(tallGrass, largeGrass, fern, shrub, nettle, flowers, periwinkles, mossyRocks, branches, youngFir, firs);
+        }
+    }
+
+    /// <summary>What a planting puts down: one of these models, sized from smallest to largest, tinted or not.</summary>
+    private sealed record Planting(ModelRef[] Models, float Smallest, float Largest, Func<Random, Vector3>? Tint);
+
+    /// <summary>A ring round the middle of the clearing, from near to far, in metres.</summary>
+    private readonly record struct PlantRing(float Near, float Far);
+
+    /// <summary>How many clumps there are, about how many plants each has, and how far they spread.</summary>
+    private readonly record struct ClumpShape(int Count, int PerClump, float Radius);
+
+    /// <summary>The boulder Erika leaps onto, the fallen trunk, two stumps and a couple of smaller rocks.</summary>
+    private void AddLandmarks(Content content, ModelRef[] mossyRocks)
+    {
         // The boulder is the larger mossy rock, sunk a little so it sits in the ground.
         _things.Add((mossyRocks[0], Matrix4x4.CreateScale(RockScale) * Matrix4x4.CreateRotationY(0.6f) * Matrix4x4.CreateTranslation(Rock), null));
         _things.Add((content.Model("props/dead_tree_trunk/dead_tree_trunk.gltf"), Matrix4x4.CreateScale(1.2f) * Matrix4x4.CreateRotationY(0.5f) * Matrix4x4.CreateTranslation(3.6f, -0.05f, 5.5f), null));
@@ -59,28 +96,31 @@ public sealed class Clearing
         _things.Add((content.Model("props/tree_stump_02/tree_stump_02_1k.gltf"), Matrix4x4.CreateRotationY(2.4f) * Matrix4x4.CreateTranslation(8.5f, 0f, 14.5f), null));
         _things.Add((mossyRocks[0], Matrix4x4.CreateScale(0.45f) * Matrix4x4.CreateRotationY(1.9f) * Matrix4x4.CreateTranslation(-6.6f, -0.1f, 9.2f), null));
         _things.Add((mossyRocks[1], Matrix4x4.CreateScale(0.3f) * Matrix4x4.CreateRotationY(0.4f) * Matrix4x4.CreateTranslation(-7.4f, -0.05f, 6.2f), null));
+    }
 
+    private void Plant(Flora flora)
+    {
         // The open ground: grass in clumps with thinner grass between, and flowers.
-        Clumps(random, [tallGrass], 260, 9, 1.4f, 0.5f, 19f, 1.5f, 2.8f, Grass);
-        Scatter(random, [tallGrass], 900, 0.5f, 22f, 1.2f, 2.2f, avoidPaths: true, Grass);
-        Clumps(random, [largeGrass], 40, 5, 1.2f, 3f, 18f, 0.9f, 1.5f, Grass);
-        Clumps(random, flowers, 30, 6, 1.1f, 1.5f, 15f, 1.6f, 2.6f, null);
-        Clumps(random, periwinkles, 18, 5, 0.9f, 3f, 16f, 0.8f, 1.2f, null);
-        Scatter(random, [branches], 9, 3f, 16f, 0.6f, 1.1f, avoidPaths: true, null);
+        Clumps(new Planting([flora.TallGrass], 1.5f, 2.8f, Grass), new PlantRing(0.5f, 19f), new ClumpShape(260, 9, 1.4f));
+        Scatter(new Planting([flora.TallGrass], 1.2f, 2.2f, Grass), 900, new PlantRing(0.5f, 22f), avoidPaths: true);
+        Clumps(new Planting([flora.LargeGrass], 0.9f, 1.5f, Grass), new PlantRing(3f, 18f), new ClumpShape(40, 5, 1.2f));
+        Clumps(new Planting(flora.Flowers, 1.6f, 2.6f, null), new PlantRing(1.5f, 15f), new ClumpShape(30, 6, 1.1f));
+        Clumps(new Planting(flora.Periwinkles, 0.8f, 1.2f, null), new PlantRing(3f, 16f), new ClumpShape(18, 5, 0.9f));
+        Scatter(new Planting([flora.Branches], 0.6f, 1.1f, null), 9, new PlantRing(3f, 16f), avoidPaths: true);
 
         // The edge of the forest: undergrowth, rocks and young firs coming out into the light.
-        Clumps(random, [fern], 24, 4, 1.6f, 13f, 20f, 0.9f, 1.6f, null);
-        Clumps(random, [nettle], 16, 6, 0.9f, 12f, 19f, 3f, 5f, null);
-        Scatter(random, [shrub], 30, 15f, 22f, 0.8f, 1.4f, avoidPaths: false, null);
-        Scatter(random, mossyRocks, 10, 13f, 22f, 0.25f, 0.6f, avoidPaths: false, null);
-        Scatter(random, [youngFir], 45, 15.5f, 21f, 0.7f, 1.2f, avoidPaths: false, Fir);
+        Clumps(new Planting([flora.Fern], 0.9f, 1.6f, null), new PlantRing(13f, 20f), new ClumpShape(24, 4, 1.6f));
+        Clumps(new Planting([flora.Nettle], 3f, 5f, null), new PlantRing(12f, 19f), new ClumpShape(16, 6, 0.9f));
+        Scatter(new Planting([flora.Shrub], 0.8f, 1.4f, null), 30, new PlantRing(15f, 22f), avoidPaths: false);
+        Scatter(new Planting(flora.MossyRocks, 0.25f, 0.6f, null), 10, new PlantRing(13f, 22f), avoidPaths: false);
+        Scatter(new Planting([flora.YoungFir], 0.7f, 1.2f, Fir), 45, new PlantRing(15.5f, 21f), avoidPaths: false);
 
         // The wall of firs, dark against the bright clearing, thick enough that no gap shows.
-        Scatter(random, firs, 220, 18.5f, 46f, 0.85f, 1.35f, avoidPaths: false, Fir);
+        Scatter(new Planting(flora.Firs, 0.85f, 1.35f, Fir), 220, new PlantRing(18.5f, 46f), avoidPaths: false);
 
         // Undergrowth among the trunks, so the far side of the forest never shows beneath them.
-        Scatter(random, [youngFir], 90, 21f, 40f, 0.6f, 1f, avoidPaths: false, Fir);
-        Scatter(random, [shrub], 70, 20f, 34f, 1f, 1.6f, avoidPaths: false, Shade);
+        Scatter(new Planting([flora.YoungFir], 0.6f, 1f, Fir), 90, new PlantRing(21f, 40f), avoidPaths: false);
+        Scatter(new Planting([flora.Shrub], 1f, 1.6f, Shade), 70, new PlantRing(20f, 34f), avoidPaths: false);
     }
 
     public void Draw(View view) => view.Cached(FirstKey, 1, _things, static (things, view) =>
@@ -156,39 +196,39 @@ public sealed class Clearing
     private static Vector3 Shade(Random random) => new Vector3(0.55f, 0.6f, 0.55f) * float.Lerp(0.8f, 1f, random.NextSingle());
 
     // Groups of plants: each clump has a middle in the ring, and its plants fall around it.
-    private void Clumps(Random random, ModelRef[] models, int clumps, int perClump, float clumpRadius, float near, float far, float smallest, float largest, Func<Random, Vector3>? tint)
+    private void Clumps(Planting planting, PlantRing ring, ClumpShape shape)
     {
-        for (int c = 0; c < clumps; c++)
+        for (int c = 0; c < shape.Count; c++)
         {
-            var middle = InRing(random, near, far);
-            int count = perClump / 2 + random.Next(perClump);
+            var middle = InRing(ring);
+            int count = shape.PerClump / 2 + _random.Next(shape.PerClump);
             for (int i = 0; i < count; i++)
             {
-                float angle = random.NextSingle() * MathF.Tau;
+                float angle = _random.NextSingle() * MathF.Tau;
                 // Squaring the distance packs them tighter in the middle of the clump.
-                float distance = clumpRadius * random.NextSingle() * random.NextSingle();
-                Place(random, models, middle + new Vector3(MathF.Sin(angle), 0f, MathF.Cos(angle)) * distance, smallest, largest, avoidPaths: true, tint);
+                float distance = shape.Radius * _random.NextSingle() * _random.NextSingle();
+                Place(planting, middle + new Vector3(MathF.Sin(angle), 0f, MathF.Cos(angle)) * distance, avoidPaths: true);
             }
         }
     }
 
-    private void Scatter(Random random, ModelRef[] models, int count, float near, float far, float smallest, float largest, bool avoidPaths, Func<Random, Vector3>? tint)
+    private void Scatter(Planting planting, int count, PlantRing ring, bool avoidPaths)
     {
         for (int i = 0; i < count; i++)
         {
-            Place(random, models, InRing(random, near, far), smallest, largest, avoidPaths, tint);
+            Place(planting, InRing(ring), avoidPaths);
         }
     }
 
-    private static Vector3 InRing(Random random, float near, float far)
+    private Vector3 InRing(PlantRing ring)
     {
-        float angle = random.NextSingle() * MathF.Tau;
+        float angle = _random.NextSingle() * MathF.Tau;
         // The square root spreads them evenly over the ring rather than bunching them inside.
-        float distance = MathF.Sqrt(float.Lerp(near * near, far * far, random.NextSingle()));
+        float distance = MathF.Sqrt(float.Lerp(ring.Near * ring.Near, ring.Far * ring.Far, _random.NextSingle()));
         return Middle + new Vector3(MathF.Sin(angle), 0f, MathF.Cos(angle)) * distance;
     }
 
-    private void Place(Random random, ModelRef[] models, Vector3 at, float smallest, float largest, bool avoidPaths, Func<Random, Vector3>? tint)
+    private void Place(Planting planting, Vector3 at, bool avoidPaths)
     {
         if (avoidPaths && (Vector3.Distance(at with { Y = 0f }, Rock with { Y = 0f }) < 2f || Vector3.Distance(at, Worn) < WornRadius * 0.45f))
         {
@@ -196,9 +236,9 @@ public sealed class Clearing
         }
 
         at.Y = Height(at.X, at.Z);
-        float size = float.Lerp(smallest, largest, random.NextSingle());
-        var model = models[random.Next(models.Length)];
-        var transform = Matrix4x4.CreateScale(size) * Matrix4x4.CreateRotationY(random.NextSingle() * MathF.Tau) * Matrix4x4.CreateTranslation(at);
-        _things.Add((model, transform, tint?.Invoke(random)));
+        float size = float.Lerp(planting.Smallest, planting.Largest, _random.NextSingle());
+        var model = planting.Models[_random.Next(planting.Models.Length)];
+        var transform = Matrix4x4.CreateScale(size) * Matrix4x4.CreateRotationY(_random.NextSingle() * MathF.Tau) * Matrix4x4.CreateTranslation(at);
+        _things.Add((model, transform, planting.Tint?.Invoke(_random)));
     }
 }

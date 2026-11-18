@@ -11,7 +11,7 @@ internal sealed record Species(
     float MinSpeed,
     float MaxSpeed,
     float Personal, // Fish closer than this push apart, in metres.
-    float Sight); // How far a fish sees its school, in metres. At most NeighbourCell.
+    float Sight); // How far a fish sees its school, in metres. At most NeighbourGrid.Cell.
 
 /// <summary>How big the reef is. Tests use a smaller one.</summary>
 internal class ReefSettings

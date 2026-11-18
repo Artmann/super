@@ -10,7 +10,7 @@ namespace Archer;
 /// arrows in a third. The whole thing is one <see cref="Cutscene"/>; the game only moves
 /// her, the arrows and the dummies. R plays it again.
 /// </summary>
-public sealed class ArcherGame(Content content, Director director, Input input) : IGame
+public sealed class ArcherGame(Content content, Director director, Input input) : IGame, IArcherStage
 {
     private const int ErikaKey = 1;
     private const int DummyKey = 10;
