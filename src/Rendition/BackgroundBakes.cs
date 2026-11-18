@@ -67,7 +67,7 @@ internal sealed class BackgroundBakes : IDisposable
 
     /// <summary>How the background bake is getting on, or null when none runs and no area waits for one.</summary>
     public BakeProgress? Progress => Slicer.Running is { Job: var job } running
-        ? new BakeProgress(job.Name, running is BakeSlicer.FinishingBake ? 1f : job.Progress, _queue?.Waiting ?? 0,
+        ? new BakeProgress(job.Info.Name,running is BakeSlicer.FinishingBake ? 1f : job.Progress, _queue?.Waiting ?? 0,
             Slicer.Timer.LastSliceMilliseconds)
         : _queue is { Waiting: > 0 } queue
             ? new BakeProgress("", 0f, queue.Waiting, Slicer.Timer.LastSliceMilliseconds)
@@ -93,7 +93,7 @@ internal sealed class BackgroundBakes : IDisposable
             }
 
             _queue?.Finished(want.File, want.Inputs, finished.RunQuality);
-            _auto?.Done(new BakeDone(want.File, want.Name, finished.Job.Inputs, finished.RunQuality, finished.FileBytes!));
+            _auto?.Done(new BakeDone(want.File, want.Name, finished.Job.Info.Inputs,finished.RunQuality, finished.FileBytes!));
         }
     }
 

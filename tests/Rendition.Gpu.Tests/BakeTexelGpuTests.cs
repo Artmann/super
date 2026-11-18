@@ -232,7 +232,7 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
     {
         public static Texel At(float[] texels, int index)
         {
-            var t = texels.AsSpan(index * Baker.TexelFloats, Baker.TexelFloats);
+            var t = texels.AsSpan(index * BakeGpu.TexelFloats, BakeGpu.TexelFloats);
             return new Texel(
                 new Vector3(t[0], t[1], t[2]),
                 t[3] > 0.5f,

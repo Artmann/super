@@ -34,7 +34,60 @@ internal enum BakeStepResult
 /// <param name="Probes">The space's light probes, or null for a chunk, which has none.</param>
 internal sealed record AreaJob(
     DrawItem[] Draws, GpuBakeLight[] Lights, bool IsChunk, LightmapLayout Layout, float SkyIntensity, bool PlainLight,
-    ProbeVolumeSettings? Probes);
+    ProbeVolumeSettings? Probes)
+{
+    /// <summary>Whether one of the draws uses <paramref name="mesh"/>, so the bake can't go on once it is destroyed.</summary>
+    public bool Uses(MeshHandle mesh)
+    {
+        foreach (ref readonly var draw in Draws.AsSpan())
+        {
+            if (draw.Mesh == mesh)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether one of the draws uses <paramref name="material"/>.</summary>
+    public bool Uses(MaterialHandle material)
+    {
+        foreach (ref readonly var draw in Draws.AsSpan())
+        {
+            if (draw.Material == material)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+/// <summary>What a <see cref="BakeJob"/> bakes: the file it makes, the area's name, its inputs and the settings.</summary>
+/// <param name="File">Where the file goes: <see cref="BakeFiles.Space"/> of the name, or the chunk's own file.</param>
+/// <param name="Name">The baked space's or chunk's name.</param>
+/// <param name="Inputs">The inputs the bake is made from, so a frame drawn like that one finds it fresh.</param>
+internal sealed record BakeJobInfo(string File, string Name, BakeInputs Inputs, BakeSettings Settings);
+
+/// <summary>The stages a <see cref="BakeJob"/> goes through, the order its steps table follows.</summary>
+internal enum BakeStage
+{
+    Setup,
+    Trace,
+    ReadSums,
+    ReadFilter,
+    ReadTransfer,
+    ProbeTrace,
+    Fold,
+    ReadFold,
+    Cpu,
+    Done,
+}
+
+/// <summary>What one step of a <see cref="BakeJob"/> asks of its caller, and the stage the next step runs.</summary>
+internal readonly record struct BakeStep(BakeStepResult Result, BakeStage Next);
 
 /// <summary>What a <see cref="BakeJob"/> made: the pages as the file stores them, and what the report needs.</summary>
 internal sealed record BakeResult(

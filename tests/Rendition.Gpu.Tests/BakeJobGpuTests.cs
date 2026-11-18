@@ -66,8 +66,8 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
             byte[] stepped;
             using (var job = gpu.Renderer.BakeJobs.CreateChunkJob(view, draws, 0, settings))
             {
-                Assert.Equal(BakeFiles.Chunk("chunk", job.Inputs.Combined), job.File);
-                Assert.Equal("chunk", job.Name);
+                Assert.Equal(BakeFiles.Chunk("chunk", job.Info.Inputs.Combined), job.Info.File);
+                Assert.Equal("chunk", job.Info.Name);
                 RunInSinglePasses(job);
                 stepped = job.Finish();
             }
@@ -107,12 +107,12 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
                     int readBacks = 0;
                     for (int step = 0; last != BakeStepResult.Done; step++)
                     {
-                        Assert.True(step < MaxSteps, $"The job {job.Name} didn't finish in {MaxSteps} steps.");
+                        Assert.True(step < MaxSteps, $"The job {job.Info.Name} didn't finish in {MaxSteps} steps.");
                         if (job.ReadsBack)
                         {
                             readBacks++;
                             Assert.True(last == BakeStepResult.AwaitGpu,
-                                $"Step {step} of {job.Name} reads back, but the step before it returned {last}, not AwaitGpu.");
+                                $"Step {step} of {job.Info.Name} reads back, but the step before it returned {last}, not AwaitGpu.");
                         }
 
                         var result = BakeStepResult.Continue;
@@ -121,7 +121,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
                     }
 
                     // Sums and filter for the one page, and for the chunk its two transfer runs, the space its probes.
-                    Assert.True(readBacks >= 3, $"The job {job.Name} read back {readBacks} times, fewer than its three readbacks.");
+                    Assert.True(readBacks >= 3, $"The job {job.Info.Name} read back {readBacks} times, fewer than its three readbacks.");
                 }
             }
         }
@@ -267,7 +267,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         fresh.Renderer.BakeJobs.Bakers.Prepare(probes: true);
         using (var job = fresh.Renderer.BakeJobs.CreateSpaceJob(view, room, settings))
         {
-            Assert.Equal("job-room", job.Name);
+            Assert.Equal("job-room", job.Info.Name);
         }
 
         fresh.Renderer.DestroyMesh(quad);
@@ -296,7 +296,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         var result = BakeStepResult.Continue;
         for (int step = 0; result != BakeStepResult.Done; step++)
         {
-            Assert.True(step < MaxSteps, $"The job {job.Name} didn't finish in {MaxSteps} steps.");
+            Assert.True(step < MaxSteps, $"The job {job.Info.Name} didn't finish in {MaxSteps} steps.");
             gpu.Context.SubmitAndWait(cmd => result = job.Step(cmd, 1));
             Assert.True(job.PassesInLastStep <= 1, $"Step {step} traced {job.PassesInLastStep} passes, more than the 1 asked for.");
         }

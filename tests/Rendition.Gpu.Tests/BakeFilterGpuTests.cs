@@ -192,7 +192,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
 
             // The wall holds 1 and the floor 0, told apart by each texel's geometric normal.
             float[] texels = baker.ReadTexels(rect.Page, traced.X, traced.Y, traced.Width, traced.Height);
-            bool OnWall(int i) => texels[i * Baker.TexelFloats + 6] > texels[i * Baker.TexelFloats + 5];
+            bool OnWall(int i) => texels[i * BakeGpu.TexelFloats + 6] > texels[i * BakeGpu.TexelFloats + 5];
             for (int i = 0; i < traced.Covered.Length; i++)
             {
                 if (traced.Covered[i] && OnWall(i))
@@ -275,7 +275,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
             int darkTexels = 0;
             for (int i = 0; i < traced.Covered.Length; i++)
             {
-                if (texels[i * Baker.TexelFloats + 3] != darkChart)
+                if (texels[i * BakeGpu.TexelFloats + 3] != darkChart)
                 {
                     continue;
                 }
@@ -337,7 +337,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
             int invalid = 0;
             for (int i = 0; i < traced.Covered.Length; i++)
             {
-                if (texels[i * Baker.TexelFloats + 3] != darkChart)
+                if (texels[i * BakeGpu.TexelFloats + 3] != darkChart)
                 {
                     continue;
                 }
@@ -551,9 +551,9 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         var valid = new bool[count];
         for (int i = 0; i < count; i++)
         {
-            float chart = texels[i * Baker.TexelFloats + 3];
+            float chart = texels[i * BakeGpu.TexelFloats + 3];
             covered[i] = chart > 0.5f;
-            valid[i] = texels[i * Baker.TexelFloats + 10] > 0.5f;
+            valid[i] = texels[i * BakeGpu.TexelFloats + 10] > 0.5f;
             if (!covered[i])
             {
                 continue;

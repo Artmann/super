@@ -14,10 +14,10 @@ internal sealed class PreparedBakers(VulkanContext context, EnvironmentMap envir
     public EnvironmentMap Environment => environment;
 
     /// <summary>Whether the last bake still holds the baker's pages, so the next can't set up on them yet.</summary>
-    public bool PagesClaimed => _baker!.PagesClaimed;
+    public bool PagesClaimed => _baker!.Pages.Claimed;
 
     /// <summary>How many bake jobs are made and not yet disposed, for tests.</summary>
-    public int LiveJobs => _baker?.JobPools ?? 0;
+    public int LiveJobs => _baker?.JobPools.Live ?? 0;
 
     /// <summary>
     /// Makes the baker and, unless <paramref name="probes"/> is false, the probe volume a space's probes fold through.
@@ -37,25 +37,28 @@ internal sealed class PreparedBakers(VulkanContext context, EnvironmentMap envir
         _baker ??= makeBaker();
         if (probes)
         {
-            _baker.EnsureProbeVolume(environment.Sky, environment.Sampler);
+            _baker.Probes.EnsureVolume(environment.Sky, environment.Sampler);
         }
     }
 
-    /// <summary>The baker <see cref="Prepare"/> made, and its probe volume when the bake has probes.</summary>
-    public (Baker Baker, ProbeVolume? Volume) Prepared(string name, bool probes)
+    /// <summary>
+    /// The baker <see cref="Prepare"/> made, with its probe volume made too when the bake has probes, for the bake of
+    /// <paramref name="name"/>.
+    /// </summary>
+    public Baker Prepared(string name, bool probes)
     {
         if (!context.CanTrace)
         {
             throw new InvalidOperationException("Baking needs a GPU that can trace rays, and this one can't.");
         }
 
-        if (_baker is not { } baker || (probes && baker.ProbeVolume is null))
+        if (_baker is not { } baker || (probes && baker.Probes.Volume is null))
         {
             throw new InvalidOperationException(
                 $"The bake of \"{name}\" can't start yet: baking isn't prepared, and preparing it waits for the GPU, which a bake job never does. Prepare baking first, outside a frame.");
         }
 
-        return (baker, baker.ProbeVolume);
+        return baker;
     }
 
     public void Dispose() => _baker?.Dispose();

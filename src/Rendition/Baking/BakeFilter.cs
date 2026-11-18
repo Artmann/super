@@ -216,7 +216,7 @@ internal sealed unsafe class BakeFilter : IDisposable
 /// <summary>
 /// One filter run over a page region: two copies each of its irradiance, direction and mask, the sets that read one
 /// copy and write the other, and the host-visible buffer the run uploads from and reads back into. See
-/// <see cref="Baker.CreateFilter(DescriptorPool, int, int, int, int, int)"/> and <see cref="BakeFilter.Record"/>.
+/// <see cref="Baker.CreateFilter"/> and <see cref="BakeFilter.Record"/>.
 /// </summary>
 internal sealed class FilterRun : IDisposable
 {
