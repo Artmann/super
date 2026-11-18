@@ -20,7 +20,7 @@ public sealed class GameRandom(int seed)
     {
         if (!_streams.TryGetValue(name, out var stream))
         {
-            stream = new RandomStream(RandomStream.Mix((ulong)Seed) ^ HashName(name));
+            stream = new RandomStream(Xoshiro256.Mix((ulong)Seed) ^ HashName(name));
             _streams.Add(name, stream);
         }
 

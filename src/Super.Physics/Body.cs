@@ -23,74 +23,52 @@ public readonly record struct Body
 {
     /// <summary>A kinematic body, the same as <see cref="Kinematic"/>; without this, <c>new Body()</c> would collide with nothing.</summary>
     public Body()
-        : this(BodyKind.Kinematic, 0f, 0.5f, 0f, 0f, 0f, 0f, false, false, LayerBits.All)
     {
-    }
-
-    private Body(
-        BodyKind kind,
-        float mass,
-        float friction,
-        float bounciness,
-        float drag,
-        float angularDrag,
-        float gravityScale,
-        bool lockRotation,
-        bool continuous,
-        uint collidesWith)
-    {
-        Kind = kind;
-        Mass = mass;
-        Friction = friction;
-        Bounciness = bounciness;
-        Drag = drag;
-        AngularDrag = angularDrag;
-        GravityScale = gravityScale;
-        LockRotation = lockRotation;
-        Continuous = continuous;
-        CollidesWith = collidesWith;
+        Kind = BodyKind.Kinematic;
+        Friction = 0.5f;
+        CollidesWith = LayerBits.All;
     }
 
     /// <summary>A kinematic body that collides with every layer.</summary>
     public static Body Kinematic { get; } = new();
 
     /// <summary>A static body that collides with every layer.</summary>
-    public static Body Static { get; } = new(BodyKind.Static, 0f, 0.5f, 0f, 0f, 0f, 0f, false, false, LayerBits.All);
+    public static Body Static { get; } = new() { Kind = BodyKind.Static };
 
     /// <summary>How much the angular velocity fades each second, from 0 up.</summary>
-    public float AngularDrag { get; }
+    public float AngularDrag { get; private init; }
 
     /// <summary>
     /// How much of its speed it keeps when it bounces, from 0 (none) to 1 (all). Two bodies meeting use the larger of
     /// their two.
     /// </summary>
-    public float Bounciness { get; }
+    public float Bounciness { get; private init; }
 
     /// <summary>The layers whose colliders it bumps into, as bits. Both sides must say yes for two bodies to collide.</summary>
-    public uint CollidesWith { get; }
+    public uint CollidesWith { get; private init; }
 
     /// <summary>
     /// Whether it sweeps along its path each step, so a fast, small body can't pass through a thin wall. It costs
     /// more, so keep it for bullets and the like.
     /// </summary>
-    public bool Continuous { get; }
+    public bool Continuous { get; private init; }
 
     /// <summary>How much the velocity fades each second, from 0 up, like air resistance.</summary>
-    public float Drag { get; }
+    public float Drag { get; private init; }
 
     /// <summary>How rough it is, from 0 (ice) up. Two bodies meeting use the square root of their two multiplied.</summary>
-    public float Friction { get; }
+    public float Friction { get; private init; }
 
     /// <summary>How strongly gravity pulls it: 1 as normal, 0 to float.</summary>
-    public float GravityScale { get; }
+    public float GravityScale { get; private init; }
 
-    public BodyKind Kind { get; }
+    public BodyKind Kind { get; private init; }
 
     /// <summary>Whether it never turns, such as for a box-shaped player that should stay upright.</summary>
-    public bool LockRotation { get; }
+    public bool LockRotation { get; private init; }
 
     /// <summary>A dynamic body's mass in kilograms. Its inertia follows its shape.</summary>
-    public float Mass { get; }
+    public float Mass { get; private init; }
 
     /// <summary>A body moved by the simulation.</summary>
     public static Body Dynamic(
@@ -103,13 +81,23 @@ public readonly record struct Body
         bool lockRotation = false,
         bool continuous = false,
         uint collidesWith = LayerBits.All) =>
-        new(BodyKind.Dynamic, mass, friction, bounciness, drag, angularDrag, gravityScale, lockRotation, continuous, collidesWith);
+        new()
+        {
+            Kind = BodyKind.Dynamic,
+            Mass = mass,
+            Friction = friction,
+            Bounciness = bounciness,
+            Drag = drag,
+            AngularDrag = angularDrag,
+            GravityScale = gravityScale,
+            LockRotation = lockRotation,
+            Continuous = continuous,
+            CollidesWith = collidesWith,
+        };
 
     /// <summary>The same body, bumping into other layers.</summary>
-    public Body CollidingWith(uint layers) =>
-        new(Kind, Mass, Friction, Bounciness, Drag, AngularDrag, GravityScale, LockRotation, Continuous, layers);
+    public Body CollidingWith(uint layers) => this with { CollidesWith = layers };
 
     /// <summary>The same body, as rough and bouncy as given.</summary>
-    public Body WithSurface(float friction, float bounciness) =>
-        new(Kind, Mass, friction, bounciness, Drag, AngularDrag, GravityScale, LockRotation, Continuous, CollidesWith);
+    public Body WithSurface(float friction, float bounciness) => this with { Friction = friction, Bounciness = bounciness };
 }
