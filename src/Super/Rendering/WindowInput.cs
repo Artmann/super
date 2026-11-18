@@ -4,13 +4,10 @@ namespace Super;
 
 /// <summary>
 /// Feeds the window's events into the game's input, and reads the first gamepad. Only the interactive loop listens.
-/// F3 belongs to the engine: it shows and hides the stats panel, and the game never sees it.
+/// The stats panel's <see cref="GameStats.ToggleKey"/> belongs to the engine, and the game never sees it.
 /// </summary>
 internal sealed unsafe class WindowInput(Glfw glfw, WindowHandle* window)
 {
-    /// <summary>The key that shows and hides the engine's stats panel.</summary>
-    internal const Key StatsKey = Key.F3;
-
     private readonly float[] _gamepadAxes = new float[Input.GamepadAxisCount];
     private readonly bool[] _gamepadButtons = new bool[Input.GamepadButtonCount];
     private readonly Func<int, bool> _isGamepad = slot => glfw.JoystickIsGamepad(slot);
@@ -96,13 +93,8 @@ internal sealed unsafe class WindowInput(Glfw glfw, WindowHandle* window)
             return;
         }
 
-        if (mapped == StatsKey)
+        if (stats.TakeKey(mapped, action == InputAction.Press))
         {
-            if (action == InputAction.Press)
-            {
-                stats.Shown = !stats.Shown;
-            }
-
             return;
         }
 

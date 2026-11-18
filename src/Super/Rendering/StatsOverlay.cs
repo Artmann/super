@@ -6,7 +6,7 @@ namespace Super;
 
 /// <summary>
 /// The engine's stats panel at the top right: the frame rate, where the frame's time goes on the CPU and the GPU, the
-/// slowest GPU passes, the draw calls and triangles, and the memory. F3 shows and hides it. See "Showing how the game
+/// slowest GPU passes, the draw calls and triangles, and the memory. <see cref="GameStats.ToggleKey"/> shows and hides it. See "Showing how the game
 /// runs" in docs/interfaces.md.
 /// </summary>
 internal static class StatsOverlay

@@ -300,7 +300,8 @@ works with no files around.
 
 ## Showing how the game runs
 
-Every game has a stats panel built in. Press F3 in the window to show or hide it, or start
+Every game has a stats panel built in. Press F3 in the window to show or hide it (a game
+can [pick another key or none](#the-stats-key)), or start
 with it on with `--stats` from [the command line](command-line.md), which works with
 `--screenshot` and `--record` too. It sits in the top right corner over the game's interface
 and never takes the mouse.
@@ -327,17 +328,34 @@ From the top, the panel shows:
 - The frame's size and the GPU's name.
 
 The times are averages over half a second, and the counts are the newest frame's. Timing
-the GPU costs a little, so the renderer is only measured while the panel is shown. F3 is
-the engine's, so the game never sees it.
+the GPU costs a little, so the renderer is only measured while the panel is shown.
 
-A game can show the panel from a menu of its own by setting `GameStats.Shown`:
+### The stats key
+
+The key is `GameStats.ToggleKey`, F3 unless the game picks another. The engine keeps that
+key, so the game never sees it, and any other key, F3 included once it isn't the toggle,
+reaches the game as usual. Set it to null to turn the key off, as a shipped game might;
+`Shown` and `--stats` still work then. Either can change while the game runs, and a game
+can show the panel from a menu of its own by setting `Shown`:
 
 ```csharp
-class DebugMenu(GameStats stats)
+class DebugMenu
 {
-    public void ShowStats(bool on) => stats.Shown = on;
+    private readonly GameStats _stats;
+
+    public DebugMenu(GameStats stats)
+    {
+        _stats = stats;
+        _stats.ToggleKey = Key.F10;
+    }
+
+    public void ShowStats(bool on) => _stats.Shown = on;
+
+    public void LockForRelease() => _stats.ToggleKey = null;
 }
 ```
+
+### Your own panel
 
 To draw your own panel instead, ask for `GameStats` in your constructor and read `Latest`,
 which updates twice a second. It holds the frame rate, frame time, bytes allocated per frame

@@ -100,8 +100,9 @@ class Console(Input input)
 | `CaptureMouse` | Set to true to hide the cursor and lock it to the window, as a first-person camera needs. While it is on, `MouseDelta` comes from the mouse itself, without the system's pointer acceleration, where the system allows it |
 | `HideCursor` | Set to true to hide the system cursor over the window but leave it free, when the game draws its own pointer in the interface |
 
-F3 belongs to the engine, which uses it to show and hide the
-[stats panel](interfaces.md#showing-how-the-game-runs), so `Input` never reports it.
+The engine keeps one key, F3 unless the game picks another, to show and hide the
+[stats panel](interfaces.md#the-stats-key), so `Input` never reports it. Set
+`GameStats.ToggleKey` to another key, or to null to give the game every key.
 
 ## When input is read
 
