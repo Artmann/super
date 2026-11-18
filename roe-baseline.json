@@ -897,12 +897,6 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.SlopeBlurNode.Evaluate",
-      "file": "src/Super.Materials/Warps.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Super.Mixer.Mix",
       "file": "src/Super/Audio/Mixer.cs",
       "metric": 16
@@ -2064,12 +2058,6 @@
       "name": "Super.Materials.PerlinNode.Evaluate",
       "file": "src/Super.Materials/Noise.cs",
       "metric": 47
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.SlopeBlurNode.Evaluate",
-      "file": "src/Super.Materials/Warps.cs",
-      "metric": 56
     },
     {
       "kind": "long-method",

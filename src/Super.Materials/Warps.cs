@@ -171,37 +171,42 @@ sealed class SlopeBlurNode(Node input, int channels, Node slope, float amount, i
                     continue;
                 }
 
-                var dx = gx / length;
-                var dy = gy / length;
-                var u = (x + 0.5f) / size;
-                var v = (y + 0.5f) / size;
+                var line = new Line((x + 0.5f) / size, (y + 0.5f) / size, gx / length, gy / length);
 
                 for (var c = 0; c < Channels; c++)
                 {
                     // The first read is the pixel itself, taken exactly.
-                    var first = source[at + c];
-                    var sum = first;
-                    var low = first;
-                    var high = first;
-
-                    for (var i = 1; i < samples; i++)
-                    {
-                        var t = i * amount / samples;
-                        var value = Sampling.Bilinear(source, size, Channels, c, u + dx * t, v + dy * t);
-
-                        sum += value;
-                        low = MathF.Min(low, value);
-                        high = MathF.Max(high, value);
-                    }
-
-                    output[at + c] = mode switch
-                    {
-                        SlopeBlurMode.Min => low,
-                        SlopeBlurMode.Max => high,
-                        _ => sum / samples
-                    };
+                    output[at + c] = Along(source, size, c, source[at + c], line);
                 }
             }
         });
     }
+
+    /// <summary>The channel's samples down the slope from a pixel, combined by the mode.</summary>
+    float Along(float[] source, int size, int channel, float first, Line line)
+    {
+        var sum = first;
+        var low = first;
+        var high = first;
+
+        for (var i = 1; i < samples; i++)
+        {
+            var t = i * amount / samples;
+            var value = Sampling.Bilinear(source, size, Channels, channel, line.U + line.Dx * t, line.V + line.Dy * t);
+
+            sum += value;
+            low = MathF.Min(low, value);
+            high = MathF.Max(high, value);
+        }
+
+        return mode switch
+        {
+            SlopeBlurMode.Min => low,
+            SlopeBlurMode.Max => high,
+            _ => sum / samples
+        };
+    }
+
+    /// <summary>Where a pixel's samples start, and the way down the slope they step.</summary>
+    readonly record struct Line(float U, float V, float Dx, float Dy);
 }
