@@ -16,14 +16,14 @@ internal sealed class WavReader : ISampleReader, IClipFormat
 
     public long Frames { get; }
 
-    private WavReader(byte[] bytes, int dataStart, long frames, int rate, int channels, bool isFloat)
+    private WavReader(byte[] bytes, int dataStart, long frames, WavFormat format)
     {
         _bytes = bytes;
         _dataStart = dataStart;
         Frames = frames;
-        SampleRate = rate;
-        Channels = channels;
-        _isFloat = isFloat;
+        SampleRate = format.Rate;
+        Channels = format.Channels;
+        _isFloat = format.IsFloat;
     }
 
     /// <summary>Walks the RIFF chunks to find the format and the samples. Throws InvalidDataException when it can't.</summary>
@@ -34,10 +34,7 @@ internal sealed class WavReader : ISampleReader, IClipFormat
             throw new InvalidDataException("not a RIFF/WAVE file");
         }
 
-        int format = 0;
-        int channels = 0;
-        int rate = 0;
-        int bits = 0;
+        var format = default(WavFormat);
         int at = 12;
         while (at + 8 <= bytes.Length)
         {
@@ -46,48 +43,67 @@ internal sealed class WavReader : ISampleReader, IClipFormat
             int body = at + 8;
             if (id.SequenceEqual("fmt "u8))
             {
-                if (size < 16 || body + 16 > bytes.Length)
-                {
-                    throw new InvalidDataException("the fmt chunk is cut short");
-                }
-
-                format = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(body, 2));
-                if (format == 0xFFFE && size >= 26 && body + 26 <= bytes.Length)
-                {
-                    format = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(body + 24, 2));
-                }
-
-                channels = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(body + 2, 2));
-                rate = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(body + 4, 4));
-                bits = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(body + 14, 2));
+                format = ReadFormat(bytes, body, size);
             }
             else if (id.SequenceEqual("data"u8))
             {
-                if (channels == 0)
-                {
-                    throw new InvalidDataException("the data chunk comes before the fmt chunk");
-                }
-
-                bool isFloat = format == 3 && bits == 32;
-                if (!isFloat && !(format == 1 && bits == 16))
-                {
-                    throw new InvalidDataException($"only 16-bit PCM and 32-bit float are supported, found format {format} with {bits} bits");
-                }
-
-                if (channels > 2 || rate <= 0)
-                {
-                    throw new InvalidDataException($"only mono and stereo are supported, found {channels} channels at {rate} Hz");
-                }
-
-                long available = Math.Min(size, bytes.Length - body);
-                int frameBytes = channels * bits / 8;
-                return new WavReader(bytes, body, available / frameBytes, rate, channels, isFloat);
+                return ReadData(bytes, body, size, format);
             }
 
             at = (int)Math.Min(int.MaxValue, body + size + (size & 1));
         }
 
-        throw new InvalidDataException(format == 0 ? "there is no fmt chunk" : "there is no data chunk");
+        throw new InvalidDataException(format.Format == 0 ? "there is no fmt chunk" : "there is no data chunk");
+    }
+
+    private static WavFormat ReadFormat(byte[] bytes, int body, long size)
+    {
+        if (size < 16 || body + 16 > bytes.Length)
+        {
+            throw new InvalidDataException("the fmt chunk is cut short");
+        }
+
+        int format = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(body, 2));
+        if (format == 0xFFFE && size >= 26 && body + 26 <= bytes.Length)
+        {
+            format = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(body + 24, 2));
+        }
+
+        return new WavFormat(
+            format,
+            BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(body + 2, 2)),
+            BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(body + 4, 4)),
+            BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(body + 14, 2)));
+    }
+
+    private static WavReader ReadData(byte[] bytes, int body, long size, WavFormat format)
+    {
+        (_, int channels, int rate, int bits) = format;
+        if (channels == 0)
+        {
+            throw new InvalidDataException("the data chunk comes before the fmt chunk");
+        }
+
+        if (!format.IsFloat && !(format.Format == 1 && bits == 16))
+        {
+            throw new InvalidDataException($"only 16-bit PCM and 32-bit float are supported, found format {format.Format} with {bits} bits");
+        }
+
+        if (channels > 2 || rate <= 0)
+        {
+            throw new InvalidDataException($"only mono and stereo are supported, found {channels} channels at {rate} Hz");
+        }
+
+        long available = Math.Min(size, bytes.Length - body);
+        int frameBytes = channels * bits / 8;
+        return new WavReader(bytes, body, available / frameBytes, format);
+    }
+
+    /// <summary>What a fmt chunk says: the sample format code, channel count, sample rate and bits per sample.</summary>
+    private readonly record struct WavFormat(int Format, int Channels, int Rate, int Bits)
+    {
+        /// <summary>Whether the samples are 32-bit floats rather than 16-bit whole numbers.</summary>
+        public bool IsFloat => Format == 3 && Bits == 32;
     }
 
     public int Read(Span<float> interleaved)

@@ -704,12 +704,6 @@
       "metric": 12
     },
     {
-      "kind": "high-complexity",
-      "name": "Super.WavReader.Parse",
-      "file": "src/Super/Audio/WavReader.cs",
-      "metric": 20
-    },
-    {
       "kind": "high-cognitive-complexity",
       "name": "Bricks.ToneTable",
       "file": "examples/Courtyard/content/materials/bricks.material.cs",
@@ -1176,12 +1170,6 @@
       "name": "Super.Voice.Begin",
       "file": "src/Super/Audio/Voice.cs",
       "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.WavReader.Parse",
-      "file": "src/Super/Audio/WavReader.cs",
-      "metric": 28
     },
     {
       "kind": "long-method",
@@ -2607,12 +2595,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.WavReader.Parse",
-      "file": "src/Super/Audio/WavReader.cs",
-      "metric": 61
-    },
-    {
-      "kind": "long-method",
       "name": "Terrain.TerrainGame.Load",
       "file": "examples/Terrain/TerrainGame.cs",
       "metric": 48
@@ -3204,12 +3186,6 @@
       "name": "Super.View.SpotLight",
       "file": "src/Super/View.cs",
       "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.WavReader.WavReader",
-      "file": "src/Super/Audio/WavReader.cs",
-      "metric": 6
     },
     {
       "kind": "large-file",
