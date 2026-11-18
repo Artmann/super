@@ -61,26 +61,26 @@ internal sealed class FrameMaker
             CameraPosition = shot.Eye,
             Time = request.Time,
             DebugView = debugView,
-            Lights = Lights(view.Suns),
+            Lights = Lights(view.Lights.Suns),
             Bones = _draws.Bones,
             Shadows = FrameShadows(view, aspect),
-            Occlusion = view.Occlusion,
-            Bounce = view.Bounce,
-            Outlines = view.OutlineSettings,
-            LightProbes = view.LightProbeVolume,
-            BakedSpace = view.BakedSpace,
-            BakedChunks = view.PlacedBakedChunks,
-            Post = view.Post,
-            Water = view.WaterSettings,
-            Puddles = view.PuddleSettings,
-            Wind = view.WindSettings,
+            Occlusion = view.Indirect.Occlusion,
+            Bounce = view.Indirect.Bounce,
+            Outlines = view.Effects.OutlineSettings,
+            LightProbes = view.Indirect.LightProbeVolume,
+            BakedSpace = view.Indirect.BakedSpace,
+            BakedChunks = view.Indirect.PlacedBakedChunks,
+            Post = view.Effects.Post,
+            Water = view.Surroundings.WaterSettings,
+            Puddles = view.Surroundings.PuddleSettings,
+            Wind = view.Surroundings.WindSettings,
             Overlay = view.Ui is { } ui ? ui.Quads : [],
-            Particles = view.DrawnParticles,
+            Particles = view.Effects.DrawnParticles,
             Decals = _decals.Drawn,
-            Transition = view.Transition,
+            Transition = view.Effects.Transition,
             Off = off,
-            LocalLights = view.DrawnLights,
-            FogVolumes = off.HasFlag(RenderEffects.FogVolumes) || off.HasFlag(RenderEffects.VolumetricFog) ? default : view.DrawnFogVolumes,
+            LocalLights = view.Lights.DrawnLights,
+            FogVolumes = off.HasFlag(RenderEffects.FogVolumes) || off.HasFlag(RenderEffects.VolumetricFog) ? default : view.Effects.DrawnFogVolumes,
         };
         _content = content;
         return WithSky(frame, view, off);
@@ -107,17 +107,17 @@ internal sealed class FrameMaker
         return new ShadowSettings
         {
             Center = shot.Target,
-            Radius = shot.ShadowRadius(view.ShadowRadius, aspect),
-            Cascades = view.ShadowCascades,
-            LightAngle = view.SunSize,
-            ContactLength = view.ShadowContact,
+            Radius = shot.ShadowRadius(view.Lights.ShadowRadius, aspect),
+            Cascades = view.Lights.ShadowCascades,
+            LightAngle = view.Lights.SunSize,
+            ContactLength = view.Lights.ShadowContact,
         };
     }
 
     /// <summary>The frame with the view's sky: the environment's brightness, the clear sky, the background and its haze, and the fog.</summary>
     private FrameView WithSky(FrameView frame, View view, RenderEffects off)
     {
-        var sky = view.SkySettings;
+        var sky = view.Surroundings.SkySettings;
         return frame with
         {
             EnvironmentIntensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,

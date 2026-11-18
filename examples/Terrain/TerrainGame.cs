@@ -169,9 +169,9 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
         float yaw = _previousYaw + (_yaw - _previousYaw) * view.Blend;
         float pitch = _previousPitch + (_pitch - _previousPitch) * view.Blend;
         view.Camera(position, position + Forward(yaw, pitch), 60f * MathF.PI / 180f);
-        view.Sun(new Vector3(0.5f, 0.8f, 0.3f), new Vector3(3.6f, 3.4f, 3.1f));
-        view.Shadows(40f, 3);
-        view.Finish(new PostSettings { Contrast = 0.08f, Saturation = 0.08f, Vignette = 0.25f });
+        view.Lights.Sun(new Vector3(0.5f, 0.8f, 0.3f), new Vector3(3.6f, 3.4f, 3.1f));
+        view.Lights.Shadows(40f, 3);
+        view.Effects.Finish(new PostSettings { Contrast = 0.08f, Saturation = 0.08f, Vignette = 0.25f });
 
         // A chunk still being prepared on the loading thread is skipped rather than waited for.
         foreach (var (key, chunk) in _chunks)

@@ -39,7 +39,7 @@ public class BakeIdentityTests
         var model = Enumerable.Range(0, bounds.Length).Select(p => new DrawItem { Detail = new DetailHandle(p) }).ToArray();
         var shown = Array.Empty<DrawItem>();
         int count = MeshMaskParts.AddShown(model, draw.Meshes, ref shown, 0);
-        DressedDraws.Dress(shown.AsSpan(0, count), in draw, default, bounds, new DressContext(content, new BakeIdAreas(view.BakedSpace, view.PlacedBakedChunks, _scratch)));
+        DressedDraws.Dress(shown.AsSpan(0, count), in draw, default, bounds, new DressContext(content, new BakeIdAreas(view.Indirect.BakedSpace, view.Indirect.PlacedBakedChunks, _scratch)));
         return shown[..count];
     }
 
@@ -47,7 +47,7 @@ public class BakeIdentityTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Model(1, model, transform, color, isStatic: true);
+        view.Model(1, model, transform, new ModelOptions { Color = color, Static = true });
         return Assert.Single(Dressed(view, content)).BakeId;
     }
 
@@ -60,7 +60,7 @@ public class BakeIdentityTests
     {
         var view = new View();
         view.Begin(0f);
-        view.BakedChunk("cottage", Matrix4x4.Identity, ChunkMin, ChunkMax);
+        view.Indirect.BakedChunk("cottage", Matrix4x4.Identity, ChunkMin, ChunkMax);
         view.Model(1, ModelRef.Cube, Matrix4x4.Identity);
 
         var parts = Dressed(view, Fresh(), parts: 2);
@@ -74,7 +74,7 @@ public class BakeIdentityTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Model(1, ModelRef.Cube, Matrix4x4.Identity, isStatic: true);
+        view.Model(1, ModelRef.Cube, Matrix4x4.Identity, new ModelOptions { Static = true });
 
         var parts = Dressed(view, Fresh(), parts: 2);
 
@@ -92,7 +92,7 @@ public class BakeIdentityTests
         var model = content.Mesh(Mesh(Triangle), isStatic: true);
         var view = new View();
         view.Begin(0f);
-        view.Model(1, model, Matrix4x4.Identity, null, new MeshMask(model.Index, 3, [2]), isStatic: true);
+        view.Model(1, model, Matrix4x4.Identity, new ModelOptions { Meshes = new MeshMask(model.Index, 3, [2]), Static = true });
 
         var part = Assert.Single(Dressed(view, content, parts: 3));
 
@@ -105,11 +105,11 @@ public class BakeIdentityTests
         var content = Fresh();
         var view = new View();
         view.Begin(0f);
-        view.Model(1, ModelRef.Cube, InChunk, isStatic: true);
+        view.Model(1, ModelRef.Cube, InChunk, new ModelOptions { Static = true });
         var first = Dressed(view, content, parts: 2);
 
         view.Begin(0f);
-        view.Model(1, ModelRef.Cube, InChunk, isStatic: true);
+        view.Model(1, ModelRef.Cube, InChunk, new ModelOptions { Static = true });
         var second = Dressed(view, content, parts: 2);
 
         Assert.Equal(first.Select(part => part.BakeId), second.Select(part => part.BakeId));
@@ -298,7 +298,7 @@ public class BakeIdentityTests
         view.Begin(0f);
 
         var error = Assert.Throws<ArgumentException>(() =>
-            view.Model(7, ModelRef.Cube, Matrix4x4.Identity, null, new SwimMotion(0.1f, 1f, 0f), null, null, isStatic: true));
+            view.Model(7, ModelRef.Cube, Matrix4x4.Identity, new ModelOptions { Swim = new SwimMotion(0.1f, 1f, 0f), Static = true }));
 
         Assert.Contains("Model 7 is static", error.Message);
         Assert.Contains("swim", error.Message);
@@ -312,7 +312,7 @@ public class BakeIdentityTests
         var pose = new AnimationPose(TestRig.Rig());
 
         var error = Assert.Throws<ArgumentException>(() =>
-            view.Model(7, ModelRef.Cube, Matrix4x4.Identity, null, default, pose, null, isStatic: true));
+            view.Model(7, ModelRef.Cube, Matrix4x4.Identity, pose, new ModelOptions { Static = true }));
 
         Assert.Contains("Model 7 is static", error.Message);
         Assert.Contains("pose", error.Message);
@@ -323,7 +323,7 @@ public class BakeIdentityTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Model(1, ModelRef.Cube, Matrix4x4.Identity, isStatic: true);
+        view.Model(1, ModelRef.Cube, Matrix4x4.Identity, new ModelOptions { Static = true });
 
         var error = Assert.Throws<InvalidOperationException>(() => Dressed(view, Fresh(), parts: 4096));
 
@@ -337,7 +337,7 @@ public class BakeIdentityTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Model(1, ModelRef.Cube, Matrix4x4.Identity, isStatic: true);
+        view.Model(1, ModelRef.Cube, Matrix4x4.Identity, new ModelOptions { Static = true });
 
         var parts = Dressed(view, Fresh(), parts: 4096 - 1);
 
@@ -398,12 +398,12 @@ public class BakeIdentityTests
         // parts sit at x = 10 (in west) and x = 13 (in east), and the whole model's centre, x = 11.5, is in west.
         var view = new View();
         view.Begin(0f);
-        view.BakedChunk("west", Matrix4x4.CreateTranslation(10f, 0f, 0f), ChunkMin, ChunkMax);
-        view.BakedChunk("east", Matrix4x4.CreateTranslation(14.5f, 0f, 0f), ChunkMin, ChunkMax);
-        view.Model(1, ModelRef.Cube, Matrix4x4.CreateTranslation(11.5f, 0f, 0f), isStatic: true);
+        view.Indirect.BakedChunk("west", Matrix4x4.CreateTranslation(10f, 0f, 0f), ChunkMin, ChunkMax);
+        view.Indirect.BakedChunk("east", Matrix4x4.CreateTranslation(14.5f, 0f, 0f), ChunkMin, ChunkMax);
+        view.Model(1, ModelRef.Cube, Matrix4x4.CreateTranslation(11.5f, 0f, 0f), new ModelOptions { Static = true });
         BakeSphere[] bounds = [new(new Vector3(-1.5f, 0f, 0f), 0.5f), new(new Vector3(1.5f, 0f, 0f), 0.5f)];
         var parts = Dressed(view, Fresh(), bounds: bounds);
-        var chunks = view.PlacedBakedChunks.ToArray();
+        var chunks = view.Indirect.PlacedBakedChunks.ToArray();
         var settings = new BakeSettings();
 
         var resolved = new BakeResolver(NoBakes.Instance).Resolve(
@@ -423,8 +423,8 @@ public class BakeIdentityTests
     {
         var view = new View();
         view.Begin(0f);
-        view.BakedChunk(name, chunk, ChunkMin, ChunkMax);
-        view.Model(1, ModelRef.Cube, transform, isStatic: true);
+        view.Indirect.BakedChunk(name, chunk, ChunkMin, ChunkMax);
+        view.Model(1, ModelRef.Cube, transform, new ModelOptions { Static = true });
         return Dressed(view, Fresh(), bounds: bounds).Select(part => part.BakeId).ToArray();
     }
 
@@ -432,8 +432,8 @@ public class BakeIdentityTests
     {
         var view = new View();
         view.Begin(0f);
-        view.BakedChunk(name, chunk, ChunkMin, ChunkMax);
-        view.Model(1, ModelRef.Cube, transform, isStatic: true);
+        view.Indirect.BakedChunk(name, chunk, ChunkMin, ChunkMax);
+        view.Model(1, ModelRef.Cube, transform, new ModelOptions { Static = true });
         return Assert.Single(Dressed(view, Fresh())).BakeId;
     }
 }

@@ -29,7 +29,7 @@ class Spinner : IGame
     public void Draw(View view)
     {
         view.Camera(position: new Vector3(0, 2, 5), lookAt: Vector3.Zero);
-        view.Sun(direction: new Vector3(1, 2, 1), color: new Vector3(3f));
+        view.Lights.Sun(direction: new Vector3(1, 2, 1), color: new Vector3(3f));
         view.Model(key: 1, ModelRef.Cube, Matrix4x4.CreateRotationY(angle));
     }
 }

@@ -34,7 +34,7 @@ internal sealed class DecalMaterials(Renderer renderer, UploadedItems items)
             return;
         }
 
-        var placed = view.DrawnDecals;
+        var placed = view.Effects.DrawnDecals;
         if (_decals.Length < placed.Length)
         {
             _decals = new DecalDraw[Math.Max(placed.Length, _decals.Length * 2)];

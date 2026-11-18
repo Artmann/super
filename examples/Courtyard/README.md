@@ -25,7 +25,7 @@ one, and three slumped grain sacks: one tied at the neck with a ragged ruffle ab
 twine, and two with their mouths folded flat. Behind the window is a small room. Out of
 frame, up-sun to the left, stands a tree. Its bricks, stone, mud, wood, sacking, whitewash,
 rusty hoop iron and window glass are [material graphs](../../docs/materials.md) that are
-cooked into textures when the game builds. A fresh breeze from `view.Wind` sways the grass,
+cooked into textures when the game builds. A fresh breeze from `view.Surroundings.Wind` sways the grass,
 and a little of it reaches the ivy and the tree's leaves, and their shadows sway with them.
 See [Wind](../../docs/rendering.md#wind).
 
@@ -71,7 +71,7 @@ are used under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/):
 
 It's a clear afternoon. The sun is high on the left and a little in front of the wall, still
 low enough to rake across the bricks and the plinth, and the tree's canopy breaks it into
-dappled light across the wall and the window. `view.Shadows(7f, 3, sunSize: 0.02f, contact: 0.3f)`
+dappled light across the wall and the window. `view.Lights.Shadows(7f, 3, sunSize: 0.02f, contact: 0.3f)`
 sets the sun close to its real size, so the leaves' shade stays crisp though they are 10 m
 from the wall, and its contact shadows of 0.3 m seat the stones, the barrel and the sacks on
 the ground. Above full HD the sun's shadow maps double to 4096, so their texels don't show
@@ -89,7 +89,7 @@ with one a metre apart the shot looked the same. See
 Ambient occlusion over 0.8 m at full strength darkens the corners and the foot of each wall.
 A reflection probe at head height in the middle of the yard lets the window and the puddle
 mirror the wall, the deck and the house rather than only the sky. Water stands 4.5 cm below
-the yard's zero with `view.Puddles(-0.045f, band: 0.035f)`, so the hollow dug in the mud
+the yard's zero with `view.Surroundings.Puddles(-0.045f, band: 0.035f)`, so the hollow dug in the mud
 fills, the deepest boot prints hold a little, and the mud darkens for the last 3.5 cm down to
 it. A wider band would darken the flagstones round the puddle too. See
 [Puddles](../../docs/rendering.md#puddles).
@@ -171,7 +171,7 @@ dotnet run -c Release --project examples/Courtyard -- --script fixed --screensho
 ## Baked lighting
 
 The yard is a baked space named `courtyard`, a box 31 m by 10.5 m by 31 m round the whole model with
-probes 1.6 m apart. The model never moves, so it is drawn static (`isStatic: true`) and its light is
+probes 1.6 m apart. The model never moves, so it is drawn static (`new ModelOptions { Static = true }`) and its light is
 baked into `content/lighting/courtyard.lightbake`, 6.4 MB at the default 20 texels a metre. The grass,
 ivy and leaves are part of the model, so they are lightmapped with the rest. Only the decals (the
 damp, the drip and the rust) stay live.

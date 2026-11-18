@@ -198,8 +198,8 @@ public sealed class ForestGame(
         view.Camera(Camera.At(view.Blend));
         // Just after sunrise. The sun is low behind the trees across the clearing from where the camera starts, so
         // their trunks and crowns cut its light into shafts through the morning mist as it comes towards the camera.
-        view.Sun(new Vector3(0.39f, 0.3f, -0.92f), new Vector3(3f, 2.5f, 1.9f));
-        view.Sky(new SkySettings
+        view.Lights.Sun(new Vector3(0.39f, 0.3f, -0.92f), new Vector3(3f, 2.5f, 1.9f));
+        view.Surroundings.Sky(new SkySettings
         {
             Brightness = 1f,
             Turbidity = 3f,
@@ -207,7 +207,7 @@ public sealed class ForestGame(
             Fog = new FogSettings(Density: 0.02f, Height: 0f, Falloff: 0.3f, SunScatter: 0.6f),
         });
         // The first map covers the clearing and the second the trees round it, which cast the shafts.
-        view.Shadows(14f, 3);
+        view.Lights.Shadows(14f, 3);
         view.Models(world);
     }
 

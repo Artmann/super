@@ -45,7 +45,7 @@ Q go up and down, and the mouse looks around. F again goes back to the tour.
 ## Baked lighting
 
 The Gallery is a baked space named `gallery`, over the same box as its light probes. The
-building's boxes, cylinders and spheres are drawn static (`isStatic: true`), so they get
+building's boxes, cylinders and spheres are drawn static (`new ModelOptions { Static = true }`), so they get
 lightmap UVs; the statues, the rolling sphere, the lantern and the candles stay dynamic. Its
 bake is `content/lighting/gallery.lightbake`, made at the final quality.
 

@@ -132,13 +132,13 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         view.Camera(position: new Vector3(5.41f, 1.56f, 4.49f), lookAt: new Vector3(1.01f, 1.36f, -7.11f), fieldOfView: 0.85f);
         // Mid-afternoon. The sun is high on the left and a little in front of the wall, still
         // low enough to rake across the bricks and throw shadows to the right.
-        view.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(7.2f, 6.7f, 5.8f));
+        view.Lights.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(7.2f, 6.7f, 5.8f));
         // A clear day's sky, worked out from the sun: brighter towards it, deeper blue overhead
         // and paler at the horizon, so the shade is cooler than the sunlight. It is at its full
         // brightness, so the shade is lit by the whole open sky and stays readable, though still
         // a clear step darker than the sun. Zenith and Horizon are what it falls back to with
         // Turbidity at 0.
-        view.Sky(new SkySettings
+        view.Surroundings.Sky(new SkySettings
         {
             Zenith = new Vector3(0.2f, 0.38f, 0.8f),
             Horizon = new Vector3(0.75f, 0.8f, 0.85f),
@@ -152,28 +152,28 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // A sun close to its real size, so the tree out of frame to the left, 10 m up-sun of
         // the wall, dapples it with crisp leafy shade rather than one soft patch. Contact
         // shadows seat the stones, the barrel and the sacks on the ground.
-        view.Shadows(7f, 3, sunSize: 0.02f, contact: 0.3f);
+        view.Lights.Shadows(7f, 3, sunSize: 0.02f, contact: 0.3f);
         // Ambient occlusion over 0.8 m, so the corners and the foot of each wall darken where
         // little of the sky reaches.
-        view.AmbientOcclusion(0.8f, 1f);
+        view.Indirect.AmbientOcclusion(0.8f, 1f);
         // A reflection probe at head height in the middle of the yard, so the window and the
         // puddle mirror the wall, the deck and the house rather than only the sky.
-        view.ReflectionProbe(YardProbeKey, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));
+        view.Indirect.ReflectionProbe(YardProbeKey, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));
         // Water stands 4.5 cm below the yard's zero, in the hollow the script dug in the mud, so
         // the hollow fills, the deepest boot prints hold a little, and the mud darkens for the
         // last 3.5 cm down to it. A wider band would darken the flagstones round the puddle too.
-        view.Puddles(-0.045f, band: 0.035f);
+        view.Surroundings.Puddles(-0.045f, band: 0.035f);
 
         // A fresh breeze across the yard sways the grass, and a little of it reaches the ivy and the tree's crown,
         // whose materials sway less in the cook sidecar.
-        view.Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f);
+        view.Surroundings.Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f);
 
         // The lantern is on, shining every way through its glass. In daylight it only warms
         // the wall just round it. It casts no shadows: the light sits inside the bulb and the lantern round it, and
         // they would hide it.
-        view.PointLight(LampKey, LampBulb, color: new Vector3(0.8f, 0.54f, 0.27f), range: 4f, radius: 0.15f, shadows: false);
+        view.Lights.Point(LampKey, new PointLight(LampBulb, new Vector3(0.8f, 0.54f, 0.27f), 4f) { Radius = 0.15f, Shadows = false });
         // Someone is home: a warm light in the room, seen through the old glass.
-        view.PointLight(RoomKey, RoomLamp, color: new Vector3(2.2f, 1.2f, 0.45f), range: 6f, radius: 0.25f);
+        view.Lights.Point(RoomKey, new PointLight(RoomLamp, new Vector3(2.2f, 1.2f, 0.45f), 6f) { Radius = 0.25f });
 
         // The camera meters the courtyard and sets the brightness itself, then adds a little
         // over a stop: AgX's Punchy look, the default, deepens the mid-tones, and the sunlit wall
@@ -181,7 +181,7 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // white balance, a light vignette and a little bloom round the lamp. The lens is a 35 mm,
         // focused on the window, 11 m off, and stopped down to f/8, so the flagstones at our feet
         // soften a little and the window and the wall stay crisp.
-        view.Finish(new PostSettings
+        view.Effects.Finish(new PostSettings
         {
             FocusDistance = 11f,
             Aperture = 8f,
@@ -200,27 +200,27 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // shadow what is close to the camera, and the room lamp, which shines out through the window glass. The
         // decals (the damp, the drip and the rust) stay live. The grass, ivy and leaves are part of the model and are
         // lightmapped with the rest. See the README.
-        view.BakedLighting("courtyard", new Vector3(-16.5f, -0.5f, -18.75f), new Vector3(14.5f, 10f, 12.5f), 1.6f);
-        view.Model(0, _courtyard, Matrix4x4.Identity, isStatic: true);
+        view.Indirect.BakedLighting("courtyard", new Vector3(-16.5f, -0.5f, -18.75f), new Vector3(14.5f, 10f, 12.5f), 1.6f);
+        view.Model(0, _courtyard, Matrix4x4.Identity, new ModelOptions { Static = true });
 
         // The damp, the drip off the sill and the rust, laid onto the wall so the drip lies over the damp.
         for (int i = 0; i < _stains.Count; i++)
         {
-            view.Decal(i, _stains[i].Box, _stains[i].Surface);
+            view.Effects.Decal(i, _stains[i].Box, _stains[i].Surface);
         }
 
         // The hand-placed decals, keyed after the stains and drawn before the gravel, so the gravel round the barrel
         // lies over the dirt there.
         for (int i = 0; i < _placed.Count; i++)
         {
-            view.Decal(_stains.Count + i, _placed[i].Box, _placed[i].Surface, _placed[i].Blend);
+            view.Effects.Decal(_stains.Count + i, _placed[i].Box, _placed[i].Surface, _placed[i].Blend);
         }
 
         // The gravel off the path, keyed after both.
         int first = _stains.Count + _placed.Count;
         for (int i = 0; i < _gravelBoxes.Count; i++)
         {
-            view.Decal(first + i, _gravelBoxes[i], _gravel!, GravelBlend);
+            view.Effects.Decal(first + i, _gravelBoxes[i], _gravel!, GravelBlend);
         }
     }
 }

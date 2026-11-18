@@ -84,7 +84,7 @@ internal sealed class SceneBakes
 
     /// <summary>Says, once, why the first area the last frame wanted a bake for isn't baked.</summary>
     public void SayWhyNotBaking(View view, RenderEffects off) => _notBaking.Check(
-        _renderer.LastBakeFrame, view.BakedSpace, view.PlacedBakedChunks, off.HasFlag(RenderEffects.BakedLighting), _renderer.NoTraceReason);
+        _renderer.LastBakeFrame, view.Indirect.BakedSpace, view.Indirect.PlacedBakedChunks, off.HasFlag(RenderEffects.BakedLighting), _renderer.NoTraceReason);
 
     /// <summary>Waits for a bake still being written, which would leave a temp file in the sources if the process ended under it.</summary>
     public void WaitForSaver() => _saver?.Wait(TimeSpan.FromSeconds(10));

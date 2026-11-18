@@ -109,10 +109,10 @@ public class ShadowCascadeTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Sun(Vector3.UnitY, Vector3.One);
-        view.Sun(Vector3.UnitX, Vector3.One, shadows: true);
+        view.Lights.Sun(Vector3.UnitY, Vector3.One);
+        view.Lights.Sun(Vector3.UnitX, Vector3.One, shadows: true);
 
-        Assert.Equal(1, FrameMaker.ShadowSun(view.Suns));
+        Assert.Equal(1, FrameMaker.ShadowSun(view.Lights.Suns));
     }
 
     [Fact]
@@ -120,10 +120,10 @@ public class ShadowCascadeTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Sun(Vector3.UnitY, Vector3.One);
-        view.Sun(Vector3.UnitX, Vector3.One);
+        view.Lights.Sun(Vector3.UnitY, Vector3.One);
+        view.Lights.Sun(Vector3.UnitX, Vector3.One);
 
-        Assert.Equal(0, FrameMaker.ShadowSun(view.Suns));
+        Assert.Equal(0, FrameMaker.ShadowSun(view.Lights.Suns));
     }
 
     [Fact]
@@ -131,9 +131,9 @@ public class ShadowCascadeTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Sun(Vector3.UnitY, Vector3.One, shadows: true);
+        view.Lights.Sun(Vector3.UnitY, Vector3.One, shadows: true);
 
-        var error = Assert.Throws<InvalidOperationException>(() => view.Sun(Vector3.UnitX, Vector3.One, shadows: true));
+        var error = Assert.Throws<InvalidOperationException>(() => view.Lights.Sun(Vector3.UnitX, Vector3.One, shadows: true));
 
         Assert.Equal("Only one sun can cast shadows, and another already does this frame. Pass shadows: true to one sun only.", error.Message);
     }
@@ -183,13 +183,13 @@ public class ShadowCascadeTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Shadows(7f, 3, sunSize: 0.02f);
+        view.Lights.Shadows(7f, 3, sunSize: 0.02f);
 
-        Assert.Equal(0.02f, view.SunSize);
+        Assert.Equal(0.02f, view.Lights.SunSize);
 
         view.Begin(0f);
 
-        Assert.Equal(0.12f, view.SunSize);
+        Assert.Equal(0.12f, view.Lights.SunSize);
     }
 
     [Theory]
@@ -201,7 +201,7 @@ public class ShadowCascadeTests
         var view = new View();
         view.Begin(0f);
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Shadows(7f, 3, sunSize));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Lights.Shadows(7f, 3, sunSize));
 
         Assert.StartsWith("The sun's size must be from 0 to 0.5 radians.", error.Message);
         Assert.Equal("sunSize", error.ParamName);
@@ -212,7 +212,7 @@ public class ShadowCascadeTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Shadows(7f, 3, contact: 0.4f);
+        view.Lights.Shadows(7f, 3, contact: 0.4f);
 
         Assert.Equal(0.4f, FrameMaker.FrameShadows(view, 16f / 9f).ContactLength);
     }
@@ -222,7 +222,7 @@ public class ShadowCascadeTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Shadows(7f, 3, contact: 0f);
+        view.Lights.Shadows(7f, 3, contact: 0f);
 
         Assert.Equal(0f, FrameMaker.FrameShadows(view, 1f).ContactLength);
 
@@ -239,7 +239,7 @@ public class ShadowCascadeTests
         var view = new View();
         view.Begin(0f);
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Shadows(7f, 3, contact: contact));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Lights.Shadows(7f, 3, contact: contact));
 
         Assert.StartsWith("The contact shadows' length must be 0 or more metres, and 0 turns them off.", error.Message);
         Assert.Equal("contact", error.ParamName);

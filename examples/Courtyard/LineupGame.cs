@@ -60,9 +60,9 @@ public sealed class LineupGame(Content content) : IGame
         view.Camera(position: new Vector3(0f, 6f, 8.2f), lookAt: new Vector3(0f, 0.15f, 0f), fieldOfView: 0.6f);
 
         // The photographed sun, from the right, so the normals read, and the meadow's sky light to fill.
-        view.Sun(direction: _sky!.SunDirectionAt(_skyRotation), color: new Vector3(4f));
-        view.Sky(new SkySettings { Image = _sky, Rotation = _skyRotation, Brightness = 1f });
-        view.Shadows(10f, 2);
+        view.Lights.Sun(direction: _sky!.SunDirectionAt(_skyRotation), color: new Vector3(4f));
+        view.Surroundings.Sky(new SkySettings { Image = _sky, Rotation = _skyRotation, Brightness = 1f });
+        view.Lights.Shadows(10f, 2);
         view.Model(0, _floor, Matrix4x4.Identity);
 
         for (int i = 0; i < _exhibits.Count; i++)

@@ -257,7 +257,7 @@ public class PostGradeTests
             var view = new View();
 
             var error = Assert.Throws<ArgumentOutOfRangeException>(
-                () => view.Finish(new PostSettings { Temperature = temperature, Tint = tint }));
+                () => view.Effects.Finish(new PostSettings { Temperature = temperature, Tint = tint }));
 
             Assert.StartsWith($"The white balance {name} must be from -1 to 1, with 0 for no change, but it is {shown}.", error.Message);
         }
@@ -272,11 +272,11 @@ public class PostGradeTests
     {
         var view = new View();
 
-        view.Finish(new PostSettings { Temperature = -1f, Tint = 1f, Tonemapper = Tonemapper.Aces });
+        view.Effects.Finish(new PostSettings { Temperature = -1f, Tint = 1f, Tonemapper = Tonemapper.Aces });
 
-        Assert.Equal(-1f, view.Post.Temperature);
-        Assert.Equal(1f, view.Post.Tint);
-        Assert.Equal(Tonemapper.Aces, view.Post.Tonemapper);
+        Assert.Equal(-1f, view.Effects.Post.Temperature);
+        Assert.Equal(1f, view.Effects.Post.Tint);
+        Assert.Equal(Tonemapper.Aces, view.Effects.Post.Tonemapper);
     }
 
     private static PostSettings Graded() => new()

@@ -368,7 +368,7 @@ cooker makes when the file has none or its own isn't fit for a lightmap. See
 ### Puddles on models
 
 A model sidecar's material rule with `"puddles": true` lets water stand on the material
-below the level the game sets with `view.Puddles`, and makes it damp for a band above.
+below the level the game sets with `view.Surroundings.Puddles`, and makes it damp for a band above.
 It changes only a flag on the cooked material, so the textures are the same. See
 [Puddles](rendering.md#puddles).
 
@@ -377,7 +377,7 @@ It changes only a flag on the cooked material, so the textures are the same. See
 A rule's `"foliage": true` marks a tree's leaves, which let 0.6 of the sunlight through from
 behind; `"foliage": { "translucency": 0.85 }` sets that share, from 0 to 1, and
 `"crown": false` keeps the model's own normals instead of pointing them out of one crown. A rule's
-`"wind": true` sways the material in the breeze the game sets with `view.Wind`, and
+`"wind": true` sways the material in the breeze the game sets with `view.Surroundings.Wind`, and
 `"wind": { "sway": 0.08 }` gives it a share of the lean, 0 or more. Each is `true`, `false`
 or an object; a number or a value out of range stops the cook with the material's name, such
 as `material leaf: foliage translucency 1.2 must be from 0 to 1.`. Both are kept on the cooked
@@ -423,8 +423,8 @@ the message to cook it again.
 ## Baked lighting
 
 Bakes of a frame's [baked lighting](rendering.md#baked-lighting) live in a `lighting/`
-folder in the game's first content root. A space named with `view.BakedLighting("crypt", …)`
-gets `lighting/crypt.lightbake`. A chunk named with `view.BakedChunk("house-garden", …)` gets
+folder in the game's first content root. A space named with `view.Indirect.BakedLighting("crypt", …)`
+gets `lighting/crypt.lightbake`. A chunk named with `view.Indirect.BakedChunk("house-garden", …)` gets
 one file for each version of its contents, named by the 16 hex digits of their hash, such as
 `lighting/house-garden/00000000000000ab.lightbake`. `BakeFiles.Space` and `BakeFiles.Chunk`
 give these names. `Renderer.Bake` makes a space's bytes, and

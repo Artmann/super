@@ -64,7 +64,7 @@ public class SpinningCube(GameRandom random, Actions<Control> actions) : IGame
     public void Draw(View view)
     {
         view.Camera(position: new Vector3(0f, 1.5f, 3.5f), lookAt: Vector3.Zero);
-        view.Sun(direction: new Vector3(1f, 2f, 1f), color: new Vector3(3f));
+        view.Lights.Sun(direction: new Vector3(1f, 2f, 1f), color: new Vector3(3f));
 
         var transform = view.Smooth(Spin(_previousAngle, _previousSteered), Spin(_angle, _steered));
         view.Model(CubeKey, ModelRef.Cube, transform, Color);

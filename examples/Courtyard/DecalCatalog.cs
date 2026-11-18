@@ -42,7 +42,7 @@ public sealed record PlacedDecal(
     float Roughness = 1f)
 {
     /// <summary>
-    /// The decal's box, for <c>View.Decal</c>: the cube from −0.5 to 0.5 with its X across the image, its Y along
+    /// The decal's box, for <c>view.Effects.Decal</c>: the cube from −0.5 to 0.5 with its X across the image, its Y along
     /// <see cref="Facing"/> and its Z towards the image's V 0 edge, scaled by <see cref="Size"/> and moved to
     /// <see cref="Position"/>.
     /// </summary>

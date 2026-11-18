@@ -87,15 +87,15 @@ public sealed class GlassRoom(Content content) : IGame
     public void Draw(View view)
     {
         view.Camera(position: new Vector3(0.4f, 1.7f, 5.2f), lookAt: new Vector3(0.2f, 0.85f, -0.6f), fieldOfView: 0.8f);
-        view.Sun(direction: new Vector3(0.45f, 0.9f, -1.1f), color: new Vector3(3f, 2.85f, 2.6f));
-        view.Sky(new SkySettings
+        view.Lights.Sun(direction: new Vector3(0.45f, 0.9f, -1.1f), color: new Vector3(3f, 2.85f, 2.6f));
+        view.Surroundings.Sky(new SkySettings
         {
             Zenith = new Vector3(0.3f, 0.45f, 0.75f),
             Horizon = new Vector3(0.75f, 0.75f, 0.7f),
             Ground = new Vector3(0.3f, 0.28f, 0.25f),
             Brightness = 0.6f,
         });
-        view.Shadows(10f, cascades: 2);
+        view.Lights.Shadows(10f, cascades: 2);
         view.Model(1, _floor, Matrix4x4.Identity);
 
         for (int i = 0; i < Posts.Length; i++)
@@ -120,7 +120,7 @@ public sealed class GlassRoom(Content content) : IGame
         long cycle = _tick / cycleTicks;
         for (long c = Math.Max(cycle - 1, 0); c <= cycle; c++)
         {
-            view.Particles(DustKey + (int)c, Dust, new Vector3(-0.3f, 0.05f, 0.1f), view.SecondsSince(c * cycleTicks));
+            view.Effects.Particles(DustKey + (int)c, Dust, new Vector3(-0.3f, 0.05f, 0.1f), view.SecondsSince(c * cycleTicks));
         }
     }
 

@@ -20,7 +20,7 @@ namespace Super;
 /// </code>
 /// Nothing is simulated from frame to frame: each particle is worked out from the key,
 /// its number and the age, so a paused, loaded or recorded game shows the same puff.
-/// Draw one with <see cref="View.Particles(int, ParticleEffect, Vector3, float)"/>, or put
+/// Draw one with <see cref="ViewEffects.Particles(int, ParticleEffect, Vector3, float)"/>, or put
 /// several on a timeline in a <see cref="ParticleEffect"/>.
 /// </summary>
 /// <remarks>

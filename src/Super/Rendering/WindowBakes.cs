@@ -17,10 +17,10 @@ internal sealed class WindowBakes(OsWindow window, SceneRenderer scene, WindowFr
     public int Bake(GameLoop host, long ticks, BakeQuality quality, string folder, out int failed)
     {
         float time = frames.PlayAndDraw(host, ticks);
-        var chunks = host.View.BakedChunks;
+        var chunks = host.View.Indirect.BakedChunks;
         var frame = scene.Renderer.LastBakeFrame;
         var targets = BakeCommand.Targets(
-            host.View.BakedSpace is { } named ? BakeFiles.Space(named.Name) : null,
+            host.View.Indirect.BakedSpace is { } named ? BakeFiles.Space(named.Name) : null,
             chunks.Count,
             chunk => frame!.ChunkFile(chunk));
 
@@ -34,7 +34,7 @@ internal sealed class WindowBakes(OsWindow window, SceneRenderer scene, WindowFr
                 // Each is baked at its area's own texel density, which is what a frame checks its bake against.
                 byte[] bake = target.Chunk == BakeTarget.Space
                     ? scene.Bake(host.View, host.Content, new FrameRequest(width, height, time),
-                        new BakeSettings(host.View.BakedSpace!.Value.TexelsPerMetre, quality))
+                        new BakeSettings(host.View.Indirect.BakedSpace!.Value.TexelsPerMetre, quality))
                     : scene.BakeChunk(host.View, host.Content, new FrameRequest(width, height, time), target.Chunk,
                         new BakeSettings(chunks[target.Chunk].TexelsPerMetre, quality));
 
@@ -63,7 +63,7 @@ internal sealed class WindowBakes(OsWindow window, SceneRenderer scene, WindowFr
         }
 
         var targets = BakeCommand.Targets(
-            frame.Space is not null && host.View.BakedSpace is { } space ? BakeFiles.Space(space.Name) : null,
+            frame.Space is not null && host.View.Indirect.BakedSpace is { } space ? BakeFiles.Space(space.Name) : null,
             frame.Chunks.Count,
             chunk => frame.ChunkFile(chunk));
         return BakeCommand.Check(

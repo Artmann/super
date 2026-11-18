@@ -54,7 +54,7 @@ public sealed partial class Graphics
     } = 2048;
 
     /// <summary>
-    /// The most of the sun's shadow cascades drawn, from 1 to 4, whatever <see cref="View.Shadows"/> asks for. Each
+    /// The most of the sun's shadow cascades drawn, from 1 to 4, whatever <see cref="ViewLights.Shadows"/> asks for. Each
     /// cascade covers ground further out than the last and costs drawing the scene once more, so fewer are faster,
     /// and the sun's shadows end sooner.
     /// </summary>
@@ -108,12 +108,12 @@ public sealed partial class Graphics
 
     /// <summary>
     /// The sun's contact shadows: the thin dark line where things meet the ground, found on screen, which
-    /// the shadow maps are too coarse to draw. Off, only the maps shade there. See <see cref="View.Shadows"/>.
+    /// the shadow maps are too coarse to draw. Off, only the maps shade there. See <see cref="ViewLights.Shadows"/>.
     /// </summary>
     public bool ContactShadows { get; set; } = true;
 
     /// <summary>
-    /// The light bounced off walls and floors by <see cref="View.LightProbes"/>. Off, nothing is drawn
+    /// The light bounced off walls and floors by <see cref="ViewIndirect.LightProbes"/>. Off, nothing is drawn
     /// into the probes and every surface takes its soft light from the sky, as with no probes at all.
     /// </summary>
     public bool LightProbes { get; set; } = true;
@@ -264,7 +264,7 @@ public sealed partial class Graphics
     public bool DepthOfField { get; set; } = true;
 
     /// <summary>
-    /// The stains, grime and damp laid onto surfaces with <see cref="View.Decal"/>. Off, they aren't drawn and the
+    /// The stains, grime and damp laid onto surfaces with <see cref="ViewEffects.Decal"/>. Off, they aren't drawn and the
     /// surfaces show as they are. It costs a copy of the normal target and a pass over the boxes' pixels, so
     /// <see cref="Fastest"/> turns it off.
     /// </summary>
@@ -332,13 +332,13 @@ public sealed partial class Graphics
 
     /// <summary>
     /// Water and a damp band on surfaces whose material asks for puddles, below and just above the level set with
-    /// <see cref="View.Puddles"/>. Off, every surface is dry. It costs a few noise lookups on each wet pixel, so
+    /// <see cref="ViewSurroundings.Puddles"/>. Off, every surface is dry. It costs a few noise lookups on each wet pixel, so
     /// <see cref="Fastest"/> turns it off.
     /// </summary>
     public bool Puddles { get; set; } = true;
 
     /// <summary>
-    /// Grass, leaves and anything else whose material sways in the wind set with <see cref="View.Wind"/>, along with
+    /// Grass, leaves and anything else whose material sways in the wind set with <see cref="ViewSurroundings.Wind"/>, along with
     /// their shadows. Off, everything stands still. It costs a little on each swaying vertex, in the picture and in
     /// every shadow map, so <see cref="Fastest"/> turns it off.
     /// </summary>
@@ -399,8 +399,8 @@ public sealed partial class Graphics
     public bool ColorGrading { get; set; } = true;
 
     /// <summary>
-    /// Light read from the bakes made with <c>--bake</c> for the areas set with <see cref="View.BakedLighting"/> and
-    /// <see cref="View.BakedChunk"/>. Off, every bake is ignored and each area is lit live, as if it had never been
+    /// Light read from the bakes made with <c>--bake</c> for the areas set with <see cref="ViewIndirect.BakedLighting"/> and
+    /// <see cref="ViewIndirect.BakedChunk"/>. Off, every bake is ignored and each area is lit live, as if it had never been
     /// baked, which shows what the bake changes. A bake costs less than the live light it stands in for, so
     /// <see cref="Fastest"/> leaves it on.
     /// </summary>

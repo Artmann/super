@@ -129,8 +129,8 @@ public sealed class CannonballGame(World world, Content content, Physics physics
     public void Draw(View view)
     {
         view.Camera(Camera.At(view.Blend));
-        view.Sun(new Vector3(0.5f, 0.8f, -0.35f), new Vector3(4.2f, 3.8f, 3.2f), shadows: true);
-        view.Sky(new SkySettings
+        view.Lights.Sun(new Vector3(0.5f, 0.8f, -0.35f), new Vector3(4.2f, 3.8f, 3.2f), shadows: true);
+        view.Surroundings.Sky(new SkySettings
         {
             Zenith = new Vector3(0.18f, 0.38f, 0.8f),
             Horizon = new Vector3(0.75f, 0.82f, 0.9f),
@@ -139,7 +139,7 @@ public sealed class CannonballGame(World world, Content content, Physics physics
             HazeStart = 60f,
             HazeEnd = 220f,
         });
-        view.Shadows(20f, cascades: 3);
+        view.Lights.Shadows(20f, cascades: 3);
         view.Models(world);
         CannonballField.DrawCannon(view);
         if (_showBodies)

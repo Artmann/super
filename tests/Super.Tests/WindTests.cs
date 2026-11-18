@@ -164,13 +164,13 @@ public class WindTests
     {
         var view = new View();
         view.Begin(0f);
-        Assert.Null(view.WindSettings);
+        Assert.Null(view.Surroundings.WindSettings);
 
-        view.Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f);
-        Assert.Equal(new WindSettings(new Vector3(0.6f, 0f, -0.3f), 0.35f, 0.5f), view.WindSettings);
+        view.Surroundings.Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f);
+        Assert.Equal(new WindSettings(new Vector3(0.6f, 0f, -0.3f), 0.35f, 0.5f), view.Surroundings.WindSettings);
 
         view.Begin(0f);
-        Assert.Null(view.WindSettings);
+        Assert.Null(view.Surroundings.WindSettings);
     }
 
     [Theory]
@@ -182,7 +182,7 @@ public class WindTests
         var view = new View();
         view.Begin(0f);
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Wind(East, strength));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Surroundings.Wind(East, strength));
 
         Assert.StartsWith("The wind's strength must be 0 or more metres, and 0 is a calm.", error.Message);
         Assert.Equal("strength", error.ParamName);
@@ -197,7 +197,7 @@ public class WindTests
         var view = new View();
         view.Begin(0f);
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Wind(East, 0.3f, gustiness));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Surroundings.Wind(East, 0.3f, gustiness));
 
         Assert.StartsWith("The wind's gustiness must be from 0 for steady to 1 for gusty.", error.Message);
         Assert.Equal("gustiness", error.ParamName);
@@ -209,12 +209,12 @@ public class WindTests
         var view = new View();
         view.Begin(0f);
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Wind(Vector3.UnitY, 0.3f));
-        view.Wind(Vector3.Zero, 0f);
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Surroundings.Wind(Vector3.UnitY, 0.3f));
+        view.Surroundings.Wind(Vector3.Zero, 0f);
 
         Assert.StartsWith("The wind must blow along the ground, so its direction needs some x or z.", error.Message);
         Assert.Equal("direction", error.ParamName);
-        Assert.Equal(new WindSettings(Vector3.Zero, 0f, 0.5f), view.WindSettings);
+        Assert.Equal(new WindSettings(Vector3.Zero, 0f, 0.5f), view.Surroundings.WindSettings);
     }
 
     [Fact]
@@ -223,7 +223,7 @@ public class WindTests
         var view = new View();
         view.Begin(0f);
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Wind(new Vector3(float.NaN, 0f, 1f), 0.3f));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Surroundings.Wind(new Vector3(float.NaN, 0f, 1f), 0.3f));
 
         Assert.StartsWith("The wind's direction must be finite.", error.Message);
         Assert.Equal("direction", error.ParamName);

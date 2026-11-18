@@ -129,7 +129,7 @@ public sealed class Transitions(GameTime time)
             }
         }
 
-        view.Transition = screen;
+        view.Effects.Transition = screen;
         _lastShown = view.Shot;
         _shownAny = true;
     }

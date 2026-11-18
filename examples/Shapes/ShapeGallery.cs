@@ -62,8 +62,8 @@ public sealed class ShapeGallery(Content content, Input input, Graphics graphics
     public void Draw(View view)
     {
         view.Camera(position: new Vector3(0f, 3.4f, 8.5f), lookAt: new Vector3(0f, 0.4f, 0f), fieldOfView: 0.75f);
-        view.Sun(direction: new Vector3(-0.6f, 1.4f, 0.9f), color: new Vector3(3f));
-        view.Shadows(15f, 2);
+        view.Lights.Sun(direction: new Vector3(-0.6f, 1.4f, 0.9f), color: new Vector3(3f));
+        view.Lights.Shadows(15f, 2);
         view.Model(0, _floor, Matrix4x4.Identity);
 
         float angle = float.Lerp(_previousAngle, _angle, view.Blend);

@@ -41,12 +41,12 @@ public class ProbeGridTests
         var view = new View();
 
         // 17 x 17 x 17 = 4913 probes.
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.LightProbes(Vector3.Zero, new Vector3(16f), 1f));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Indirect.LightProbes(Vector3.Zero, new Vector3(16f), 1f));
 
         Assert.Equal("spacing", error.ParamName);
         Assert.Contains("4096", error.Message);
         Assert.Contains("4913", error.Message);
-        Assert.Null(view.LightProbeVolume);
+        Assert.Null(view.Indirect.LightProbeVolume);
     }
 
     [Fact]
@@ -55,9 +55,9 @@ public class ProbeGridTests
         var view = new View();
 
         // 16 x 16 x 16 = 4096 probes.
-        view.LightProbes(Vector3.Zero, new Vector3(15f), 1f);
+        view.Indirect.LightProbes(Vector3.Zero, new Vector3(15f), 1f);
 
-        Assert.Equal(new ProbeVolumeSettings(Vector3.Zero, new Vector3(15f), 1f), view.LightProbeVolume);
+        Assert.Equal(new ProbeVolumeSettings(Vector3.Zero, new Vector3(15f), 1f), view.Indirect.LightProbeVolume);
     }
 
     [Theory]
@@ -68,7 +68,7 @@ public class ProbeGridTests
     {
         var view = new View();
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.LightProbes(Vector3.Zero, Vector3.One, spacing));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Indirect.LightProbes(Vector3.Zero, Vector3.One, spacing));
 
         Assert.Equal("spacing", error.ParamName);
         Assert.Contains("more than 0", error.Message);
@@ -84,7 +84,7 @@ public class ProbeGridTests
         var max = new Vector3(4f);
         max[axis] = 0f;
 
-        var error = Assert.Throws<ArgumentException>(() => view.LightProbes(Vector3.Zero, max, 1f));
+        var error = Assert.Throws<ArgumentException>(() => view.Indirect.LightProbes(Vector3.Zero, max, 1f));
 
         Assert.Equal("max", error.ParamName);
         Assert.Contains($"along {name}", error.Message);
@@ -95,13 +95,13 @@ public class ProbeGridTests
     {
         var view = new View();
         view.Begin(0f);
-        view.LightProbes(Vector3.Zero, Vector3.One, 0.5f);
-        var kept = view.LightProbeVolume;
+        view.Indirect.LightProbes(Vector3.Zero, Vector3.One, 0.5f);
+        var kept = view.Indirect.LightProbeVolume;
 
         view.Begin(0f);
 
         Assert.Equal(new ProbeVolumeSettings(Vector3.Zero, Vector3.One, 0.5f), kept);
-        Assert.Null(view.LightProbeVolume);
+        Assert.Null(view.Indirect.LightProbeVolume);
     }
 
     [Fact]

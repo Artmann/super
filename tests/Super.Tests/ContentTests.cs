@@ -415,7 +415,7 @@ public class ContentTests
         ref readonly var draw = ref view.Drawn[^1];
         var shown = new DrawItem[1];
         BakeSphere[] bounds = [new(Vector3.Zero, 0.5f)];
-        DressedDraws.Dress(shown, in draw, default, bounds, new DressContext(content, new BakeIdAreas(view.BakedSpace, view.PlacedBakedChunks, new BakeIdScratch())));
+        DressedDraws.Dress(shown, in draw, default, bounds, new DressContext(content, new BakeIdAreas(view.Indirect.BakedSpace, view.Indirect.PlacedBakedChunks, new BakeIdScratch())));
     }
 
     [Fact]
@@ -453,7 +453,7 @@ public class ContentTests
         var model = content.Mesh(Plane());
         var view = new View();
         view.Begin(0f);
-        view.Model(1, model, Matrix4x4.Identity, isStatic: true);
+        view.Model(1, model, Matrix4x4.Identity, new ModelOptions { Static = true });
 
         var problem = Assert.Throws<InvalidOperationException>(() => DressLastDraw(view, content));
 
@@ -469,7 +469,7 @@ public class ContentTests
         var model = content.Mesh(Plane(), isStatic: true);
         var view = new View();
         view.Begin(0f);
-        view.Model(1, model, Matrix4x4.Identity, isStatic: true);
+        view.Model(1, model, Matrix4x4.Identity, new ModelOptions { Static = true });
 
         DressLastDraw(view, content);
     }

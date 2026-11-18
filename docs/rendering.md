@@ -68,18 +68,18 @@ next frame follows, so it can back an options menu.
 | `MaxFramesPerSecond` | The most frames drawn a second. 0, the default, is no limit. It saves power, and with vsync off it holds a steady rate |
 | `SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
 | `ShadowResolution` | How many texels across each of the sun's shadow maps is: 1024, 2048 (the default) or 4096. Each step up sharpens shadow edges for four times the memory. A change rebuilds the maps before the next frame, which waits for the GPU once |
-| `ShadowCascades` | How many of the sun's shadow maps are drawn, from 1 to 4, the default. Each map covers three times the ground of the one before, and each draws the scene again, so fewer save GPU time. The sun casts no shadow past the last map drawn, so with 2 its shadows reach about a ninth as far as with 4. A view that asks for fewer in `view.Shadows` keeps its number |
+| `ShadowCascades` | How many of the sun's shadow maps are drawn, from 1 to 4, the default. Each map covers three times the ground of the one before, and each draws the scene again, so fewer save GPU time. The sun casts no shadow past the last map drawn, so with 2 its shadows reach about a ninth as far as with 4. A view that asks for fewer in `view.Lights.Shadows` keeps its number |
 | `MeshDetail` | How soon models switch to their simpler versions with distance, from 0.5 to 2. 1, the default, switches where the change is under a pixel. At 0.5 they switch twice as soon, which draws fewer triangles for a little blockiness far away, and at 2 half as soon. The sun's shadow maps follow it too |
 | `RenderScale` | How large the scene is drawn against the window, from 0.5 to 2 each way. 1, the default, draws it at the window's size with nothing resized. At 2 the scene has four times the pixels and is shrunk to fit, which smooths grass blades, railings and other thin things, for about four times the lighting and effects work. At 0.5 it has a quarter of the pixels and is stretched, which is much faster and softer. Below 1, meshes also switch to their simpler versions sooner, since they cover fewer scene pixels. A scene larger than the GPU can draw is shrunk to fit, keeping its shape. The interface, screenshots and recordings stay at the window's size. Anything else is refused. `--render-scale` sets it too. A change rebuilds the scene's targets before the next frame, which waits for the GPU once and restarts anti-aliasing |
 | `Upscaler` | What smooths edges when `AntiAliasing` is on: `Upscaler.Taa`, the default, or `Upscaler.Fsr`, which hands the frame to AMD FSR to rebuild at the window's size. See [upscaling](#upscaling). `--upscaler fsr` sets it too, and `Graphics.Fastest()` uses TAA |
-| `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Shadows`' `contact` only changes [how far they look](#shadows) |
+| `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Lights.Shadows`' `contact` only changes [how far they look](#shadows) |
 | `LightShadows` | Point and spot lights shine through walls |
 | `LocalLights` | Point and spot lights give no light: none is clustered, shadowed or lit onto the [light probes](#bounced-light), so the sun and the sky light the scene alone. Light a bake already holds stays, and no bake is redone. `BakedLighting` drops it too |
-| `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. A material's [occlusion map](#occlusion-maps) still darkens its own cracks. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion). The [screen bounce](#light-bounced-across-the-screen) goes with it |
-| `ScreenBounce` | Surfaces on screen no longer [light their neighbours](#light-bounced-across-the-screen): the floor under a red ball stays its own colour, and a glowing panel lights nothing round it unless the light probes see it. The light probes still bounce light. It saves about 0.6 ms of GPU time a frame at 1920 by 1080 on an RTX 4060 Ti. `view.ScreenBounce` only changes how far and how much. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
+| `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. A material's [occlusion map](#occlusion-maps) still darkens its own cracks. `view.Indirect.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion). The [screen bounce](#light-bounced-across-the-screen) goes with it |
+| `ScreenBounce` | Surfaces on screen no longer [light their neighbours](#light-bounced-across-the-screen): the floor under a red ball stays its own colour, and a glowing panel lights nothing round it unless the light probes see it. The light probes still bounce light. It saves about 0.6 ms of GPU time a frame at 1920 by 1080 on an RTX 4060 Ti. `view.Indirect.ScreenBounce` only changes how far and how much. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
 | `OcclusionHistory` | The [ambient occlusion](#ambient-occlusion) and the [screen bounce](#light-bounced-across-the-screen) are no longer averaged over the last frames. Each frame's grain is blurred away over a wider patch instead, so creases and the shade under things turn softer and small detail, such as the gap round a chest's lid, washes out. It saves about 0.1 ms of GPU time a frame at `OcclusionResolution.Half` and about 0.9 ms at `Full`, at 1600 by 900 on an RTX 4060 Ti, and four small images. `Graphics.Fastest()` turns it off |
 | `MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
-| `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
+| `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.Indirect.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
 | `ProbeQuality` | How many [light probes](#bounced-light) follow the camera and how many are redrawn a frame. `High`, the default and the best look, keeps 32 × 16 × 32 probes in each of the four boxes and redraws 32 a frame, for about 170 MB. `Medium` keeps 24 × 12 × 24 and redraws 16, for about 73 MB. `Low` keeps 16 × 8 × 16 and redraws 8, for about 43 MB, so the boxes reach half as far, the bounce fills in more slowly at the start and is slower to follow lights that move. Anything else is refused. A change starts every probe again on the next frame, which waits for the GPU once. `Graphics.Fastest()` sets `Low`, so turning the probes back on stays cheap |
 | `Reflections` | Shiny surfaces, water and glass reflect only the sky: not what's on screen, and no [reflection probes](#reflections) are photographed |
 | `ReflectionResolution` | Not a switch: how many pixels look for what the screen shows in them each frame. At `Half`, the default, one pixel in four does, a different one each frame, and the pixels between take theirs from the ones round them on the same surface. Anti-aliasing blends the frames, so a still reflection looks the same as at `Full`, where every pixel looks every frame for up to four times the cost. `Full` keeps a reflection sharper while it moves fast, and is the one to pick with `AntiAliasing` off. Anything else is refused. A change rebuilds the scene's targets before the next frame, which waits for the GPU once. `GraphicsQuality.Ultra` sets `Full` |
@@ -90,7 +90,7 @@ next frame follows, so it can back an options menu.
 | `Haze` | Distant things keep their colours instead of fading into the sky between `SkySettings.HazeStart` and `HazeEnd`. The sky's own colour stays |
 | `AerialPerspective` | Under a [physical sky](#the-sky), far surfaces keep their colours instead of fading into the air with distance. A view with its own haze gets that either way. It costs almost nothing |
 | `Stars` | A [physical sky](#night) at night has no stars. The moon stays. They cost a little per sky pixel, so they stay on even in `Graphics.Fastest()` |
-| `Underwater` | `view.Water` is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
+| `Underwater` | `view.Surroundings.Water` is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
 | `VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps, and under water no shafts of light. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
 | `FogVolumes` | The [fog volumes](views.md#fog-volumes) a view places are left out, and only the scene's own fog fills the volumetric fog. They show only while `VolumetricFog` is on too. `Graphics.Fastest()` turns it off |
 | `VolumetricFogCellSize` | Not a switch: how many scene pixels across, each way, one cell of the [volumetric fog's](#volumetric-fog) grid covers, from 4 to 32. 8 is the default. Smaller cells show finer shafts and sharper edges on fog volumes; each halving costs about four times the memory and work. The size is after `RenderScale`. Anything else is refused. A change remakes the grid before the next frame, which waits for the GPU once and starts its history again. See [the grid's cost](#the-grids-cost) |
@@ -98,9 +98,9 @@ next frame follows, so it can back an options menu.
 | `AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
 | `DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
 | `Particles` | No [particles](views.md#particles) are drawn, and none is uploaded. The game can still emit them |
-| `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
-| `Puddles` | Every surface is dry, whatever level `view.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
-| `Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever `view.Wind` sets, and so do their shadows |
+| `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Effects.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
+| `Puddles` | Every surface is dry, whatever level `view.Surroundings.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
+| `Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever `view.Surroundings.Wind` sets, and so do their shadows |
 | `BakedLighting` | Every bake is ignored, so each [baked area](#baked-lighting) is lit live, as if it had never been baked: lights its bake holds are drawn again. It shows what a bake changes. A bake costs less than the live light it stands in for, so `Graphics.Fastest()` leaves it on |
 | `BakeOnArrival` | Areas with no bake, or a stale one, stay lit live instead of [baking as the game runs](#baking-without-a-build-step), and a running bake stops |
 | `BakeBudget` | Not a switch: the GPU milliseconds a [background bake](#baking-without-a-build-step) may take a frame, from 0.5 to 33. Null, the default, gives 4 from source and 2 in a published game |
@@ -307,8 +307,8 @@ characters, swimming draws and ghosts are missing, because rays don't see them y
 ## Lights
 
 ```csharp
-view.Sun(direction: new Vector3(1f, 2f, 1f), color: new Vector3(3f));
-view.Sun(direction: new Vector3(-1f, 0.5f, -1f), color: new Vector3(0.4f, 0.5f, 0.8f));
+view.Lights.Sun(direction: new Vector3(1f, 2f, 1f), color: new Vector3(3f));
+view.Lights.Sun(direction: new Vector3(-1f, 0.5f, -1f), color: new Vector3(0.4f, 0.5f, 0.8f));
 ```
 
 `direction` points towards the light. Colours are linear, so a bright light goes well
@@ -316,8 +316,8 @@ past 1. One sun casts the shadows: the first, unless you pick another with
 `shadows: true`:
 
 ```csharp
-view.Sun(new Vector3(-1f, 0.5f, -1f), new Vector3(0.4f, 0.5f, 0.8f));
-view.Sun(new Vector3(1f, 2f, 1f), new Vector3(3f), shadows: true);
+view.Lights.Sun(new Vector3(-1f, 0.5f, -1f), new Vector3(0.4f, 0.5f, 0.8f));
+view.Lights.Sun(new Vector3(1f, 2f, 1f), new Vector3(3f), shadows: true);
 ```
 
 Marking two suns in one frame throws.
@@ -327,10 +327,10 @@ Marking two suns in one frame throws.
 ![The Crypt example: torches, candelabras, a lantern's beam and 126 candles](media/crypt.webp)
 
 ```csharp
-view.PointLight(torch.Id, torch.Flame, color: new Vector3(3.2f, 1.5f, 0.5f), range: 9f, radius: 0.5f);
-view.PointLight(candle.Id, candle.Wick, new Vector3(0.12f, 0.06f, 0.02f), range: 1.4f, shadows: false);
-view.SpotLight(lantern.Id, lantern.Position, direction: -Vector3.UnitY, new Vector3(6f, 5.5f, 4.5f),
-    range: 7f, innerAngle: 0.25f, outerAngle: 0.4f);
+view.Lights.Point(torch.Id, new PointLight(torch.Flame, new Vector3(3.2f, 1.5f, 0.5f), 9f) { Radius = 0.5f });
+view.Lights.Point(candle.Id, new PointLight(candle.Wick, new Vector3(0.12f, 0.06f, 0.02f), 1.4f) { Shadows = false });
+view.Lights.Spot(lantern.Id, new SpotLight(lantern.Position, -Vector3.UnitY, new Vector3(6f, 5.5f, 4.5f), 7f)
+    { InnerAngle = 0.25f, OuterAngle = 0.4f });
 ```
 
 A point light shines every way from a spot, like a candle or a torch, and a spot light
@@ -340,8 +340,8 @@ range, so a small range is cheaper and keeps a candle's light on its own table. 
 is full inside its inner angle and fades out by its outer one. Both angles are measured
 from the direction, in radians, and the outer one must be under a right angle. `Graphics.LocalLights` turns them all off, see [graphics settings](#graphics-settings).
 
-A light also has a radius, the size of its glowing part, 0.1 m unless you pass
-`radius:`. No surface gets much brighter than it would be that far from the light. On
+A light also has a radius, the size of its glowing part, 0.1 m unless you set
+`Radius`. No surface gets much brighter than it would be that far from the light. On
 its own, the square of the distance makes a torch a hand from a wall blow the stone out
 white while the room stays dim. A bigger radius calms the wall but leaves the light
 just as bright a metre away and beyond, so raise it for lights in brackets, sconces and
@@ -354,7 +354,7 @@ Draw lights in `Draw` like everything else, each frame, so a torch can flicker b
 changing its colour. The key names the light from frame to frame, the same as a model's
 key, and keeps its shadow steady as the camera moves. Use the ID of the thing holding it.
 
-Lights cast soft shadows unless `shadows: false` is passed. Shadows are sharp where an
+Lights cast soft shadows unless `Shadows = false` is set. Shadows are sharp where an
 object touches the ground and blur further away, as the sun's do. All the lights share
 one shadow atlas, and a light that is bigger on screen gets a sharper shadow. A point
 light costs six times as much shadow as a spot. When the atlas is full, the lights that
@@ -374,13 +374,13 @@ windows without.
 
 Point and spot lights light models, glass and [particles](views.md#particles). Glass and
 particles get no shadows from them. Reflection probes see what they light. In
-[fog](#fog) they glow with a halo; `volumetric:` sets how strongly, and 0 leaves a light
+[fog](#fog) they glow with a halo; `Volumetric` sets how strongly, and 0 leaves a light
 out of the fog (see [volumetric fog](#volumetric-fog)).
 
 ### Light modes
 
-Every sun, point light and spot light takes a `mode:` of `LightMode.Mixed`, `Realtime` or
-`Baked`. `Mixed` is the default and changes nothing about how a light looks. The mode only
+Every sun takes a `mode:`, and every point and spot light a `Mode`, of `LightMode.Mixed`,
+`Realtime` or `Baked`. `Mixed` is the default and changes nothing about how a light looks. The mode only
 says how a bake will treat the light: `Realtime` is never part of a bake, `Baked` is only
 part of one, and `Mixed` is both. Until a [bake](#baked-lighting) exists, every light is lit
 live whatever its mode, so every frame looks the same. A mode that isn't one of the three
@@ -408,14 +408,14 @@ light with a real-time shadow takes the darker of the two, so something that mov
 its shadow, and the baked one covers what the shadow map doesn't: past the sun's last
 [cascade](#shadows) the mask takes over, so a sun lights a baked space with shadows however far
 it reaches. A light with no shadow map, or one that didn't get a [tile](#point-and-spot-lights),
-takes the mask alone, so a light with `shadows: false` is still shadowed by the walls the
+takes the mask alone, so a light with `Shadows = false` is still shadowed by the walls the
 bake saw. A light without a channel, a surface without a lightmap, and every light while
 [`BakedLighting`](#graphics-settings) is off or the bake is stale are lit as before.
 
 ## Shadows
 
 ```csharp
-view.Shadows(40f, cascades: 3);
+view.Lights.Shadows(40f, cascades: 3);
 ```
 
 The first number is the radius of the sharpest shadow map, in metres. Each extra cascade
@@ -435,7 +435,7 @@ Things out of frame still cast into it. A tree behind the camera or off to the s
 of what you see, throws its shade into the picture, up to six cascade radii away.
 
 ```csharp
-view.Shadows(7f, cascades: 3, sunSize: 0.02f);
+view.Lights.Shadows(7f, cascades: 3, sunSize: 0.02f);
 ```
 
 `sunSize` is how wide the sun looks, in radians, from 0 to 0.5. It sets how fast a shadow
@@ -451,7 +451,7 @@ the sun through what the camera sees, and darkens where something is in the way,
 draws a thin dark line where things touch the ground:
 
 ```csharp
-view.Shadows(7f, cascades: 3, sunSize: 0.02f, contact: 0.3f);
+view.Lights.Shadows(7f, cascades: 3, sunSize: 0.02f, contact: 0.3f);
 ```
 
 `contact` is how far each pixel looks, in metres. The default of 0.25 suits barrels, crates
@@ -466,7 +466,7 @@ only sees the front leaf.
 ## Ambient occlusion
 
 ```csharp
-view.AmbientOcclusion(radius: 1.2f, strength: 0.7f);
+view.Indirect.AmbientOcclusion(radius: 1.2f, strength: 0.7f);
 ```
 
 Corners, creases and the ground under things get less of the soft light from the sky,
@@ -500,7 +500,7 @@ two keep them, with and without the average over frames.
 ## Light bounced across the screen
 
 ```csharp
-view.ScreenBounce(strength: 1.5f, radius: 3f);
+view.Indirect.ScreenBounce(strength: 1.5f, radius: 3f);
 ```
 
 Light that lands on a surface the camera sees also lights the surfaces next to it: a red
@@ -549,7 +549,7 @@ surfaces and the light already bounced, so light bounces again with every update
 ![The Courtyard's brick wall right of the window, lit by a box of probes captured once at load on the left and by the live probes round the camera on the right. The two nearly match: the live probes leave the wall a shade darker](media/probes-courtyard.webp)
 
 Where a probe sees nothing it sees the same sky that lights the scene without probes, so in a
-scene with no [`view.Sky`](#the-sky) it sees the soft studio light rather than the plain
+scene with no [`view.Surroundings.Sky`](#the-sky) it sees the soft studio light rather than the plain
 background colour drawn behind the scene. Out in the open, a probe gives the light the
 scene would have had without it.
 
@@ -575,7 +575,7 @@ at most 8 million triangles round its probes, which is about 9 probes in Courtya
 way there is no pause while loading: the scene starts lit by the sky and fills in over the
 first frames, nearest probes first. Drawn this way at `High`, the near probes have all been
 drawn after about a thousand frames in a light scene (nearer four thousand in Courtyard).
-Without a `view.LightProbes` box of your own, the first seconds after a load can look blotchy,
+Without a `view.Indirect.LightProbes` box of your own, the first seconds after a load can look blotchy,
 as neighbouring probes have been drawn different numbers of times, until each has been redone
 a few times and they even out.
 After that the oldest probes are redone in turn, so objects that move or appear show up in the
@@ -593,10 +593,10 @@ and the new row starts dark and is drawn next.
 ![The same corner of the Courtyard with its probes drawn by rasterising on the left and by tracing rays on the right, at the same tick: the two come out nearly the same in colour, the traced side a shade brighter, as by tick 300 the rasterized probes are still filling in](media/probes-courtyard-paths.webp)
 
 ```csharp
-view.LightProbes(min: new(-1f, 0f, -4f), max: new(1f, 2.5f, 4f), spacing: 0.25f);
+view.Indirect.LightProbes(min: new(-1f, 0f, -4f), max: new(1f, 2.5f, 4f), spacing: 0.25f);
 ```
 
-`view.LightProbes` adds a box of probes of your own on top, for a place that needs finer
+`view.Indirect.LightProbes` adds a box of probes of your own on top, for a place that needs finer
 detail than the camera's probes give, such as a narrow corridor at 0.25 metres. Inside it,
 and up to a spacing round it, its probes win over the camera's. The box may hold at most 4,096
 probes, so 1 metre spacing covers about 15 by 15 by 15 metres; a bigger box throws when it is
@@ -628,7 +628,7 @@ A [screenshot](command-line.md#screenshots) waits for the probes near the camera
 up to 2,048 frames, so it shows the bounce as it will be rather than still filling in.
 
 `--debug-view probes` shows the probes themselves, over the lit scene. Every probe of the finest
-box and of your `view.LightProbes` box is a small sphere; the three coarser boxes aren't shown.
+box and of your `view.Indirect.LightProbes` box is a small sphere; the three coarser boxes aren't shown.
 Each point of a sphere shows the
 light that probe gives a white surface facing the same way, so a probe beside a red wall is red
 on the wall's side. The spheres are 0.15 of their probes' spacing in radius, 7.5 cm in the
@@ -644,11 +644,11 @@ command line](command-line.md).
 ## Baked lighting
 
 ```csharp
-view.BakedLighting("crypt", min: new(-8f, -1f, -12f), max: new(8f, 6f, 12f), probeSpacing: 1f);
+view.Indirect.BakedLighting("crypt", min: new(-8f, -1f, -12f), max: new(8f, 6f, 12f), probeSpacing: 1f);
 
 foreach (var house in village.Houses)
 {
-    view.BakedChunk("house-garden", house.Transform, min: new(-6f, 0f, -8f), max: new(6f, 7f, 8f),
+    view.Indirect.BakedChunk("house-garden", house.Transform, min: new(-6f, 0f, -8f), max: new(6f, 7f, 8f),
         edgeBlend: 0.5f);
 }
 ```
@@ -683,7 +683,7 @@ holds baked probes `probeSpacing` metres apart, at most 4,096 of them, counted t
 [light probes](#bounced-light), so 1 metre spacing covers about 15 by 15 by 15 metres. A frame
 has at most one space, and naming a second throws with both names. Its bake is
 `lighting/<name>.lightbake`. `texelsPerMetre`, 20 by default (5 cm texels), sets how fine its
-lightmap is, from 1 to 200; anything else throws with the value. `view.BakedChunk` takes the same
+lightmap is, from 1 to 200; anything else throws with the value. `view.Indirect.BakedChunk` takes the same
 parameter for a chunk.
 
 `BakedChunk` places a chunk: a piece of the world, such as a house, baked once in its own
@@ -1012,7 +1012,7 @@ area left unbaked, such as `Not baking gallery: no VK_KHR_ray_query`. A publishe
 ## Reflections
 
 ```csharp
-view.ReflectionProbe(key: 1, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));
+view.Indirect.ReflectionProbe(key: 1, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));
 ```
 
 Shiny surfaces first mirror what's on screen. What they'd see off the edge of the screen, and
@@ -1030,8 +1030,8 @@ priorities the smaller box goes first, so a room's probe wins inside the room an
 round it takes over at the door, with no priorities to set:
 
 ```csharp
-view.ReflectionProbe(key: 1, position: new(0f, 2f, 0f), boxMin: new(-40f, -1f, -40f), boxMax: new(40f, 20f, 40f)); // the yard
-view.ReflectionProbe(key: 2, position: new(3f, 1.6f, 5f), boxMin: new(0f, 0f, 2f), boxMax: new(6f, 3f, 8f), blend: 0.3f); // a house in it
+view.Indirect.ReflectionProbe(key: 1, position: new(0f, 2f, 0f), boxMin: new(-40f, -1f, -40f), boxMax: new(40f, 20f, 40f)); // the yard
+view.Indirect.ReflectionProbe(key: 2, position: new(3f, 1.6f, 5f), boxMin: new(0f, 0f, 2f), boxMax: new(6f, 3f, 8f), blend: 0.3f); // a house in it
 ```
 
 A pixel blends at most four probes, the first four that reach it in that order.
@@ -1060,7 +1060,7 @@ should follow something that moves, use `Always`; for one that should follow a l
 dims, use `OnRequest` and change `version` with it:
 
 ```csharp
-view.ReflectionProbe(key: 3, position: new(0f, 1.5f, 0f), boxMin: new(-4f, 0f, -4f), boxMax: new(4f, 3f, 4f),
+view.Indirect.ReflectionProbe(key: 3, position: new(0f, 1.5f, 0f), boxMin: new(-4f, 0f, -4f), boxMax: new(4f, 3f, 4f),
     update: ProbeUpdate.OnRequest, version: _lampLevel);
 ```
 
@@ -1089,7 +1089,7 @@ surfaces and glass reflect only the sky.
 ## The look of the picture
 
 ```csharp
-view.Finish(new PostSettings
+view.Effects.Finish(new PostSettings
 {
     Exposure = 0.2f,     // stops: +1 is twice as bright
     Contrast = 0.1f,
@@ -1139,8 +1139,8 @@ ACES wants more `Exposure`: the Courtyard uses 1.05 with auto exposure, with `Co
 ACES puts it and leaves the most room in the highlights.
 
 ```csharp
-view.Finish(new PostSettings { Tonemapper = Tonemapper.Aces });   // the older look
-view.Finish(new PostSettings { AgxLook = AgxLook.Base });         // AgX without the Punchy look
+view.Effects.Finish(new PostSettings { Tonemapper = Tonemapper.Aces });   // the older look
+view.Effects.Finish(new PostSettings { AgxLook = AgxLook.Base });         // AgX without the Punchy look
 ```
 
 Both curves and both looks cost about the same, so `Graphics.Fastest()` leaves the choice alone.
@@ -1157,7 +1157,7 @@ blends their frames.
 ### Auto exposure
 
 ```csharp
-view.Finish(new PostSettings
+view.Effects.Finish(new PostSettings
 {
     AutoExposure = true,
     Exposure = -0.3f,        // now compensation: a third of a stop darker than metered
@@ -1188,7 +1188,7 @@ use it: they hold light, and exposure is applied after lighting.
 ### Focus
 
 ```csharp
-view.Finish(new PostSettings
+view.Effects.Finish(new PostSettings
 {
     FocusDistance = 11f,   // metres to what should be sharp
     Aperture = 8f,         // the f-number; 0, the default, keeps everything sharp
@@ -1238,12 +1238,12 @@ The picture above uses a stronger lens than the Courtyard's own f/8 and 35 mm, s
 
 ## The sky
 
-Without a sky the world sits in a plain grey studio. `view.Sky` gives it a gradient from
+Without a sky the world sits in a plain grey studio. `view.Surroundings.Sky` gives it a gradient from
 the ground up through the horizon to straight up, which shows behind everything, lights
 the scene from all around and shows in reflections:
 
 ```csharp
-view.Sky(new SkySettings
+view.Surroundings.Sky(new SkySettings
 {
     Zenith = new Vector3(0.18f, 0.36f, 0.85f),   // straight up
     Horizon = new Vector3(1f, 0.62f, 0.32f),
@@ -1273,8 +1273,8 @@ paler at the horizon, it glows round the sun, it turns orange and pink as the su
 and the sun itself shows as a disc:
 
 ```csharp
-view.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(7.2f, 6.7f, 5.8f));
-view.Sky(new SkySettings
+view.Lights.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(7.2f, 6.7f, 5.8f));
+view.Surroundings.Sky(new SkySettings
 {
     Ground = new Vector3(0.2f, 0.17f, 0.14f),
     Brightness = 1f,
@@ -1286,7 +1286,7 @@ Turbidity is how hazy the air is, from 1.7 to 10; 2 to 3 is a clear day, and a h
 sky is whiter and its sunsets redder. Zero, the default, keeps the gradient, and is the
 way to turn the physical sky off: there is no switch for it in `Graphics`. Any other
 value throws. The sky follows the sun that casts the shadows, or the first sun when none
-does. Its disc is as wide as `sunSize` in `view.Shadows` and as bright as the sun's
+does. Its disc is as wide as `sunSize` in `view.Lights.Shadows` and as bright as the sun's
 colour spread over it, so a smaller sun is a brighter disc, held under what the screen
 can store. `Zenith` and `Horizon` are not used; `Ground` still colours what is below the
 horizon, lit by the sun and the sky, so it darkens at dusk, and `Brightness` still
@@ -1346,19 +1346,19 @@ them off for every view.
 the sun, so it is full opposite the sun and a crescent beside it, and like the sun it turns
 warmer and dimmer low down and is gone below the horizon. It is drawn twice the real moon's
 size so it reads on screen. The sky draws the moon but gives no light for it: add a dim,
-bluish `view.Sun` aimed the same way for moonlight and shadows. The sky still follows the
+bluish `view.Lights.Sun` aimed the same way for moonlight and shadows. The sky still follows the
 real sun, whichever light casts the shadows, and skips a light aimed at the moon; with only
 the moon's light, it follows that.
 
 ```csharp
 var moon = -sun;   // opposite the sun, so always full
-view.Sun(sun, new Vector3(5.2f, 4.9f, 4.4f), shadows: sun.Y > 0f);
+view.Lights.Sun(sun, new Vector3(5.2f, 4.9f, 4.4f), shadows: sun.Y > 0f);
 if (sun.Y <= 0f)
 {
-    view.Sun(moon, new Vector3(0.16f, 0.21f, 0.36f), shadows: true);
+    view.Lights.Sun(moon, new Vector3(0.16f, 0.21f, 0.36f), shadows: true);
 }
 
-view.Sky(new SkySettings
+view.Surroundings.Sky(new SkySettings
 {
     Turbidity = 2.5f,
     Moon = moon,
@@ -1389,8 +1389,8 @@ fills the shadows, the reflections show it, and the probes and bakes see it.
 ```csharp
 SkyImage meadow = content.Sky("skies/meadow.hdr");   // in Load
 
-view.Sun(meadow.SunDirectionAt(0.6f), new Vector3(4f));
-view.Sky(new SkySettings { Image = meadow, Rotation = 0.6f, Exposure = -0.5f });
+view.Lights.Sun(meadow.SunDirectionAt(0.6f), new Vector3(4f));
+view.Surroundings.Sky(new SkySettings { Image = meadow, Rotation = 0.6f, Exposure = -0.5f });
 ```
 
 `Rotation` turns the picture about the straight-up point, in radians, counterclockwise seen
@@ -1401,7 +1401,7 @@ number, or an exposure outside that range, throws.
 The cooker finds the sun in the picture: the brightest spot, if it is much brighter than the
 rest of the sky. It takes the sun out of the picture and keeps its light as a small disc of
 the same brightness, which shows behind the scene and in the sharpest reflections. The sky
-gives no light for it, just as for the physical sky's sun: aim a `view.Sun` at
+gives no light for it, just as for the physical sky's sun: aim a `view.Lights.Sun` at
 `SunDirection`, or at `SunDirectionAt(rotation)` once the picture is turned, so its shadows
 fall the way the picture's do. `HasSun` is false for an overcast picture with no sun in it.
 
@@ -1423,7 +1423,7 @@ Fog is air you can see: it thickens towards the ground, so the far side of a yar
 back in it while the near ground stays crisp. Set it on the sky:
 
 ```csharp
-view.Sky(new SkySettings
+view.Surroundings.Sky(new SkySettings
 {
     Turbidity = 2.5f,
     Fog = new FogSettings(Density: 0.004f, Height: 0f, Falloff: 0.15f, SunScatter: 0.6f),
@@ -1474,7 +1474,7 @@ Above, looking past the Courtyard's tree towards the sun: the plain fog washes t
 leaves with the sun's glow, while the volumetric fog leaves them dark and lets the light
 through between them in shafts. Below, the Crypt's faint, dusty air, with a density of
 0.008: the torches glow in the air round them, where the plain fog only darkens. The
-torches pass `volumetric: 2f`, so their halos read without thicker air hazing the far
+torches set `Volumetric = 2f`, so their halos read without thicker air hazing the far
 end of the room.
 
 `VolumetricDistance` is how far from the camera, in metres, the fog is worked out this
@@ -1487,7 +1487,7 @@ that range throws. In the volumetric part the anisotropy shapes the sun's glow, 
 `SunScatter` only shapes it past `VolumetricDistance`.
 
 Each light lights the fog at full strength unless asked otherwise.
-`view.PointLight` and `view.SpotLight` take a `volumetric:` strength: 1 is as much as the
+`PointLight` and `SpotLight` take a `Volumetric` strength: 1 is as much as the
 air really scatters, 0 leaves the light out of the fog, and more makes its halo
 stronger. A negative strength throws. A light's halo is cut by its own shadow where it
 casts one, so a lantern's beam shows as a cone.
@@ -1516,7 +1516,7 @@ off, which gives the plain fog exactly, and `Graphics.Fastest()` turns it off.
 #### Fog volumes
 
 A fog volume is fog in a shape a game places, a box, an ellipsoid, a cylinder or a cone,
-with its own density, colour, soft edge and drifting noise. `view.FogVolume` places one
+with its own density, colour, soft edge and drifting noise. `view.Effects.FogVolume` places one
 for a frame; [Fog volumes in views.md](views.md#fog-volumes) has the shapes, the settings
 and an example. Volumes are drawn into the volumetric fog's grid, so they are lit the
 same way: the sun falls through them in shafts, a torch glows in them, and the scene's
@@ -1565,11 +1565,11 @@ and its light probes. `--profile` from [the command line](command-line.md) lists
 
 ## Water
 
-`view.Water` puts the camera underwater, with light absorbed by depth, moving caustics on
+`view.Surroundings.Water` puts the camera underwater, with light absorbed by depth, moving caustics on
 sunlit surfaces and shafts of light:
 
 ```csharp
-view.Water(new UnderwaterSettings
+view.Surroundings.Water(new UnderwaterSettings
 {
     Absorption = new Vector3(0.045f, 0.024f, 0.018f),   // per metre; red should be largest
     ShallowColor = new Vector3(0.11f, 0.42f, 0.55f),
@@ -1602,13 +1602,13 @@ The shafts need [`Graphics.VolumetricFog`](#graphics-settings). With it off, as 
 
 ## Puddles
 
-`view.Puddles` lets water stand in the low places of the ground, with no mesh for the water.
+`view.Surroundings.Puddles` lets water stand in the low places of the ground, with no mesh for the water.
 It takes the water's height in metres and, optionally, how far above it the ground is damp,
 8 cm unless given:
 
 ```csharp
-view.Puddles(-0.045f);          // water at 4.5 cm below 0, damp for 8 cm above it
-view.Puddles(0.2f, band: 0.03f); // higher water and a narrower damp band
+view.Surroundings.Puddles(-0.045f);          // water at 4.5 cm below 0, damp for 8 cm above it
+view.Surroundings.Puddles(0.2f, band: 0.03f); // higher water and a narrower damp band
 ```
 
 ![The Courtyard puddle before, a flat grey sheet, and after, dark silty water at the level that mirrors the flagstones, the grass and the wall behind it](media/puddles-before-after.webp)
@@ -1650,12 +1650,12 @@ below the yard and a band of 3.5 cm.
 
 ## Wind
 
-`view.Wind` sets a breeze that bends grass and leaves. It takes the way the wind blows, how
+`view.Surroundings.Wind` sets a breeze that bends grass and leaves. It takes the way the wind blows, how
 strong it is and, optionally, how gusty, from 0 for steady to 1 for gusty, 0.5 unless given:
 
 ```csharp
-view.Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f);         // a fresh breeze, gusty by half
-view.Wind(Vector3.UnitX, 0.1f, gustiness: 0f);         // a light, steady air from the west
+view.Surroundings.Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f);         // a fresh breeze, gusty by half
+view.Surroundings.Wind(Vector3.UnitX, 0.1f, gustiness: 0f);         // a light, steady air from the west
 ```
 
 The strength is how far, in metres, it leans the tip of a blade of grass 1 m tall. Only the
@@ -1689,7 +1689,7 @@ flips as the sine crosses zero, so the lean swings smoothly from one side to the
 
 ```csharp
 float surge = MathF.Sin(seconds * MathF.Tau / 7f);
-view.Wind(surgeDirection * MathF.Sign(surge), 0.45f * MathF.Abs(surge), gustiness: 0.3f);
+view.Surroundings.Wind(surgeDirection * MathF.Sign(surge), 0.45f * MathF.Abs(surge), gustiness: 0.3f);
 ```
 [`Graphics.Wind`](#graphics-settings) turns it off, and
 `Graphics.Fastest()` turns it off. The Courtyard blows a breeze of 0.35 across its grass, with
@@ -1709,7 +1709,7 @@ A draw can have a fade of its own, which wins over its surfaces' fades, so one m
 kept further away than another:
 
 ```csharp
-view.Model(key, tuft, transform, fade: new DistanceFade(50f, 60f));
+view.Model(key, tuft, transform, new ModelOptions { Fade = new DistanceFade(50f, 60f) });
 world.Add(entity, new Model(tuft, Fade: new DistanceFade(50f, 60f)));  // the same with Super.Ecs
 ```
 
@@ -1947,7 +1947,7 @@ at cook time:
 
 ```csharp
 MeshMask mask = content.Meshes(model, "Body_03a", "Head_05b");
-view.Model(key, model, transform, mask);
+view.Model(key, model, transform, new ModelOptions { Meshes = mask });
 ```
 
 A mask fits only the model it was made for, so make it from the model you draw. See
@@ -1992,9 +1992,9 @@ the bricks still show through, and it never floats off the surface or flickers a
 Keep `dithered` for things that should fade as a whole, such as a leaf or a cobweb.
 
 `puddles` lets water stand on the material wherever it lies below the level the game sets
-with `view.Puddles`, and makes it damp for a band above. See [Puddles](#puddles).
+with `view.Surroundings.Puddles`, and makes it damp for a band above. See [Puddles](#puddles).
 
-`wind` sways the material in the breeze the game sets with `view.Wind`: `true` for grass, or
+`wind` sways the material in the breeze the game sets with `view.Surroundings.Wind`: `true` for grass, or
 `{ "sway": 0.08 }` for a share of the lean, for something stiffer. A share below 0 stops the
 cook. See [Wind](#wind).
 
@@ -2277,13 +2277,13 @@ When no material in the world scatters light the blur doesn't run, so it costs n
 
 ## Ghosts
 
-`view.Ghost` draws a model as a preview, such as a building the player is about to
+`view.Model` with a `Ghost` draws a model as a preview, such as a building the player is about to
 place: green where it fits and red where it doesn't.
 
 ```csharp
 var fits = new Vector3(0.2f, 1f, 0.3f);
 var blocked = new Vector3(1f, 0.15f, 0.1f);
-view.Ghost(PreviewKey, cabin, Matrix4x4.CreateTranslation(cursor), canPlace ? fits : blocked, opacity: 0.6f);
+view.Model(PreviewKey, cabin, Matrix4x4.CreateTranslation(cursor), new Ghost(canPlace ? fits : blocked, 0.6f));
 ```
 
 A ghost leaves out the model's own colours, textures and tint, and is one matte colour
@@ -2291,7 +2291,7 @@ that glows a little, so it reads the same over a dark model or a light one, in s
 in shadow. Its shape still shows through the light. The colour is linear, from 0 to 1.
 Opacity is 1 by default, and below 1 the world shows through, as with glass. It must be
 more than 0 and at most 1. A ghost casts no shadow. Pass a
-[mesh mask](#showing-some-meshes-of-a-model) before the colour to preview only some of a
+[mesh mask](#showing-some-meshes-of-a-model) after the `Ghost` to preview only some of a
 model's meshes, such as a unit in the look it will have.
 
 ## Built-in shapes
@@ -2581,7 +2581,7 @@ what's behind. It's drawn before fog and underwater tinting, so it fades into th
 with the rest. The view sets how every outline looks:
 
 ```csharp
-view.Outlines(color: new Vector3(0.05f, 0.03f, 0.02f), thickness: 2f, fadeStart: 20f, fadeEnd: 40f);
+view.Effects.Outlines(color: new Vector3(0.05f, 0.03f, 0.02f), thickness: 2f, fadeStart: 20f, fadeEnd: 40f);
 ```
 
 The colour is linear light, black when left out. The thickness is in the picture's pixels,

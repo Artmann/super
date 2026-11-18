@@ -74,7 +74,7 @@ world.Add(bell, new Parent(sheep));
 public void Draw(View view)
 {
     view.Camera(camera);
-    view.Sun(new Vector3(1f, 2f, 1f), new Vector3(3f));
+    view.Lights.Sun(new Vector3(1f, 2f, 1f), new Vector3(3f));
     view.Models(world);
 }
 ```
@@ -106,7 +106,7 @@ The [Reef example](../examples/Reef) uses this for thousands of schooling fish, 
 ### Static draws
 
 Give an entity that never moves the `Static` component, and `view.Models(world)` draws it
-static, the same as `isStatic: true` in [Views](views.md#static-draws):
+static, the same as `new ModelOptions { Static = true }` in [Views](views.md#static-draws):
 
 ```csharp
 world.Add(wall, Transform.At(new Vector3(4f, 0f, 0f)));

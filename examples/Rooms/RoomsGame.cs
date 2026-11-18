@@ -184,7 +184,7 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
         }
 
         view.Camera(_camera.At(view.Blend));
-        view.Sun(new Vector3(1f, 2f, 1f), new Vector3(1.4f));
+        view.Lights.Sun(new Vector3(1f, 2f, 1f), new Vector3(1.4f));
         view.Models(world);
         DrawDoorLid(view);
         DrawSparkle(view);

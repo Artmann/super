@@ -11,12 +11,12 @@ public class ViewTests
         var view = new View();
         view.Begin(0f);
         view.Model(1, ModelRef.Cube, Matrix4x4.Identity);
-        view.Sun(Vector3.UnitY, Vector3.One);
+        view.Lights.Sun(Vector3.UnitY, Vector3.One);
 
         view.Begin(0f);
 
         Assert.Equal(0, view.Drawn.Length);
-        Assert.Equal(0, view.Suns.Length);
+        Assert.Equal(0, view.Lights.Suns.Length);
     }
 
     [Fact]
@@ -25,13 +25,13 @@ public class ViewTests
         var view = new View();
         view.Begin(0f);
 
-        view.Sun(Vector3.UnitY, Vector3.One);
-        view.PointLight(1, Vector3.Zero, Vector3.One, 5f);
-        view.SpotLight(2, Vector3.Zero, -Vector3.UnitY, Vector3.One, 5f, 0.2f, 0.5f);
+        view.Lights.Sun(Vector3.UnitY, Vector3.One);
+        view.Lights.Point(1, new PointLight(Vector3.Zero, Vector3.One, 5f));
+        view.Lights.Spot(2, new SpotLight(Vector3.Zero, -Vector3.UnitY, Vector3.One, 5f) { InnerAngle = 0.2f, OuterAngle = 0.5f });
 
-        Assert.Equal(LightMode.Mixed, view.Suns[0].Mode);
-        Assert.Equal(LightMode.Mixed, view.DrawnLights[0].Mode);
-        Assert.Equal(LightMode.Mixed, view.DrawnLights[1].Mode);
+        Assert.Equal(LightMode.Mixed, view.Lights.Suns[0].Mode);
+        Assert.Equal(LightMode.Mixed, view.Lights.DrawnLights[0].Mode);
+        Assert.Equal(LightMode.Mixed, view.Lights.DrawnLights[1].Mode);
         Assert.Equal(LightMode.Mixed, default(LocalLight).Mode);
     }
 
@@ -41,13 +41,13 @@ public class ViewTests
         var view = new View();
         view.Begin(0f);
 
-        view.PointLight(1, Vector3.Zero, Vector3.One, 5f, mode: LightMode.Baked);
-        view.SpotLight(2, Vector3.Zero, -Vector3.UnitY, Vector3.One, 5f, 0.2f, 0.5f, mode: LightMode.Realtime);
-        view.Sun(Vector3.UnitY, Vector3.One, mode: LightMode.Realtime);
+        view.Lights.Point(1, new PointLight(Vector3.Zero, Vector3.One, 5f) { Mode = LightMode.Baked });
+        view.Lights.Spot(2, new SpotLight(Vector3.Zero, -Vector3.UnitY, Vector3.One, 5f) { InnerAngle = 0.2f, OuterAngle = 0.5f, Mode = LightMode.Realtime });
+        view.Lights.Sun(Vector3.UnitY, Vector3.One, mode: LightMode.Realtime);
 
-        Assert.Equal(LightMode.Baked, view.DrawnLights[0].Mode);
-        Assert.Equal(LightMode.Realtime, view.DrawnLights[1].Mode);
-        Assert.Equal(LightMode.Realtime, view.Suns[0].Mode);
+        Assert.Equal(LightMode.Baked, view.Lights.DrawnLights[0].Mode);
+        Assert.Equal(LightMode.Realtime, view.Lights.DrawnLights[1].Mode);
+        Assert.Equal(LightMode.Realtime, view.Lights.Suns[0].Mode);
     }
 
     [Fact]
@@ -57,9 +57,9 @@ public class ViewTests
         view.Begin(0f);
 
         var error = Assert.Throws<ArgumentOutOfRangeException>(
-            () => view.PointLight(1, Vector3.Zero, Vector3.One, 5f, mode: (LightMode)7));
+            () => view.Lights.Point(1, new PointLight(Vector3.Zero, Vector3.One, 5f) { Mode = (LightMode)7 }));
 
-        Assert.Equal("mode", error.ParamName);
+        Assert.Equal("light", error.ParamName);
         Assert.Equal(7, error.ActualValue);
         Assert.StartsWith("A light's mode must be Mixed, Realtime or Baked, but it was 7.", error.Message);
     }
@@ -71,12 +71,12 @@ public class ViewTests
         view.Begin(0f);
         var sky = new SkySettings { Zenith = new Vector3(0.2f, 0.4f, 0.9f), Horizon = Vector3.One, HazeStart = 10f, HazeEnd = 40f };
 
-        view.Sky(sky);
-        var kept = view.SkySettings;
+        view.Surroundings.Sky(sky);
+        var kept = view.Surroundings.SkySettings;
         view.Begin(0f);
 
         Assert.Equal(sky, kept);
-        Assert.Null(view.SkySettings);
+        Assert.Null(view.Surroundings.SkySettings);
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class ViewTests
     {
         var view = new View();
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Sky(new SkySettings { Brightness = -1f }));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Surroundings.Sky(new SkySettings { Brightness = -1f }));
 
         Assert.Contains("brightness can't be negative", error.Message);
     }
@@ -96,7 +96,7 @@ public class ViewTests
     {
         var view = new View();
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Sky(new SkySettings { HazeStart = start, HazeEnd = end }));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Surroundings.Sky(new SkySettings { HazeStart = start, HazeEnd = end }));
 
         Assert.Contains($"runs from {start} to {end} metres", error.Message);
     }
@@ -149,7 +149,7 @@ public class ViewTests
         var red = new Vector3(1f, 0f, 0f);
         view.Begin(0f);
 
-        view.Model(3, animator, Matrix4x4.Identity, red);
+        view.Model(3, animator, Matrix4x4.Identity, new ModelOptions { Color = red });
 
         Assert.Equal(new ModelRef(7), view.Drawn[0].Model);
         Assert.Same(animator.Pose, view.Drawn[0].Pose);
@@ -192,9 +192,9 @@ public class ViewTests
         var view = new View();
         view.Begin(0f);
 
-        view.Sun(new Vector3(0f, 5f, 0f), Vector3.One);
+        view.Lights.Sun(new Vector3(0f, 5f, 0f), Vector3.One);
 
-        Assert.Equal(Vector3.UnitY, view.Suns[0].Direction);
+        Assert.Equal(Vector3.UnitY, view.Lights.Suns[0].Direction);
     }
 
     [Fact]

@@ -59,7 +59,7 @@ public class ToonTests
         var view = new View();
         view.Begin(0f);
 
-        var error = Assert.Throws<ArgumentException>(() => view.Outlines(thickness: thickness, fadeStart: fadeStart, fadeEnd: fadeEnd));
+        var error = Assert.Throws<ArgumentException>(() => view.Effects.Outlines(thickness: thickness, fadeStart: fadeStart, fadeEnd: fadeEnd));
 
         Assert.Equal(message, error.Message);
     }
@@ -70,7 +70,7 @@ public class ToonTests
         var view = new View();
         view.Begin(0f);
 
-        var error = Assert.Throws<ArgumentException>(() => view.Outlines(new Vector3(-1f, 0f, 0f)));
+        var error = Assert.Throws<ArgumentException>(() => view.Effects.Outlines(new Vector3(-1f, 0f, 0f)));
 
         Assert.Equal("The outline colour <-1, 0, 0> must be 0 or more in each channel.", error.Message);
     }
@@ -80,12 +80,12 @@ public class ToonTests
     {
         var view = new View();
         view.Begin(0f);
-        view.Outlines(new Vector3(1f, 0f, 0f), thickness: 3f, fadeStart: 5f, fadeEnd: 8f);
-        Assert.Equal(new OutlineSettings(new Vector3(1f, 0f, 0f), 3f, 5f, 8f), view.OutlineSettings);
+        view.Effects.Outlines(new Vector3(1f, 0f, 0f), thickness: 3f, fadeStart: 5f, fadeEnd: 8f);
+        Assert.Equal(new OutlineSettings(new Vector3(1f, 0f, 0f), 3f, 5f, 8f), view.Effects.OutlineSettings);
 
         view.Begin(0.1f);
 
-        Assert.Equal(new OutlineSettings(Vector3.Zero, 1.5f, 30f, 60f), view.OutlineSettings);
+        Assert.Equal(new OutlineSettings(Vector3.Zero, 1.5f, 30f, 60f), view.Effects.OutlineSettings);
     }
 
     [Fact]

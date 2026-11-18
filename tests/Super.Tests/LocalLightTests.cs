@@ -340,25 +340,25 @@ public class LocalLightTests
         var view = new View();
         view.Begin(0f);
 
-        view.PointLight(1, new Vector3(1f, 2f, 3f), new Vector3(2f, 1f, 0.5f), 4f);
-        view.SpotLight(2, Vector3.Zero, new Vector3(0f, -2f, 0f), Vector3.One, 6f, 0.3f, 0.6f, shadows: false);
+        view.Lights.Point(1, new PointLight(new Vector3(1f, 2f, 3f), new Vector3(2f, 1f, 0.5f), 4f));
+        view.Lights.Spot(2, new SpotLight(Vector3.Zero, new Vector3(0f, -2f, 0f), Vector3.One, 6f) { InnerAngle = 0.3f, OuterAngle = 0.6f, Shadows = false });
 
-        Assert.Equal(2, view.DrawnLights.Length);
-        Assert.Equal(new Vector3(1f, 2f, 3f), view.DrawnLights[0].Position);
-        Assert.True(view.DrawnLights[0].CastsShadow);
-        Assert.False(view.DrawnLights[0].IsSpot);
-        Assert.Equal(-Vector3.UnitY, view.DrawnLights[1].Direction);
-        Assert.False(view.DrawnLights[1].CastsShadow);
-        Assert.Equal(0.1f, view.DrawnLights[0].Radius);
-        Assert.Equal(0.1f, view.DrawnLights[1].Radius);
+        Assert.Equal(2, view.Lights.DrawnLights.Length);
+        Assert.Equal(new Vector3(1f, 2f, 3f), view.Lights.DrawnLights[0].Position);
+        Assert.True(view.Lights.DrawnLights[0].CastsShadow);
+        Assert.False(view.Lights.DrawnLights[0].IsSpot);
+        Assert.Equal(-Vector3.UnitY, view.Lights.DrawnLights[1].Direction);
+        Assert.False(view.Lights.DrawnLights[1].CastsShadow);
+        Assert.Equal(0.1f, view.Lights.DrawnLights[0].Radius);
+        Assert.Equal(0.1f, view.Lights.DrawnLights[1].Radius);
 
-        view.PointLight(3, Vector3.Zero, Vector3.One, 9f, radius: 0.5f);
-        view.SpotLight(4, Vector3.Zero, -Vector3.UnitY, Vector3.One, 6f, 0.3f, 0.6f, radius: 0.25f);
-        Assert.Equal(0.5f, view.DrawnLights[2].Radius);
-        Assert.Equal(0.25f, view.DrawnLights[3].Radius);
+        view.Lights.Point(3, new PointLight(Vector3.Zero, Vector3.One, 9f) { Radius = 0.5f });
+        view.Lights.Spot(4, new SpotLight(Vector3.Zero, -Vector3.UnitY, Vector3.One, 6f) { InnerAngle = 0.3f, OuterAngle = 0.6f, Radius = 0.25f });
+        Assert.Equal(0.5f, view.Lights.DrawnLights[2].Radius);
+        Assert.Equal(0.25f, view.Lights.DrawnLights[3].Radius);
 
         view.Begin(0f);
-        Assert.Equal(0, view.DrawnLights.Length);
+        Assert.Equal(0, view.Lights.DrawnLights.Length);
     }
 
     [Fact]
@@ -369,35 +369,39 @@ public class LocalLightTests
 
         Assert.Contains(
             "A light's range must be more than 0 metres.",
-            Assert.Throws<ArgumentOutOfRangeException>(() => view.PointLight(1, Vector3.Zero, Vector3.One, 0f)).Message);
+            Assert.Throws<ArgumentOutOfRangeException>(() => view.Lights.Point(1, new PointLight(Vector3.Zero, Vector3.One, 0f))).Message);
         const string radius = "A light's radius must be more than 0 metres and less than its range.";
-        Assert.Contains(radius, Assert.Throws<ArgumentOutOfRangeException>(() => view.PointLight(1, Vector3.Zero, Vector3.One, 2f, radius: 0f)).Message);
-        Assert.Contains(radius, Assert.Throws<ArgumentOutOfRangeException>(() => view.PointLight(1, Vector3.Zero, Vector3.One, 2f, radius: 2f)).Message);
-        Assert.Contains(radius, Assert.Throws<ArgumentOutOfRangeException>(() => view.PointLight(1, Vector3.Zero, Vector3.One, 2f, radius: float.NaN)).Message);
+        Assert.Contains(radius, Assert.Throws<ArgumentOutOfRangeException>(() => view.Lights.Point(1, new PointLight(Vector3.Zero, Vector3.One, 2f) { Radius = 0f })).Message);
+        Assert.Contains(radius, Assert.Throws<ArgumentOutOfRangeException>(() => view.Lights.Point(1, new PointLight(Vector3.Zero, Vector3.One, 2f) { Radius = 2f })).Message);
+        Assert.Contains(radius, Assert.Throws<ArgumentOutOfRangeException>(() => view.Lights.Point(1, new PointLight(Vector3.Zero, Vector3.One, 2f) { Radius = float.NaN })).Message);
         Assert.Contains(
             radius,
-            Assert.Throws<ArgumentOutOfRangeException>(() => view.SpotLight(1, Vector3.Zero, Vector3.UnitY, Vector3.One, 2f, 0.1f, 0.4f, radius: -1f)).Message);
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => view.Lights.Spot(1, new SpotLight(Vector3.Zero, Vector3.UnitY, Vector3.One, 2f) { InnerAngle = 0.1f, OuterAngle = 0.4f, Radius = -1f })).Message);
         Assert.Contains(
             "A light's color can't be negative",
-            Assert.Throws<ArgumentException>(() => view.PointLight(1, Vector3.Zero, -Vector3.One, 1f)).Message);
+            Assert.Throws<ArgumentException>(() => view.Lights.Point(1, new PointLight(Vector3.Zero, -Vector3.One, 1f))).Message);
         Assert.Contains(
             "A spot light's outer angle must be more than 0 and less than π/2 radians.",
-            Assert.Throws<ArgumentOutOfRangeException>(() => view.SpotLight(1, Vector3.Zero, Vector3.UnitY, Vector3.One, 1f, 0f, MathF.PI / 2f)).Message);
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => view.Lights.Spot(1, new SpotLight(Vector3.Zero, Vector3.UnitY, Vector3.One, 1f) { InnerAngle = 0f, OuterAngle = MathF.PI / 2f })).Message);
         Assert.Contains(
             "A spot light's inner angle must be from 0 up to its outer angle.",
-            Assert.Throws<ArgumentOutOfRangeException>(() => view.SpotLight(1, Vector3.Zero, Vector3.UnitY, Vector3.One, 1f, 0.5f, 0.4f)).Message);
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => view.Lights.Spot(1, new SpotLight(Vector3.Zero, Vector3.UnitY, Vector3.One, 1f) { InnerAngle = 0.5f, OuterAngle = 0.4f })).Message);
         Assert.Contains(
             "A spot light needs a direction to shine in",
-            Assert.Throws<ArgumentException>(() => view.SpotLight(1, Vector3.Zero, Vector3.Zero, Vector3.One, 1f, 0.1f, 0.4f)).Message);
+            Assert.Throws<ArgumentException>(
+                () => view.Lights.Spot(1, new SpotLight(Vector3.Zero, Vector3.Zero, Vector3.One, 1f) { InnerAngle = 0.1f, OuterAngle = 0.4f })).Message);
 
         for (int i = 0; i < LocalLight.MaxPerFrame; i++)
         {
-            view.PointLight(i, Vector3.Zero, Vector3.One, 1f);
+            view.Lights.Point(i, new PointLight(Vector3.Zero, Vector3.One, 1f));
         }
 
         Assert.Equal(
             $"A frame can have at most {LocalLight.MaxPerFrame} point and spot lights. Leave out those too far away to see.",
-            Assert.Throws<InvalidOperationException>(() => view.PointLight(0, Vector3.Zero, Vector3.One, 1f)).Message);
+            Assert.Throws<InvalidOperationException>(() => view.Lights.Point(0, new PointLight(Vector3.Zero, Vector3.One, 1f))).Message);
     }
 
     // The tenth of a row of ten that the lamp is, spread across most of the view at that depth.

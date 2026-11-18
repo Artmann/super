@@ -31,7 +31,7 @@ public static class ParticleSpawning
 
     /// <summary>
     /// Along a line on the x axis through the middle, this many metres long. Drawn with
-    /// <see cref="View.Particles(int, ParticleEffect, Vector3, Vector3, float)"/>, a line one
+    /// <see cref="ViewEffects.Particles(int, ParticleEffect, Vector3, Vector3, float)"/>, a line one
     /// metre long runs from one end to the other. Outward speed throws particles mostly
     /// sideways, off the line.
     /// </summary>

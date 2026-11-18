@@ -17,7 +17,7 @@ public class GhostTests
         var view = new View();
         view.Begin(0f);
 
-        view.Ghost(7, ModelRef.Cube, Matrix4x4.Identity, Green, opacity: 0.5f);
+        view.Model(7, ModelRef.Cube, Matrix4x4.Identity, new Ghost(Green, 0.5f));
 
         var draw = Assert.Single(view.Drawn.ToArray());
         Assert.Equal(7, draw.Key);
@@ -30,7 +30,7 @@ public class GhostTests
         var view = new View();
         view.Begin(0f);
 
-        view.Ghost(7, ModelRef.Cube, Matrix4x4.Identity, Green);
+        view.Model(7, ModelRef.Cube, Matrix4x4.Identity, new Ghost(Green));
 
         Assert.Equal(1f, view.Drawn[0].Ghost!.Value.Opacity);
     }
@@ -56,7 +56,7 @@ public class GhostTests
         var view = new View();
         view.Begin(0f);
 
-        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => view.Ghost(7, ModelRef.Cube, Matrix4x4.Identity, Green, opacity));
+        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => view.Model(7, ModelRef.Cube, Matrix4x4.Identity, new Ghost(Green, opacity)));
 
         Assert.StartsWith("A ghost's opacity must be more than 0 and at most 1.", problem.Message);
     }

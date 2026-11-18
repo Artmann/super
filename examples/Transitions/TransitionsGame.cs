@@ -95,8 +95,8 @@ public sealed class TransitionsGame(Content content, Input input, Director direc
     public void Draw(View view)
     {
         view.Camera(Spots[_spot]);
-        view.Sun(new Vector3(-0.5f, 1.2f, 0.8f), new Vector3(2.6f, 2.35f, 2f));
-        view.Sky(new SkySettings
+        view.Lights.Sun(new Vector3(-0.5f, 1.2f, 0.8f), new Vector3(2.6f, 2.35f, 2f));
+        view.Surroundings.Sky(new SkySettings
         {
             Zenith = new Vector3(0.3f, 0.45f, 0.75f),
             Horizon = new Vector3(0.8f, 0.78f, 0.72f),
@@ -105,7 +105,7 @@ public sealed class TransitionsGame(Content content, Input input, Director direc
             HazeStart = 30f,
             HazeEnd = 120f,
         });
-        view.Shadows(16f, cascades: 2);
+        view.Lights.Shadows(16f, cascades: 2);
         view.Model(0, _floor, Matrix4x4.Identity);
 
         float angle = float.Lerp(_previousAngle, _angle, view.Blend);

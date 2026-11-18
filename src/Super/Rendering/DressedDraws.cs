@@ -30,7 +30,7 @@ internal sealed class DressedDraws(Renderer renderer, UploadedItems items)
     {
         _count = 0;
         _skinning.Clear();
-        var context = new DressContext(content, new BakeIdAreas(view.BakedSpace, view.PlacedBakedChunks, _scratch));
+        var context = new DressContext(content, new BakeIdAreas(view.Indirect.BakedSpace, view.Indirect.PlacedBakedChunks, _scratch));
         foreach (ref readonly var draw in view.Drawn)
         {
             var model = items.ModelFor(draw.Model.Index, content);

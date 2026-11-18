@@ -14,25 +14,25 @@ public class ReflectionProbeTests
         var view = new View();
         for (int key = 0; key < 64; key++)
         {
-            view.ReflectionProbe(key, new Vector3(key % 10, 1.6f, 0f), BoxMin, BoxMax);
+            view.Indirect.ReflectionProbe(key, new Vector3(key % 10, 1.6f, 0f), BoxMin, BoxMax);
         }
 
-        var error = Assert.Throws<InvalidOperationException>(() => view.ReflectionProbe(64, Vector3.Zero, BoxMin, BoxMax));
+        var error = Assert.Throws<InvalidOperationException>(() => view.Indirect.ReflectionProbe(64, Vector3.Zero, BoxMin, BoxMax));
 
         Assert.Equal("At most 64 reflection probes fit in a frame.", error.Message);
-        Assert.Equal(64, view.ReflectionProbes.Length);
+        Assert.Equal(64, view.Indirect.ReflectionProbes.Length);
     }
 
     [Fact]
     public void A_probe_keeps_its_priority_and_an_endless_one_is_refused()
     {
         var view = new View();
-        view.ReflectionProbe(1, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, priority: 2f);
+        view.Indirect.ReflectionProbe(1, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, priority: 2f);
 
         var error = Assert.Throws<ArgumentOutOfRangeException>(
-            () => view.ReflectionProbe(2, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, priority: float.PositiveInfinity));
+            () => view.Indirect.ReflectionProbe(2, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, priority: float.PositiveInfinity));
 
-        Assert.Equal(2f, Assert.Single(view.ReflectionProbes.ToArray()).Priority);
+        Assert.Equal(2f, Assert.Single(view.Indirect.ReflectionProbes.ToArray()).Priority);
         Assert.Equal("priority", error.ParamName);
         Assert.StartsWith("The reflection probe's priority must be a finite number.", error.Message);
     }
@@ -41,12 +41,12 @@ public class ReflectionProbeTests
     public void A_probe_keeps_how_and_when_it_updates_and_an_unknown_way_is_refused()
     {
         var view = new View();
-        view.ReflectionProbe(1, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, update: ProbeUpdate.OnRequest, version: 4);
+        view.Indirect.ReflectionProbe(1, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, update: ProbeUpdate.OnRequest, version: 4);
 
         var error = Assert.Throws<ArgumentOutOfRangeException>(
-            () => view.ReflectionProbe(2, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, update: (ProbeUpdate)7));
+            () => view.Indirect.ReflectionProbe(2, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, update: (ProbeUpdate)7));
 
-        var placed = Assert.Single(view.ReflectionProbes.ToArray());
+        var placed = Assert.Single(view.Indirect.ReflectionProbes.ToArray());
         Assert.Equal(ProbeUpdate.OnRequest, placed.Update);
         Assert.Equal(4, placed.Version);
         Assert.Equal("update", error.ParamName);
@@ -58,27 +58,27 @@ public class ReflectionProbeTests
     {
         var view = new View();
 
-        var error = Assert.Throws<ArgumentException>(() => view.ReflectionProbe(1, new Vector3(0f, 7f, 0f), BoxMin, BoxMax));
+        var error = Assert.Throws<ArgumentException>(() => view.Indirect.ReflectionProbe(1, new Vector3(0f, 7f, 0f), BoxMin, BoxMax));
 
         Assert.Equal("position", error.ParamName);
         Assert.Equal(
             "The reflection probe's position <0, 7, 0> must be inside its box, from <-3, -1, -10> to <10, 6, 7>. (Parameter 'position')",
             error.Message);
-        Assert.True(view.ReflectionProbes.IsEmpty);
+        Assert.True(view.Indirect.ReflectionProbes.IsEmpty);
     }
 
     [Fact]
     public void The_same_key_twice_in_a_frame_is_refused()
     {
         var view = new View();
-        view.ReflectionProbe(7, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax);
+        view.Indirect.ReflectionProbe(7, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax);
 
-        var error = Assert.Throws<ArgumentException>(() => view.ReflectionProbe(7, new Vector3(1f, 1.6f, -1f), BoxMin, BoxMax));
+        var error = Assert.Throws<ArgumentException>(() => view.Indirect.ReflectionProbe(7, new Vector3(1f, 1.6f, -1f), BoxMin, BoxMax));
 
         Assert.Equal("key", error.ParamName);
         Assert.Equal(
             "Reflection probe 7 was already placed this frame. Give each probe its own key. (Parameter 'key')", error.Message);
-        Assert.Equal(1, view.ReflectionProbes.Length);
+        Assert.Equal(1, view.Indirect.ReflectionProbes.Length);
     }
 
     [Fact]
@@ -264,7 +264,7 @@ public class ReflectionProbeTests
     public void With_reflections_off_no_probe_is_wanted()
     {
         var view = new View();
-        view.ReflectionProbe(1, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax);
+        view.Indirect.ReflectionProbe(1, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax);
 
         Assert.Equal(1, ReflectionProbeUpdater.WantedReflectionProbes(view, RenderEffects.Bloom).Length);
         Assert.True(ReflectionProbeUpdater.WantedReflectionProbes(view, RenderEffects.Reflections | RenderEffects.Bloom).IsEmpty);
@@ -275,14 +275,14 @@ public class ReflectionProbeTests
     {
         var view = new View();
         view.Begin(0f);
-        view.ReflectionProbe(1, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, blend: 0.75f);
+        view.Indirect.ReflectionProbe(1, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, blend: 0.75f);
 
         Assert.Equal(
             new ReflectionProbeRequest(1, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, 0.75f),
-            Assert.Single(view.ReflectionProbes.ToArray()));
+            Assert.Single(view.Indirect.ReflectionProbes.ToArray()));
 
         view.Begin(0f);
 
-        Assert.True(view.ReflectionProbes.IsEmpty);
+        Assert.True(view.Indirect.ReflectionProbes.IsEmpty);
     }
 }

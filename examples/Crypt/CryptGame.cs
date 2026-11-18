@@ -207,7 +207,7 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
     public void Draw(View view)
     {
         view.Camera(new Vector3(0.35f, 1.75f, 3.6f), new Vector3(0f, 1.2f, -7f), 0.9f);
-        view.Sky(new SkySettings
+        view.Surroundings.Sky(new SkySettings
         {
             Zenith = new Vector3(0.02f, 0.025f, 0.04f),
             Horizon = new Vector3(0.02f, 0.02f, 0.03f),
@@ -217,7 +217,7 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
             // thicker and the far end of the room goes hazy. There is no sun to scatter.
             Fog = new FogSettings(Density: 0.008f, Height: 0f, Falloff: 0.15f, SunScatter: 0f),
         });
-        view.Finish(new PostSettings
+        view.Effects.Finish(new PostSettings
         {
             Exposure = 0.7f,
             Contrast = 0.12f,
@@ -231,10 +231,10 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
         });
 
         // The hall is one baked space, "crypt". Its box holds the walls and the vault with a little to spare, and its
-        // probes light the lantern as it swings. Everything that stands still is drawn isStatic, so its light is
+        // probes light the lantern as it swings. Everything that stands still is drawn Static, so its light is
         // baked. The torches, the altar flames and the candles stay Mixed, so they keep their real-time flicker, and
         // the lantern and its chain move, so they are never baked. See the README.
-        view.BakedLighting("crypt", new Vector3(-5.2f, -0.2f, -10.2f), new Vector3(5.2f, 5.5f, 4.7f), 0.8f);
+        view.Indirect.BakedLighting("crypt", new Vector3(-5.2f, -0.2f, -10.2f), new Vector3(5.2f, 5.5f, 4.7f), 0.8f);
 
         DrawHall(view);
         DrawTorches(view);
@@ -252,7 +252,7 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
     private static void DrawColdAir(View view)
     {
         var grate = new Vector3(-HallWidth / 2f + 0.35f, 4.3f, -1.2f);
-        view.SpotLight(GrateKey, grate, Vector3.Normalize(new Vector3(2.95f, -4.3f, 0.2f)), new Vector3(14f, 22f, 40f), range: 9f, innerAngle: 0.12f, outerAngle: 0.3f);
+        view.Lights.Spot(GrateKey, new SpotLight(grate, Vector3.Normalize(new Vector3(2.95f, -4.3f, 0.2f)), new Vector3(14f, 22f, 40f), 9f) { InnerAngle = 0.12f, OuterAngle = 0.3f });
 
         var mist = new FogVolumeSettings(0.3f)
         {
@@ -261,7 +261,7 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
             NoiseSize = 1.5f,
             Wind = new Vector3(0.05f, 0f, 0.12f),
         };
-        view.FogVolume(MistKey, FogShape.Box,
+        view.Effects.FogVolume(MistKey, FogShape.Box,
             Matrix4x4.CreateScale(HallWidth, 0.8f, HallFront - HallBack) * Matrix4x4.CreateTranslation(0f, 0.2f, (HallFront + HallBack) / 2f),
             mist);
     }
@@ -269,12 +269,12 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
     private void DrawHall(View view)
     {
         float middleZ = (HallFront + HallBack) / 2f;
-        view.Model(FloorKey, _floor, Matrix4x4.CreateTranslation(0f, 0f, middleZ), isStatic: true);
-        view.Model(WallKey, _sideWall, Matrix4x4.CreateTranslation(-HallWidth / 2f - 0.3f, HallHeight / 2f, middleZ), isStatic: true);
-        view.Model(WallKey + 1, _sideWall, Matrix4x4.CreateTranslation(HallWidth / 2f + 0.3f, HallHeight / 2f, middleZ), isStatic: true);
-        view.Model(WallKey + 2, _endWall, Matrix4x4.CreateTranslation(0f, HallHeight / 2f, HallBack - 0.3f), isStatic: true);
-        view.Model(WallKey + 3, _endWall, Matrix4x4.CreateTranslation(0f, HallHeight / 2f, HallFront + 0.3f), isStatic: true);
-        view.Model(WallKey + 4, _ceiling, Matrix4x4.CreateTranslation(0f, HallHeight + 0.2f, middleZ), isStatic: true);
+        view.Model(FloorKey, _floor, Matrix4x4.CreateTranslation(0f, 0f, middleZ), new ModelOptions { Static = true });
+        view.Model(WallKey, _sideWall, Matrix4x4.CreateTranslation(-HallWidth / 2f - 0.3f, HallHeight / 2f, middleZ), new ModelOptions { Static = true });
+        view.Model(WallKey + 1, _sideWall, Matrix4x4.CreateTranslation(HallWidth / 2f + 0.3f, HallHeight / 2f, middleZ), new ModelOptions { Static = true });
+        view.Model(WallKey + 2, _endWall, Matrix4x4.CreateTranslation(0f, HallHeight / 2f, HallBack - 0.3f), new ModelOptions { Static = true });
+        view.Model(WallKey + 3, _endWall, Matrix4x4.CreateTranslation(0f, HallHeight / 2f, HallFront + 0.3f), new ModelOptions { Static = true });
+        view.Model(WallKey + 4, _ceiling, Matrix4x4.CreateTranslation(0f, HallHeight + 0.2f, middleZ), new ModelOptions { Static = true });
 
         int key = PillarKey;
         foreach (float z in PillarRows)
@@ -282,9 +282,9 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
             foreach (float side in new[] { -1f, 1f })
             {
                 var foot = new Vector3(side * PillarX, 0f, z);
-                view.Model(key++, _pillarFoot, Matrix4x4.CreateTranslation(foot + new Vector3(0f, 0.15f, 0f)), isStatic: true);
-                view.Model(key++, _pillar, Matrix4x4.CreateTranslation(foot + new Vector3(0f, 0.3f + ((HallHeight - 0.6f) / 2f), 0f)), isStatic: true);
-                view.Model(key++, _pillarFoot, Matrix4x4.CreateTranslation(foot + new Vector3(0f, HallHeight - 0.15f, 0f)), isStatic: true);
+                view.Model(key++, _pillarFoot, Matrix4x4.CreateTranslation(foot + new Vector3(0f, 0.15f, 0f)), new ModelOptions { Static = true });
+                view.Model(key++, _pillar, Matrix4x4.CreateTranslation(foot + new Vector3(0f, 0.3f + ((HallHeight - 0.6f) / 2f), 0f)), new ModelOptions { Static = true });
+                view.Model(key++, _pillarFoot, Matrix4x4.CreateTranslation(foot + new Vector3(0f, HallHeight - 0.15f, 0f)), new ModelOptions { Static = true });
             }
         }
 
@@ -296,7 +296,7 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
         };
         for (int i = 0; i < barrels.Length; i++)
         {
-            view.Model(BarrelKey + i, _barrel, Matrix4x4.CreateRotationY(barrels[i].Turn) * Matrix4x4.CreateTranslation(barrels[i].At), isStatic: true);
+            view.Model(BarrelKey + i, _barrel, Matrix4x4.CreateRotationY(barrels[i].Turn) * Matrix4x4.CreateTranslation(barrels[i].At), new ModelOptions { Static = true });
         }
     }
 
@@ -310,14 +310,14 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
                 // A torch leaning out from the pillar's side towards the aisle.
                 var bracket = new Vector3(side * (PillarX - 0.42f), 2.3f, z);
                 var lean = Matrix4x4.CreateRotationZ(side * 0.35f);
-                view.Model(TorchKey + (i * 2), ModelRef.Cylinder, Matrix4x4.CreateScale(0.06f, 0.55f, 0.06f) * lean * Matrix4x4.CreateTranslation(bracket), new Vector3(0.12f, 0.07f, 0.04f), isStatic: true);
-                view.Model(TorchKey + (i * 2) + 1, ModelRef.Cylinder, Matrix4x4.CreateScale(0.1f, 0.1f, 0.1f) * lean * Matrix4x4.CreateTranslation(bracket + Vector3.Transform(new Vector3(0f, 0.27f, 0f), lean)), new Vector3(0.05f, 0.04f, 0.035f), isStatic: true);
+                view.Model(TorchKey + (i * 2), ModelRef.Cylinder, Matrix4x4.CreateScale(0.06f, 0.55f, 0.06f) * lean * Matrix4x4.CreateTranslation(bracket), new ModelOptions { Color = new Vector3(0.12f, 0.07f, 0.04f), Static = true });
+                view.Model(TorchKey + (i * 2) + 1, ModelRef.Cylinder, Matrix4x4.CreateScale(0.1f, 0.1f, 0.1f) * lean * Matrix4x4.CreateTranslation(bracket + Vector3.Transform(new Vector3(0f, 0.27f, 0f), lean)), new ModelOptions { Color = new Vector3(0.05f, 0.04f, 0.035f), Static = true });
                 var fire = bracket + Vector3.Transform(new Vector3(0f, 0.34f, 0f), lean);
                 float flicker = 1f + (0.1f * MathF.Sin(_seconds * 11f + i * 2f)) + (0.07f * MathF.Sin(_seconds * 23f + i));
                 // The flame is a hand from the stone, so a radius a little bigger than the fire keeps
                 // the pillar from blowing out white beside it. Its halo is doubled, so it reads in
                 // the faint air without thickening the air for everything else.
-                view.PointLight(TorchKey + i, fire + new Vector3(0f, 0.12f, 0f), new Vector3(3.4f, 1.5f, 0.45f) * flicker, range: 9f, radius: 0.5f, volumetric: 2f);
+                view.Lights.Point(TorchKey + i, new PointLight(fire + new Vector3(0f, 0.12f, 0f), new Vector3(3.4f, 1.5f, 0.45f) * flicker, 9f) { Radius = 0.5f, Volumetric = 2f });
                 DrawFire(view, FlameKey + (i * 1000), Torch, fire);
                 i++;
             }
@@ -326,22 +326,22 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
 
     private void DrawAltar(View view)
     {
-        view.Model(AltarKey, _step, Matrix4x4.CreateTranslation(0f, 0.09f, AltarZ + 0.1f), isStatic: true);
-        view.Model(AltarKey + 1, _altar, Matrix4x4.CreateTranslation(0f, 0.18f + ((AltarTop - 0.18f) / 2f), AltarZ), isStatic: true);
-        view.Model(AltarKey + 2, _plinth, Matrix4x4.CreateTranslation(0f, 0.35f, HallBack + 0.75f), isStatic: true);
-        view.Model(StatueKey, _statue, Matrix4x4.CreateScale(1.2f) * Matrix4x4.CreateTranslation(0f, 0.7f, HallBack + 1.25f), isStatic: true);
+        view.Model(AltarKey, _step, Matrix4x4.CreateTranslation(0f, 0.09f, AltarZ + 0.1f), new ModelOptions { Static = true });
+        view.Model(AltarKey + 1, _altar, Matrix4x4.CreateTranslation(0f, 0.18f + ((AltarTop - 0.18f) / 2f), AltarZ), new ModelOptions { Static = true });
+        view.Model(AltarKey + 2, _plinth, Matrix4x4.CreateTranslation(0f, 0.35f, HallBack + 0.75f), new ModelOptions { Static = true });
+        view.Model(StatueKey, _statue, Matrix4x4.CreateScale(1.2f) * Matrix4x4.CreateTranslation(0f, 0.7f, HallBack + 1.25f), new ModelOptions { Static = true });
 
         int flame = 0;
         for (int c = 0; c < _candelabras.Count; c++)
         {
             var (model, at, turn, wicks) = _candelabras[c];
             var place = Matrix4x4.CreateRotationY(turn) * Matrix4x4.CreateTranslation(at);
-            view.Model(CandelabraKey + c, model, place, isStatic: true);
+            view.Model(CandelabraKey + c, model, place, new ModelOptions { Static = true });
             foreach (var wick in wicks)
             {
                 var tip = Vector3.Transform(wick, place);
                 float flicker = 1f + (0.12f * MathF.Sin(_seconds * 13f + flame * 1.7f));
-                view.PointLight(AltarFlameKey + flame, tip + new Vector3(0f, 0.03f, 0f), new Vector3(0.3f, 0.15f, 0.05f) * flicker, range: 2.5f, shadows: false);
+                view.Lights.Point(AltarFlameKey + flame, new PointLight(tip + new Vector3(0f, 0.03f, 0f), new Vector3(0.3f, 0.15f, 0.05f) * flicker, 2.5f) { Shadows = false });
                 DrawFire(view, FlameKey + 10_000 + (flame * 1000), CandleFlame, tip);
                 flame++;
             }
@@ -349,7 +349,7 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
 
         // One light for the altar's candles together, so the statue and candelabras cast shadows.
         float glow = 1f + (0.06f * MathF.Sin(_seconds * 9f));
-        view.PointLight(AltarFlameKey + 99, new Vector3(0f, AltarTop + 0.7f, AltarZ + 0.2f), new Vector3(1.2f, 0.55f, 0.18f) * glow, range: 6f);
+        view.Lights.Point(AltarFlameKey + 99, new PointLight(new Vector3(0f, AltarTop + 0.7f, AltarZ + 0.2f), new Vector3(1.2f, 0.55f, 0.18f) * glow, 6f));
     }
 
     private void DrawCandles(View view)
@@ -358,17 +358,17 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
         for (int i = 0; i < _candles.Count; i++)
         {
             var (foot, height, width) = _candles[i];
-            view.Model(CandleKey + i, ModelRef.Cylinder, Matrix4x4.CreateScale(width, height, width) * Matrix4x4.CreateTranslation(foot + new Vector3(0f, height * 0.5f, 0f)), wax, isStatic: true);
+            view.Model(CandleKey + i, ModelRef.Cylinder, Matrix4x4.CreateScale(width, height, width) * Matrix4x4.CreateTranslation(foot + new Vector3(0f, height * 0.5f, 0f)), new ModelOptions { Color = wax, Static = true });
             var wick = foot + new Vector3(0f, height + 0.012f, 0f);
             float flicker = 1f + (0.15f * MathF.Sin(_seconds * 13f + i));
-            view.PointLight(CandleKey + i, wick + new Vector3(0f, 0.03f, 0f), new Vector3(0.16f, 0.075f, 0.022f) * flicker, range: 1.6f, shadows: false);
+            view.Lights.Point(CandleKey + i, new PointLight(wick + new Vector3(0f, 0.03f, 0f), new Vector3(0.16f, 0.075f, 0.022f) * flicker, 1.6f) { Shadows = false });
             DrawFire(view, FlameKey + 100_000 + (i * 1000), CandleFlame, wick);
         }
     }
 
     private void DrawChestAndLantern(View view)
     {
-        view.Model(ChestKey, _chest, Matrix4x4.CreateRotationY(-0.35f) * Matrix4x4.CreateTranslation(ChestAt), isStatic: true);
+        view.Model(ChestKey, _chest, Matrix4x4.CreateRotationY(-0.35f) * Matrix4x4.CreateTranslation(ChestAt), new ModelOptions { Static = true });
 
         // The lantern hangs on a chain from the vault, swinging a little.
         float swing = 0.04f * MathF.Sin(_seconds * 1.3f);
@@ -380,8 +380,8 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
         view.Model(LanternKey + 1, _lantern, Matrix4x4.CreateScale(1.6f) * Matrix4x4.CreateTranslation(0f, -0.47f, 0f) * chain * Matrix4x4.CreateTranslation(at));
         var flame = at + Vector3.Transform(new Vector3(0f, -0.32f, 0f), chain);
         var beam = at + Vector3.Transform(new Vector3(0f, -0.52f, 0f), chain);
-        view.SpotLight(LanternKey, beam, Vector3.Normalize(ChestAt + new Vector3(0f, 0.3f, 0f) - beam), new Vector3(30f, 21f, 10f), range: 6f, innerAngle: 0.3f, outerAngle: 0.55f);
-        view.PointLight(LanternKey + 1, flame, new Vector3(0.35f, 0.22f, 0.08f), range: 3f, shadows: false);
+        view.Lights.Spot(LanternKey, new SpotLight(beam, Vector3.Normalize(ChestAt + new Vector3(0f, 0.3f, 0f) - beam), new Vector3(30f, 21f, 10f), 6f) { InnerAngle = 0.3f, OuterAngle = 0.55f });
+        view.Lights.Point(LanternKey + 1, new PointLight(flame, new Vector3(0.35f, 0.22f, 0.08f), 3f) { Shadows = false });
     }
 
     // A fire that never stops: each second's flames under their own key, this one's and the last's still dying out.
@@ -389,7 +389,7 @@ public sealed class CryptGame(Content content, Input input, Graphics graphics) :
     {
         int second = (int)_seconds;
         float into = _seconds - second;
-        view.Particles(key + (second % 500), effect, at, into);
-        view.Particles(key + ((second + 499) % 500), effect, at, into + 1f);
+        view.Effects.Particles(key + (second % 500), effect, at, into);
+        view.Effects.Particles(key + ((second + 499) % 500), effect, at, into + 1f);
     }
 }

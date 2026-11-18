@@ -20,14 +20,14 @@ public class SkyModelTests
         {
             var view = new View();
 
-            var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Sky(new SkySettings { Turbidity = turbidity }));
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Surroundings.Sky(new SkySettings { Turbidity = turbidity }));
 
             Assert.Equal("settings", error.ParamName);
             Assert.StartsWith(
                 "The sky's turbidity must be 0 for the gradient sky, or from 1.7 to 10 for a clear one, but it is "
                 + turbidity.ToString(CultureInfo.InvariantCulture) + ".",
                 error.Message);
-            Assert.Null(view.SkySettings);
+            Assert.Null(view.Surroundings.SkySettings);
         }
         finally
         {
@@ -44,9 +44,9 @@ public class SkyModelTests
     {
         var view = new View();
 
-        view.Sky(new SkySettings { Turbidity = turbidity });
+        view.Surroundings.Sky(new SkySettings { Turbidity = turbidity });
 
-        Assert.Equal(turbidity, view.SkySettings!.Value.Turbidity);
+        Assert.Equal(turbidity, view.Surroundings.SkySettings!.Value.Turbidity);
     }
 
     // A sky with three colours of its own, so its bands can be told from the studio's and the water's.
@@ -69,7 +69,7 @@ public class SkyModelTests
     public void Turbidity_zero_keeps_the_gradient()
     {
         var view = new View();
-        view.Sky(Gradient);
+        view.Surroundings.Sky(Gradient);
 
         var (ceiling, horizon, floor) = ViewSky.SurroundingColors(view, RenderEffects.None);
 
@@ -83,12 +83,12 @@ public class SkyModelTests
     public void A_clear_sky_reaches_the_frame_and_water_takes_it_over()
     {
         var view = new View();
-        view.Sky(new SkySettings { Ground = new Vector3(0.2f, 0.17f, 0.14f), Turbidity = 2.5f });
+        view.Surroundings.Sky(new SkySettings { Ground = new Vector3(0.2f, 0.17f, 0.14f), Turbidity = 2.5f });
 
         Assert.Equal(2.5f, ViewSky.FrameSky(view, RenderEffects.None).Turbidity);
         Assert.Equal(new Vector3(0.2f, 0.17f, 0.14f), ViewSky.SurroundingColors(view, RenderEffects.None).Floor);
 
-        view.Water(new UnderwaterSettings { Absorption = new Vector3(0.4f, 0.1f, 0.05f) });
+        view.Surroundings.Water(new UnderwaterSettings { Absorption = new Vector3(0.4f, 0.1f, 0.05f) });
 
         Assert.Equal(0f, ViewSky.FrameSky(view, RenderEffects.None).Turbidity);
     }
@@ -99,8 +99,8 @@ public class SkyModelTests
         var sky = Gradient;
         sky.Turbidity = 2.5f;
         var view = new View();
-        view.Sky(sky);
-        view.Water(Lake);
+        view.Surroundings.Sky(sky);
+        view.Surroundings.Water(Lake);
         return view;
     }
 
@@ -324,7 +324,7 @@ public class SkyModelTests
     public void The_moon_and_stars_reach_the_frame()
     {
         var view = new View();
-        view.Sky(new SkySettings { Turbidity = 2.5f, Moon = new Vector3(0f, 1f, 1f), HideStars = true, StarRotation = 0.5f });
+        view.Surroundings.Sky(new SkySettings { Turbidity = 2.5f, Moon = new Vector3(0f, 1f, 1f), HideStars = true, StarRotation = 0.5f });
 
         var sky = ViewSky.FrameSky(view, RenderEffects.None);
 
@@ -345,11 +345,11 @@ public class SkyModelTests
             var view = new View();
 
             var error = Assert.Throws<ArgumentOutOfRangeException>(() =>
-                view.Sky(new SkySettings { Turbidity = 2.5f, Moon = new Vector3(moonX, 1f, 0f), StarRotation = rotation }));
+                view.Surroundings.Sky(new SkySettings { Turbidity = 2.5f, Moon = new Vector3(moonX, 1f, 0f), StarRotation = rotation }));
 
             Assert.Equal("settings", error.ParamName);
             Assert.StartsWith("The moon's direction and the stars' rotation must be numbers, but they are " + shown + ".", error.Message);
-            Assert.Null(view.SkySettings);
+            Assert.Null(view.Surroundings.SkySettings);
         }
         finally
         {
