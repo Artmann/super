@@ -386,12 +386,12 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        int first = audio.StartLoop(content.Sound("a.wav"), 1, Channel.Effects, at: null, near: 2, far: 50);
-        audio.StopLoop(first);
-        int second = audio.StartLoop(content.Sound("b.wav"), 1, Channel.Effects, at: null, near: 2, far: 50);
+        int first = audio.Loops.Start(new SoundLoop { Clip = content.Sound("a.wav"), Channel = Channel.Effects });
+        audio.Loops.Stop(first);
+        int second = audio.Loops.Start(new SoundLoop { Clip = content.Sound("b.wav"), Channel = Channel.Effects });
 
-        audio.ChangeVolume(first, 0);
-        audio.StopLoop(first);
+        audio.Loops.ChangeVolume(first, 0);
+        audio.Loops.Stop(first);
         audio.Advance(1);
 
         Assert.NotEqual(first, second);
@@ -414,16 +414,16 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        int first = audio.StartLoop(content.Sound("a.wav"), 1, Channel.Effects, at: null, near: 2, far: 50);
+        int first = audio.Loops.Start(new SoundLoop { Clip = content.Sound("a.wav"), Channel = Channel.Effects });
         audio.Advance(0.2f);
 
         FillQueue(audio);
-        audio.StopLoop(first);
-        Assert.Equal(1, audio.DroppedCommands);
+        audio.Loops.Stop(first);
+        Assert.Equal(1, audio.Commands.Dropped);
         audio.Advance(0.2f);
         Assert.Equal("a.wav", Assert.Single(audio.Playing).Clip);
 
-        int second = audio.StartLoop(content.Sound("b.wav"), 1, Channel.Effects, at: null, near: 2, far: 50);
+        int second = audio.Loops.Start(new SoundLoop { Clip = content.Sound("b.wav"), Channel = Channel.Effects });
         Assert.NotEqual(first, second);
         audio.Advance(0.5f);
 
@@ -441,7 +441,7 @@ public class AudioTests
         // Both the stop of a and the start of b are dropped, so a plays on.
         FillQueue(audio);
         audio.Music(content.Sound("b.wav"));
-        Assert.Equal(2, audio.DroppedCommands);
+        Assert.Equal(2, audio.Commands.Dropped);
         audio.Advance(0.2f);
         Assert.Equal("a.wav", Assert.Single(audio.Playing).Clip);
 
@@ -459,16 +459,16 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        int first = audio.StartAmbience(content.Ambience("forest.ambience.json"), 1);
+        int first = audio.Ambiences.Start(content.Ambience("forest.ambience.json"), 1);
         audio.Advance(2.1f);
 
         FillQueue(audio);
-        audio.StopAmbience(first);
-        Assert.Equal(1, audio.DroppedCommands);
+        audio.Ambiences.Stop(first);
+        Assert.Equal(1, audio.Commands.Dropped);
         audio.Advance(0.2f);
         Assert.Single(audio.Playing);
 
-        int second = audio.StartAmbience(content.Ambience("forest.ambience.json"), 1);
+        int second = audio.Ambiences.Start(content.Ambience("forest.ambience.json"), 1);
         Assert.NotEqual(first, second);
         audio.Advance(0.5f);
 
@@ -495,14 +495,14 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        int loop = audio.StartLoop(content.Sound("a.wav"), 1, Channel.Effects, at: null, near: 2, far: 50);
+        int loop = audio.Loops.Start(new SoundLoop { Clip = content.Sound("a.wav"), Channel = Channel.Effects });
 
         audio.Advance(0.05f);
         Assert.Equal(0.5f, Assert.Single(audio.Playing).Gain, 0.001f);
         audio.Advance(0.05f);
         Assert.Equal(1f, Assert.Single(audio.Playing).Gain, 0.001f);
 
-        audio.StopLoop(loop);
+        audio.Loops.Stop(loop);
         audio.Advance(0.15f);
         Assert.Equal(0.5f, Assert.Single(audio.Playing).Gain, 0.001f);
         audio.Advance(0.16f);
@@ -514,11 +514,11 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        int loop = audio.StartLoop(content.Sound("a.wav"), 1, Channel.Effects, at: new Vector3(-1, 0, 0), near: 2, far: 50);
+        int loop = audio.Loops.Start(new SoundLoop { Clip = content.Sound("a.wav"), Channel = Channel.Effects, At = new Vector3(-1, 0, 0) });
         audio.Advance(0.2f);
 
-        audio.Move(loop, new Vector3(10, 0, 0));
-        audio.ChangeVolume(loop, 0.5f);
+        audio.Loops.Move(loop, new Vector3(10, 0, 0));
+        audio.Loops.ChangeVolume(loop, 0.5f);
         audio.Advance(0.2f);
 
         PlayingSound sound = Assert.Single(audio.Playing);
@@ -531,7 +531,7 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        int forest = audio.StartAmbience(content.Ambience("forest.ambience.json"), 0.8f);
+        int forest = audio.Ambiences.Start(content.Ambience("forest.ambience.json"), 0.8f);
 
         audio.Advance(1);
         PlayingSound layer = Assert.Single(audio.Playing);
@@ -539,12 +539,12 @@ public class AudioTests
         Assert.Equal(0.4f, layer.Gain, 0.001f);
 
         audio.Advance(1);
-        audio.ChangeAmbienceVolume(forest, 0.4f);
+        audio.Ambiences.ChangeVolume(forest, 0.4f);
         audio.Advance(1);
         Assert.Equal(0.6f, Assert.Single(audio.Playing).Gain, 0.001f);
 
         audio.Advance(1);
-        audio.StopAmbience(forest);
+        audio.Ambiences.Stop(forest);
         audio.Advance(1.9f);
         Assert.Single(audio.Playing);
         audio.Advance(0.2f);

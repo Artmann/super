@@ -20,8 +20,8 @@ internal interface IAudioSink : IDisposable
 
 /// <summary>
 /// Plays the mix through a sound device. A background thread keeps <see cref="Blocks"/> blocks of
-/// <see cref="BlockFrames"/> frames queued: each pass it renders one block through <see cref="Audio.Render"/> for every
-/// block that finished playing, which drains the game's commands and mixes.
+/// <see cref="BlockFrames"/> frames queued: each pass it renders one block through <see cref="AudioMixing.Render"/> for
+/// every block that finished playing, which drains the game's commands and mixes.
 /// </summary>
 /// <remarks>
 /// The thread does each pass while holding a lock. <see cref="Pause"/> takes the same lock, so once it returns the
@@ -37,9 +37,9 @@ internal sealed class DeviceOutput : IDisposable
     // which still leaves most of the queue in hand.
     private static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(2);
 
-    private readonly Audio _audio;
+    private readonly AudioMixing _mixing;
     private readonly IAudioSink _sink;
-    private readonly TextWriter _log;
+    private readonly AudioThreadLog _log;
     private readonly float[] _block = new float[BlockFrames * 2];
     private readonly Lock _gate = new();
     private readonly AutoResetEvent _wake = new(false);
@@ -51,19 +51,17 @@ internal sealed class DeviceOutput : IDisposable
 
     // Audio thread only.
     private bool _broken;
-    private int _failuresLogged;
 
-    /// <summary>Starts the audio thread, which plays <paramref name="audio"/>'s mix into <paramref name="sink"/>.</summary>
+    /// <summary>Starts the audio thread, which plays <paramref name="mixing"/>'s mix into <paramref name="sink"/>.</summary>
     /// <param name="log">Where the audio thread writes a line when a sound fails, or when it has to stop.</param>
-    public DeviceOutput(Audio audio, IAudioSink sink, TextWriter log)
+    public DeviceOutput(AudioMixing mixing, IAudioSink sink, TextWriter log)
     {
-        ArgumentNullException.ThrowIfNull(audio);
+        ArgumentNullException.ThrowIfNull(mixing);
         ArgumentNullException.ThrowIfNull(sink);
         ArgumentNullException.ThrowIfNull(log);
-        _audio = audio;
+        _mixing = mixing;
         _sink = sink;
-        _log = log;
-        _failuresLogged = audio.FailedVoices;
+        _log = new AudioThreadLog(log, mixing.Failures);
         _thread = new Thread(Run)
         {
             Name = "Super audio",
@@ -74,15 +72,15 @@ internal sealed class DeviceOutput : IDisposable
     }
 
     /// <summary>
-    /// Opens the default sound device and starts playing <paramref name="audio"/> through it. If the device can't be
+    /// Opens the default sound device and starts playing <paramref name="mixing"/> through it. If the device can't be
     /// opened, writes <c>No sound device ({reason}); playing silently.</c> to <paramref name="log"/> and returns null.
     /// </summary>
     /// <param name="openOverride">
     /// For tests: called first, and a reason it returns fails the open with that reason. Null from it opens as usual.
     /// </param>
-    public static DeviceOutput? TryOpen(Audio audio, TextWriter log, Func<string?>? openOverride = null)
+    public static DeviceOutput? TryOpen(AudioMixing mixing, TextWriter log, Func<string?>? openOverride = null)
     {
-        ArgumentNullException.ThrowIfNull(audio);
+        ArgumentNullException.ThrowIfNull(mixing);
         ArgumentNullException.ThrowIfNull(log);
         string? reason = openOverride?.Invoke();
         IAudioSink? speakers = null;
@@ -90,7 +88,7 @@ internal sealed class DeviceOutput : IDisposable
         {
             try
             {
-                speakers = OpenAlSpeakers.Open();
+                speakers = OpenAlSpeakers.Open(Blocks);
             }
             catch (Exception problem)
             {
@@ -104,7 +102,7 @@ internal sealed class DeviceOutput : IDisposable
             return null;
         }
 
-        return new DeviceOutput(audio, speakers, log);
+        return new DeviceOutput(mixing, speakers, log);
     }
 
     /// <summary>
@@ -165,7 +163,7 @@ internal sealed class DeviceOutput : IDisposable
                     if (_broken)
                     {
                         // The game keeps sending; taking its commands keeps the queue from filling up and dropping.
-                        _audio.Discard();
+                        _mixing.Discard();
                     }
                     else
                     {
@@ -186,36 +184,51 @@ internal sealed class DeviceOutput : IDisposable
             int free = _sink.Free();
             for (int i = 0; i < free; i++)
             {
-                _audio.Render(_block);
+                _mixing.Render(_block);
                 _sink.Queue(_block);
             }
 
             _sink.KeepPlaying();
-            LogFailures();
+            _log.NewFailures();
         }
         catch (Exception problem)
         {
             // Nothing may escape a background thread, or the game would crash. The mixer may be half way through a
             // change, so it isn't touched again: the game carries on in silence, and its commands are thrown away.
             _broken = true;
-            Log($"Sound stopped: {problem.Message}");
+            _log.Line($"Sound stopped: {problem.Message}");
         }
+    }
+}
+
+/// <summary>What the audio thread writes to its log: a line for sounds that fail, and one if it has to stop.</summary>
+internal sealed class AudioThreadLog
+{
+    private readonly TextWriter _log;
+    private readonly MixFailures _failures;
+    private int _failuresLogged;
+
+    public AudioThreadLog(TextWriter log, MixFailures failures)
+    {
+        _log = log;
+        _failures = failures;
+        _failuresLogged = failures.Failed;
     }
 
     /// <summary>A line for the sounds that failed since the last one, which reads only the mixer's own counters.</summary>
-    private void LogFailures()
+    public void NewFailures()
     {
-        int failed = _audio.FailedVoices;
+        int failed = _failures.Failed;
         if (failed == _failuresLogged)
         {
             return;
         }
 
         _failuresLogged = failed;
-        Log($"A sound failed and stopped ({failed} so far): {_audio.LastFailure}");
+        Line($"A sound failed and stopped ({failed} so far): {_failures.LastMessage}");
     }
 
-    private void Log(string line)
+    public void Line(string line)
     {
         try
         {
@@ -228,121 +241,55 @@ internal sealed class DeviceOutput : IDisposable
     }
 }
 
-/// <summary>The default sound device through OpenAL Soft: one streaming source with <see cref="DeviceOutput.Blocks"/> buffers.</summary>
+/// <summary>The default sound device through OpenAL Soft: one streaming source with a buffer for each block.</summary>
 internal sealed unsafe class OpenAlSpeakers : IAudioSink
 {
     private readonly ALContext _alc;
-    private readonly AL _al;
-    private readonly Device* _device;
-    private readonly Context* _context;
-    private readonly BufferFormat _format;
-    private readonly uint _source;
-    private readonly uint[] _buffers;
-    private readonly uint[] _free = new uint[DeviceOutput.Blocks];
+    private readonly uint[] _free;
+    private AL? _al;
+    private Device* _device;
+    private Context* _context;
+    private BufferFormat _format;
+    private uint? _source;
+    private uint[]? _buffers;
     private int _freeCount;
 
-    private OpenAlSpeakers(ALContext alc, AL al, Device* device, Context* context, BufferFormat format, uint source, uint[] buffers)
+    private OpenAlSpeakers(ALContext alc, int blocks)
     {
         _alc = alc;
-        _al = al;
-        _device = device;
-        _context = context;
-        _format = format;
-        _source = source;
-        _buffers = buffers;
-        buffers.CopyTo(_free, 0);
-        _freeCount = buffers.Length;
+        _free = new uint[blocks];
     }
 
-    /// <summary>Opens the default device for 48 kHz stereo float. Throws with a short reason when it can't.</summary>
-    public static OpenAlSpeakers Open()
+    /// <summary>
+    /// Opens the default device for 48 kHz stereo float with this many buffers. Throws with a short reason when it
+    /// can't, after deleting whatever it made, while its context is still current.
+    /// </summary>
+    public static OpenAlSpeakers Open(int blocks)
     {
-        ALContext alc = ALContext.GetApi(soft: true);
-        AL? al = null;
-        Device* device = null;
-        Context* context = null;
-        uint source = 0;
-        bool haveSource = false;
-        uint[]? buffers = null;
+        var speakers = new OpenAlSpeakers(ALContext.GetApi(soft: true), blocks);
         try
         {
-            al = AL.GetApi(soft: true);
-            device = alc.OpenDevice(null!);
-            if (device == null)
-            {
-                throw new InvalidOperationException("the default device didn't open");
-            }
-
-            int* attributes = stackalloc int[] { (int)ContextAttributes.Frequency, Mixer.SampleRate, 0 };
-            context = alc.CreateContext(device, attributes);
-            if (context == null || !alc.MakeContextCurrent(context))
-            {
-                throw new InvalidOperationException("the device has no context");
-            }
-
-            if (!al.IsExtensionPresent("AL_EXT_float32"))
-            {
-                throw new InvalidOperationException("the device can't play float samples");
-            }
-
-            var format = (BufferFormat)al.GetEnumValue("AL_FORMAT_STEREO_FLOAT32");
-            al.GetError();
-            source = al.GenSource();
-            AudioError error = al.GetError();
-            if (error != AudioError.NoError)
-            {
-                throw new InvalidOperationException($"OpenAL error {error}");
-            }
-
-            haveSource = true;
-            buffers = al.GenBuffers(DeviceOutput.Blocks);
-            error = al.GetError();
-            if (error != AudioError.NoError)
-            {
-                buffers = null;
-                throw new InvalidOperationException($"OpenAL error {error}");
-            }
-
-            return new OpenAlSpeakers(alc, al, device, context, format, source, buffers);
+            speakers.OpenContext();
+            speakers.MakeSource();
+            return speakers;
         }
         catch
         {
-            // What was made before the failure goes again, while its context is still current.
-            if (buffers is not null)
-            {
-                al!.DeleteBuffers(buffers);
-            }
-
-            if (haveSource)
-            {
-                al!.DeleteSource(source);
-            }
-
-            if (context != null)
-            {
-                alc.MakeContextCurrent(null);
-                alc.DestroyContext(context);
-            }
-
-            if (device != null)
-            {
-                alc.CloseDevice(device);
-            }
-
-            al?.Dispose();
-            alc.Dispose();
+            speakers.Release();
             throw;
         }
     }
 
     public int Free()
     {
-        _al.GetSourceProperty(_source, GetSourceInteger.BuffersProcessed, out int processed);
+        AL al = _al!;
+        uint source = _source!.Value;
+        al.GetSourceProperty(source, GetSourceInteger.BuffersProcessed, out int processed);
         if (processed > 0)
         {
-            uint* done = stackalloc uint[DeviceOutput.Blocks];
-            processed = Math.Min(processed, DeviceOutput.Blocks - _freeCount);
-            _al.SourceUnqueueBuffers(_source, processed, done);
+            uint* done = stackalloc uint[_free.Length];
+            processed = Math.Min(processed, _free.Length - _freeCount);
+            al.SourceUnqueueBuffers(source, processed, done);
             for (int i = 0; i < processed; i++)
             {
                 _free[_freeCount++] = done[i];
@@ -354,16 +301,17 @@ internal sealed unsafe class OpenAlSpeakers : IAudioSink
 
     public void Queue(ReadOnlySpan<float> stereo)
     {
+        AL al = _al!;
         uint buffer = _free[--_freeCount];
         fixed (float* samples = stereo)
         {
-            _al.BufferData(buffer, _format, samples, stereo.Length * sizeof(float), Mixer.SampleRate);
+            al.BufferData(buffer, _format, samples, stereo.Length * sizeof(float), MixRate.SampleRate);
         }
 
-        _al.SourceQueueBuffers(_source, 1, &buffer);
+        al.SourceQueueBuffers(_source!.Value, 1, &buffer);
 
         // A failed queue would leave the buffer lost and the source short; throwing stops the thread with one line.
-        AudioError error = _al.GetError();
+        AudioError error = al.GetError();
         if (error != AudioError.NoError)
         {
             throw new InvalidOperationException($"OpenAL error {error} while queueing sound");
@@ -372,22 +320,93 @@ internal sealed unsafe class OpenAlSpeakers : IAudioSink
 
     public void KeepPlaying()
     {
-        _al.GetSourceProperty(_source, GetSourceInteger.SourceState, out int state);
+        uint source = _source!.Value;
+        _al!.GetSourceProperty(source, GetSourceInteger.SourceState, out int state);
         if (state != (int)SourceState.Playing)
         {
-            _al.SourcePlay(_source);
+            _al.SourcePlay(source);
         }
     }
 
     public void Dispose()
     {
-        _al.SourceStop(_source);
-        _al.DeleteSource(_source);
-        _al.DeleteBuffers(_buffers);
-        _alc.MakeContextCurrent(null);
-        _alc.DestroyContext(_context);
-        _alc.CloseDevice(_device);
-        _al.Dispose();
+        _al!.SourceStop(_source!.Value);
+        Release();
+    }
+
+    private void OpenContext()
+    {
+        AL al = AL.GetApi(soft: true);
+        _al = al;
+        _device = _alc.OpenDevice(null!);
+        if (_device == null)
+        {
+            throw new InvalidOperationException("the default device didn't open");
+        }
+
+        int* attributes = stackalloc int[] { (int)ContextAttributes.Frequency, MixRate.SampleRate, 0 };
+        _context = _alc.CreateContext(_device, attributes);
+        if (_context == null || !_alc.MakeContextCurrent(_context))
+        {
+            throw new InvalidOperationException("the device has no context");
+        }
+
+        if (!al.IsExtensionPresent("AL_EXT_float32"))
+        {
+            throw new InvalidOperationException("the device can't play float samples");
+        }
+
+        _format = (BufferFormat)al.GetEnumValue("AL_FORMAT_STEREO_FLOAT32");
+    }
+
+    private void MakeSource()
+    {
+        AL al = _al!;
+        al.GetError();
+        uint source = al.GenSource();
+        ThrowOnError(al);
+        _source = source;
+        uint[] buffers = al.GenBuffers(_free.Length);
+        ThrowOnError(al);
+        _buffers = buffers;
+        buffers.CopyTo(_free, 0);
+        _freeCount = buffers.Length;
+    }
+
+    private static void ThrowOnError(AL al)
+    {
+        AudioError error = al.GetError();
+        if (error != AudioError.NoError)
+        {
+            throw new InvalidOperationException($"OpenAL error {error}");
+        }
+    }
+
+    /// <summary>Deletes the source and buffers, then closes the context, the device and both APIs, as far as each was made.</summary>
+    private void Release()
+    {
+        if (_source is uint source)
+        {
+            _al!.DeleteSource(source);
+        }
+
+        if (_buffers is not null)
+        {
+            _al!.DeleteBuffers(_buffers);
+        }
+
+        if (_context != null)
+        {
+            _alc.MakeContextCurrent(null);
+            _alc.DestroyContext(_context);
+        }
+
+        if (_device != null)
+        {
+            _alc.CloseDevice(_device);
+        }
+
+        _al?.Dispose();
         _alc.Dispose();
     }
 }

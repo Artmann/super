@@ -75,7 +75,7 @@ public sealed class GameCapture : IDisposable
         _soundPath = null;
         try
         {
-            _audio?.StopRecording();
+            _audio?.Device.StopRecording();
         }
         finally
         {
@@ -131,7 +131,7 @@ public sealed class GameCapture : IDisposable
                 // The sound starts with the first picture, so the two line up. It waits beside the video until
                 // the video is done, then goes into it.
                 string wav = Path.ChangeExtension(videoPath, ".wav");
-                _audio.StartRecording(wav);
+                _audio.Device.StartRecording(wav);
                 soundPath = wav;
             }
 
@@ -146,7 +146,7 @@ public sealed class GameCapture : IDisposable
             // Only a sound this capture started is stopped; one that failed to start may belong to someone else.
             if (soundPath is not null)
             {
-                _audio!.StopRecording();
+                _audio!.Device.StopRecording();
                 File.Delete(soundPath);
             }
 

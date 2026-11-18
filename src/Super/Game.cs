@@ -149,7 +149,7 @@ public static class Game
 
         // Only live play gets here, so only it plays through the speakers. Without a device it runs silently, with the
         // game loop still moving the audio on a tick at a time.
-        host.Audio.UseDevice(Console.Error);
+        host.Audio.Device.Open(Console.Error);
 
         // Only live play bakes missing lighting by itself and reads the chunk bakes it made before, so a screenshot,
         // recording, profile or bake draws only what was cooked, the same on every machine.

@@ -387,7 +387,7 @@ public class SoundTests
     public void ASoundThatFoundNoFreeIdStartsOnceOneIsFree()
     {
         using var run = Start();
-        var quiet = new Entity[Super.Audio.MaxVoiceIds];
+        var quiet = new Entity[AudioLoops.MaxIds];
         for (int i = 0; i < quiet.Length; i++)
         {
             quiet[i] = Make(run, run.Game.Creak, volume: 0.1f);
@@ -447,9 +447,9 @@ public class SoundTests
         long empty = EmptyFrameCommands();
         for (int i = 0; i < 3; i++)
         {
-            long before = run.Game.Audio.CommandsQueued;
+            long before = run.Game.Audio.Commands.Written;
             run.Frame(1f);
-            Assert.Equal(empty, run.Game.Audio.CommandsQueued - before);
+            Assert.Equal(empty, run.Game.Audio.Commands.Written - before);
         }
 
         run.Ticks(10);
@@ -496,19 +496,19 @@ public class SoundTests
 
         // The first frame starts the sound.
         run.Frame(1f);
-        long before = audio.CommandsQueued;
+        long before = audio.Commands.Written;
         run.Frame(1f);
-        Assert.Equal(empty, audio.CommandsQueued - before);
+        Assert.Equal(empty, audio.Commands.Written - before);
 
-        before = audio.CommandsQueued;
+        before = audio.Commands.Written;
         run.Frame(1f);
-        Assert.Equal(empty, audio.CommandsQueued - before);
+        Assert.Equal(empty, audio.Commands.Written - before);
 
         // The same check does see a move, so a still frame sending nothing means something.
         run.Game.World.Add(entity, Transform.At(new Vector3(6f, 0f, 0f)));
-        before = audio.CommandsQueued;
+        before = audio.Commands.Written;
         run.Frame(1f);
-        Assert.Equal(empty + 1, audio.CommandsQueued - before);
+        Assert.Equal(empty + 1, audio.Commands.Written - before);
     }
 
     /// <summary>What a frame sends with no sound at all: the listener and the time scale.</summary>
@@ -516,9 +516,9 @@ public class SoundTests
     {
         using var run = Start();
         run.Frame(1f);
-        long before = run.Game.Audio.CommandsQueued;
+        long before = run.Game.Audio.Commands.Written;
         run.Frame(1f);
-        return run.Game.Audio.CommandsQueued - before;
+        return run.Game.Audio.Commands.Written - before;
     }
 
     [Fact]
