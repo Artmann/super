@@ -1,8 +1,8 @@
 namespace Super;
 
 /// <summary>
-/// Decides when <see cref="GameWindow"/> hands the renderer a new background bake. It stays off until
-/// <see cref="TurnOn"/>, which only <see cref="GameWindow.Run{TGame}"/> calls, so screenshots, recordings and tests never
+/// Decides when <see cref="WindowPlay"/> hands the renderer a new background bake. It stays off until
+/// <see cref="TurnOn"/>, which only <see cref="WindowPlay.Run"/> calls, so screenshots, recordings and tests never
 /// bake by themselves. Once on, <see cref="Changed"/> says yes the first time and then only when
 /// <see cref="Graphics.BakeOnArrival"/> or <see cref="Graphics.BakeBudget"/> changes, since a new
 /// <see cref="Rendition.AutoBake"/> would start its queue again.

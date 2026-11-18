@@ -57,7 +57,7 @@ public class VolumetricFogGridTests
     {
         var graphics = new Graphics { VolumetricFogCellSize = 16, VolumetricFogSlices = 32 };
 
-        var settings = GameWindow.RendererSettings(graphics, hidden: false);
+        var settings = WindowFrames.RendererSettings(graphics, hidden: false);
 
         Assert.Equal(16, settings.VolumetricFogCellSize);
         Assert.Equal(32, settings.VolumetricFogSlices);

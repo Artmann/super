@@ -107,7 +107,7 @@ only public one. Engine code uses one of two shapes instead:
   matched with `switch` patterns, so each state holds exactly what it needs. This allocates
   on each change, which is fine for things that change a few times a second at most, such
   as a click or a new bake. `UiGestures` holds the mouse's gestures this way, `Renderer` its
-  running background bake, and `GameHost` what stopped the game: an Update that threw
+  running background bake, and `LoopHalts` what stopped the game: an Update that threw
   still draws the world, a Draw that threw shows only the error.
 
 A nullable field can be the whole state when its value is the only data, as long as nothing
@@ -336,11 +336,11 @@ thread only. `GameHost` takes `int? audioSeed`; null is 1. `Game.StartWindowsGam
 passes `Random.Shared.Next()` for live play only, so screenshots, recordings, profiles,
 headless runs and tests all sound the same each run.
 
-**The game loop.** In `GameHost.Draw`: the game's `Draw`, then a playing cutscene's
+**The game loop.** In `GameLoop.Draw`, through `LoopDraw`: the game's `Draw`, then a playing cutscene's
 camera, then every `IDrawHook.AfterDraw(view)`, then `Audio.EndFrame(View.Shot,
 Time.Scale)`, which pushes the listener (the camera's position, facing `Target −
 Position`) and the world rate and publishes the frame's commands. In manual mode
-(`Audio.Device.Manual`: no device, or the device paused) `GameHost.Tick` calls
+(`Audio.Device.Manual`: no device, or the device paused) `GameLoop.Tick`, through `LoopTick`, calls
 `Audio.Advance(TickSeconds)` before `Update`. `Advance` publishes anything still queued, as
 a frame would, so ticks with no `Draw` between them lose nothing; then `AudioMixing.MixFor`
 drains the ring and mixes `round(seconds × 48000)` frames into a scratch buffer in blocks of up to 2048,
@@ -932,7 +932,7 @@ access denied instead, so `FolderStore` turns access denied on its atomic move, 
 else, into a `FileInUseException` carrying a sharing violation, after deleting its temp file.
 When it
 commits a new manifest the watcher's timer fires on a thread-pool thread, which only sets
-`Content.ReloadWanted`. `GameHost` checks that flag at the start of a tick and calls
+`Content.ReloadWanted`. `LoopTick` checks that flag at the start of a tick and calls
 `Content.Reload` on the game thread, so no catalog is ever read from two threads.
 
 `Reload` refreshes `CookedFolder`, which parses the new manifest and swaps it in, then
@@ -953,7 +953,7 @@ runtime, and Super only reacts to it. See [the user guide](hot-reload.md).
 
 **Hearing about a change.** `[assembly: MetadataUpdateHandler(typeof(HotReload))]` makes
 the runtime call `HotReload.UpdateApplication` after each update, from its own thread. All
-it does is increment a counter. Each `GameHost` remembers the count it last saw, and at
+it does is increment a counter. Each game's `LoopHalts` remembers the count it last saw, and at
 the start of a tick, after the content reload, it calls `IGame.CodeReloaded` if the count
 moved. So the game hears about the change on its own thread, between ticks, the same way
 content reload works. `ClearCache` is empty. Hot reload keeps type identity, so the ECS
@@ -962,7 +962,9 @@ so a property added to a content record is read on the next reload.
 
 **Stopping instead of closing.** `GameHost.KeepsRunningAfterErrors` is set only by the
 window, and only when `MetadataUpdater.IsSupported` is true and nothing is being captured.
-`Tick` and `Draw` then catch exceptions and call `Stop`. `Stop` keeps the first error
+`GameHost` builds the services (`HostServices`) and derives from `GameLoop`, which runs a tick
+through `LoopTick` and a frame through `LoopDraw`. Both then catch exceptions and tell
+`LoopHalts`, which holds what stopped the game. It keeps the first error
 only and reports it once. It also sets `Input.Readable` back to false, since Update may
 have thrown with input still open. A stopped `Tick` returns without doing anything, so
 `Time.Tick` doesn't move, until the change counter moves or `Content.ReloadWanted` is set.
@@ -970,8 +972,8 @@ Then it clears the stop and runs the tick, which delivers the reload and `CodeRe
 before `Update`.
 
 When `Update` stopped the game, `Draw` still runs the game's `Draw`, and only the interface
-is swapped for `StoppedPanel`. When `Draw` or `Ui` threw, `_halt` holds a `DrawHalt` and later
-frames run `DrawStopped` instead. It begins an empty view, ends the audio frame and shows
+is swapped for `StoppedPanel`. When `Draw` or `Ui` threw, `LoopHalts` holds a `DrawHalt` and later
+frames run `LoopDraw.RunStopped` instead. It begins an empty view, ends the audio frame and shows
 the panel without calling any of the game's code, so a broken Draw isn't hit every frame.
 Both paths end with `StateChanges.Open` set to true again, because a Draw that threw never
 reached the line that opens it.
@@ -2231,7 +2233,7 @@ triangle budget. Updates are counted in frames, never seconds.
 when it is due, the captures, the fold and the blend, then `Updated` tells the scheduler which
 probes are clean. `LightProbes.UpdatesLastFrame` says how many were updated, and `ProbesSettled`, which
 is public, is the scheduler's `Settled`, false while the probes are switched off and true on a
-GPU that can't run them. Super's `GameWindow.Screenshot` renders on after its 48
+GPU that can't run them. Super's `WindowFrames.Screenshot` renders on after its 48
 settle frames until `ProbesSettled`, at most `ScreenshotProbeFrames` (2,048) more, through
 `ExtraSettleFrames`, and prints how many it took or that it hit the cap; with `Graphics.LightProbes`
 off it doesn't wait. A whole screenshot run renders without vsync, through
@@ -4368,7 +4370,7 @@ Otherwise it runs in this order:
    for a stale area. `Renderer.BakeFadeSeconds` sets `FadeSeconds`, 0.5 by default; a resolver
    made on its own, as the tests make, starts at 0 and never fades. Super's
    `SceneRenderer` sets it to 0 when it is made, so a screenshot, recording, profile or bake never
-   catches a bake half faded in, and `GameWindow.Run` sets 0.5 for play.
+   catches a bake half faded in, and `WindowPlay.Run` sets 0.5 for play.
 
 When something was dropped, `Render` draws a copy of the frame view whose `Lights` and
 `LocalLights` leave those lights out, by calling itself once more with a flag set so the second
@@ -4422,7 +4424,7 @@ its own, `LightBakeStore` among them, has no such excuse: when its `Load` gives 
 it called fresh, the file went after its header was read, such as when it is removed without a
 reload calling `Forget`, and the renderer treats it as unreadable (see "Drawing a bake").
 `ReadableBakes.GivesLightmaps` tells the two apart from the store type's interface map, once a type.
-`GameWindow.BakeCheck` asks the same store's `Saved` and prints what `Changes` names, so
+`WindowBakes.BakeCheck` asks the same store's `Saved` and prints what `Changes` names, so
 `--bake-check` judges the bake the game would draw with.
 
 Each area's texel density is on the area (`BakedSpace.TexelsPerMetre`, `BakedChunk.TexelsPerMetre`),
@@ -4755,7 +4757,7 @@ does today.
 
 Super turns the renderer's [background bake](#baking-in-the-background) on in play only. `Game.StartWindowsGameLoop`
 makes the `BakeCache` just before `GameWindow.Run`, from the game's id, and hands it to `SceneBakes.BakeCache`
-through `GameWindow.BakeCache`, so the other runs neither bake nor read the cache. `Run` turns baking on after the
+through `GameWindow.BakeCache`, so the other runs neither bake nor read the cache. `WindowPlay.Run` turns baking on after the
 game goes live by calling `AutoBakeSwitch.TurnOn` (`src/Super/Rendering/AutoBakeSwitch.cs`), and `ApplyAutoBake`,
 called again before each frame is shown, works out the plan only when `AutoBakeSwitch.Changed` says
 `Graphics.BakeOnArrival` or `Graphics.BakeBudget` changed, since setting `Renderer.AutoBake` restarts the running bake.
@@ -4781,8 +4783,8 @@ live. `SceneRenderer.Dispose` waits up to 10 seconds for the saver after the ren
 just before the window closed is still kept. A new saver is made only when the space folder or the cache changes,
 after waiting for the old one.
 
-`GameWindow.PlayFrame` hands `Renderer.BakeProgress` to `GameHost.BakeProgress` before `Draw`, and in play
-(`GameHost.ShowsBakes`) `GameHost.Interface` puts the game's interface in a `ZStack` with `BakeOverlay`'s line. The
+`WindowPlay.PlayFrame` hands `Renderer.BakeProgress` to `GameLoop.BakeProgress` before `Draw`, and in play
+(`GameLoop.ShowsBakes`) `LoopDraw.Interface` puts the game's interface in a `ZStack` with `BakeOverlay`'s line. The
 game's view is always the first child, and the line's place is null when nothing bakes, so the root's type never
 changes and the game's interface keeps its state as the line comes and goes. The stats
 panel (`StatsOverlay`, shown while `GameStats.Shown` is on) takes the third place in the same
@@ -5224,9 +5226,9 @@ is false it prints its own sentence to stderr, `--debug-view trace needs a GPU t
 rays, and this one can't (reason).` with `NoTraceReason` as the reason, and exits with code 1, so
 the renderer's exception is never reached.
 
-A game can set the view too, with `Graphics.DebugView`. `GameWindow.RendererSettings` picks what
+A game can set the view too, with `Graphics.DebugView`. `WindowFrames.RendererSettings` picks what
 `ApplyGraphics` gives `SceneRenderer.DebugView` each frame: the command line's view when it named
-one (kept in `GameWindow.DebugView`), else the game's, except that a game's Trace is turned to None
+one (set through `GameWindow.DebugView`), else the game's, except that a game's Trace is turned to None
 where `CanTrace` is false. That is ignored rather than refused, because the renderer would throw
 and a game can't know its player's GPU.
 

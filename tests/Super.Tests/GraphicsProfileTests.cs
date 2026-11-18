@@ -382,7 +382,7 @@ public class GraphicsProfileTests
     {
         var graphics = new Graphics { ShadowCascades = 2, MeshDetail = 0.75f };
 
-        var settings = GameWindow.RendererSettings(graphics, hidden: false);
+        var settings = WindowFrames.RendererSettings(graphics, hidden: false);
 
         Assert.Equal(2, settings.ShadowCascades);
         Assert.Equal(0.75f, settings.MeshDetail);
