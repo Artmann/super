@@ -17,28 +17,15 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     private const int MaxProbes = ReflectionProbeOrder.MaxProbes;
     private const int Mips = ProbeCubes.Mips;
 
-    /// <summary>Must match the Filter block in Shaders/reflection_probe.comp.</summary>
-    private struct FilterConstants
-    {
-        public float Roughness;
-    }
-
     private readonly VulkanContext _context;
-    private readonly Sampler _sampler;
-    private readonly DescriptorSetLayout _setLayout;
-    private readonly DescriptorPool _pool;
-
-    // One set per mip for each frame in flight, each written as its frame records, when its last use is done.
-    private readonly DescriptorSet[] _sets;
-    private readonly PipelineLayout _pipelineLayout;
-    private readonly LivePipeline _pipeline;
+    private readonly ReflectionFilter _filter;
 
     // What each captured probe showed at its last capture, or null for a cube nobody has captured into yet.
     private readonly ReflectionProbe?[] _slots = new ReflectionProbe?[MaxProbes];
 
     // Which cubes belong to a probe, captured or still waiting.
     private readonly bool[] _held = new bool[MaxProbes];
-    private readonly List<(int Slot, ReflectionProbe Probe)> _waiting = [];
+    private readonly ReflectionCaptureLine _line = new();
 
     /// <summary>The array every probe's cube is in.</summary>
     public ProbeCubes Cubes { get; }
@@ -52,26 +39,8 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     public ReflectionProbes(VulkanContext context, Sampler sampler, int framesInFlight)
     {
         _context = context;
-        _sampler = sampler;
         Cubes = new ProbeCubes(context);
-
-        _setLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-            new(1, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-        ]);
-        uint sets = (uint)(framesInFlight * Mips);
-        _pool = context.CreateDescriptorPool(
-            sets,
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, sets),
-            new DescriptorPoolSize(DescriptorType.StorageImage, sets));
-        _sets = new DescriptorSet[sets];
-        context.AllocateSets(_pool, _setLayout, _sets);
-
-        _pipelineLayout = context.CreatePipelineLayout(
-            [_setLayout],
-            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(FilterConstants)));
-        _pipeline = PipelineFactory.CreateCompute(context, "reflection_probe.comp", _pipelineLayout);
+        _filter = new ReflectionFilter(context, sampler, framesInFlight, Mips, ProbeCubes.FaceSize);
     }
 
     /// <summary>
@@ -104,7 +73,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
 
         _held[slot] = true;
         Count++;
-        _waiting.Add((slot, probe));
+        _line.Ask(slot, probe);
         return new ReflectionProbeHandle(slot);
     }
 
@@ -112,44 +81,16 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     /// Asks for a new capture of a probe, placed as <paramref name="probe"/> says. A probe already waiting keeps its
     /// place in line and takes the new placement; any other goes to the back.
     /// </summary>
-    public void Update(ReflectionProbeHandle handle, in ReflectionProbe probe)
-    {
-        CheckHeld(handle);
-        int at = WaitingAt(handle.Index);
-        if (at >= 0)
-        {
-            _waiting[at] = (handle.Index, probe);
-        }
-        else
-        {
-            _waiting.Add((handle.Index, probe));
-        }
-    }
+    public void Update(ReflectionProbeHandle handle, in ReflectionProbe probe) => _line.Ask(Slot(handle, required: true), probe);
 
     /// <summary>Whether a probe is in line for a capture that hasn't been drawn yet.</summary>
-    public bool Waiting(ReflectionProbeHandle handle)
-    {
-        CheckHeld(handle);
-        return WaitingAt(handle.Index) >= 0;
-    }
+    public bool Waiting(ReflectionProbeHandle handle) => _line.Holds(Slot(handle, required: true));
 
     /// <summary>
     /// Takes the probe at the front of the line, for this frame's capture, or returns false when none waits. Call
     /// <see cref="RecordFilter"/> for it in the same frame.
     /// </summary>
-    public bool TakeNext(out int slot, out ReflectionProbe probe)
-    {
-        if (_waiting.Count == 0)
-        {
-            slot = -1;
-            probe = default;
-            return false;
-        }
-
-        (slot, probe) = _waiting[0];
-        _waiting.RemoveAt(0);
-        return true;
-    }
+    public bool TakeNext(out int slot, out ReflectionProbe probe) => _line.TakeNext(out slot, out probe);
 
     /// <summary>
     /// Puts a probe <see cref="TakeNext"/> gave back at the front of the line, for a frame that never drew its capture.
@@ -157,25 +98,19 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     /// </summary>
     public void PutBack(ReflectionProbeHandle handle, in ReflectionProbe probe)
     {
-        if (Holds(handle) && WaitingAt(handle.Index) < 0)
+        if (Slot(handle, required: false) >= 0)
         {
-            _waiting.Insert(0, (handle.Index, probe));
+            _line.PutFirst(handle.Index, probe);
         }
     }
 
     /// <summary>Forgets one probe, whose cube goes to the next probe added. The rest keep theirs.</summary>
     public void Remove(ReflectionProbeHandle handle)
     {
-        CheckHeld(handle);
-        int slot = handle.Index;
+        int slot = Slot(handle, required: true);
         _held[slot] = false;
         _slots[slot] = null;
-        int at = WaitingAt(slot);
-        if (at >= 0)
-        {
-            _waiting.RemoveAt(at);
-        }
-
+        _line.Drop(slot);
         Count--;
     }
 
@@ -184,22 +119,23 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     {
         Array.Clear(_slots);
         Array.Clear(_held);
-        _waiting.Clear();
+        _line.Clear();
         Count = 0;
     }
 
-    /// <summary>Whether a handle names a probe that was added and not removed since.</summary>
-    public bool Holds(ReflectionProbeHandle handle) => (uint)handle.Index < (uint)Cubes.Capacity && _held[handle.Index];
-
-    private void CheckHeld(ReflectionProbeHandle handle)
+    // The cube of a probe that was added and not removed since, or -1 for a handle that names none, which throws when
+    // the probe is required.
+    private int Slot(ReflectionProbeHandle handle, bool required)
     {
-        if (!Holds(handle))
+        if ((uint)handle.Index < (uint)Cubes.Capacity && _held[handle.Index])
         {
-            throw new ArgumentException($"Reflection probe {handle.Index} does not exist.", nameof(handle));
+            return handle.Index;
         }
-    }
 
-    private int WaitingAt(int slot) => _waiting.FindIndex(waiting => waiting.Slot == slot);
+        return required
+            ? throw new ArgumentException($"Reflection probe {handle.Index} does not exist.", nameof(handle))
+            : -1;
+    }
 
     /// <summary>
     /// Records the blur of a capture, <paramref name="capture"/> with its mips ready to sample, into each level of
@@ -218,17 +154,13 @@ internal sealed unsafe class ReflectionProbes : IDisposable
             PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
             mipCount: Mips, baseLayer: baseLayer, layerCount: 6);
 
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipeline);
+        Span<ImageView> levels = stackalloc ImageView[Mips];
         for (int mip = 0; mip < Mips; mip++)
         {
-            var set = _sets[frameIndex * Mips + mip];
-            WriteFilterSet(set, capture, Cubes.Level(slot, mip));
-            var constants = new FilterConstants { Roughness = mip / (float)(Mips - 1) };
-            api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
-            api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(FilterConstants), &constants);
-            uint groups = ((ProbeCubes.FaceSize >> mip) + 7) / 8;
-            api.CmdDispatch(cmd, groups, groups, 6);
+            levels[mip] = Cubes.Level(slot, mip);
         }
+
+        _filter.Record(cmd, frameIndex, capture, levels);
 
         api.Transition(cmd, image, ImageAspectFlags.ColorBit,
             ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal,
@@ -238,22 +170,9 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         _slots[slot] = probe;
     }
 
-    private void WriteFilterSet(DescriptorSet set, ImageView capture, ImageView target)
-    {
-        var sourceInfo = new DescriptorImageInfo(_sampler, capture, ImageLayout.ShaderReadOnlyOptimal);
-        var targetInfo = new DescriptorImageInfo(default, target, ImageLayout.General);
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            Descriptors.ImageWrite(set, 0, DescriptorType.CombinedImageSampler, &sourceInfo),
-            Descriptors.ImageWrite(set, 1, DescriptorType.StorageImage, &targetInfo),
-        };
-        _context.Api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
-    }
-
     public void Dispose()
     {
-        _pipeline.Destroy();
-        _context.DestroyLayouts(_pipelineLayout, _pool, _setLayout);
+        _filter.Dispose();
         Cubes.Dispose();
     }
 }

@@ -23,13 +23,13 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
         var before = gpu.Renderer.ProjectSky();
 
         int rebakes = gpu.Renderer.SkyRebakes;
-        int waits = gpu.Context.SubmitAndWaitCount;
+        int waits = gpu.Context.Waits.SubmitAndWaitCount;
         for (int frame = 1; frame <= 6; frame++)
         {
             gpu.Renderer.Render(SunView(Towards(30f + 2f * frame)), []);
         }
 
-        Assert.Equal(waits, gpu.Context.SubmitAndWaitCount);
+        Assert.Equal(waits, gpu.Context.Waits.SubmitAndWaitCount);
         Assert.Equal(6, gpu.Renderer.SkyRebakes - rebakes);
         var after = gpu.Renderer.ProjectSky();
         float moved = Vector3.Distance(Rgb(before[0]), Rgb(after[0]));
@@ -47,9 +47,9 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
             gpu.Renderer.SetEnvironment(Even(new Vector3(1f, 0.5f, 0.25f)));
             gpu.RenderOneFrame();
 
-            int waits = gpu.Context.SubmitAndWaitCount;
+            int waits = gpu.Context.Waits.SubmitAndWaitCount;
             gpu.Renderer.SetEnvironment(Even(colour));
-            Assert.Equal(waits, gpu.Context.SubmitAndWaitCount);
+            Assert.Equal(waits, gpu.Context.Waits.SubmitAndWaitCount);
             gpu.RenderOneFrame();
 
             // An even sky of radiance L projects to 4 pi Y0 L = 3.5449 L in the constant band.

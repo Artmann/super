@@ -78,7 +78,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
         List<PipelineVariants> pipelines = [];
         _faces = new CubeCapture(context, resources, _layout, pipelines, new Extent2D(ProbeVolume.FaceSize, ProbeVolume.FaceSize));
 
-        if (!context.Multiview)
+        if (!context.Abilities.Multiview)
         {
             return;
         }

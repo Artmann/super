@@ -24,7 +24,7 @@ internal sealed unsafe class Baker : IDisposable
         _context = context;
         var tracing = renderer.Tracing
             ?? throw new InvalidOperationException("Baking needs a GPU that can trace rays, and this one can't.");
-        if (!context.StorageImageExtendedFormats)
+        if (!context.Abilities.StorageImageExtendedFormats)
         {
             throw new InvalidOperationException("Baking needs shaderStorageImageExtendedFormats, which this GPU lacks.");
         }
@@ -56,7 +56,7 @@ internal sealed unsafe class Baker : IDisposable
     internal VulkanContext Context => _context;
 
     /// <summary>Whether texels are drawn with conservative rasterization rather than multisampling.</summary>
-    internal bool Conservative => !ForceMultisample && _context.ConservativeRasterization;
+    internal bool Conservative => !ForceMultisample && _context.Abilities.ConservativeRasterization;
 
     /// <summary>The pages' images, and which bake holds them.</summary>
     internal TexelPages Pages { get; }

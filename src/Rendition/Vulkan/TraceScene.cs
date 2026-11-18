@@ -87,12 +87,48 @@ internal sealed unsafe class TraceScene(Func<MaterialHandle, TraceFlags> flagsOf
             Array.Resize(ref _instanceOf, Math.Max(draws.Length, _instanceOf.Length * 2));
         }
 
-        // First pass: which instance each draw belongs to, and how many parts each instance has.
+        int partCount = Group(draws);
+        if (_parts.Length < partCount)
+        {
+            int size = Math.Max(partCount, _parts.Length * 2);
+            _parts = new TracePart[size];
+            _tints = new Vector3[size];
+        }
+
+        var all = CollectionsMarshal.AsSpan(_placed);
+        int start = 0;
+        foreach (ref var placed in all)
+        {
+            placed.Start = start;
+            start += placed.Count;
+        }
+
+        Fill(draws, all);
+        foreach (ref readonly var placed in all)
+        {
+            _instances.Add(new TraceInstance(
+                placed.Transform, placed.Mesh, _parts.AsMemory(placed.Start, placed.Count), placed.Flags)
+            {
+                Tints = _tints.AsMemory(placed.Start, placed.Count),
+            });
+        }
+
+        return _instances;
+    }
+
+    // Ghosts, skinned and swimming draws, and draws of no triangles; see Collect.
+    private static bool IsLeftOut(in DrawItem draw) =>
+        draw.Ghost is not null || draw.Bones.Count != 0 || draw.Swim.Amplitude != 0f || draw.IndexCount == 0;
+
+    // The first pass: which instance each draw belongs to, and how many parts each instance has. Returns how many
+    // parts there are in all.
+    private int Group(ReadOnlySpan<DrawItem> draws)
+    {
         int partCount = 0;
         for (int d = 0; d < draws.Length; d++)
         {
             ref readonly var draw = ref draws[d];
-            if (draw.Ghost is not null || draw.Bones.Count != 0 || draw.Swim.Amplitude != 0f || draw.IndexCount == 0)
+            if (IsLeftOut(draw))
             {
                 _instanceOf[d] = -1;
                 continue;
@@ -113,22 +149,12 @@ internal sealed unsafe class TraceScene(Func<MaterialHandle, TraceFlags> flagsOf
             partCount++;
         }
 
-        if (_parts.Length < partCount)
-        {
-            int size = Math.Max(partCount, _parts.Length * 2);
-            _parts = new TracePart[size];
-            _tints = new Vector3[size];
-        }
+        return partCount;
+    }
 
-        var all = CollectionsMarshal.AsSpan(_placed);
-        int start = 0;
-        foreach (ref var placed in all)
-        {
-            placed.Start = start;
-            start += placed.Count;
-        }
-
-        // Second pass: each draw's part and tint into its instance's run, in draw order.
+    // The second pass: each draw's part and tint into its instance's run, in draw order.
+    private void Fill(ReadOnlySpan<DrawItem> draws, Span<Placed> all)
+    {
         for (int d = 0; d < draws.Length; d++)
         {
             int index = _instanceOf[d];
@@ -143,17 +169,6 @@ internal sealed unsafe class TraceScene(Func<MaterialHandle, TraceFlags> flagsOf
             _parts[at] = new TracePart(draw.FirstIndex, draw.IndexCount, draw.Material);
             _tints[at] = draw.Tint ?? Vector3.One;
         }
-
-        foreach (ref readonly var placed in all)
-        {
-            _instances.Add(new TraceInstance(
-                placed.Transform, placed.Mesh, _parts.AsMemory(placed.Start, placed.Count), placed.Flags)
-            {
-                Tints = _tints.AsMemory(placed.Start, placed.Count),
-            });
-        }
-
-        return _instances;
     }
 
     /// <summary>

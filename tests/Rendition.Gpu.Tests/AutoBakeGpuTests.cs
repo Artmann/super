@@ -209,12 +209,12 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
 
             // Setting it prepares baking, which may wait the first time; the frames after it never do.
             gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], d => done = d);
-            int waits = gpu.Context.SubmitAndWaitCount;
+            int waits = gpu.Context.Waits.SubmitAndWaitCount;
 
             int frames = RenderUntil(view, room, () => done is not null);
 
             Assert.True(done is not null, $"No background bake was done after {frames} frames.");
-            Assert.Equal(waits, gpu.Context.SubmitAndWaitCount);
+            Assert.Equal(waits, gpu.Context.Waits.SubmitAndWaitCount);
         }
         finally
         {

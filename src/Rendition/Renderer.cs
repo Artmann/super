@@ -238,7 +238,7 @@ public sealed unsafe class Renderer : IDisposable
     private int _heldNumber;
 
     /// <summary>Vulkan validation messages so far. Always zero when validation is off.</summary>
-    public int ValidationErrors => _context.ValidationErrors;
+    public int ValidationErrors => _context.Validation?.Errors ?? 0;
 
     /// <summary>
     /// Whether the GPU can trace rays, with ray queries turned on for the device. Nothing requires it: a GPU
@@ -247,7 +247,7 @@ public sealed unsafe class Renderer : IDisposable
     public bool CanTrace => _context.CanTrace;
 
     /// <summary>Why <see cref="CanTrace"/> is false, such as "no VK_KHR_ray_query", or null when it is true.</summary>
-    public string? NoTraceReason => _context.NoTraceReason;
+    public string? NoTraceReason => _context.Abilities.NoTraceReason;
 
     /// <summary>The GPU this renderer draws with: its name, kind and memory.</summary>
     public GpuInfo Gpu => _context.Gpu;
@@ -612,7 +612,7 @@ public sealed unsafe class Renderer : IDisposable
         _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_kit.FrameSetLayout, _kit.TwoTextureLayout], TransitionConstants.Size);
         _overlayPass = new OverlayPass(_context, _swapchain.Format, _kit.OneTextureLayout, _resources, FrameRing.Count);
         // Counting each pass's shaders needs a device feature; without it the frame is only timed.
-        _gpuWork = _context.PipelineStatistics ? new GpuWorkCounter(_context, FrameRing.Count, GpuTimer.FramePasses) : null;
+        _gpuWork = _context.Abilities.PipelineStatistics ? new GpuWorkCounter(_context, FrameRing.Count, GpuTimer.FramePasses) : null;
         _gpuTimer = new GpuTimer(_context, FrameRing.Count, counter: _gpuWork);
         _areaInputs = new AreaInputs(_meshStore.PartBounds, () => EnvironmentHash);
         var spaceBake = new SpaceBake(_readableBakes, data => CreateTexture(data, TextureEdges.Clamp), DestroyTexture);
@@ -1144,7 +1144,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public TextureHandle CreateTexture(TextureData data, TextureEdges edges = TextureEdges.Repeat)
     {
-        var texture = new GpuTexture(_context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1, format: data.Format);
+        var texture = new GpuTexture(_context, new TextureShape(data.Width, data.Height, data.Kind, (uint)data.Mips.Length, Format: data.Format));
         _uploads.Add(texture.CreateStaging([data]), texture);
         try
         {
@@ -1184,7 +1184,7 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        var texture = new GpuTexture(_context, first.Width, first.Height, first.Kind, (uint)first.Mips.Length, (uint)layers.Length, true, first.Format);
+        var texture = new GpuTexture(_context, new TextureShape(first.Width, first.Height, first.Kind, (uint)first.Mips.Length, (uint)layers.Length, first.Format) { Array = true });
         _uploads.Add(texture.CreateStaging(layers), texture);
         return _resources.AddTextureArray(texture);
     }
@@ -1254,7 +1254,7 @@ public sealed unsafe class Renderer : IDisposable
     /// How many times the renderer has stopped until the GPU had nothing left to do, as it must to swap out
     /// something a frame in flight still reads. A frame that does is a hitch, so profiles count them.
     /// </summary>
-    public int GpuIdleWaits => _context.WaitIdleCount;
+    public int GpuIdleWaits => _context.Waits.WaitIdleCount;
 
     /// <summary>Forgets every reflection probe, so surfaces reflect only the sky from the next frame.</summary>
     public void ClearReflectionProbes() => _probes.Clear();
@@ -1728,7 +1728,7 @@ public sealed unsafe class Renderer : IDisposable
         if (traceView && _tracing is null)
         {
             throw new InvalidOperationException(
-                $"The trace debug view needs a GPU that can trace rays, and this one can't ({_context.NoTraceReason}).");
+                $"The trace debug view needs a GPU that can trace rays, and this one can't ({_context.Abilities.NoTraceReason}).");
         }
 
         _traceView = traceView;
@@ -3581,9 +3581,9 @@ public sealed unsafe class Renderer : IDisposable
 
     private void WriteInstanceDescriptor(in Frame frame)
     {
-        var info = new DescriptorBufferInfo(frame.Instances.Handle, 0, frame.Instances.Size);
-        var previousInfo = new DescriptorBufferInfo(frame.Instances.PreviousHandle, 0, frame.Instances.PreviousSize);
-        var lightmapInfo = new DescriptorBufferInfo(frame.Instances.LightmapHandle, 0, frame.Instances.LightmapSize);
+        var info = frame.Instances.ModelsInfo;
+        var previousInfo = frame.Instances.PreviousInfo;
+        var lightmapInfo = frame.Instances.LightmapInfo;
         var writes = stackalloc WriteDescriptorSet[]
         {
             Descriptors.BufferWrite(frame.Set, 2, &info),

@@ -240,8 +240,8 @@ internal sealed class ChunkBakePool : IDisposable
 
         private void AddPage(VulkanContext context, LightBakePage source, int role)
         {
-            var texture = new GpuTexture(context, source.Width, source.Height, TextureKind.Linear, 1, 1,
-                format: BakePages.Format(source.Format));
+            var texture = new GpuTexture(context, new TextureShape(source.Width, source.Height, TextureKind.Linear, 1,
+                Format: BakePages.Format(source.Format)));
             Pages.Add(new Page(source, texture, role));
         }
 

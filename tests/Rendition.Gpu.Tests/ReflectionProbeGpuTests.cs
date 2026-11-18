@@ -52,8 +52,8 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
             var probe = Place(scene, Probe(RoomMin, RoomMax), scene.RedWall);
             var before = Mirror(scene, scene.RedWall);
 
-            int idles = gpu.Context.WaitIdleCount;
-            int submits = gpu.Context.SubmitAndWaitCount;
+            int idles = gpu.Context.Waits.WaitIdleCount;
+            int submits = gpu.Context.Waits.SubmitAndWaitCount;
             int captures = gpu.Renderer.ReflectionCapturesDrawn;
             gpu.Renderer.UpdateReflectionProbe(probe, Probe(RoomMin, RoomMax));
             Settle(scene, probe, scene.BlueWall);
@@ -62,8 +62,8 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
                 gpu.Renderer.Render(scene.View(), scene.Draws(scene.BlueWall));
             }
 
-            Assert.Equal(idles, gpu.Context.WaitIdleCount);
-            Assert.Equal(submits, gpu.Context.SubmitAndWaitCount);
+            Assert.Equal(idles, gpu.Context.Waits.WaitIdleCount);
+            Assert.Equal(submits, gpu.Context.Waits.SubmitAndWaitCount);
             Assert.Equal(captures + 1, gpu.Renderer.ReflectionCapturesDrawn);
 
             var after = Mirror(scene, scene.BlueWall);

@@ -6,7 +6,7 @@ namespace Rendition.Vulkan;
 /// Counts the shaders each render pass runs on the GPU, with one pipeline statistics query a pass. A
 /// <see cref="GpuTimer"/> begins and ends the queries at its marks, so the passes are the timer's. The counts are
 /// exact: a pass whose work is skipped counts none, while one that still runs counts every shader, even those that
-/// leave at once. Needs the device's <c>pipelineStatisticsQuery</c>; see <see cref="VulkanContext.PipelineStatistics"/>.
+/// leave at once. Needs the device's <c>pipelineStatisticsQuery</c>; see <see cref="DeviceAbilities.PipelineStatistics"/>.
 /// </summary>
 internal sealed unsafe class GpuWorkCounter : IDisposable
 {

@@ -63,7 +63,7 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
             new PushConstantRange(SceneDraws.PushStages, 0, (uint)(sizeof(SceneDraws.DrawConstants) + sizeof(ProbeCapturePass.ProbeConstants))));
         _faces = new CubeCapture(context, resources, _layout, _pipelines, new Extent2D(ProbeCubes.FaceSize, ProbeCubes.FaceSize));
 
-        if (!context.Multiview)
+        if (!context.Abilities.Multiview)
         {
             return;
         }
