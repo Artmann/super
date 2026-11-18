@@ -48,9 +48,16 @@ sealed class FloodFillNode(Node input, float threshold) : Node(1, input)
 {
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
     {
-        var size = context.Size;
-        var count = size * size;
         var source = inputs[0];
+        var parent = Join(source, context.Size);
+
+        Number(source, parent, output);
+    }
+
+    /// <summary>Joins each pixel above the threshold to its neighbours above it, wrapping at the edges.</summary>
+    int[] Join(float[] source, int size)
+    {
+        var count = size * size;
         var parent = new int[count];
 
         for (var i = 0; i < count; i++)
@@ -85,7 +92,13 @@ sealed class FloodFillNode(Node input, float threshold) : Node(1, input)
             }
         }
 
-        // Number islands by their first pixel in row order.
+        return parent;
+    }
+
+    /// <summary>Numbers islands by their first pixel in row order. Background is -1.</summary>
+    void Number(float[] source, int[] parent, float[] output)
+    {
+        var count = parent.Length;
         var numbers = new int[count];
 
         Array.Fill(numbers, -1);
