@@ -185,19 +185,19 @@ public class GraphicsTests
     [InlineData(1000, 523, 1.1f, 1100, 576)]
     public void Scene_size_rounds_to_even(int width, int height, float scale, int sceneWidth, int sceneHeight)
     {
-        Assert.Equal((sceneWidth, sceneHeight), Renderer.SceneSize(width, height, scale));
+        Assert.Equal((sceneWidth, sceneHeight), RenderSettings.SceneSize(width, height, scale));
     }
 
     [Fact]
     public void At_render_scale_one_the_scene_is_the_window_size_even_when_odd()
     {
-        Assert.Equal((1601, 901), Renderer.SceneSize(1601, 901, 1f));
+        Assert.Equal((1601, 901), RenderSettings.SceneSize(1601, 901, 1f));
     }
 
     [Fact]
     public void A_tiny_window_at_half_scale_still_has_a_scene_to_draw()
     {
-        Assert.Equal((2, 2), Renderer.SceneSize(1, 1, 0.5f));
+        Assert.Equal((2, 2), RenderSettings.SceneSize(1, 1, 0.5f));
     }
 
     [Theory]
@@ -208,7 +208,7 @@ public class GraphicsTests
     public void A_scene_larger_than_the_device_allows_shrinks_to_fit_keeping_its_shape(
         int width, int height, int maxSize, int sceneWidth, int sceneHeight)
     {
-        Assert.Equal((sceneWidth, sceneHeight), Renderer.SceneSize(width, height, 2f, maxSize));
+        Assert.Equal((sceneWidth, sceneHeight), RenderSettings.SceneSize(width, height, 2f, maxSize));
     }
 
     [Theory]
@@ -258,7 +258,7 @@ public class GraphicsTests
 
         // What the window hands the renderer before the next frame, which draws the scene this size.
         float scale = WindowFrames.RendererSettings(host.Graphics, hidden: false).RenderScale;
-        Assert.Equal((2400, 1350), Renderer.SceneSize(1600, 900, scale));
+        Assert.Equal((2400, 1350), RenderSettings.SceneSize(1600, 900, scale));
     }
 
     [Theory]

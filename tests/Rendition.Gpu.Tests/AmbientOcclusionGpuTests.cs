@@ -300,7 +300,7 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu, ITestOutputHelper o
         view.Off = off;
         // Lit by the environment alone, which is the light occlusion takes away.
         view.Environment.Intensity = 1f;
-        gpu.Renderer.OcclusionResolution = resolution;
+        gpu.Renderer.Settings.OcclusionResolution = resolution;
         try
         {
             if (!carryOn)
@@ -320,7 +320,7 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu, ITestOutputHelper o
         }
         finally
         {
-            gpu.Renderer.OcclusionResolution = OcclusionResolution.Half;
+            gpu.Renderer.Settings.OcclusionResolution = OcclusionResolution.Half;
         }
     }
 

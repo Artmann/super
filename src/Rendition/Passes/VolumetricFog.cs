@@ -4,8 +4,8 @@ namespace Rendition.Passes;
 
 /// <summary>
 /// The volumetric fog's grid size and the fog settings the shaders get. The grid has one cell
-/// for every <see cref="Renderer.VolumetricFogCellSize"/> by that many pixels of the scene and
-/// <see cref="Renderer.VolumetricFogSlices"/> slices in depth, split exponentially so the near
+/// for every <see cref="RenderSettings.VolumetricFogCellSize"/> by that many pixels of the scene and
+/// <see cref="RenderSettings.VolumetricFogSlices"/> slices in depth, split exponentially so the near
 /// cells are thin and the far ones deep.
 /// </summary>
 internal static class VolumetricFog

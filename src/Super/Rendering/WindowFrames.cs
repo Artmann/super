@@ -199,11 +199,11 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
     /// <summary>Hands the game's graphics settings, as they are now, to the renderer for the next frame.</summary>
     public void ApplyGraphics(Graphics graphics)
     {
-        var renderer = scene.Renderer;
-        (scene.Off, renderer.Vsync, renderer.ShadowResolution, renderer.MaxShadowCascades, renderer.MeshDetailScale,
-            renderer.RenderScale, renderer.Upscaler, renderer.ProbeQuality, renderer.ReflectionResolution,
-            renderer.OcclusionResolution, renderer.VolumetricFogCellSize, renderer.VolumetricFogSlices, scene.DebugView) =
-            RendererSettings(graphics, hidden, _takingShot, CommandLineDebugView, renderer.CanTrace);
+        var settings = scene.Renderer.Settings;
+        (scene.Off, settings.Vsync, settings.ShadowResolution, settings.MaxShadowCascades, settings.MeshDetailScale,
+            settings.RenderScale, settings.Upscaler, settings.ProbeQuality, settings.ReflectionResolution,
+            settings.OcclusionResolution, settings.VolumetricFogCellSize, settings.VolumetricFogSlices, scene.DebugView) =
+            RendererSettings(graphics, hidden, _takingShot, CommandLineDebugView, scene.Renderer.CanTrace);
     }
 
     /// <summary>

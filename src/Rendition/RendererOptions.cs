@@ -24,13 +24,13 @@ public sealed class RendererOptions
     /// </summary>
     public bool DisableRayTracing { get; init; }
 
-    /// <summary>How many texels across each of the sun's cascade maps starts: 1024, 2048 or 4096. See <see cref="Renderer.ShadowResolution"/>.</summary>
+    /// <summary>How many texels across each of the sun's cascade maps starts: 1024, 2048 or 4096. See <see cref="RenderSettings.ShadowResolution"/>.</summary>
     public int ShadowResolution { get; init; } = 2048;
 
-    /// <summary>How large the scene starts out drawn against the window, from 0.5 to 2. See <see cref="Renderer.RenderScale"/>.</summary>
+    /// <summary>How large the scene starts out drawn against the window, from 0.5 to 2. See <see cref="RenderSettings.RenderScale"/>.</summary>
     public float RenderScale { get; init; } = 1f;
 
-    /// <summary>What anti-aliases the scene and, below a render scale of 1, upscales it. See <see cref="Renderer.Upscaler"/>.</summary>
+    /// <summary>What anti-aliases the scene and, below a render scale of 1, upscales it. See <see cref="RenderSettings.Upscaler"/>.</summary>
     public Upscaler Upscaler { get; init; } = Upscaler.Taa;
 
     /// <summary>

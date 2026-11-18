@@ -30,14 +30,6 @@ public sealed unsafe class Renderer : IDisposable
     public const int MaxReflectionProbes = ReflectionProbeOrder.MaxProbes;
 
     private readonly VulkanContext _context;
-    private bool _disableVsync;
-    private bool _vsyncChanged;
-    // The cascade map size asked for, which the next frame rebuilds the maps at if it differs.
-    private int _shadowResolution;
-    // The scene's size against the window's, which the next frame rebuilds the targets at if it differs.
-    private float _renderScale = 1f;
-    private ReflectionResolution _reflectionResolution = ReflectionResolution.Half;
-    private OcclusionResolution _occlusionResolution = OcclusionResolution.Half;
     // The largest image side the device can make, which the scene is shrunk to fit.
     private readonly int _maxImageSize;
     private readonly Vk _api;
@@ -137,10 +129,7 @@ public sealed unsafe class Renderer : IDisposable
     // the lit one.
     private bool _readsAntiAliased = true;
 
-    // The upscaler asked for, the one it comes to once FSR's library is looked for, and whether FSR draws the
-    // picture now: only with anti-aliasing on and the scene no larger than the window.
-    private Upscaler _upscaler;
-    private Upscaler _upscalerUsed;
+    // Whether FSR draws the picture now: only with anti-aliasing on and the scene no larger than the window.
     private bool _upscaling;
     private readonly FsrPass _fsrPass;
     private FsrFrame _fsrFrame;
@@ -161,218 +150,25 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The GPU this renderer draws with: its name, kind and memory.</summary>
     public GpuInfo Gpu => _context.Gpu;
 
-    /// <summary>
-    /// Waits for the display before showing each frame, so the picture never tears, and the
-    /// frame rate stops at the display's. Turned off, frames are shown as soon as they're done.
-    /// Displays that can't do that keep it on. A change takes effect on the next frame.
-    /// </summary>
-    public bool Vsync
-    {
-        get => !_disableVsync;
-        set
-        {
-            if (value != !_disableVsync)
-            {
-                _disableVsync = !value;
-                _vsyncChanged = true;
-            }
-        }
-    }
-
-    /// <summary>
-    /// How many texels across each of the sun's cascade maps is: 1024, 2048 or 4096. Finer maps
-    /// give sharper shadows for four times the memory and drawing each step up. A change
-    /// rebuilds the maps before the next frame.
-    /// </summary>
-    public int ShadowResolution
-    {
-        get => _shadowResolution;
-        set => _shadowResolution = ShadowPass.CheckResolution(value);
-    }
-
-    /// <summary>
-    /// The most of the sun's cascades drawn, from 1 to <see cref="ShadowPass.MaxCascades"/>, whatever
-    /// <see cref="ShadowSettings.Cascades"/> asks for. Each cascade left out saves drawing the scene once more,
-    /// and the sun's shadows end where the last cascade drawn ends. Takes effect on the next frame.
-    /// </summary>
-    public int MaxShadowCascades
-    {
-        get;
-        set => field = value is >= 1 and <= ShadowPass.MaxCascades
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value, $"The sun can draw from 1 to {ShadowPass.MaxCascades} cascades.");
-    } = ShadowPass.MaxCascades;
-
-    /// <summary>
-    /// Scene pixels across one cell of the volumetric fog's grid, each way, from 4 to 32; 8 unless set. Smaller
-    /// cells are sharper and cost more. A change remakes the grid, with no history, before the next frame.
-    /// </summary>
-    public int VolumetricFogCellSize
-    {
-        get;
-        set => field = VolumetricFog.CheckCellPixels(value);
-    } = VolumetricFog.CellPixels;
-
-    /// <summary>
-    /// Slices in the volumetric fog's grid, from the camera out to <see cref="FogSettings.VolumetricDistance"/>,
-    /// from 16 to 128; 64 unless set. A change remakes the grid, with no history, before the next frame.
-    /// </summary>
-    public int VolumetricFogSlices
-    {
-        get;
-        set => field = VolumetricFog.CheckSlices(value);
-    } = VolumetricFog.Slices;
-
-    /// <summary>The smallest <see cref="MeshDetailScale"/>: models switch to their simpler versions at twice the distance.</summary>
-    public const float MinMeshDetail = 0.5f;
-
-    /// <summary>The largest <see cref="MeshDetailScale"/>: models keep their finer versions to twice the distance.</summary>
-    public const float MaxMeshDetail = 2f;
-
-    /// <summary>
-    /// How long models keep their finer versions as they move away, from 0.5 to 2. 1 switches when a simpler version
-    /// would stray by a pixel on screen. At 0.5 they may stray by two, so they switch sooner and fewer triangles are
-    /// drawn; at 2 by half a pixel. The sun's shadows follow in step. Takes effect on the next frame.
-    /// </summary>
-    public float MeshDetailScale
-    {
-        get;
-        set => field = value is >= MinMeshDetail and <= MaxMeshDetail
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value,
-                string.Create(CultureInfo.InvariantCulture, $"Mesh detail can be from {MinMeshDetail} to {MaxMeshDetail}."));
-    } = 1f;
-
-    /// <summary>The smallest <see cref="RenderScale"/>: a quarter of the window's pixels.</summary>
-    public const float MinRenderScale = 0.5f;
-
-    /// <summary>The largest <see cref="RenderScale"/>: four times the window's pixels.</summary>
-    public const float MaxRenderScale = 2f;
-
-    /// <summary>
-    /// How large the scene is drawn against the window, from 0.5 to 2 each way. Above 1 the scene is
-    /// drawn larger and shrunk to fit, which smooths edges and fine detail. Below 1 it's drawn smaller
-    /// and stretched, which is faster and softer. 1 draws at the window's size, with nothing resampled.
-    /// The overlay is always drawn at the window's size. A change rebuilds the targets before the next frame.
-    /// </summary>
-    public float RenderScale
-    {
-        get => _renderScale;
-        set => _renderScale = CheckRenderScale(value);
-    }
-
-    /// <summary>
-    /// How many pixels trace their screen-space reflection each frame: see <see cref="Rendition.ReflectionResolution"/>.
-    /// A change rebuilds the targets before the next frame.
-    /// </summary>
-    public ReflectionResolution ReflectionResolution
-    {
-        get => _reflectionResolution;
-        set
-        {
-            if (!Enum.IsDefined(value))
-            {
-                throw new ArgumentOutOfRangeException(nameof(value), value, "Reflection resolution can be Half or Full.");
-            }
-
-            _reflectionResolution = value;
-        }
-    }
-
-    /// <summary>
-    /// How many pixels work out their ambient occlusion each frame: see <see cref="Rendition.OcclusionResolution"/>.
-    /// A change rebuilds the targets before the next frame.
-    /// </summary>
-    public OcclusionResolution OcclusionResolution
-    {
-        get => _occlusionResolution;
-        set
-        {
-            if (!Enum.IsDefined(value))
-            {
-                throw new ArgumentOutOfRangeException(nameof(value), value, "Occlusion resolution can be Half or Full.");
-            }
-
-            _occlusionResolution = value;
-        }
-    }
-
-    /// <summary>
-    /// What anti-aliases the scene: the engine's own TAA, or AMD's FSR 3.1, which also rebuilds a scene drawn
-    /// below a <see cref="RenderScale"/> of 1 at the window's size instead of stretching it. FSR needs its library,
-    /// amd_fidelityfx_vk.dll, next to the game; without it, or above a render scale of 1, TAA is used, and a missing
-    /// library is said once on the error stream. A change takes effect on the next frame and starts the history again.
-    /// </summary>
-    public Upscaler Upscaler
-    {
-        get => _upscaler;
-        set
-        {
-            if (value != _upscaler)
-            {
-                _upscaler = value;
-                _upscalerUsed = Upscale.Choose(value, value == Upscaler.Fsr && Fsr.IsAvailable, Console.Error);
-            }
-        }
-    }
+    /// <summary>How the renderer draws: the quality and cost settings that take effect on the next frame.</summary>
+    public RenderSettings Settings { get; }
 
     /// <summary>The FSR version in use, such as "FSR 3.1.4", or null while FSR isn't drawing the picture.</summary>
     public string? UpscalerVersion => _upscaling ? _fsrPass.Version : null;
 
-    /// <summary>Returns <paramref name="value"/> if it's a <see cref="RenderScale"/> from 0.5 to 2, and throws if not.</summary>
-    public static float CheckRenderScale(float value) => value is >= MinRenderScale and <= MaxRenderScale
-        ? value
-        : throw new ArgumentOutOfRangeException(nameof(value), string.Create(
-            CultureInfo.InvariantCulture, $"RenderScale must be from {MinRenderScale} to {MaxRenderScale}, not {value}."));
-
-    /// <summary>
-    /// How many pixels across and down the scene is drawn for a window this size at this
-    /// <see cref="RenderScale"/>. At 1 it's the window's size. Otherwise each side is rounded to
-    /// the nearest even number, so at 0.5 each scene pixel covers exactly two by two window pixels.
-    /// A side longer than <paramref name="maxSize"/>, the largest image the device can make, shrinks
-    /// the whole scene to fit, keeping its shape.
-    /// </summary>
-    public static (int Width, int Height) SceneSize(int width, int height, float scale, int maxSize = int.MaxValue)
-    {
-        if (scale != 1f)
-        {
-            width = Even(width * (double)scale);
-            height = Even(height * (double)scale);
-        }
-
-        int longest = Math.Max(width, height);
-        if (longest <= maxSize)
-        {
-            return (width, height);
-        }
-
-        // Whole numbers, so the longest side lands on the limit exactly.
-        return (EvenBelow((long)width * maxSize / longest), EvenBelow((long)height * maxSize / longest));
-
-        static int Even(double size) => Math.Max((int)Math.Round(size / 2d) * 2, 2);
-
-        static int EvenBelow(long size) => (int)Math.Max(size / 2 * 2, 2);
-    }
-
-    /// <summary>Times the render passes. Off by default, because reading the times costs a little.</summary>
-    public bool MeasureGpu { get; set; }
-
-    /// <summary>Times from the newest finished frame, while <see cref="MeasureGpu"/> is on. Empty if the GPU can't time passes.</summary>
+    /// <summary>Times from the newest finished frame, while <see cref="RenderSettings.MeasureGpu"/> is on. Empty if the GPU can't time passes.</summary>
     public ReadOnlySpan<GpuPassTime> GpuTimes => _gpuTimer.Times;
 
     /// <summary>
-    /// The shaders each pass ran in the newest finished frame, while <see cref="MeasureGpu"/> is on. Empty if the GPU
+    /// The shaders each pass ran in the newest finished frame, while <see cref="RenderSettings.MeasureGpu"/> is on. Empty if the GPU
     /// can't count them. A pass that is switched off runs none.
     /// </summary>
     public ReadOnlySpan<GpuPassWork> GpuWork => _gpuWork is { } counter ? counter.Work : default;
 
-    /// <summary>How long the last frame waited for the GPU to finish earlier work and for the display, while <see cref="MeasureGpu"/> is on.</summary>
+    /// <summary>How long the last frame waited for the GPU to finish earlier work and for the display, while <see cref="RenderSettings.MeasureGpu"/> is on.</summary>
     public double WaitMilliseconds { get; private set; }
 
-    /// <summary>
-    /// Triangles in the last frame's camera and shadow passes, while <see cref="MeasureGpu"/> is on. The shadows count the
-    /// sun's cascades and the point and spot light tiles drawn that frame, not the ones kept from earlier frames.
-    /// </summary>
+    /// <summary>Triangles in the last frame's camera and shadow passes, while <see cref="RenderSettings.MeasureGpu"/> is on.</summary>
     public (long Camera, long Shadows) DrawnTriangles { get; private set; }
 
     /// <summary>
@@ -412,13 +208,8 @@ public sealed unsafe class Renderer : IDisposable
         _api = _context.Api;
         _uploads = new UploadQueue(_context);
 
-        _disableVsync = options.DisableVsync;
-        _swapchain = new Swapchain(_context, (uint)options.Width, (uint)options.Height, _disableVsync);
-        _renderScale = CheckRenderScale(options.RenderScale);
-        // The targets start at the scene's size; the first frame makes FSR's, when it's used, as it learns
-        // whether anti-aliasing is on.
-        _upscaler = options.Upscaler;
-        _upscalerUsed = Upscale.Choose(_upscaler, _upscaler == Upscaler.Fsr && Fsr.IsAvailable, Console.Error);
+        Settings = new RenderSettings(options);
+        _swapchain = new Swapchain(_context, (uint)options.Width, (uint)options.Height, !Settings.Vsync);
         _api.GetPhysicalDeviceProperties(_context.PhysicalDevice, out var deviceProperties);
         _maxImageSize = (int)Math.Min(deviceProperties.Limits.MaxImageDimension2D, int.MaxValue);
         _gBuffer = new GBuffer(_context, SceneExtent(_swapchain.Extent));
@@ -439,8 +230,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _traceDebugPass = _tracing is null ? null : new TraceDebugPass(_context, _tracing, FrameRing.Count, _kit.FrameSetLayout, _resources.Layout);
 
-        _shadowResolution = ShadowPass.CheckResolution(options.ShadowResolution);
-        _shadowPass = new ShadowPass(_context, _kit.FrameSetLayout, _resources, _shadowResolution);
+        _shadowPass = new ShadowPass(_context, _kit.FrameSetLayout, _resources, Settings.ShadowResolution);
         _frames.WriteAtlas(_shadowPass.Atlas.View);
 
         _sunShadows = new SunShadows(_api, _shadowPass, _meshStore, _switches);
@@ -456,6 +246,7 @@ public sealed unsafe class Renderer : IDisposable
         var probeVolume = new ProbeVolume(_context, _sky.Map.Sampler, _sky.Map.Sky);
         LightProbes = new LightProbes(_context, _sky.Map, _kit,
             new LightProbes.Sources(_resources, _tracing, captureScene, _ring, probeVolume));
+        Settings.Probes = LightProbes;
         ProbeTests = new ProbeTestHooks(_context, LightProbes, _kit, () => _frames[_uniformFrame].Set, WriteTargetDescriptors);
 
         _fog = new FogStage(_context, _kit, _switches);
@@ -524,19 +315,6 @@ public sealed unsafe class Renderer : IDisposable
     /// before their first frame, but true on a GPU that can't run them, as there is nothing to wait for there.
     /// </summary>
     public bool ProbesSettled => LightProbes.Batch.Scheduler?.Settled ?? !LightProbes.Volume.Supported;
-
-    /// <summary>
-    /// How many light probes follow the camera, and how many are updated a frame: see
-    /// <see cref="Rendition.ProbeQuality"/>. A change makes the probes' atlases again, all uncaptured,
-    /// on the next frame with the probes on, which waits for the GPU once.
-    /// </summary>
-    public ProbeQuality ProbeQuality
-    {
-        get => LightProbes.Quality;
-        set => LightProbes.Quality = Enum.IsDefined(value)
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value, "Probe quality can be Low, Medium or High.");
-    }
 
     /// <summary>The bindless textures and materials, which a shader that traces rays reads hits through.</summary>
     internal ResourceTable Resources => _resources;
@@ -1442,10 +1220,10 @@ public sealed unsafe class Renderer : IDisposable
     private void KeepTargets(in FrameView view, RenderEffects viewOff)
     {
         // FSR draws the picture at the window's size, so starting or stopping it changes the targets.
-        bool upscaling = _upscalerUsed == Upscaler.Fsr && _renderScale <= 1f && !viewOff.HasFlag(RenderEffects.AntiAliasing);
+        bool upscaling = Settings.UpscalerUsed == Upscaler.Fsr && Settings.RenderScale <= 1f && !viewOff.HasFlag(RenderEffects.AntiAliasing);
         bool upscalingChanged = upscaling != _upscaling;
         _upscaling = upscaling;
-        if (_vsyncChanged || (uint)view.Width != _swapchain.Extent.Width || (uint)view.Height != _swapchain.Extent.Height)
+        if (Settings.VsyncChanged || (uint)view.Width != _swapchain.Extent.Width || (uint)view.Height != _swapchain.Extent.Height)
         {
             Resize((uint)view.Width, (uint)view.Height);
         }
@@ -1457,11 +1235,11 @@ public sealed unsafe class Renderer : IDisposable
             RebuildTargets();
         }
 
-        if (_shadowResolution != _shadowPass.Resolution)
+        if (Settings.ShadowResolution != _shadowPass.Resolution)
         {
             // Frames in flight still read the maps being replaced. Changing this is rare.
             _context.WaitIdle();
-            _shadowPass.Resize(_shadowResolution);
+            _shadowPass.Resize(Settings.ShadowResolution);
             WriteTargetDescriptors();
         }
     }
@@ -1481,7 +1259,7 @@ public sealed unsafe class Renderer : IDisposable
     private bool TargetsChanged()
     {
         var scene = SceneExtent(_swapchain.Extent);
-        return _reflectionResolution != _gBuffer.Reflections || _occlusionResolution != _gBuffer.Occlusion.Resolution
+        return Settings.ReflectionResolution != _gBuffer.Reflections || Settings.OcclusionResolution != _gBuffer.Occlusion.Resolution
             || scene.Width != _gBuffer.Extent.Width || scene.Height != _gBuffer.Extent.Height;
     }
 
@@ -1492,7 +1270,7 @@ public sealed unsafe class Renderer : IDisposable
     private void TakeEffects(in FrameView view, RenderEffects viewOff)
     {
         _switches.Take(view, viewOff, _resources.Materials);
-        if (_fog.KeepTargets(view, _gBuffer.Extent, (VolumetricFogCellSize, VolumetricFogSlices)))
+        if (_fog.KeepTargets(view, _gBuffer.Extent, (Settings.VolumetricFogCellSize, Settings.VolumetricFogSlices)))
         {
             WriteTargetDescriptors();
         }
@@ -1575,7 +1353,7 @@ public sealed unsafe class Renderer : IDisposable
             acquired.Check();
         }
 
-        if (MeasureGpu)
+        if (Settings.MeasureGpu)
         {
             WaitMilliseconds = Stopwatch.GetElapsedTime(waitStart).TotalMilliseconds;
         }
@@ -1589,7 +1367,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private bool ResetFrame(in FrameSlot frame)
     {
-        bool timed = MeasureGpu && _gpuTimer.IsSupported;
+        bool timed = Settings.MeasureGpu &&_gpuTimer.IsSupported;
         if (timed)
         {
             _gpuTimer.Collect(_ring.Index);
@@ -1662,7 +1440,7 @@ public sealed unsafe class Renderer : IDisposable
         _frameNumber++;
         _held.Take(view.Picture.Transition);
         var (cameraCount, shadowCount) = SelectDraws(view, camera.ViewProjection, draws, castsShadow);
-        int tileDrawCount = _localShadows.Select(draws, MeshDetailScale);
+        int tileDrawCount = _localShadows.Select(draws, Settings.MeshDetailScale);
         _frames.ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
         _frameBakes.Relight.WriteTo(frame.Chunks, _frameBakes.MaskSlots.SpaceSlots);
 
@@ -1815,11 +1593,11 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, (int)_gBuffer.Extent.Height);
-        var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, _switches.DetailError(CameraDetailError, MeshDetailScale), cull: _switches.Culls);
+        var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, _switches.DetailError(CameraDetailError, Settings.MeshDetailScale), cull: _switches.Culls);
         _cameraView = camera;
         int cameraCount = SelectCameraDraws(camera, draws);
-        int shadowCount = _sunShadows.Select(view, draws, castsShadow, MeshDetailScale);
-        if (MeasureGpu)
+        int shadowCount = _sunShadows.Select(view, draws, castsShadow, Settings.MeshDetailScale);
+        if (Settings.MeasureGpu)
         {
             DrawnTriangles = (DrawSelection.Triangles(_cameraDraws.AsSpan(0, cameraCount)), _sunShadows.Triangles());
         }
@@ -2063,7 +1841,7 @@ public sealed unsafe class Renderer : IDisposable
 
         uniforms->CountBlock.Time = view.Time;
         uniforms->CountBlock.PreviousTime = historyValid ? _previousTime : view.Time;
-        bool castsShadow = _sunShadows.Write(uniforms, view, casters, MaxShadowCascades, _frameBakes.MaskSlots.Sun);
+        bool castsShadow = _sunShadows.Write(uniforms, view, casters, Settings.MaxShadowCascades,_frameBakes.MaskSlots.Sun);
         uniforms->CountBlock.Off = unchecked((int)(_switches.Off & ShadedEffects & ~RenderEffects.DepthFirst))
             | (_switches.Off.HasFlag(RenderEffects.Fades) ? FadesOffBit : 0)
             | (_switches.TraceView ? DebugViewBit : 0);
@@ -2107,7 +1885,7 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->Occlusion = Occlusion.Pack(view.ScreenSpace.Occlusion, view.ScreenSpace.Bounce, _switches.Off, historyValid);
         (uniforms->OutlineBlock.Outline, uniforms->OutlineBlock.OutlineFade) = Outlines.Pack(view.ScreenSpace.Outlines, _gBuffer.Extent.Width / (float)Math.Max(view.Width, 1));
         uniforms->SkyBlock.Fog= Fog.Pack(view.Weather.Fog, _switches.Off, underwater: _switches.Underwater(view));
-        _fog.Write(uniforms, view, historyValid, (VolumetricFogCellSize, VolumetricFogSlices));
+        _fog.Write(uniforms, view, historyValid, (Settings.VolumetricFogCellSize, Settings.VolumetricFogSlices));
         uniforms->WeatherBlock.Puddles = Puddles.Pack(view.Weather.Puddles, _switches.Off);
         uniforms->WeatherBlock.Wind = Wind.Pack(view.Weather.Wind, _switches.Off);
     }
@@ -2218,8 +1996,8 @@ public sealed unsafe class Renderer : IDisposable
         _context.WaitIdle();
         var extent = _swapchain.Extent;
         _swapchain.Dispose();
-        _swapchain = new Swapchain(_context, width, height, _disableVsync);
-        _vsyncChanged = false;
+        _swapchain = new Swapchain(_context, width, height, !Settings.Vsync);
+        Settings.VsyncChanged = false;
         if (_swapchain.Extent.Width != extent.Width || _swapchain.Extent.Height != extent.Height)
         {
             RebuildTargets();
@@ -2241,7 +2019,7 @@ public sealed unsafe class Renderer : IDisposable
     private void CreateTargets()
     {
         var scene = SceneExtent(_swapchain.Extent);
-        _gBuffer = new GBuffer(_context, scene, _upscaling ? _swapchain.Extent : scene, _reflectionResolution, _occlusionResolution);
+        _gBuffer = new GBuffer(_context, scene, _upscaling ? _swapchain.Extent : scene, Settings.ReflectionResolution, Settings.OcclusionResolution);
         if (_upscaling)
         {
             try
@@ -2252,10 +2030,10 @@ public sealed unsafe class Renderer : IDisposable
             {
                 // TAA draws instead, at the scene's size, until the upscaler is asked for again.
                 Console.Error.WriteLine($"{e.Message} Anti-aliasing uses TAA instead.");
-                _upscalerUsed = Upscaler.Taa;
+                Settings.UpscalerUsed = Upscaler.Taa;
                 _upscaling = false;
                 _gBuffer.Dispose();
-                _gBuffer = new GBuffer(_context, scene, reflections: _reflectionResolution, occlusion: _occlusionResolution);
+                _gBuffer = new GBuffer(_context, scene, reflections: Settings.ReflectionResolution, occlusion: Settings.OcclusionResolution);
             }
         }
         else
@@ -2264,7 +2042,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _post.Resize(DisplaySource, _gBuffer);
-        _fog.Resize(_gBuffer.Extent, (VolumetricFogCellSize, VolumetricFogSlices));
+        _fog.Resize(_gBuffer.Extent, (Settings.VolumetricFogCellSize, Settings.VolumetricFogSlices));
 
         WriteTargetDescriptors();
     }
@@ -2272,7 +2050,7 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The scene's size for a window this size, at the render scale.</summary>
     private Extent2D SceneExtent(Extent2D window)
     {
-        var (width, height) = SceneSize((int)window.Width, (int)window.Height, _renderScale, _maxImageSize);
+        var (width, height) = RenderSettings.SceneSize((int)window.Width, (int)window.Height, Settings.RenderScale, _maxImageSize);
         return new Extent2D((uint)width, (uint)height);
     }
 

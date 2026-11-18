@@ -223,7 +223,7 @@ internal sealed record GameArguments(
 
     private static float SceneScale(string text) =>
         float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float scale)
-        && scale is >= Rendition.Renderer.MinRenderScale and <= Rendition.Renderer.MaxRenderScale
+        && scale is >= Rendition.RenderSettings.MinRenderScale and <= Rendition.RenderSettings.MaxRenderScale
             ? scale
             : throw new ArgumentException($"--render-scale needs a number from 0.5 to 2, such as 1.5, not '{text}'.");
 

@@ -15,7 +15,7 @@ public class VolumetricFogTests
     {
         Assert.Equal((200, 113, 64), VolumetricFog.GridSize(1600, 900));
 
-        var (width, height) = Renderer.SceneSize(1600, 900, 2f);
+        var (width, height) = RenderSettings.SceneSize(1600, 900, 2f);
 
         Assert.Equal((400, 225, 64), VolumetricFog.GridSize(width, height));
     }

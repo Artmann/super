@@ -1110,7 +1110,7 @@ FinishPass    fullscreen       -> swapchain, with sharpening, a transition, vign
 ```
 
 Everything before `FinishPass` draws at the scene size, and the finish pass, the overlay and
-the capture draw at the window size. `Renderer.SceneSize` gives the scene size from the
+the capture draw at the window size. `RenderSettings.SceneSize` gives the scene size from the
 window and `RenderScale` (0.5 to 2). At 1 it is the window size exactly, odd sizes included,
 so a scale of 1 draws the same pixels as before render scale existed. At any other scale
 both sides are rounded to the nearest even number, at least 2, so half a scene pixel never
@@ -1203,7 +1203,7 @@ and up to four simpler versions, made while loading. Vertices that share a grid 
 face the same way merge into one of them, so a simpler version is only another index
 range, with no new vertices. Each frame, the camera and the shadow map each skip what
 they can't see and pick the simplest version that strays by at most 1 pixel on screen
-or 2 texels in the shadow map. `Renderer.MeshDetailScale` (`Graphics.Drawing.MeshDetail`) divides
+or 2 texels in the shadow map. `Renderer.Settings.MeshDetailScale` (`Graphics.Drawing.MeshDetail`) divides
 both limits, so at 0.5 a version may stray twice as far. `DrawItem`s written by hand have neither, and always draw
 in full.
 
@@ -1340,7 +1340,7 @@ how far away the blocker is, then widens its sampling to match, by the sun's siz
 which area the shadow map covers through `FrameView.Shadows`. A smaller area gives
 sharper shadows, so the sample fits it to the model. A wide outdoor scene asks for up
 to four cascades, each a ball three times the radius of the one before.
-`Renderer.MaxShadowCascades` (`Graphics.Shadowing.ShadowCascades`) caps how many are drawn, keeping the
+`Renderer.Settings.MaxShadowCascades` (`Graphics.Shadowing.ShadowCascades`) caps how many are drawn, keeping the
 nearest, so a lower setting gives up the far shadows and keeps the near ones as sharp.
 
 `Renderer.FitCascades` lays the balls along the view. `ShadowCascades.Spread` reads how far a
@@ -1367,7 +1367,7 @@ depth image, with its own culling and detail choice. Anything outside the last c
 depth as well as sideways, counts as lit.
 
 The image is `ShadowPass.Resolution` texels square, 2048 unless `RendererOptions.ShadowResolution`
-or `Renderer.ShadowResolution` (Super's `Graphics.Shadowing.ShadowResolution`) asks for 1024 or 4096.
+or `Renderer.Settings.ShadowResolution` (Super's `Graphics.Shadowing.ShadowResolution`) asks for 1024 or 4096.
 A change takes effect at the start of the next `Render`: the renderer waits for the device to
 go idle, `ShadowPass.Resize` replaces the image, and `WriteTargetDescriptors` points the AO,
 lighting and particle sets at it. That rewrite also drops a held transition picture, as a
@@ -1784,8 +1784,8 @@ With the volumetric fog on, the sky does get the volume's light, so this only sh
 Near the camera the height fog is worked out in a froxel grid instead of in closed form.
 `Passes/VolumetricFog.cs` holds the grid's size and what the frame uniforms get, and
 `Vulkan/VolumetricFogVolume.cs` the GPU side. The grid has one cell per c×c scene pixels
-(after render scale, rounded up) and S slices, where c is `Renderer.VolumetricFogCellSize`
-(4 to 32, 8 by default) and S is `Renderer.VolumetricFogSlices` (16 to 128, 64 by default).
+(after render scale, rounded up) and S slices, where c is `Renderer.Settings.VolumetricFogCellSize`
+(4 to 32, 8 by default) and S is `Renderer.Settings.VolumetricFogSlices` (16 to 128, 64 by default).
 Slice boundary i lies at view depth `n·(f/n)^(i/S)`, where f is `VolumetricDistance` and n, where the exponential split
 starts, is the smaller of 1 m and f/2. Cell 0 runs from the camera to boundary 1 and every
 other cell from its boundary to the next. So the first cell is one deep block, 0 to about
@@ -1945,7 +1945,7 @@ depth is (`TRACED_DEPTH_FALLOFF`) and how far their normal agrees (`TRACED_NORMA
 so a reflection doesn't leak across an edge. Rays that found nothing lower the trust
 without darkening the colour. At `Full` the target is the scene's size and each pixel
 reads its own texel. The lighting tells the two apart by comparing the target's size
-with the depth buffer's, and a change of `Renderer.ReflectionResolution` rebuilds the
+with the depth buffer's, and a change of `Renderer.Settings.ReflectionResolution` rebuilds the
 targets as a change of render scale does.
 
 `LightingStage.RecordReflections` (`src/Rendition/LightingStage.cs`) leaves the pass out when nothing would be traced: with
@@ -2059,7 +2059,7 @@ fixed-grid probes: 64 × 64 tiles at `ProbeQuality.Low`, 84 × 83 at `Medium` an
 `High`. Both atlases and all five layers take about
 43 MB at Low, 73 MB at Medium and 172 MB at High, against 8.6 MB for the single fixed-grid atlas
 before. `EnsureStorage(quality)` makes them on the first frame with the probes on, and again,
-cleared, after `Renderer.ProbeQuality` (High by default, set from `Graphics.Lighting.ProbeQuality`) changes; `Release()` frees them when
+cleared, after `Renderer.Settings.ProbeQuality` (High by default, set from `Graphics.Lighting.ProbeQuality`) changes; `Release()` frees them when
 `RenderEffects.LightProbes` is switched off. Each of the three waits for the device once, in
 `ManageProbeStorage` (through `LightProbes.Ensure` and `Release`, `src/Rendition/LightProbes.cs`) before the frame's fence. With the switch off nothing else is allocated
 and nothing is recorded, and switching it back on starts every probe uncaptured.
@@ -3717,7 +3717,7 @@ that lies across the edge of something in front is traced for one surface in one
 and the other in the next, and the depth check starts its history over each time, so it
 keeps one frame's grain. In the Courtyard
 at 1080p the occlusion pass went from 1.79 to about 0.5 ms, and at 4K in the Forest from
-5.4 to 1.6 ms. A change of `Renderer.OcclusionResolution` rebuilds the targets as a
+5.4 to 1.6 ms. A change of `Renderer.Settings.OcclusionResolution` rebuilds the targets as a
 change of render scale does.
 
 The overhead

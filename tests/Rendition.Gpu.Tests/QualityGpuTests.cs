@@ -27,7 +27,7 @@ public sealed class QualityGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.MaxShadowCascades = 4;
+            gpu.Renderer.Settings.MaxShadowCascades = 4;
             gpu.Renderer.DestroyMesh(panel.Mesh);
         }
 
@@ -50,7 +50,7 @@ public sealed class QualityGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.MeshDetailScale = 1f;
+            gpu.Renderer.Settings.MeshDetailScale = 1f;
             gpu.Renderer.DestroyMesh(panel.Mesh);
         }
 
@@ -109,15 +109,15 @@ public sealed class QualityGpuTests(GpuFixture gpu)
     [InlineData(5)]
     public void A_cascade_cap_outside_one_to_four_is_refused(int cascades)
     {
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => gpu.Renderer.MaxShadowCascades = cascades);
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => gpu.Renderer.Settings.MaxShadowCascades = cascades);
 
         Assert.StartsWith("The sun can draw from 1 to 4 cascades.", error.Message);
-        Assert.Equal(4, gpu.Renderer.MaxShadowCascades);
+        Assert.Equal(4, gpu.Renderer.Settings.MaxShadowCascades);
     }
 
     private long ShadowTriangles(DrawItem panel, int maxCascades)
     {
-        gpu.Renderer.MaxShadowCascades = maxCascades;
+        gpu.Renderer.Settings.MaxShadowCascades = maxCascades;
         return Measure(panel, RenderEffects.All & ~RenderEffects.SunShadows).Shadows;
     }
 
@@ -138,7 +138,7 @@ public sealed class QualityGpuTests(GpuFixture gpu)
 
     private long CameraTriangles(DrawItem panel, float detail)
     {
-        gpu.Renderer.MeshDetailScale = detail;
+        gpu.Renderer.Settings.MeshDetailScale = detail;
         return Measure(panel, RenderEffects.All).Camera;
     }
 
@@ -176,6 +176,17 @@ public sealed class QualityGpuTests(GpuFixture gpu)
             // Culling and simpler models stay on: they're what these tests measure.
             Off = off & ~(RenderEffects.Culling | RenderEffects.SimplerModels),
         };
+
+        gpu.Renderer.Settings.MeasureGpu = true;
+        try
+        {
+            gpu.Renderer.Render(view, [panel]);
+            return gpu.Renderer.DrawnTriangles;
+        }
+        finally
+        {
+            gpu.Renderer.Settings.MeasureGpu = false;
+        }
     }
 
     // A two-metre square facing the camera, cut into 64 by 64 quads, so it has simpler versions to fall back to.

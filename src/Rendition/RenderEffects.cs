@@ -153,7 +153,7 @@ public enum RenderEffects : long
     Culling = 1 << 27,
 
     /// <summary>
-    /// Swapping in a model's simpler versions as it moves away, by <see cref="Renderer.MeshDetailScale"/>. Without it every
+    /// Swapping in a model's simpler versions as it moves away, by <see cref="RenderSettings.MeshDetailScale"/>. Without it every
     /// model is drawn at full detail at any distance, which only costs time, so it's for checking what the simpler
     /// versions change.
     /// </summary>

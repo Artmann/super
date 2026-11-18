@@ -37,7 +37,7 @@ public sealed class GraphicsScreen
     public float RenderScale
     {
         get;
-        set => field = Renderer.CheckRenderScale(value);
+        set => field = RenderSettings.CheckRenderScale(value);
     } = 1f;
 
     /// <summary>
