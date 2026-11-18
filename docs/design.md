@@ -2295,6 +2295,9 @@ so the lookup's eight probes are always inside the box; -1 means none holds the 
 repeats this rule and the slot maths.
 
 `ProbeScheduler` picks which probes a frame updates.
+It keeps each probe's state in `ProbeStates`, which also holds the probes that aren't clean in a
+`ProbeWaitList` and every capture in a `ProbeCaptureQueue`. `ProbeBatchPicker` builds each frame's
+batch from them, and `ProbeGridPlacement` says where the fixed grid's probes are.
 A probe is `ProbeId(cascade, slot)`, where cascade 4 is the fixed grid; the grid's positions are
 given with `SetFixedGrid`. Each probe is never captured, dirty or clean. `Scrolled` makes the
 `ScrollResult`'s new slots never captured, `LightChanged(center, range)` makes the clean probes in
