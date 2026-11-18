@@ -345,24 +345,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Cook.Bc7Encoder.EncodeBlock",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Bc7Encoder.FitAxis",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 22
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Bc7Encoder.TrySeparate",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Cook.CacheFolder.Trim/4",
       "file": "src/Super.Cook/CacheTrim.cs",
       "metric": 15
@@ -864,24 +846,6 @@
       "name": "Super.ContentValidator.Fields",
       "file": "src/Super/Data/ContentValidator.cs",
       "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Bc7Encoder.EncodeBlock",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Bc7Encoder.FitAxis",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 36
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Bc7Encoder.TrySeparate",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 44
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1941,30 +1905,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Cook.Bc7Encoder.EncodeBlock",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 65
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Bc7Encoder.FitAxis",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 110
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Bc7Encoder.TrySeparate",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 113
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Bc7Encoder.WriteSeparate",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Cook.CacheFolder.Trim/4",
       "file": "src/Super.Cook/CacheTrim.cs",
       "metric": 58
@@ -2817,18 +2757,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Super.Cook.Bc7Encoder.LeastSquares",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Cook.Bc7Encoder.Load",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Super.Cook.CookCache.Save",
       "file": "src/Super.Cook/CookCache.cs",
       "metric": 7
@@ -3351,12 +3279,6 @@
     },
     {
       "kind": "large-type",
-      "name": "Super.Cook.Bc7Encoder",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 25
-    },
-    {
-      "kind": "large-type",
       "name": "Super.Cook.CookCache",
       "file": "src/Super.Cook/CookCache.cs",
       "metric": 23
@@ -3539,7 +3461,7 @@
       "kind": "large-type",
       "name": "Super.Ui.UiPointer",
       "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 37
+      "metric": 38
     },
     {
       "kind": "large-type",
