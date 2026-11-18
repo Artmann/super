@@ -11,25 +11,20 @@ namespace Rendition;
 /// bytes a frame, so a frame never waits on a file. A bake no copy names in a frame is let go at the end of it. See
 /// "Chunk bakes on the GPU" in docs/design.md.
 /// </summary>
-internal sealed unsafe class ChunkBakePool : IDisposable
+internal sealed class ChunkBakePool : IDisposable
 {
     /// <summary>The most bytes of chunk lightmap pages copied to the GPU in one frame. A page larger than this goes up over several.</summary>
     public const long ChunkUploadBudget = 8L * 1024 * 1024;
 
-    private readonly VulkanContext _context;
-    private readonly ResourceTable _resources;
+    // The roles of a chunk's pages: its five transfer pages, then its plain irradiance, direction and mask.
+    internal const int Irradiance = 5;
+    internal const int Direction = 6;
+    internal const int Mask = 7;
+
     private readonly Action<string, string, string> _unreadable;
-
-    private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
-
-    // The new bakes of forgotten resident files, read and uploaded while the old one is still drawn, by file.
-    private readonly Dictionary<string, Entry> _replacing = new(StringComparer.Ordinal);
-    private readonly List<string> _swapped = [];
+    private readonly PageUploads _uploads;
+    private readonly HeldBakes _held;
     private readonly ConcurrentQueue<(Entry Entry, LightBakeFile? Bake, string? Failure)> _loaded = new();
-    private readonly List<Entry> _uploading = [];
-    private readonly ChunkPageUploader _uploader;
-    private readonly List<string> _unused = [];
-    private readonly List<(Entry Entry, string Reason)> _refused = [];
 
     // Counts calls to Record, which the renderer makes once a presented frame. A bake is let go when Record runs
     // without a Use since the one before, so this holds only while every frame draws one view: two views drawn in one
@@ -40,9 +35,8 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     /// <param name="unreadable">Told, on the render thread, of each file that couldn't be read, checked or put on the GPU: the file, what went wrong ("can't be read" or "can't go on the GPU") and why.</param>
     public ChunkBakePool(VulkanContext context, ResourceTable resources, long uploadBudget, Action<string, string, string> unreadable)
     {
-        _context = context;
-        _resources = resources;
-        _uploader = new ChunkPageUploader(context, resources, uploadBudget);
+        _uploads = new PageUploads(context, resources, uploadBudget);
+        _held = new HeldBakes(_uploads);
         _unreadable = unreadable;
     }
 
@@ -52,18 +46,151 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     /// </summary>
     internal long UploadBudget
     {
-        get => _uploader.Budget;
-        set => _uploader.Budget = value;
+        get => _uploads.Budget;
+        set => _uploads.Budget = value;
     }
 
     /// <summary>The bakes with every page on the GPU.</summary>
-    public int Resident { get; private set; }
+    public int Resident => _uploads.Resident;
 
     /// <summary>The bakes being read or uploaded, replacements of resident ones included.</summary>
-    public int Pending => _entries.Count + _replacing.Count - Resident;
+    public int Pending => _held.Count - Resident;
 
     /// <summary>Every bake held, resident or pending. For tests.</summary>
-    public IReadOnlyCollection<Entry> Entries => _entries.Values;
+    public IReadOnlyCollection<Entry> Entries => _held.Current;
+
+    /// <summary>
+    /// Marks <paramref name="file"/>'s bake as named this frame, and gives it when every page is on the GPU. The first
+    /// time, starts reading it from <paramref name="store"/> on a worker thread and gives null. Allocates nothing for a
+    /// file it already holds. A resident bake that was forgotten is still given, while its replacement is read and
+    /// uploaded, until the replacement is resident.
+    /// </summary>
+    public Entry? Use(string file, IBakeStore store)
+    {
+        var entry = _held.Use(file, _frame, out var toRead);
+        if (toRead is not null)
+        {
+            Read(toRead, store);
+        }
+
+        return entry.IsResident ? entry : null;
+    }
+
+    private void Read(Entry entry, IBakeStore store)
+    {
+        var loaded = _loaded;
+        string file = entry.File;
+        Task.Run(() =>
+        {
+            try
+            {
+                var bake = store.Load(file)
+                    ?? throw new InvalidDataException("The file is gone, though its header was read as fresh.");
+                ChunkBakeCheck.CheckPages(bake, file);
+                loaded.Enqueue((entry, bake, null));
+            }
+            catch (Exception e)
+            {
+                loaded.Enqueue((entry, null, e.Message));
+            }
+        });
+    }
+
+    /// <summary>
+    /// Records this frame's share of the uploads on <paramref name="cmd"/> and ends the frame: bakes read since the last
+    /// frame start uploading, those that failed are reported, and those no copy named this frame are let go. What the
+    /// GPU may still read goes in <paramref name="textures"/> and <paramref name="others"/>, which the caller frees
+    /// once this frame's fence has signalled.
+    /// </summary>
+    public void Record(CommandBuffer cmd, List<int> textures, List<IDisposable> others)
+    {
+        StartLoaded(textures, others);
+        _held.ReleaseUnused(_frame, textures, others);
+        _uploads.Upload(cmd, others);
+        DropRefused(textures, others);
+        _held.SwapReplacements(textures, others);
+        _frame++;
+    }
+
+    // Starts uploading each bake read since the last frame, and drops and reports each that failed.
+    private void StartLoaded(List<int> textures, List<IDisposable> others)
+    {
+        while (_loaded.TryDequeue(out var done))
+        {
+            var entry = done.Entry;
+            if (!_held.IsCurrent(entry))
+            {
+                // Let go, forgotten again, or cleared by a reload, while it was being read.
+                continue;
+            }
+
+            if (done.Bake is not { } bake)
+            {
+                _held.Drop(entry, textures, others);
+                _unreadable(entry.File, "can't be read", done.Failure!);
+                continue;
+            }
+
+            Start(entry, bake);
+        }
+    }
+
+    // Makes the images for a bake just read, for the uploads to fill. A bake whose images couldn't all be made, such as
+    // by running out of device memory part way, is let go: nothing of it is on the GPU yet.
+    private void Start(Entry entry, LightBakeFile bake)
+    {
+        try
+        {
+            _uploads.Start(entry, bake);
+        }
+        catch
+        {
+            _held.Remove(entry);
+            throw;
+        }
+    }
+
+    // A bake whose page the material table had no room for is dropped, the copies already recorded included, and lit
+    // live until the store reloads, as an unreadable one is.
+    private void DropRefused(List<int> textures, List<IDisposable> others)
+    {
+        foreach (var (entry, reason) in _uploads.Refused)
+        {
+            _held.Drop(entry, textures, others);
+            _unreadable(entry.File, "can't go on the GPU", reason);
+        }
+
+        _uploads.Refused.Clear();
+    }
+
+    /// <summary>Lets every bake go, as after the content reloads, from a frame that has already been submitted.</summary>
+    public void Clear(List<int> textures, List<IDisposable> others) => _held.Clear(textures, others);
+
+    /// <summary>
+    /// Has one file's bake read again, as when its file was written over, the next time a copy names it. Nothing else
+    /// is touched. A resident bake is still drawn until the new one is resident, then swapped for it, so the chunk never
+    /// flickers to live light; a replacement already being read for it is dropped. A bake not yet resident is let go
+    /// the same deferred way as eviction, and its read's result ignored. Reads no file and waits for nothing.
+    /// </summary>
+    public void Forget(string file, List<int> textures, List<IDisposable> others) => _held.Forget(file, textures, others);
+
+    /// <summary>Frees the pages that never reached the material table, which frees the rest itself. Call once the GPU is idle.</summary>
+    public void Dispose()
+    {
+        foreach (var entry in _held.All())
+        {
+            foreach (var page in entry.Pages)
+            {
+                if (page.Slot < 0)
+                {
+                    page.Texture.Dispose();
+                }
+            }
+        }
+
+        _held.Forsake();
+        _uploads.Forsake();
+    }
 
     /// <summary>One chunk file's bake: its pages, and once they are all up, each draw's lightmap rectangle.</summary>
     public sealed class Entry(string file)
@@ -89,6 +216,103 @@ internal sealed unsafe class ChunkBakePool : IDisposable
 
         /// <summary>The bake's mask channel for each of its Mixed lights, by chunk-space light hash, once resident.</summary>
         public (ulong LightHash, int Channel)[] Channels { get; internal set; } = [];
+
+        // Makes an image for each of the bake's pages, for the uploads to fill.
+        internal void AddPages(VulkanContext context, LightBakeFile bake)
+        {
+            var transfer = bake.Transfer!;
+            AddPage(context, transfer.SkyRed, 0);
+            AddPage(context, transfer.SkyGreen, 1);
+            AddPage(context, transfer.SkyBlue, 2);
+            AddPage(context, transfer.Sun, 3);
+            AddPage(context, transfer.SunTint, 4);
+            if (bake.Irradiance is { Count: 1 } irradiance)
+            {
+                AddPage(context, irradiance[0], Irradiance);
+                AddPage(context, bake.Direction![0], Direction);
+            }
+
+            if (bake.Mask.Count == 1)
+            {
+                AddPage(context, bake.Mask[0], Mask);
+            }
+        }
+
+        private void AddPage(VulkanContext context, LightBakePage source, int role)
+        {
+            var texture = new GpuTexture(context, source.Width, source.Height, TextureKind.Linear, 1, 1,
+                format: BakePages.Format(source.Format));
+            Pages.Add(new Page(source, texture, role));
+        }
+
+        // Frees the images of a bake none of whose pages is on the GPU yet.
+        internal void DisposePages()
+        {
+            foreach (var page in Pages)
+            {
+                page.Texture.Dispose();
+            }
+
+            Pages.Clear();
+        }
+
+        // Every page is up: the rectangles point at the plain pages, or at none when the chunk has no plain light.
+        internal void BecomeResident()
+        {
+            var (irradiance, direction) = TakeSlots();
+            Rects = RectsOf(Bake!, irradiance, direction);
+            Channels = [.. Bake!.ChunkChannels];
+            Bake = null;
+            IsResident = true;
+        }
+
+        // Sets the transfer and mask slots, and gives the slots of the plain irradiance and direction pages, or -1.
+        private (int Irradiance, int Direction) TakeSlots()
+        {
+            int irradiance = -1;
+            int direction = -1;
+            foreach (var page in Pages)
+            {
+                if (page.Role < Irradiance)
+                {
+                    Transfer[page.Role] = page.Slot;
+                }
+                else if (page.Role == Irradiance)
+                {
+                    irradiance = page.Slot;
+                }
+                else if (page.Role == Direction)
+                {
+                    direction = page.Slot;
+                }
+                else if (page.Role == Mask)
+                {
+                    MaskPage = page.Slot;
+                }
+            }
+
+            return (irradiance, direction);
+        }
+
+        private static Dictionary<ulong, GpuLightmapRect> RectsOf(LightBakeFile bake, int irradiance, int direction)
+        {
+            var rects = new Dictionary<ulong, GpuLightmapRect>();
+            foreach (var (bakeId, rect) in bake.Draws)
+            {
+                rects[bakeId] = new GpuLightmapRect
+                {
+                    ScaleOffset = new Vector4(rect.Scale, rect.Offset.X, rect.Offset.Y),
+                    Irradiance = irradiance,
+                    Direction = direction,
+                    // The chunk's mask is read through its GpuChunk instead, whose table turns the frame's slots into the
+                    // bake's channels. A view with no chunk data, such as a reflection capture, reads it as fully lit.
+                    Mask = -1,
+                    Page = 0,
+                };
+            }
+
+            return rects;
+        }
     }
 
     internal sealed class Page(LightBakePage source, GpuTexture texture, int role)
@@ -100,410 +324,276 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         public int Slot = -1;
     }
 
-    // The roles of a chunk's pages: its five transfer pages, then its plain irradiance, direction and mask.
-    internal const int Irradiance = 5;
-    internal const int Direction = 6;
-    internal const int Mask = 7;
-
     /// <summary>
-    /// Marks <paramref name="file"/>'s bake as named this frame, and gives it when every page is on the GPU. The first
-    /// time, starts reading it from <paramref name="store"/> on a worker thread and gives null. Allocates nothing for a
-    /// file it already holds. A resident bake that was forgotten is still given, while its replacement is read and
-    /// uploaded, until the replacement is resident.
+    /// The bakes held by file, and the replacements of forgotten resident ones, read and uploaded while the old one is
+    /// still drawn. Lets go of a bake through the uploads, which know which of its pages the GPU may still read.
     /// </summary>
-    public Entry? Use(string file, IBakeStore store)
+    private sealed class HeldBakes(PageUploads uploads)
     {
-        if (!_entries.TryGetValue(file, out var entry))
+        private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, Entry> _replacing = new(StringComparer.Ordinal);
+        private readonly List<string> _swapped = [];
+        private readonly List<string> _unused = [];
+
+        /// <summary>Every bake held, replacements included.</summary>
+        public int Count => _entries.Count + _replacing.Count;
+
+        /// <summary>The bakes held by file, without their replacements.</summary>
+        public IReadOnlyCollection<Entry> Current => _entries.Values;
+
+        public IEnumerable<Entry> All() => _entries.Values.Concat(_replacing.Values);
+
+        /// <summary>
+        /// The file's bake, marked as used in <paramref name="frame"/>. <paramref name="toRead"/> is the bake to start
+        /// reading: a new one, or the replacement of a forgotten resident one, or null when nothing needs reading.
+        /// </summary>
+        public Entry Use(string file, int frame, out Entry? toRead)
         {
-            entry = new Entry(file);
-            _entries.Add(file, entry);
-            Read(entry, store);
-        }
-        else if (entry.Stale)
-        {
-            entry.Stale = false;
-            var replacement = new Entry(file);
-            _replacing.Add(file, replacement);
-            Read(replacement, store);
+            toRead = null;
+            if (!_entries.TryGetValue(file, out var entry))
+            {
+                entry = new Entry(file);
+                _entries.Add(file, entry);
+                toRead = entry;
+            }
+            else if (entry.Stale)
+            {
+                entry.Stale = false;
+                toRead = new Entry(file);
+                _replacing.Add(file, toRead);
+            }
+
+            entry.LastUsed = frame;
+            return entry;
         }
 
-        entry.LastUsed = _frame;
-        return entry.IsResident ? entry : null;
+        /// <summary>Whether the bake is still held, as its file's bake or as its replacement.</summary>
+        public bool IsCurrent(Entry entry) =>
+            IsReplacement(entry) || (_entries.TryGetValue(entry.File, out var held) && ReferenceEquals(held, entry));
+
+        private bool IsReplacement(Entry entry) =>
+            _replacing.TryGetValue(entry.File, out var replacement) && ReferenceEquals(replacement, entry);
+
+        /// <summary>Stops holding a bake, without freeing anything.</summary>
+        public void Remove(Entry entry)
+        {
+            if (IsReplacement(entry))
+            {
+                _replacing.Remove(entry.File);
+            }
+            else
+            {
+                _entries.Remove(entry.File);
+            }
+        }
+
+        /// <summary>
+        /// Lets go of a bake that couldn't be read or put on the GPU, and of the one it was to replace, so the chunk is
+        /// lit live as any unreadable chunk is.
+        /// </summary>
+        public void Drop(Entry entry, List<int> textures, List<IDisposable> others)
+        {
+            uploads.Release(entry, textures, others);
+            if (IsReplacement(entry))
+            {
+                _replacing.Remove(entry.File);
+            }
+
+            if (_entries.Remove(entry.File, out var held) && !ReferenceEquals(held, entry))
+            {
+                uploads.Release(held, textures, others);
+            }
+        }
+
+        /// <summary>Lets go of the bakes no copy named in <paramref name="frame"/>, and of their replacements.</summary>
+        public void ReleaseUnused(int frame, List<int> textures, List<IDisposable> others)
+        {
+            foreach (var (file, entry) in _entries)
+            {
+                if (entry.LastUsed != frame)
+                {
+                    _unused.Add(file);
+                }
+            }
+
+            foreach (string file in _unused)
+            {
+                uploads.Release(_entries[file], textures, others);
+                _entries.Remove(file);
+                if (_replacing.Remove(file, out var replacement))
+                {
+                    uploads.Release(replacement, textures, others);
+                }
+            }
+
+            _unused.Clear();
+        }
+
+        /// <summary>
+        /// A replacement with every page up takes the old bake's place, which goes once the frames drawing it are done,
+        /// so the chunk never draws live light between the two.
+        /// </summary>
+        public void SwapReplacements(List<int> textures, List<IDisposable> others)
+        {
+            foreach (var (file, replacement) in _replacing)
+            {
+                if (replacement.IsResident)
+                {
+                    _swapped.Add(file);
+                }
+            }
+
+            foreach (string file in _swapped)
+            {
+                _replacing.Remove(file, out var replacement);
+                if (_entries.TryGetValue(file, out var old))
+                {
+                    replacement!.LastUsed = old.LastUsed;
+                    uploads.Release(old, textures, others);
+                }
+
+                _entries[file] = replacement!;
+            }
+
+            _swapped.Clear();
+        }
+
+        /// <summary>Lets every bake go.</summary>
+        public void Clear(List<int> textures, List<IDisposable> others)
+        {
+            foreach (var entry in _entries.Values)
+            {
+                uploads.Release(entry, textures, others);
+            }
+
+            foreach (var entry in _replacing.Values)
+            {
+                uploads.Release(entry, textures, others);
+            }
+
+            _entries.Clear();
+            _replacing.Clear();
+        }
+
+        /// <summary>Has one file's bake read again, as <see cref="ChunkBakePool.Forget"/> says.</summary>
+        public void Forget(string file, List<int> textures, List<IDisposable> others)
+        {
+            if (_replacing.Remove(file, out var replacement))
+            {
+                uploads.Release(replacement, textures, others);
+            }
+
+            if (!_entries.TryGetValue(file, out var entry))
+            {
+                return;
+            }
+
+            if (entry.IsResident)
+            {
+                entry.Stale = true;
+                return;
+            }
+
+            _entries.Remove(file);
+            uploads.Release(entry, textures, others);
+        }
+
+        /// <summary>Stops holding every bake without freeing anything, once the pool has freed what it must.</summary>
+        public void Forsake()
+        {
+            _entries.Clear();
+            _replacing.Clear();
+        }
     }
 
-    private void Read(Entry entry, IBakeStore store)
+    /// <summary>
+    /// The bakes whose pages are going up, a share each frame, and how many have every page up. Also lets a bake's pages
+    /// go, since only it knows which reached the material table.
+    /// </summary>
+    private sealed class PageUploads(VulkanContext context, ResourceTable resources, long budget)
     {
-        var loaded = _loaded;
-        string file = entry.File;
-        Task.Run(() =>
+        private readonly ChunkPageUploader _uploader = new(context, resources, budget);
+        private readonly List<Entry> _uploading = [];
+
+        public long Budget
+        {
+            get => _uploader.Budget;
+            set => _uploader.Budget = value;
+        }
+
+        /// <summary>The bakes with every page on the GPU.</summary>
+        public int Resident { get; private set; }
+
+        /// <summary>The bakes whose page the material table had no room for, with why; the pool drops and empties them.</summary>
+        public List<(Entry Entry, string Reason)> Refused { get; } = [];
+
+        /// <summary>Makes the images for a bake just read and queues it. Frees what it made when it can't make them all.</summary>
+        public void Start(Entry entry, LightBakeFile bake)
         {
             try
             {
-                var bake = store.Load(file)
-                    ?? throw new InvalidDataException("The file is gone, though its header was read as fresh.");
-                ChunkBakeCheck.CheckPages(bake, file);
-                loaded.Enqueue((entry, bake, null));
+                entry.AddPages(context, bake);
             }
-            catch (Exception e)
+            catch
             {
-                loaded.Enqueue((entry, null, e.Message));
-            }
-        });
-    }
-
-    private bool IsReplacement(Entry entry) =>
-        _replacing.TryGetValue(entry.File, out var replacement) && ReferenceEquals(replacement, entry);
-
-    // Lets go of a bake that couldn't be read or put on the GPU, and of the one it was to replace, so the chunk is lit
-    // live as any unreadable chunk is.
-    private void Drop(Entry entry, List<int> textures, List<IDisposable> others)
-    {
-        Release(entry, textures, others);
-        if (IsReplacement(entry))
-        {
-            _replacing.Remove(entry.File);
-        }
-
-        if (_entries.Remove(entry.File, out var held) && !ReferenceEquals(held, entry))
-        {
-            Release(held, textures, others);
-        }
-    }
-
-    /// <summary>
-    /// Records this frame's share of the uploads on <paramref name="cmd"/> and ends the frame: bakes read since the last
-    /// frame start uploading, those that failed are reported, and those no copy named this frame are let go. What the
-    /// GPU may still read goes in <paramref name="textures"/> and <paramref name="others"/>, which the caller frees
-    /// once this frame's fence has signalled.
-    /// </summary>
-    public void Record(CommandBuffer cmd, List<int> textures, List<IDisposable> others)
-    {
-        StartLoaded(textures, others);
-        ReleaseUnused(textures, others);
-        Upload(cmd, others);
-        DropRefused(textures, others);
-        SwapReplacements(textures, others);
-        _frame++;
-    }
-
-    // Starts uploading each bake read since the last frame, and drops and reports each that failed.
-    private void StartLoaded(List<int> textures, List<IDisposable> others)
-    {
-        while (_loaded.TryDequeue(out var done))
-        {
-            var entry = done.Entry;
-            bool replacement = IsReplacement(entry);
-            if (!replacement && (!_entries.TryGetValue(entry.File, out var held) || !ReferenceEquals(held, entry)))
-            {
-                // Let go, forgotten again, or cleared by a reload, while it was being read.
-                continue;
+                entry.DisposePages();
+                throw;
             }
 
-            if (done.Bake is not { } bake)
+            entry.Bake = bake;
+            _uploading.Add(entry);
+        }
+
+        /// <summary>Records this frame's share of the waiting pages, then finishes each bake whose pages are all up.</summary>
+        public void Upload(CommandBuffer cmd, List<IDisposable> others)
+        {
+            if (_uploading.Count == 0)
             {
-                Drop(entry, textures, others);
-                _unreadable(entry.File, "can't be read", done.Failure!);
-                continue;
+                return;
             }
 
-            Start(entry, bake);
-        }
-    }
-
-    // Lets go of the bakes no copy named this frame, and of their replacements.
-    private void ReleaseUnused(List<int> textures, List<IDisposable> others)
-    {
-        foreach (var (file, entry) in _entries)
-        {
-            if (entry.LastUsed != _frame)
+            _uploader.Record(cmd, _uploading, Refused, others);
+            for (int i = _uploading.Count - 1; i >= 0; i--)
             {
-                _unused.Add(file);
-            }
-        }
-
-        foreach (string file in _unused)
-        {
-            Release(_entries[file], textures, others);
-            _entries.Remove(file);
-            if (_replacing.Remove(file, out var replacement))
-            {
-                Release(replacement, textures, others);
-            }
-        }
-
-        _unused.Clear();
-    }
-
-    // A bake whose page the material table had no room for is dropped, the copies already recorded included, and lit
-    // live until the store reloads, as an unreadable one is.
-    private void DropRefused(List<int> textures, List<IDisposable> others)
-    {
-        foreach (var (entry, reason) in _refused)
-        {
-            Drop(entry, textures, others);
-            _unreadable(entry.File, "can't go on the GPU", reason);
-        }
-
-        _refused.Clear();
-    }
-
-    // A replacement with every page up takes the old bake's place, which goes once the frames drawing it are done, so
-    // the chunk never draws live light between the two.
-    private void SwapReplacements(List<int> textures, List<IDisposable> others)
-    {
-        foreach (var (file, replacement) in _replacing)
-        {
-            if (replacement.IsResident)
-            {
-                _swapped.Add(file);
-            }
-        }
-
-        foreach (string file in _swapped)
-        {
-            _replacing.Remove(file, out var replacement);
-            if (_entries.TryGetValue(file, out var old))
-            {
-                replacement!.LastUsed = old.LastUsed;
-                Release(old, textures, others);
-            }
-
-            _entries[file] = replacement!;
-        }
-
-        _swapped.Clear();
-    }
-
-    /// <summary>Lets every bake go, as after the content reloads, from a frame that has already been submitted.</summary>
-    public void Clear(List<int> textures, List<IDisposable> others)
-    {
-        foreach (var entry in _entries.Values)
-        {
-            Release(entry, textures, others);
-        }
-
-        foreach (var entry in _replacing.Values)
-        {
-            Release(entry, textures, others);
-        }
-
-        _entries.Clear();
-        _replacing.Clear();
-    }
-
-    /// <summary>
-    /// Has one file's bake read again, as when its file was written over, the next time a copy names it. Nothing else
-    /// is touched. A resident bake is still drawn until the new one is resident, then swapped for it, so the chunk never
-    /// flickers to live light; a replacement already being read for it is dropped. A bake not yet resident is let go
-    /// the same deferred way as eviction, and its read's result ignored. Reads no file and waits for nothing.
-    /// </summary>
-    public void Forget(string file, List<int> textures, List<IDisposable> others)
-    {
-        if (_replacing.Remove(file, out var replacement))
-        {
-            Release(replacement, textures, others);
-        }
-
-        if (!_entries.TryGetValue(file, out var entry))
-        {
-            return;
-        }
-
-        if (entry.IsResident)
-        {
-            entry.Stale = true;
-            return;
-        }
-
-        _entries.Remove(file);
-        Release(entry, textures, others);
-    }
-
-    /// <summary>Frees the pages that never reached the material table, which frees the rest itself. Call once the GPU is idle.</summary>
-    public void Dispose()
-    {
-        foreach (var entry in _entries.Values.Concat(_replacing.Values))
-        {
-            foreach (var page in entry.Pages)
-            {
-                if (page.Slot < 0)
+                var entry = _uploading[i];
+                if (entry.Pages.TrueForAll(page => page.Slot >= 0))
                 {
-                    page.Texture.Dispose();
+                    entry.BecomeResident();
+                    Resident++;
+                    _uploading.RemoveAt(i);
                 }
             }
         }
 
-        _entries.Clear();
-        _replacing.Clear();
-        _uploading.Clear();
-    }
-
-    // Makes the images for a bake just read, for Upload to fill.
-    private void Start(Entry entry, LightBakeFile bake)
-    {
-        try
+        /// <summary>
+        /// Lets a bake's pages go: those in the material table once the frames drawing them are done, the rest with the
+        /// copies that may still be filling them.
+        /// </summary>
+        public void Release(Entry entry, List<int> textures, List<IDisposable> others)
         {
-            AddPages(entry, bake);
-        }
-        catch
-        {
-            Abandon(entry);
-            throw;
-        }
-
-        entry.Bake = bake;
-        _uploading.Add(entry);
-    }
-
-    private void AddPages(Entry entry, LightBakeFile bake)
-    {
-        var transfer = bake.Transfer!;
-        AddPage(entry, transfer.SkyRed, 0);
-        AddPage(entry, transfer.SkyGreen, 1);
-        AddPage(entry, transfer.SkyBlue, 2);
-        AddPage(entry, transfer.Sun, 3);
-        AddPage(entry, transfer.SunTint, 4);
-        if (bake.Irradiance is { Count: 1 } irradiance)
-        {
-            AddPage(entry, irradiance[0], Irradiance);
-            AddPage(entry, bake.Direction![0], Direction);
-        }
-
-        if (bake.Mask.Count == 1)
-        {
-            AddPage(entry, bake.Mask[0], Mask);
-        }
-    }
-
-    // Lets go of a bake whose images couldn't all be made, such as by running out of device memory part way: nothing
-    // of it is on the GPU yet.
-    private void Abandon(Entry entry)
-    {
-        foreach (var page in entry.Pages)
-        {
-            page.Texture.Dispose();
-        }
-
-        entry.Pages.Clear();
-        if (IsReplacement(entry))
-        {
-            _replacing.Remove(entry.File);
-        }
-        else
-        {
-            _entries.Remove(entry.File);
-        }
-    }
-
-    private void AddPage(Entry entry, LightBakePage source, int role)
-    {
-        var texture = new GpuTexture(_context, source.Width, source.Height, TextureKind.Linear, 1, 1,
-            format: BakePages.Format(source.Format));
-        entry.Pages.Add(new Page(source, texture, role));
-    }
-
-    // Records this frame's share of the waiting pages, then finishes each bake whose pages are all up.
-    private void Upload(CommandBuffer cmd, List<IDisposable> others)
-    {
-        if (_uploading.Count == 0)
-        {
-            return;
-        }
-
-        _uploader.Record(cmd, _uploading, _refused, others);
-        for (int i = _uploading.Count - 1; i >= 0; i--)
-        {
-            var entry = _uploading[i];
-            if (entry.Pages.TrueForAll(page => page.Slot >= 0))
+            foreach (var page in entry.Pages)
             {
-                Finish(entry);
-                _uploading.RemoveAt(i);
+                if (page.Slot >= 0)
+                {
+                    resources.MarkTextureDying(page.Slot);
+                    textures.Add(page.Slot);
+                }
+                else
+                {
+                    others.Add(page.Texture);
+                }
             }
-        }
-    }
 
-    // Every page is up: the rectangles point at the plain pages, or at none when the chunk has no plain light.
-    private void Finish(Entry entry)
-    {
-        var (irradiance, direction) = TakeSlots(entry);
-        entry.Rects = Rects(entry.Bake!, irradiance, direction);
-        entry.Channels = [.. entry.Bake!.ChunkChannels];
-        entry.Bake = null;
-        entry.IsResident = true;
-        Resident++;
-    }
-
-    // Sets the entry's transfer and mask slots, and gives the slots of its plain irradiance and direction pages, or -1.
-    private static (int Irradiance, int Direction) TakeSlots(Entry entry)
-    {
-        int irradiance = -1;
-        int direction = -1;
-        foreach (var page in entry.Pages)
-        {
-            if (page.Role < Irradiance)
+            entry.Pages.Clear();
+            _uploading.Remove(entry);
+            if (entry.IsResident)
             {
-                entry.Transfer[page.Role] = page.Slot;
-            }
-            else if (page.Role == Irradiance)
-            {
-                irradiance = page.Slot;
-            }
-            else if (page.Role == Direction)
-            {
-                direction = page.Slot;
-            }
-            else if (page.Role == Mask)
-            {
-                entry.MaskPage = page.Slot;
+                entry.IsResident = false;
+                Resident--;
             }
         }
 
-        return (irradiance, direction);
-    }
-
-    private static Dictionary<ulong, GpuLightmapRect> Rects(LightBakeFile bake, int irradiance, int direction)
-    {
-        var rects = new Dictionary<ulong, GpuLightmapRect>();
-        foreach (var (bakeId, rect) in bake.Draws)
-        {
-            rects[bakeId] = new GpuLightmapRect
-            {
-                ScaleOffset = new Vector4(rect.Scale, rect.Offset.X, rect.Offset.Y),
-                Irradiance = irradiance,
-                Direction = direction,
-                // The chunk's mask is read through its GpuChunk instead, whose table turns the frame's slots into the
-                // bake's channels. A view with no chunk data, such as a reflection capture, reads it as fully lit.
-                Mask = -1,
-                Page = 0,
-            };
-        }
-
-        return rects;
-    }
-
-    // Lets a bake's pages go: those in the material table once the frames drawing them are done, the rest with the
-    // copies that may still be filling them.
-    private void Release(Entry entry, List<int> textures, List<IDisposable> others)
-    {
-        foreach (var page in entry.Pages)
-        {
-            if (page.Slot >= 0)
-            {
-                _resources.MarkTextureDying(page.Slot);
-                textures.Add(page.Slot);
-            }
-            else
-            {
-                others.Add(page.Texture);
-            }
-        }
-
-        entry.Pages.Clear();
-        _uploading.Remove(entry);
-        if (entry.IsResident)
-        {
-            entry.IsResident = false;
-            Resident--;
-        }
+        /// <summary>Stops uploading without freeing anything, once the pool has freed what it must.</summary>
+        public void Forsake() => _uploading.Clear();
     }
 }
