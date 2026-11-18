@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace Rendition;
 
 /// <summary>
@@ -14,8 +16,16 @@ internal sealed class ProbeLightTracker
     public void Clear() => _lights.Clear();
 
     /// <summary>
+    /// How far a light's colour may drift from the colour the probes were last marked for before they are marked
+    /// again, as a share of the brighter of the two. A flame that flickers by a tenth or so every frame would otherwise
+    /// keep every probe round it busy for good, for a change the soft bounced light barely shows.
+    /// </summary>
+    public const float ColorDrift = 1f / 3f;
+
+    /// <summary>
     /// Marks the probes near each point and spot light that appeared, went out, or changed its place,
-    /// range, colour, cone or shadow since last frame, both where it was and where it is now.
+    /// range, cone or shadow since the probes were last marked for it, both where it was and where it is now, or whose
+    /// colour drifted by more than <see cref="ColorDrift"/>.
     /// </summary>
     public void Follow(ReadOnlySpan<LocalLight> lights, ProbeScheduler scheduler)
     {
@@ -69,10 +79,26 @@ internal sealed class ProbeLightTracker
     private static bool Same(in LocalLight a, in LocalLight b) =>
         a.Position == b.Position
         && a.Range == b.Range
-        && a.Radiance == b.Radiance
+        && CloseColor(a.Radiance, b.Radiance)
         && a.Radius == b.Radius
         && a.Direction == b.Direction
         && a.InnerAngle == b.InnerAngle
         && a.OuterAngle == b.OuterAngle
         && a.CastsShadow == b.CastsShadow;
+
+    // Whether two colours are within the drift of each other, channel by channel, against the brighter one's
+    // brightest channel. A light that goes out or comes on is never close, since nothing is within a share of black.
+    internal static bool CloseColor(Vector3 a, Vector3 b)
+    {
+        if (a == b)
+        {
+            return true;
+        }
+
+        float bright = MathF.Max(MaxChannel(a), MaxChannel(b));
+        var gap = Vector3.Abs(a - b);
+        return MaxChannel(gap) <= ColorDrift * bright;
+    }
+
+    private static float MaxChannel(Vector3 v) => MathF.Max(v.X, MathF.Max(v.Y, v.Z));
 }
