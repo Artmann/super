@@ -119,7 +119,7 @@ public sealed class Content
         string[] meshNames;
         using (var stream = Store.Files.Open(name))
         {
-            (skeleton, clips) = ModelData.ReadRig(stream, name, out meshNames);
+            (skeleton, clips) = ModelFile.ReadRig(stream, name, out meshNames);
         }
 
         if (skeleton is null)

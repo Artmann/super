@@ -238,8 +238,8 @@ public class MeshMaskContentTests
 
         var bytes = model.ToBytes();
 
-        Assert.Equal(new[] { "Body", "Head", "Body" }, ModelData.Read(new MemoryStream(bytes), "hero.rmodel").MeshNames);
-        Assert.Equal(new[] { "Body", "Head", "Body" }, ModelData.ReadMeshNames(new MemoryStream(bytes), "hero.rmodel"));
+        Assert.Equal(new[] { "Body", "Head", "Body" }, ModelFile.Read(new MemoryStream(bytes), "hero.rmodel").MeshNames);
+        Assert.Equal(new[] { "Body", "Head", "Body" }, ModelFile.ReadMeshNames(new MemoryStream(bytes), "hero.rmodel"));
     }
 
     [Fact]

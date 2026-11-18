@@ -84,7 +84,7 @@ unsafe
             }),
             Transform = Matrix4x4.Identity,
         };
-        var model = ModelData.Read(modelPath);
+        var model = ModelFile.Read(modelPath);
         draws = [.. renderer.CreateModel(model), floor];
         placeProbe = true;
 

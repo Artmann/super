@@ -31,7 +31,7 @@ public sealed class NoDecalsRuleTests : IDisposable
         var result = new CookPipeline(ModelCookers.All, new CookOptions()).Cook([new FolderRoot(src)], store);
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        var model = ModelData.Read(new MemoryStream(store.Get(store.Manifest.Assets["quads.gltf"].Hash)), "quads.gltf",
+        var model = ModelFile.Read(new MemoryStream(store.Get(store.Manifest.Assets["quads.gltf"].Hash)), "quads.gltf",
             hash => TextureData.Read(new MemoryStream(store.Get(hash)), hash));
         Assert.Equal(expected, model.Materials[0].Flags & MaterialFlags.NoDecals);
     }

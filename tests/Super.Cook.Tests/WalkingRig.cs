@@ -24,7 +24,7 @@ internal static class WalkingRig
         var (result, store) = Cook(folder, sidecar);
         Assert.True(result.Succeeded, string.Join("\n", result.Problems));
         var entry = store.Manifest.Assets["rig.gltf"];
-        return ModelData.Read(new MemoryStream(ModelCookers.StandAlone(store, entry.Hash, "rig.gltf")), "rig.gltf");
+        return ModelFile.Read(new MemoryStream(ModelCookers.StandAlone(store, entry.Hash, "rig.gltf")), "rig.gltf");
     }
 
     // An armature turned from z-up to y-up, as Mixamo's are, so the hips' own up is their parent's z.

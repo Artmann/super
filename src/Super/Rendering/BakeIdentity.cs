@@ -116,7 +116,7 @@ internal static class BakeIdentity
         using (var stream = files.Open(name))
         {
             // Only the names matter here, so a texture kept by hash isn't decoded.
-            data = ModelData.Read(stream, name, _ => TextureData.FromPixels(1, 1, TextureKind.Color, new byte[4]));
+            data = ModelFile.Read(stream, name, _ => TextureData.FromPixels(1, 1, TextureKind.Color, new byte[4]));
         }
 
         var shaders = data.MaterialShaders.OfType<ModelMaterialShader>().ToArray();

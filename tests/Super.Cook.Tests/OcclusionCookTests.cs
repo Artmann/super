@@ -227,7 +227,7 @@ public sealed class OcclusionCookTests : IDisposable
     private static ModelData Model(MemoryStore store)
     {
         var entry = store.Manifest.Assets["quads.gltf"];
-        return ModelData.Read(new MemoryStream(store.Get(entry.Hash)), "quads.gltf",
+        return ModelFile.Read(new MemoryStream(store.Get(entry.Hash)), "quads.gltf",
             hash => TextureData.Read(new MemoryStream(store.Get(hash)), hash));
     }
 

@@ -170,7 +170,7 @@ internal static class ContentNames
     public static string? RigProblem(IContentFiles files, string name)
     {
         using var stream = files.Open(name);
-        return ModelData.ReadRig(stream, name).Skeleton is null ? $"{name} was cooked without a skeleton, so it has no rig to animate." : null;
+        return ModelFile.ReadRig(stream, name).Skeleton is null ? $"{name} was cooked without a skeleton, so it has no rig to animate." : null;
     }
 
     public static string Missing(IContentFiles files, string name)

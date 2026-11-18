@@ -36,7 +36,7 @@ public class ModelOcclusionTests
     {
         var model = Model([-1, 2], Material(), Material(MaterialFlags.OcclusionOnUv2));
 
-        var read = ModelData.Read(new MemoryStream(model.ToBytes()), "a.model");
+        var read = ModelFile.Read(new MemoryStream(model.ToBytes()), "a.model");
 
         Assert.Equal([-1, 2], read.MaterialOcclusion);
         Assert.Equal(-1, read.OcclusionOf(0));
@@ -55,8 +55,8 @@ public class ModelOcclusionTests
         // One byte marks the section, then the array's length and its two entries, four bytes each.
         Assert.Equal(without.Length + 1 + 4 + 2 * 4, with.Length);
         Assert.Equal(without, with[..without.Length]);
-        Assert.Empty(ModelData.Read(new MemoryStream(without), "a.model").MaterialOcclusion);
-        Assert.Equal(-1, ModelData.Read(new MemoryStream(without), "a.model").OcclusionOf(1));
+        Assert.Empty(ModelFile.Read(new MemoryStream(without), "a.model").MaterialOcclusion);
+        Assert.Equal(-1, ModelFile.Read(new MemoryStream(without), "a.model").OcclusionOf(1));
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public class ModelOcclusionTests
     {
         byte[] bytes = [.. Model([], Material()).ToBytes(), 7];
 
-        var error = Assert.Throws<InvalidDataException>(() => ModelData.Read(new MemoryStream(bytes), "a.model"));
+        var error = Assert.Throws<InvalidDataException>(() => ModelFile.Read(new MemoryStream(bytes), "a.model"));
 
         Assert.Equal("a.model is damaged: it has the unknown section 7 after its textures. Cook it again.", error.Message);
     }

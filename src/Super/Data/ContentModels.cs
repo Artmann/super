@@ -139,7 +139,7 @@ public sealed class ContentModels
         string[] names;
         using (var stream = _items.Files.Open(name))
         {
-            names = ModelData.ReadMeshNames(stream, name);
+            names = ModelFile.ReadMeshNames(stream, name);
         }
 
         if (names.Length == 0)
