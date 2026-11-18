@@ -315,12 +315,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.AmbienceReader.Read",
-      "file": "src/Super/Audio/AmbienceDefinition.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Audio.Apply",
       "file": "src/Super/Audio/Audio.cs",
       "metric": 14
@@ -966,12 +960,6 @@
       "name": "Rendition.SkylinePacker.TryPack",
       "file": "src/Rendition/Lightmaps/SkylinePacker.cs",
       "metric": 28
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.AmbienceReader.Read",
-      "file": "src/Super/Audio/AmbienceDefinition.cs",
-      "metric": 40
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2094,12 +2082,6 @@
       "name": "Super.AmbiencePlayer.Begin",
       "file": "src/Super/Audio/AmbiencePlayer.cs",
       "metric": 57
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.AmbienceReader.Read",
-      "file": "src/Super/Audio/AmbienceDefinition.cs",
-      "metric": 91
     },
     {
       "kind": "long-method",
