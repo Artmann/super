@@ -63,7 +63,12 @@ internal sealed unsafe class ParticlePass : IDisposable
         _set = context.AllocateSet(_pool, _setLayout);
         _layout = context.CreatePipelineLayout(
             [frameSetLayout, _setLayout], new PushConstantRange(stages, 0, (uint)sizeof(CameraConstants)));
+        _pipeline = CreatePipeline(context, _layout);
+    }
 
+    // Each particle is one instance of the vertex buffer, blended over the lit picture without a depth test.
+    private static LivePipeline CreatePipeline(VulkanContext context, PipelineLayout layout)
+    {
         ReadOnlySpan<VertexInputBindingDescription> vertexBindings =
         [
             new(0, (uint)sizeof(Particle), VertexInputRate.Instance),
@@ -75,11 +80,11 @@ internal sealed unsafe class ParticlePass : IDisposable
             new(1, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<Particle>(nameof(Particle.Color))),
             new(2, 0, Format.R32G32B32Sfloat, (uint)Marshal.OffsetOf<Particle>(nameof(Particle.Rotation))),
         ];
-        _pipeline = PipelineFactory.Create(context, new PipelineDescription
+        return PipelineFactory.Create(context, new PipelineDescription
         {
             VertexShader = "particle.vert",
             FragmentShader = "particle.frag",
-            Layout = _layout,
+            Layout = layout,
             ColorFormats = [GBuffer.HdrFormat],
             DepthFormat = GBuffer.DepthFormat,
             IgnoreDepth = true,
@@ -111,7 +116,7 @@ internal sealed unsafe class ParticlePass : IDisposable
     public int Upload(int frameIndex, ReadOnlySpan<Particle> particles, Vector3 camera, Vector3 forward)
     {
         var fitting = particles[..Math.Min(particles.Length, MaxParticles)];
-        SortBackToFront(fitting, camera, forward, _keys, _order, _sorted);
+        SortBackToFront(fitting, (camera, forward), _keys, _order, _sorted);
         _sorted.AsSpan(0, fitting.Length).CopyTo(new Span<Particle>(_buffers[frameIndex].Mapped, MaxParticles));
         _count = fitting.Length;
         return fitting.Length;
@@ -123,8 +128,9 @@ internal sealed unsafe class ParticlePass : IDisposable
     /// camera. Keys and order are scratch space at least as long as the particles.
     /// </summary>
     internal static void SortBackToFront(
-        ReadOnlySpan<Particle> particles, Vector3 camera, Vector3 forward, Span<float> keys, Span<int> order, Span<Particle> into)
+        ReadOnlySpan<Particle> particles, (Vector3 Camera, Vector3 Forward) view, Span<float> keys, Span<int> order, Span<Particle> into)
     {
+        var (camera, forward) = view;
         int count = particles.Length;
         var sortKeys = keys[..count];
         var sortOrder = order[..count];

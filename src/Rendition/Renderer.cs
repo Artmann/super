@@ -2521,7 +2521,7 @@ public sealed unsafe class Renderer : IDisposable
 
         if (overlayQuads > 0)
         {
-            _overlayPass.Record(cmd, _swapchain.Views[imageIndex], window, _overlaySet, _ring.Index, overlayQuads);
+            _overlayPass.Record(cmd, (_swapchain.Views[imageIndex], window), _overlaySet, _ring.Index, overlayQuads);
         }
 
         _gpuTimer.Mark(cmd);

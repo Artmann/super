@@ -47,24 +47,8 @@ internal sealed unsafe class SkySh : IDisposable
         var bufferInfo = new DescriptorBufferInfo(_buffer.Handle, 0, Size);
         var writes = stackalloc WriteDescriptorSet[]
         {
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = _set,
-                DstBinding = 0,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                PImageInfo = &imageInfo,
-            },
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = _set,
-                DstBinding = 1,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.StorageBuffer,
-                PBufferInfo = &bufferInfo,
-            },
+            Descriptors.ImageWrite(_set, 0, DescriptorType.CombinedImageSampler, &imageInfo),
+            Descriptors.BufferWrite(_set, 1, &bufferInfo),
         };
         api.UpdateDescriptorSets(context.Device, 2, writes, 0, null);
 

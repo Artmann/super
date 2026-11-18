@@ -33,7 +33,7 @@ public class MotionTests
 
         var previous = history.Previous(draw);
         var frame = new MotionFrame(Camera, Camera, Vector4.Zero, Time: 2f, PreviousTime: 2f - 1f / 60f, Scene);
-        var motion = Motion.OfVertex(new Vector3(0.3f, 0.5f, 0.1f), model, previous, frame, windBase: 0f, sway: 0f);
+        var motion = Motion.OfVertex(new Vector3(0.3f, 0.5f, 0.1f), model, previous, frame, new PartSway(Base: 0f, Share: 0f));
 
         Assert.Equal(1, previous.HasHistory);
         Assert.Equal(Vector2.Zero, motion);
@@ -62,7 +62,7 @@ public class MotionTests
         history.Begin([moved], [], historyReady: true, []);
 
         var frame = new MotionFrame(Camera, Camera, Vector4.Zero, Time: 1f, PreviousTime: 1f - 1f / 60f, Scene);
-        var motion = Motion.OfVertex(new Vector3(0.5f, 0.2f, 0f), now, history.Previous(moved), frame, 0f, 0f);
+        var motion = Motion.OfVertex(new Vector3(0.5f, 0.2f, 0f), now, history.Previous(moved), frame, new PartSway(0f, 0f));
 
         Assert.Equal(-1f, motion.X, Tolerance);
         Assert.Equal(0f, motion.Y, Tolerance);
@@ -82,7 +82,7 @@ public class MotionTests
         var previous = history.Previous(appeared);
         var cameraBefore = Matrix4x4.CreateTranslation(0.01f, 0f, 0f) * Camera;
         var frame = new MotionFrame(Camera, cameraBefore, Breeze, Time: 3f, PreviousTime: 3f - 1f / 60f, Scene);
-        var motion = Motion.OfVertex(new Vector3(0f, 0.8f, 0f), model, previous, frame, windBase: 0f, sway: 1f);
+        var motion = Motion.OfVertex(new Vector3(0f, 0.8f, 0f), model, previous, frame, new PartSway(Base: 0f, Share: 1f));
 
         Assert.Equal(0, previous.HasHistory);
         Assert.Equal(model, previous.Model);
@@ -107,12 +107,13 @@ public class MotionTests
 
         var previous = history.Previous(blade);
         var frame = new MotionFrame(Camera, Camera, Breeze, time, previousTime, Scene);
-        var foot = Motion.OfVertex(Vector3.Zero, model, previous, frame, windBase: 0f, sway: 1f);
-        var tip = Motion.OfVertex(Vector3.UnitY, model, previous, frame, windBase: 0f, sway: 1f);
+        var foot = Motion.OfVertex(Vector3.Zero, model, previous, frame, new PartSway(Base: 0f, Share: 1f));
+        var tip = Motion.OfVertex(Vector3.UnitY, model, previous, frame, new PartSway(Base: 0f, Share: 1f));
 
         Assert.Equal(Vector2.Zero, foot);
         var rest = new Vector3(-1f, -1f, -5f);
-        var moved = Wind.Sway(rest, 1f, Vector3.UnitX, 0.3f, 0.5f, time) - Wind.Sway(rest, 1f, Vector3.UnitX, 0.3f, 0.5f, previousTime);
+        var wind = new WindSettings(Vector3.UnitX, 0.3f, 0.5f);
+        var moved = Wind.Sway(rest, 1f, wind, time) - Wind.Sway(rest, 1f, wind, previousTime);
         Assert.True(moved.Length() > 0.005f, $"The tip only moved {moved.Length()} m between the frames, too little to tell.");
 
         // Each centimetre is a pixel; screen y runs down, as Vulkan's does, while the world's runs up.

@@ -21,7 +21,7 @@ public class WindTests
     [InlineData(12.5f)]
     public void No_strength_is_no_sway(float time)
     {
-        var sway = Wind.Sway(new Vector3(1.3f, 0.4f, -2.2f), heightAboveBase: 0.8f, East, strength: 0f, gustiness: 0.5f, time);
+        var sway = Wind.Sway(new Vector3(1.3f, 0.4f, -2.2f), heightAboveBase: 0.8f, new WindSettings(East, Strength: 0f, Gustiness: 0.5f), time);
 
         Assert.Equal(Vector3.Zero, sway);
     }
@@ -31,8 +31,9 @@ public class WindTests
     {
         // At the origin at time 0 the flutter is at the middle of its swing, so only the lean is left: with no
         // gusts it is the strength times the height squared, 0.3 × 1² downwind and 0.3 × 0.5² = 0.075 half way up.
-        Assert.Equal(new Vector3(0.3f, 0f, 0f), Wind.Sway(Vector3.Zero, 1f, East, 0.3f, gustiness: 0f, time: 0f));
-        Assert.Equal(new Vector3(0.075f, 0f, 0f), Wind.Sway(Vector3.Zero, 0.5f, East, 0.3f, gustiness: 0f, time: 0f));
+        var steady = new WindSettings(East, 0.3f, Gustiness: 0f);
+        Assert.Equal(new Vector3(0.3f, 0f, 0f), Wind.Sway(Vector3.Zero, 1f, steady, time: 0f));
+        Assert.Equal(new Vector3(0.075f, 0f, 0f), Wind.Sway(Vector3.Zero, 0.5f, steady, time: 0f));
     }
 
     [Theory]
@@ -43,8 +44,9 @@ public class WindTests
         // The two vertices share a place, so they share a gust. The flutter goes as far up as downwind, so taking
         // the rise from the move downwind leaves only the lean.
         var position = new Vector3(x, 0f, z);
-        var tip = Wind.Sway(position, 1f, East, 0.35f, 0.5f, time);
-        var half = Wind.Sway(position, 0.5f, East, 0.35f, 0.5f, time);
+        var wind = new WindSettings(East, 0.35f, 0.5f);
+        var tip = Wind.Sway(position, 1f, wind, time);
+        var half = Wind.Sway(position, 0.5f, wind, time);
         float leanTip = tip.X - tip.Y;
         float leanHalf = half.X - half.Y;
 
@@ -57,7 +59,8 @@ public class WindTests
     {
         var position = new Vector3(0.7f, 6.5f, 1.9f);
 
-        Assert.Equal(Wind.Sway(position, 1f, East, 0.35f, 0.5f, 2.3f), Wind.Sway(position, 4f, East, 0.35f, 0.5f, 2.3f));
+        var wind = new WindSettings(East, 0.35f, 0.5f);
+        Assert.Equal(Wind.Sway(position, 1f, wind, 2.3f), Wind.Sway(position, 4f, wind, 2.3f));
     }
 
     [Theory]
@@ -67,7 +70,7 @@ public class WindTests
     [InlineData(0f, 41.9f)]
     public void Sway_never_moves_the_base(float heightAboveBase, float time)
     {
-        var sway = Wind.Sway(new Vector3(-3.2f, 0.05f, 4.4f), heightAboveBase, new Vector3(0.6f, 0f, -0.3f), 1f, 1f, time);
+        var sway = Wind.Sway(new Vector3(-3.2f, 0.05f, 4.4f), heightAboveBase, new WindSettings(new Vector3(0.6f, 0f, -0.3f), 1f, 1f), time);
 
         Assert.Equal(Vector3.Zero, sway);
     }
@@ -76,10 +79,10 @@ public class WindTests
     public void A_tenth_of_a_second_later_the_sway_has_moved()
     {
         var position = new Vector3(2.1f, 1.4f, -0.6f);
-        var direction = new Vector3(0.6f, 0f, -0.3f);
+        var wind = new WindSettings(new Vector3(0.6f, 0f, -0.3f), 0.35f, 0.5f);
 
-        var first = Wind.Sway(position, 0.9f, direction, 0.35f, 0.5f, 3.7f);
-        var later = Wind.Sway(position, 0.9f, direction, 0.35f, 0.5f, 3.8f);
+        var first = Wind.Sway(position, 0.9f, wind, 3.7f);
+        var later = Wind.Sway(position, 0.9f, wind, 3.8f);
 
         Assert.NotEqual(first, later);
     }
@@ -89,7 +92,7 @@ public class WindTests
     {
         // At 0.625 s the 0.4 Hz flutter is a quarter of the way round, at its peak, and at the origin its phase is 0.
         // It moves along the diagonal between downwind and up, 0.02 / √2 = 0.0141421 m on each.
-        var sway = Wind.Sway(Vector3.Zero, 1f, East, 0.3f, gustiness: 0f, time: 0.625f);
+        var sway = Wind.Sway(Vector3.Zero, 1f, new WindSettings(East, 0.3f, Gustiness: 0f), time: 0.625f);
 
         Assert.Equal(0.3141421f, sway.X, Tolerance);
         Assert.Equal(0.0141421f, sway.Y, Tolerance);
@@ -99,12 +102,13 @@ public class WindTests
     [Fact]
     public void A_material_with_half_the_sway_leans_half_as_far_but_flutters_as_much()
     {
-        var full = Wind.Sway(Vector3.Zero, 1f, East, 0.3f, 0f, 0.625f, sway: 1f);
-        var half = Wind.Sway(Vector3.Zero, 1f, East, 0.3f, 0f, 0.625f, sway: 0.5f);
+        var steady = new WindSettings(East, 0.3f, 0f);
+        var full = Wind.Sway(Vector3.Zero, 1f, steady, 0.625f, sway: 1f);
+        var half = Wind.Sway(Vector3.Zero, 1f, steady, 0.625f, sway: 0.5f);
 
         Assert.Equal(0.15f, full.X - half.X, Tolerance);
         Assert.Equal(full.Y, half.Y, Tolerance);
-        Assert.Equal(Vector3.Zero, Wind.Sway(Vector3.Zero, 1f, East, 0.3f, 0f, 0.625f, sway: 0f));
+        Assert.Equal(Vector3.Zero, Wind.Sway(Vector3.Zero, 1f, steady, 0.625f, sway: 0f));
     }
 
     [Fact]

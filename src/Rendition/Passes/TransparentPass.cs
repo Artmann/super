@@ -129,7 +129,7 @@ internal sealed unsafe class TransparentPass : IDisposable
     {
         int glassCount = CollectGlass(draws, details, view, wind);
         var sorted = particles.Sorted[..particleCount];
-        TransparentPlan.Build(_glass.AsSpan(0, glassCount), sorted, view.Eye, view.Forward, view.ViewProjection, _steps);
+        TransparentPlan.Build(_glass.AsSpan(0, glassCount), sorted, view, _steps);
         if (_steps.Count == 0)
         {
             return;

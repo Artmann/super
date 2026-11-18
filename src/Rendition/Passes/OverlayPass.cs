@@ -36,7 +36,12 @@ internal sealed unsafe class OverlayPass : IDisposable
         _layout = context.CreatePipelineLayout(
             [atlasLayout, resources.Layout],
             new PushConstantRange(ShaderStageFlags.VertexBit, 0, sizeof(float) * 2));
+        _pipeline = CreatePipeline(context, _layout, targetFormat);
+    }
 
+    // Each quad is one instance of the vertex buffer, blended over the picture.
+    private static LivePipeline CreatePipeline(VulkanContext context, PipelineLayout layout, Format targetFormat)
+    {
         ReadOnlySpan<VertexInputBindingDescription> bindings =
         [
             new(0, (uint)sizeof(OverlayQuad), VertexInputRate.Instance),
@@ -53,11 +58,11 @@ internal sealed unsafe class OverlayPass : IDisposable
             new(7, 0, Format.R32G32B32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.CornerRadius))),
             new(8, 0, Format.R32Sint, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.TextureIndex))),
         ];
-        _pipeline = PipelineFactory.Create(context, new PipelineDescription
+        return PipelineFactory.Create(context, new PipelineDescription
         {
             VertexShader = "overlay.vert",
             FragmentShader = "overlay.frag",
-            Layout = _layout,
+            Layout = layout,
             ColorFormats = [targetFormat],
             DepthFormat = Format.Undefined,
             VertexBindings = bindings,
@@ -74,13 +79,15 @@ internal sealed unsafe class OverlayPass : IDisposable
         return fitting.Length;
     }
 
-    public void Record(CommandBuffer cmd, ImageView target, Extent2D extent, DescriptorSet atlas, int frameIndex, int quadCount)
+    /// <summary>Draws the frame's quads over <paramref name="target"/>, a picture already in the colour attachment layout.</summary>
+    public void Record(CommandBuffer cmd, (ImageView View, Extent2D Extent) target, DescriptorSet atlas, int frameIndex, int quadCount)
     {
         var api = _context.Api;
+        var extent = target.Extent;
         var attachment = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
-            ImageView = target,
+            ImageView = target.View,
             ImageLayout = ImageLayout.ColorAttachmentOptimal,
             LoadOp = AttachmentLoadOp.Load, // The picture is already there.
             StoreOp = AttachmentStoreOp.Store,
