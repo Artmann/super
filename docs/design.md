@@ -543,7 +543,7 @@ shows as `<id> cooker, untimed`. `CookCache.TryRestore` says why it missed, and
 
 **The step cache.** A record is all or nothing per source, and one model can run a dozen
 graphs, bake masks and compress fifty textures. So inside a cook a cooker can keep a slow
-step's result with `CookInput.Keep(step, key, bytes)` and look it up with `Recall`. `StepCache`
+step's result with `CookInput.StepResults.Keep(step, key, bytes)` and look it up with `Recall`. `StepCache`
 stores each at `steps/<step>/<hh>/<sha256 of key>` in the cook cache, with the SHA-256 of the
 bytes after them, so a damaged or cut-short entry is a miss. It writes a temp file and moves
 it into place, like the rest of the cache, so workers and builds can share it; a failed write

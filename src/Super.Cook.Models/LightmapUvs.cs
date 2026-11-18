@@ -99,7 +99,7 @@ internal static class LightmapUvs
     private static (Vertex[] Vertices, uint[] Indices)? Recall(CookInput input, Vertex[] groupVertices, uint[] groupIndices, out string? key)
     {
         key = null;
-        if (!input.HasStepCache)
+        if (!input.StepResults.HasCache)
         {
             return null;
         }
@@ -107,7 +107,7 @@ internal static class LightmapUvs
         using (input.Time("recall lightmap-uv"))
         {
             key = UnwrapKey(groupVertices, groupIndices);
-            return input.Recall(Step, key) is { } kept ? FromKept(kept, groupVertices, groupIndices.Length) : null;
+            return input.StepResults.Recall(Step, key) is { } kept ? FromKept(kept, groupVertices, groupIndices.Length) : null;
         }
     }
 
@@ -152,7 +152,7 @@ internal static class LightmapUvs
 
         using (input.Time("keep lightmap-uv"))
         {
-            input.Keep(Step, key, ToKept(newVertices, remap, newIndices));
+            input.StepResults.Keep(Step, key, ToKept(newVertices, remap, newIndices));
         }
     }
 

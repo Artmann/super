@@ -14,46 +14,23 @@ public sealed class CookInput
     };
 
     private readonly SourceFile _file;
-    private readonly List<string> _inputs = [];
-    private IReadOnlySet<string>? _names;
-
-    private readonly StepCache? _steps;
+    private readonly SourceAccess _files;
 
     internal CookInput(SourceFile file, byte[] bytes, JsonObject settings, string target, StepCache? steps = null)
     {
         _file = file;
+        _files = new SourceAccess(file);
         Bytes = bytes;
         Settings = settings;
         Target = target;
-        _steps = steps;
+        StepResults = new StepResults(steps);
     }
 
     /// <summary>
-    /// What an earlier cook kept for <paramref name="key"/> of a slow step with <see cref="Keep"/>, or null when
-    /// there's nothing, the cook has no cache, or the entry was damaged. The key must name everything the step's result
-    /// depends on, its code's version included, so a change to any of them misses. Safe to call from several threads.
+    /// The results of slow steps an earlier cook kept, to look up with <see cref="StepResults.Recall"/> and keep with
+    /// <see cref="StepResults.Keep"/>.
     /// </summary>
-    /// <param name="step">The step's name, in letters, digits and dashes, such as <c>graph-run</c>.</param>
-    public byte[]? Recall(string step, string key) => _steps?.Find(step, key);
-
-    /// <summary>Keeps a slow step's result for <see cref="Recall"/> in later cooks. Does nothing when the cook has no cache.</summary>
-    public void Keep(string step, string key, byte[] bytes) => _steps?.Keep(step, key, bytes);
-
-    /// <summary>
-    /// Like <see cref="Recall"/>, for a step whose result is an object of the cook, kept with <see cref="KeepObject"/>:
-    /// the object's hash and its bytes, checked against the hash, or null when it isn't kept or the object is gone.
-    /// </summary>
-    internal (string Hash, byte[] Bytes)? RecallObject(string step, string key) => _steps?.FindObject(step, key);
-
-    /// <summary>
-    /// Like <see cref="Keep"/>, for a step whose result is an object the cook writes anyway, such as a shared texture: the
-    /// cache keeps the object once, among its objects, and the step's entry only names it.
-    /// </summary>
-    /// <param name="hash">The SHA-256 of <paramref name="bytes"/> in lowercase hex.</param>
-    internal void KeepObject(string step, string key, string hash, byte[] bytes) => _steps?.KeepObject(step, key, hash, bytes);
-
-    /// <summary>Whether <see cref="Recall"/> and <see cref="Keep"/> have a cache behind them.</summary>
-    public bool HasStepCache => _steps is not null;
+    public StepResults StepResults { get; }
 
     /// <summary>The source's name, such as <c>items/axe.json</c>.</summary>
     public string Name => _file.Name;
@@ -68,16 +45,7 @@ public sealed class CookInput
     public string Target { get; }
 
     /// <summary>Every file the cooker read through <see cref="Read"/>, <see cref="Find"/> or <see cref="Track"/>, relative to the source's folder.</summary>
-    public IReadOnlyList<string> Inputs
-    {
-        get
-        {
-            lock (_inputs)
-            {
-                return [.. _inputs];
-            }
-        }
-    }
+    public IReadOnlyList<string> Inputs => _files.Inputs;
 
     /// <summary>Where this source's cook spent its time, phase by phase.</summary>
     internal PhaseClock Clock { get; } = new();
@@ -99,56 +67,18 @@ public sealed class CookInput
     /// exactly, case included, on every OS, so a cook that works on Windows works everywhere.
     /// </summary>
     /// <exception cref="FileNotFoundException">The root has no file by that exact name. The message names one differing only in case.</exception>
-    public byte[] Read(string relative)
-    {
-        string name = Resolve(relative);
-        if (!Names().Contains(name))
-        {
-            string? other = Names()
-                .Where(listed => string.Equals(listed, name, StringComparison.OrdinalIgnoreCase))
-                .Order(StringComparer.Ordinal)
-                .FirstOrDefault();
-            throw new FileNotFoundException(other is null
-                ? $"{name} isn't in the source root."
-                : $"{name} isn't in the source root, but {other} is. Names are case-sensitive.", name);
-        }
-
-        byte[] bytes = _file.Root.Read(name);
-        Track(relative);
-        return bytes;
-    }
+    public byte[] Read(string relative) => _files.Read(relative);
 
     /// <summary>Looks for a file beside the source, then in every folder under it.</summary>
     /// <returns>The path relative to the source's folder, or null when there is none.</returns>
-    public string? Find(string fileName)
-    {
-        string folder = SourcePaths.FolderOf(_file.Name);
-        string[] candidates = Names()
-            .Where(name => name.StartsWith(folder, StringComparison.Ordinal)
-                && name[folder.Length..].Split('/')[^1] == fileName)
-            .Select(name => name[folder.Length..])
-            .OrderBy(relative => relative.Count(c => c == '/'))
-            .ThenBy(relative => relative, StringComparer.Ordinal)
-            .ToArray();
-        if (candidates.Length == 0)
-        {
-            return null;
-        }
-
-        Track(candidates[0]);
-        return candidates[0];
-    }
+    public string? Find(string fileName) => _files.Find(fileName);
 
     /// <summary>
     /// The name in the root of a file by its path from the source's folder, such as <c>textures/ripples.png</c> for
     /// <c>../textures/ripples.png</c> beside <c>models/a.glb</c>, or null when the root has no such file. It isn't read
     /// or tracked, so for a file that's cooked as an asset of its own and only named by this one.
     /// </summary>
-    public string? NameOf(string relative)
-    {
-        string? name = SourcePaths.ResolveName(_file.Name, relative);
-        return name is not null && Names().Contains(name) ? name : null;
-    }
+    public string? NameOf(string relative) => _files.NameOf(relative);
 
     /// <summary>
     /// Whether the root's Only picks <paramref name="name"/>, a name in the root such as <see cref="NameOf"/> gives, so it's
@@ -161,32 +91,5 @@ public sealed class CookInput
     /// Records a file the cooker opened some other way, so a change to it counts as a change to this source. Like
     /// <see cref="Read"/>, <see cref="Find"/> and <see cref="Time"/>, it may be called from several threads at once.
     /// </summary>
-    public void Track(string relative)
-    {
-        string normal = SourcePaths.Normalise(_file.Name, relative);
-        lock (_inputs)
-        {
-            if (!_inputs.Contains(normal, StringComparer.Ordinal))
-            {
-                _inputs.Add(normal);
-            }
-        }
-    }
-
-    /// <summary>
-    /// The root's files. The pipeline lists each root once per cook; another root is listed once per source the first time a
-    /// cooker asks. Two threads may both list it, and either set is right.
-    /// </summary>
-    private IReadOnlySet<string> Names()
-    {
-        return _names ??= _file.Root is ListedRoot listed
-            ? listed.Names
-            : new HashSet<string>(_file.Root.Files(), StringComparer.Ordinal);
-    }
-
-    private string Resolve(string relative)
-    {
-        return SourcePaths.ResolveName(_file.Name, relative)
-            ?? throw new FileNotFoundException($"{relative} leaves the source root of {_file.Name}.", relative);
-    }
+    public void Track(string relative) => _files.Track(relative);
 }
