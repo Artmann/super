@@ -46,9 +46,6 @@ public static class MaskBaker
     /// <summary>How many directions along the surface each texel looks for an edge in.</summary>
     private const int CurvatureRays = 16;
 
-    /// <summary>How many pixels each island bleeds out past its edge, so filtering doesn't pull in the empty background.</summary>
-    private const int Dilation = 8;
-
     // How far off the surface rays start, so they don't hit the triangle they start on.
     private const float Lift = 0.001f;
 
@@ -108,95 +105,143 @@ public static class MaskBaker
     /// </summary>
     public static MaskImage Bake(MeshData mesh, int size, MeshData? occluders = null)
     {
-        var own = new Bvh(mesh.Positions, mesh.Indices);
-        var near = occluders is null ? null : Near(occluders, Bounds(mesh), OcclusionDistance);
-        var everything = near is null || near.Indices.Length == 0 ? own : Merged(mesh, near);
-
-        // Each mesh's foot and how much of its height blue spans.
-        int triangleCount = mesh.Indices.Length / 3;
-        var bottoms = new Dictionary<int, float>();
-        var tops = new Dictionary<int, float>();
-        for (int triangle = 0; triangle < triangleCount; triangle++)
+        var texels = new TexelBaker(mesh, size, occluders);
+        var rgba = Background(size);
+        var covered = new bool[size * size];
+        Parallel.For(0, size, y =>
         {
-            int part = mesh.Parts?[triangle] ?? 0;
-            for (int corner = 0; corner < 3; corner++)
+            for (int x = 0; x < size; x++)
             {
-                float y = mesh.Positions[mesh.Indices[triangle * 3 + corner]].Y;
-                bottoms[part] = bottoms.TryGetValue(part, out float bottom) ? MathF.Min(bottom, y) : y;
-                tops[part] = tops.TryGetValue(part, out float top) ? MathF.Max(top, y) : y;
-            }
-        }
+                int texel = y * size + x;
+                if (texels.Bake(texel) is not { } masks)
+                {
+                    continue;
+                }
 
-        var spans = bottoms.ToDictionary(entry => entry.Key, entry => MathF.Min(DirtHeight, tops[entry.Key] - entry.Value));
-
-        // Which triangle covers each texel, and where on it.
-        var triangles = new int[size * size];
-        var weights = new Vector3[size * size];
-        Array.Fill(triangles, -1);
-        Rasterize(mesh, size, strict: false, (texel, triangle, weight) =>
-        {
-            if (triangles[texel] < 0)
-            {
-                triangles[texel] = triangle;
-                weights[texel] = weight;
+                rgba[texel * 4] = ToByte(masks.X);
+                rgba[texel * 4 + 1] = ToByte(masks.Y);
+                rgba[texel * 4 + 2] = ToByte(masks.Z);
+                rgba[texel * 4 + 3] = ToByte(masks.W);
+                covered[texel] = true;
             }
         });
 
+        MaskDilation.Dilate(rgba, covered, size);
+        return new MaskImage(rgba, size);
+    }
+
+    /// <summary>A point on the surface, two directions along it, and the texel's own turn of its rays.</summary>
+    private readonly record struct SurfacePoint(Vector3 Point, Vector3 Normal, Vector3 Tangent, Vector3 Bitangent, float Turn);
+
+    /// <summary>
+    /// What one bake knows of its mesh: the trees rays are traced in, which triangle covers each texel and where, and
+    /// each part's foot and height. Bakes each texel on its own, so texels can be baked in parallel.
+    /// </summary>
+    private sealed class TexelBaker
+    {
+        private readonly MeshData _mesh;
+        private readonly Bvh _own;
+        private readonly Bvh _everything;
+        private readonly int[] _triangles;
+        private readonly Vector3[] _weights;
+        private readonly Dictionary<int, float> _bottoms = [];
+        private readonly Dictionary<int, float> _spans;
+        private readonly Vector2[] _occlusion = Hammersley(OcclusionRays);
+
+        public TexelBaker(MeshData mesh, int size, MeshData? occluders)
+        {
+            _mesh = mesh;
+            _own = new Bvh(mesh.Positions, mesh.Indices);
+            var near = occluders is null ? null : Near(occluders, Bounds(mesh), OcclusionDistance);
+            _everything = near is null || near.Indices.Length == 0 ? _own : Merged(mesh, near);
+            _spans = Feet();
+            (_triangles, _weights) = Cover(size);
+        }
+
+        /// <summary>The texel's curvature, sky, height and breakup, or null when no triangle with any area covers it.</summary>
+        public Vector4? Bake(int texel)
+        {
+            int triangle = _triangles[texel];
+            if (triangle < 0)
+            {
+                return null;
+            }
+
+            var a = _mesh.Positions[_mesh.Indices[triangle * 3]];
+            var b = _mesh.Positions[_mesh.Indices[triangle * 3 + 1]];
+            var c = _mesh.Positions[_mesh.Indices[triangle * 3 + 2]];
+            var cross = Vector3.Cross(b - a, c - a);
+            if (cross.LengthSquared() < 1e-20f)
+            {
+                return null;
+            }
+
+            var normal = Vector3.Normalize(cross);
+            var w = _weights[texel];
+            var point = a * w.X + b * w.Y + c * w.Z;
+            var (tangent, bitangent) = Frame(normal);
+            var at = new SurfacePoint(point, normal, tangent, bitangent, Hash(texel));
+
+            float curvature = Curvature(_own, at);
+            float sky = Sky(_everything, at, _occlusion);
+            int part = _mesh.Parts?[triangle] ?? 0;
+            float span = _spans[part];
+            float above = span > 0f ? (point.Y - _bottoms[part]) / span : 1f;
+            return new Vector4(curvature, sky, above, Breakup(point));
+        }
+
+        // Each mesh's foot, kept, and how much of its height blue spans, returned.
+        private Dictionary<int, float> Feet()
+        {
+            int triangleCount = _mesh.Indices.Length / 3;
+            var tops = new Dictionary<int, float>();
+            for (int triangle = 0; triangle < triangleCount; triangle++)
+            {
+                int part = _mesh.Parts?[triangle] ?? 0;
+                for (int corner = 0; corner < 3; corner++)
+                {
+                    float y = _mesh.Positions[_mesh.Indices[triangle * 3 + corner]].Y;
+                    _bottoms[part] = _bottoms.TryGetValue(part, out float bottom) ? MathF.Min(bottom, y) : y;
+                    tops[part] = tops.TryGetValue(part, out float top) ? MathF.Max(top, y) : y;
+                }
+            }
+
+            return _bottoms.ToDictionary(entry => entry.Key, entry => MathF.Min(DirtHeight, tops[entry.Key] - entry.Value));
+        }
+
+        // Which triangle covers each texel, and where on it.
+        private (int[] Triangles, Vector3[] Weights) Cover(int size)
+        {
+            var triangles = new int[size * size];
+            var weights = new Vector3[size * size];
+            Array.Fill(triangles, -1);
+            Rasterize(_mesh, size, strict: false, (texel, triangle, weight) =>
+            {
+                if (triangles[texel] < 0)
+                {
+                    triangles[texel] = triangle;
+                    weights[texel] = weight;
+                }
+            });
+
+            return (triangles, weights);
+        }
+    }
+
+    // The background reads as flat, open and high, which is clean, so where a lower mip or the filter reaches it, it
+    // adds neither wear nor dirt.
+    private static byte[] Background(int size)
+    {
         var rgba = new byte[size * size * 4];
         for (int i = 0; i < size * size; i++)
         {
-            // The background reads as flat, open and high, which is clean, so where a lower mip or the filter
-            // reaches it, it adds neither wear nor dirt.
             rgba[i * 4] = 128;
             rgba[i * 4 + 1] = 255;
             rgba[i * 4 + 2] = 255;
             rgba[i * 4 + 3] = 255;
         }
 
-        var covered = new bool[size * size];
-        var occlusion = Hammersley(OcclusionRays);
-        Parallel.For(0, size, y =>
-        {
-            for (int x = 0; x < size; x++)
-            {
-                int texel = y * size + x;
-                int triangle = triangles[texel];
-                if (triangle < 0)
-                {
-                    continue;
-                }
-
-                var a = mesh.Positions[mesh.Indices[triangle * 3]];
-                var b = mesh.Positions[mesh.Indices[triangle * 3 + 1]];
-                var c = mesh.Positions[mesh.Indices[triangle * 3 + 2]];
-                var cross = Vector3.Cross(b - a, c - a);
-                if (cross.LengthSquared() < 1e-20f)
-                {
-                    continue;
-                }
-
-                var normal = Vector3.Normalize(cross);
-                var w = weights[texel];
-                var point = a * w.X + b * w.Y + c * w.Z;
-                var (tangent, bitangent) = Frame(normal);
-                float turn = Hash(texel);
-
-                float curvature = Curvature(own, point, normal, tangent, bitangent, turn);
-                float sky = Sky(everything, point, normal, tangent, bitangent, turn, occlusion);
-                int part = mesh.Parts?[triangle] ?? 0;
-                float span = spans[part];
-                float above = span > 0f ? (point.Y - bottoms[part]) / span : 1f;
-
-                rgba[texel * 4] = ToByte(curvature);
-                rgba[texel * 4 + 1] = ToByte(sky);
-                rgba[texel * 4 + 2] = ToByte(above);
-                rgba[texel * 4 + 3] = ToByte(Breakup(point));
-                covered[texel] = true;
-            }
-        });
-
-        Dilate(rgba, covered, size);
-        return new MaskImage(rgba, size);
+        return rgba;
     }
 
     /// <summary>
@@ -269,8 +314,9 @@ public static class MaskBaker
     // 0.5 plus half of how close the nearest convex edge is, less how close the nearest concave corner is. Rays run
     // along the surface: from just under it they meet the far side of a convex edge, and from just over it the wall of
     // a concave one. A board's opposite face runs parallel to them, so it never counts.
-    private static float Curvature(Bvh bvh, Vector3 point, Vector3 normal, Vector3 tangent, Vector3 bitangent, float turn)
+    private static float Curvature(Bvh bvh, SurfacePoint at)
     {
+        var (point, normal, tangent, bitangent, turn) = at;
         float convex = 0f;
         float concave = 0f;
         for (int k = 0; k < CurvatureRays; k++)
@@ -298,8 +344,9 @@ public static class MaskBaker
     }
 
     // The share of cosine-weighted rays over the surface that nothing stops within the occlusion distance.
-    private static float Sky(Bvh bvh, Vector3 point, Vector3 normal, Vector3 tangent, Vector3 bitangent, float turn, Vector2[] samples)
+    private static float Sky(Bvh bvh, SurfacePoint at, Vector2[] samples)
     {
+        var (point, normal, tangent, bitangent, turn) = at;
         var origin = point + normal * Lift;
         int open = 0;
         foreach (var sample in samples)
@@ -354,58 +401,6 @@ public static class MaskBaker
     }
 
     private static float Edge(Vector2 a, Vector2 b, Vector2 p) => (b.X - a.X) * (p.Y - a.Y) - (b.Y - a.Y) * (p.X - a.X);
-
-    // Each empty texel beside a filled one takes their average, a ring at a time.
-    private static void Dilate(byte[] rgba, bool[] covered, int size)
-    {
-        var filled = (bool[])covered.Clone();
-        for (int ring = 0; ring < Dilation; ring++)
-        {
-            var next = (bool[])filled.Clone();
-            for (int y = 0; y < size; y++)
-            {
-                for (int x = 0; x < size; x++)
-                {
-                    if (filled[y * size + x])
-                    {
-                        continue;
-                    }
-
-                    int count = 0;
-                    var sum = Vector4.Zero;
-                    for (int dy = -1; dy <= 1; dy++)
-                    {
-                        for (int dx = -1; dx <= 1; dx++)
-                        {
-                            int nx = x + dx;
-                            int ny = y + dy;
-                            if (nx < 0 || ny < 0 || nx >= size || ny >= size || !filled[ny * size + nx])
-                            {
-                                continue;
-                            }
-
-                            int n = (ny * size + nx) * 4;
-                            sum += new Vector4(rgba[n], rgba[n + 1], rgba[n + 2], rgba[n + 3]);
-                            count++;
-                        }
-                    }
-
-                    if (count > 0)
-                    {
-                        int i = (y * size + x) * 4;
-                        var average = sum / count;
-                        rgba[i] = (byte)MathF.Round(average.X);
-                        rgba[i + 1] = (byte)MathF.Round(average.Y);
-                        rgba[i + 2] = (byte)MathF.Round(average.Z);
-                        rgba[i + 3] = (byte)MathF.Round(average.W);
-                        next[y * size + x] = true;
-                    }
-                }
-            }
-
-            filled = next;
-        }
-    }
 
     private static Bvh Merged(MeshData mesh, MeshData other)
     {
