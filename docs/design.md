@@ -995,7 +995,8 @@ rendering. Game-facing features belong in Super, which has the audio (see
 ```
 ShadowPass    scene geometry   -> depth from the key light (1024, 2048 or 4096 square, up to 4 cascades)
               scene geometry   -> point and spot light shadows, tiles of one 4096 x 4096 atlas
-cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters
+cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters, and the
+                                  reflection probes whose box touches it
 volumetric_inject.comp compute -> with volumetric fog, each froxel's extinction and in-scattered light from the height fog,
                                   the fog volumes' buffer, the probe atlases or the sky, the shadow maps and the
                                   clusters (under water, the water and its shafts), blended with last frame's
@@ -1309,10 +1310,11 @@ One sun casts the shadows: the one the game marks with `shadows: true`, or else 
 Point and spot lights are clustered. `LocalLights` culls the frame's lights against
 the camera (the same `DetailView` planes as models, with a far plane at the furthest
 reach), and the cluster shader splits the view into 16 x 9 tiles and 24 slices in depth,
-spaced exponentially from the nearest any light reaches (no nearer than the camera's
-near plane) to the furthest, or evenly for an orthographic camera. One thread per
-cluster tests every light's sphere against a sphere round the cluster's box, and a spot's
-cone too, and writes up to 256 indices, 16 bits each. The lighting pass,
+spaced exponentially from the nearest any light or [reflection probe's box](#reflections)
+reaches (no nearer than the camera's near plane) to the furthest, or evenly for an
+orthographic camera. One thread per cluster tests every light's sphere against a sphere
+round the cluster's box, and a spot's cone too, and writes up to 256 indices, 16 bits
+each, after a count and two words of reflection probe bits per cluster. The lighting pass,
 glass and particles read only their pixel's cluster. Each light is a 64-byte
 `GpuLocalLight`: position and range, radiance and its first shadow tile, direction and
 the cosine of the outer angle (-2 for a point light), and the fade's scale, the
@@ -1724,15 +1726,35 @@ A probe is a cube map captured from one spot by `Renderer.CaptureReflectionProbe
 using the normal scene passes, then blurred per roughness step. It waits for the GPU,
 so it belongs in loading. Each probe has a box for the space it describes, and a
 reflected ray runs on to that box before the lookup, so reflections line up with where
-they really land instead of sliding as the camera moves. Up to four probes blend at
-their box edges. The sample leaves the car out of its probe, because the probe sits
-inside the car, and captures only the floor and the shadow on it. The lookup lives in
-`reflection_probes.glsl` (`probeReflection`), shared by `lighting.frag` and
-`transparent.frag`, so glass reflects the probes the same way lit surfaces do; the glass
-pass binds the probe cube array at set 2, binding 4. Glass sees no screen-space reflection.
+they really land instead of sliding as the camera moves. The sample leaves the car out of
+its probe, because the probe sits inside the car, and captures only the floor and the
+shadow on it. The lookup lives in `reflection_probes.glsl` (`probeReflection`), shared by
+`lighting.frag` and `transparent.frag`, so glass reflects the probes the same way lit
+surfaces do; the glass pass binds the probe cube array at set 2, binding 4. Glass sees no
+screen-space reflection.
 
-`RecaptureReflectionProbe` draws a probe again into its own slot, and
-`ClearReflectionProbes` forgets them all, since a slot in the middle can't be dropped.
+The probes live in one cube map array (`ProbeCubes`), RGBA16F with 128 × 128 faces
+and six mips, about 1 MB a probe. `ReflectionProbes` keeps which probe each cube holds and
+blurs the captures into them. The array starts with room for 8 and doubles, up to 64
+(`ReflectionProbeOrder.MaxProbes`), when a probe is added with no cube free. Growing waits
+for the GPU, copies every cube into the bigger array so each probe keeps its place, and
+the renderer points the lighting set and the glass pass at the new view. A probe keeps its cube until
+`RemoveReflectionProbe` frees it for the next one added, so removing one leaves the rest
+as they are, and `ClearReflectionProbes` frees them all.
+
+Each frame `ReflectionProbeOrder` picks the probes whose box the view can see and sorts
+them: higher `ReflectionProbe.Priority` first, then the smaller box, then the lower cube,
+so a room's probe goes before the yard's round it. It writes them in that order to the
+frame's probe buffer (frame set binding 13, `GpuReflectionProbe`, whose `BoxMin.w` is the
+probe's cube in the array), and the depths their boxes span widen the clusters' slices
+(`LocalLights.Prepare`'s `cover`). `cluster.comp` then marks, in two words a cluster, the
+probes whose box touches the cluster's piece of the view, boxed in the world. The clusters
+are built whenever there are local lights or probes in view. `probeReflection` walks the
+pixel's cluster's bits from the lowest, which is the probe trusted most, and blends at
+most four (`BLENDED_PROBES`): each takes what the ones before it left, fading out over its
+`blend` towards its box's sides, and the studio fills what's left.
+
+`RecaptureReflectionProbe` draws a probe again into its own cube.
 `Renderer.ReflectionLightingHash` hashes the suns' directions and colours, the environment (a
 version bumped by `SetEnvironment`), its intensity, the clear sky, the background, the sun
 shadow's softness and cascades, the light probe box, the occlusion settings, the underwater switch, and whether the
@@ -1748,10 +1770,10 @@ in (see "Each frame's bakes"). Point and spot lights and the
 local lights nor contact shadows. Super places probes with `view.ReflectionProbe`:
 `SceneRenderer`, before each frame's `Render`, asks `ReflectionProbeSchedule.ShouldCapture`
 whether each key's request or the lighting hash differs from its last capture, captures new
-keys into the next slot and recaptures changed ones in place, and only then tells the schedule
-with `Captured`, so a capture that throws leaves the two in step. A key missing from a frame
-clears every probe, and the rest are captured again. With the `Reflections` switch off Super
-wants no probes, so it clears them and glass falls back to the studio cube.
+keys into the cube the renderer gives them and recaptures changed ones in place, and only then
+tells the schedule with `Captured`, so a capture that throws leaves the two in step. A key
+missing from a frame is removed alone, and the rest keep their pictures. With the `Reflections`
+switch off Super wants no probes, so it removes them and glass falls back to the studio cube.
 
 A capture frames the sun's shadow maps on what it captures, not on the camera:
 `Renderer.CaptureShadows` centres them on the probe's box with half its diagonal as the
@@ -4979,8 +5001,9 @@ change does too.
 - Screen-space reflections only know what is on screen, and read last frame's image.
   Glass reflects probes and the studio, not traced rays.
 - Reflection probes are captured again only when they move or the lighting changes, not when
-  things or the camera move, and a scene gets at most four. Removing one recaptures the rest.
-  They don't see point and spot lights.
+  things or the camera move, and a frame gets at most 64. They don't see point and spot lights.
+  A pixel blends at most four, and a cluster marks a probe when its box touches the box round
+  the cluster's piece of the view, so a cluster at a slant can try a probe it misses.
 - Where the GPU traces, light probes update 256, 512 or 1,024 a frame, so the two finest
   cascades settle within a few dozen frames at High and every probe is redone every 64 frames
   for the first 12 refreshes after a change, then every 256. Each update adds one more bounce,

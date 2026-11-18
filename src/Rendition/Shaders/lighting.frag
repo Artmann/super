@@ -5,10 +5,10 @@
 #include "brdf.glsl"
 #include "sampling.glsl"
 #include "probes.glsl"
-#include "reflection_probes.glsl"
 #include "water.glsl"
 #include "material_data.glsl"
 #include "light_data.glsl"
+#include "reflection_probes.glsl"
 #include "local_shadows.glsl"
 #include "sky.glsl"
 #include "fog.glsl"
@@ -404,7 +404,7 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
 
 // What the reflection probes, or the studio where there are none, show in a direction.
 vec3 sampleReflection(vec3 position, vec3 direction, float lod) {
-    return probeReflection(probeTexture, reflectionTexture, position, direction, lod);
+    return probeReflection(probeTexture, reflectionTexture, gl_FragCoord.xy, position, direction, lod);
 }
 
 // Light blocked by something touching the surface, nearer than the shadow maps' texels can

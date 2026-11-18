@@ -28,7 +28,7 @@ public sealed unsafe class Renderer : IDisposable
     public const int MaxBones = 16384;
 
     /// <summary>The most reflection probes the renderer holds at once.</summary>
-    public const int MaxReflectionProbes = FrameUniforms.MaxProbes;
+    public const int MaxReflectionProbes = ReflectionProbeOrder.MaxProbes;
 
     private const PipelineStageFlags2 SampledStage = PipelineStageFlags2.FragmentShaderBit;
 
@@ -53,9 +53,26 @@ public sealed unsafe class Renderer : IDisposable
         public GpuBuffer Lights;
         public GpuBuffer ShadowTiles;
         public GpuBuffer Clusters;
+        // The reflection probes the view sees, in the order they blend, as light_data.glsl reads them at binding 13.
+        public GpuBuffer ReflectionProbes;
         // The frame's suns and placed chunks, as chunks.glsl reads them at binding 11. See GpuChunk.
         public GpuBuffer Chunks;
         public DescriptorSet Set;
+
+        public readonly void Dispose(Vk api, Device device)
+        {
+            Uniforms.Dispose();
+            Bones.Dispose();
+            Instances.Dispose();
+            Lights.Dispose();
+            ShadowTiles.Dispose();
+            Clusters.Dispose();
+            ReflectionProbes.Dispose();
+            Chunks.Dispose();
+            api.DestroySemaphore(device, ImageAvailable, null);
+            api.DestroyFence(device, InFlight, null);
+            api.DestroyCommandPool(device, CommandPool, null);
+        }
     }
 
     /// <summary>One placed chunk, as chunks.glsl's ChunkData reads it. Must match it.</summary>
@@ -647,7 +664,7 @@ public sealed unsafe class Renderer : IDisposable
         _descriptorPool = _context.CreateDescriptorPool(
             FramesInFlight + 10,
             new DescriptorPoolSize(DescriptorType.UniformBuffer, FramesInFlight),
-            new DescriptorPoolSize(DescriptorType.StorageBuffer, 9 * FramesInFlight),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, 10 * FramesInFlight),
             new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 25 + 3 * FramesInFlight));
         _lightingPool = _context.CreateDescriptorPool(
             DescriptorPoolCreateFlags.UpdateAfterBindBit, 1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 16));
@@ -3052,6 +3069,8 @@ public sealed unsafe class Renderer : IDisposable
     /// This takes a moment and waits for the GPU, so call it while loading, or when
     /// <see cref="ReflectionLightingHash(in FrameView)"/> changes. The sun's shadows are framed on
     /// the probe's box, whatever the view's shadow centre. At most <see cref="MaxReflectionProbes"/> fit.
+    /// Room for <see cref="ProbeCubes.FirstCapacity"/> is made at the start, and it doubles when
+    /// it runs out, which waits for the GPU once more.
     /// </summary>
     public ReflectionProbeHandle CaptureReflectionProbe(
         in ReflectionProbe probe,
@@ -3065,7 +3084,16 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         CaptureProbeFaces(probe, view, visible, shadowCasters);
-        return _probes.Add(probe);
+        int capacity = _probes.Cubes.Capacity;
+        var handle = _probes.Add(probe);
+        if (_probes.Cubes.Capacity != capacity)
+        {
+            // The array grew, so the lighting and glass read the new one.
+            WriteTargetDescriptors();
+            _transparentPass.WriteProbes(_environment.Sampler, _probes.Cubes.View);
+        }
+
+        return handle;
     }
 
     /// <summary>
@@ -3079,16 +3107,22 @@ public sealed unsafe class Renderer : IDisposable
         ReadOnlySpan<DrawItem> visible,
         ReadOnlySpan<DrawItem> shadowCasters)
     {
-        if ((uint)handle.Index >= (uint)_probes.Count)
+        if (!_probes.Holds(handle))
         {
-            throw new ArgumentException($"Reflection probe {handle.Index} does not exist; there are {_probes.Count}.", nameof(handle));
+            throw new ArgumentException($"Reflection probe {handle.Index} does not exist.", nameof(handle));
         }
 
         CaptureProbeFaces(probe, view, visible, shadowCasters);
         _probes.Replace(handle, probe);
     }
 
-    /// <summary>How many reflection probes have been captured and not cleared.</summary>
+    /// <summary>
+    /// Forgets one reflection probe from the next frame. The others keep their pictures, and the next
+    /// probe captured takes its place.
+    /// </summary>
+    public void RemoveReflectionProbe(ReflectionProbeHandle handle) => _probes.Remove(handle);
+
+    /// <summary>How many reflection probes have been captured and not removed or cleared.</summary>
     public int ReflectionProbeCount => _probes.Count;
 
     /// <summary>Forgets every reflection probe, so surfaces reflect only the sky from the next frame.</summary>
@@ -3529,7 +3563,7 @@ public sealed unsafe class Renderer : IDisposable
         // keeps what its own images hold, so the screen's history and held picture survive this.
         var screenTargets = _gBuffer;
         var screenOff = _off;
-        _reflectionProbeTargets ??= new GBuffer(_context, new Extent2D(ReflectionProbes.FaceSize, ReflectionProbes.FaceSize));
+        _reflectionProbeTargets ??= new GBuffer(_context, new Extent2D(ProbeCubes.FaceSize, ProbeCubes.FaceSize));
         _gBuffer = _reflectionProbeTargets;
         WriteTargetDescriptors();
 
@@ -4394,16 +4428,7 @@ public sealed unsafe class Renderer : IDisposable
 
         foreach (ref var frame in _frames.AsSpan())
         {
-            frame.Uniforms.Dispose();
-            frame.Bones.Dispose();
-            frame.Instances.Dispose();
-            frame.Lights.Dispose();
-            frame.ShadowTiles.Dispose();
-            frame.Clusters.Dispose();
-            frame.Chunks.Dispose();
-            _api.DestroySemaphore(_context.Device, frame.ImageAvailable, null);
-            _api.DestroyFence(_context.Device, frame.InFlight, null);
-            _api.DestroyCommandPool(_context.Device, frame.CommandPool, null);
+            frame.Dispose(_api, _context.Device);
         }
 
         _api.DestroyDescriptorPool(_context.Device, _descriptorPool, null);
@@ -5106,11 +5131,9 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->Puddles = Puddles.Pack(view.Puddles, _off);
         uniforms->Wind = Wind.Pack(view.Wind, _off);
 
-        uniforms->ProbeCount = 0;
-        if (!capturingProbe)
-        {
-            _probes.CopyToUniforms(uniforms);
-        }
+        // A capture sees no reflection probes, its own or the others.
+        uniforms->ProbeCount = capturingProbe ? 0 : _probes.Prepare(
+            view.View, view.Projection, new Span<GpuReflectionProbe>(frame.ReflectionProbes.Mapped, ReflectionProbeOrder.MaxProbes));
 
         // The fixed grid, read wherever it has a probe updated. A reflection probe's capture leaves
         // the light probes out, as before.
@@ -5367,9 +5390,10 @@ public sealed unsafe class Renderer : IDisposable
             new Span<GpuLocalLight>(frame.Lights.Mapped, LocalLight.MaxPerFrame),
             new Span<GpuShadowTile>(frame.ShadowTiles.Mapped, LocalLights.MaxTiles),
             shadows: !_off.HasFlag(RenderEffects.LightShadows),
-            maskChannels: _maskChannels);
+            maskChannels: _maskChannels,
+            cover: _probes.Order.Count > 0 ? (_probes.Order.NearDepth, _probes.Order.FarDepth) : null);
         _tileCount = _localLights.TileCount;
-        _clustersNeeded = _localLights.LightCount > 0;
+        _clustersNeeded = _localLights.LightCount > 0 || _probes.Order.Count > 0;
         uniforms->LocalLightCount = _localLights.LightCount;
         uniforms->Clusters = new Vector4(_localLights.NearDepth, _localLights.FarDepth, _localLights.Parallel ? 1f : 0f, 0f);
         uniforms->Screen = new Vector4(_gBuffer.Extent.Width, _gBuffer.Extent.Height, 1f / _gBuffer.Extent.Width, 1f / _gBuffer.Extent.Height);
@@ -5562,6 +5586,8 @@ public sealed unsafe class Renderer : IDisposable
             _context, LocalLights.ClusterBytes, BufferUsageFlags.StorageBufferBit, MemoryPropertyFlags.DeviceLocalBit);
         frame.Chunks = GpuBuffer.CreateHostVisible(
             _context, (ulong)(ChunkHeaderBytes + BakeFiles.MaxChunks * sizeof(GpuChunk)), BufferUsageFlags.StorageBufferBit);
+        frame.ReflectionProbes = GpuBuffer.CreateHostVisible(
+            _context, (ulong)(ReflectionProbeOrder.MaxProbes * sizeof(GpuReflectionProbe)), BufferUsageFlags.StorageBufferBit);
         frame.Set = AllocateSet(_frameSetLayout);
 
         var chunksInfo = new DescriptorBufferInfo(frame.Chunks.Handle, 0, frame.Chunks.Size);
@@ -5570,32 +5596,18 @@ public sealed unsafe class Renderer : IDisposable
         var lightsInfo = new DescriptorBufferInfo(frame.Lights.Handle, 0, frame.Lights.Size);
         var tilesInfo = new DescriptorBufferInfo(frame.ShadowTiles.Handle, 0, frame.ShadowTiles.Size);
         var clustersInfo = new DescriptorBufferInfo(frame.Clusters.Handle, 0, frame.Clusters.Size);
+        var probesInfo = new DescriptorBufferInfo(frame.ReflectionProbes.Handle, 0, frame.ReflectionProbes.Size);
         var writes = stackalloc WriteDescriptorSet[]
         {
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = frame.Set,
-                DstBinding = 0,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.UniformBuffer,
-                PBufferInfo = &uniformInfo,
-            },
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = frame.Set,
-                DstBinding = 1,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.StorageBuffer,
-                PBufferInfo = &bonesInfo,
-            },
+            Descriptors.BufferWrite(frame.Set, 0, &uniformInfo, DescriptorType.UniformBuffer),
+            Descriptors.BufferWrite(frame.Set, 1, &bonesInfo),
             Descriptors.BufferWrite(frame.Set, 3, &lightsInfo),
             Descriptors.BufferWrite(frame.Set, 4, &tilesInfo),
             Descriptors.BufferWrite(frame.Set, 5, &clustersInfo),
             Descriptors.BufferWrite(frame.Set, 11, &chunksInfo),
+            Descriptors.BufferWrite(frame.Set, 13, &probesInfo),
         };
-        _api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
+        _api.UpdateDescriptorSets(_context.Device, 7, writes, 0, null);
 
         frame.Instances = new InstanceBuffer(_context);
         WriteInstanceDescriptor(frame);
@@ -5697,7 +5709,8 @@ public sealed unsafe class Renderer : IDisposable
     /// volumetric.glsl reads it, 9 where each copy stood last frame, as instances.glsl
     /// reads it for motion vectors, and 10 where each copy reads its baked light. 11 holds
     /// the frame's suns and placed chunks and 12 the sky projected by SkySh, as
-    /// chunks.glsl reads them, to relight every copy of a chunk's bake.
+    /// chunks.glsl reads them, to relight every copy of a chunk's bake. 13 holds the reflection
+    /// probes the view sees, as light_data.glsl reads them.
     /// </summary>
     private DescriptorSetLayout CreateFrameSetLayout()
     {
@@ -5717,8 +5730,9 @@ public sealed unsafe class Renderer : IDisposable
             new(10, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
             new(11, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
             new(12, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
+            new(13, DescriptorType.StorageBuffer, 1, everyStage),
         };
-        return _context.CreateSetLayout(new ReadOnlySpan<DescriptorSetLayoutBinding>(bindings, 13));
+        return _context.CreateSetLayout(new ReadOnlySpan<DescriptorSetLayoutBinding>(bindings, 14));
     }
 
     private DescriptorSetLayout CreateSetLayout(DescriptorType type, int bindingCount, ShaderStageFlags stages, bool updateAfterBind = false)
@@ -5766,7 +5780,7 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, _gBuffer.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.AoBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _probes.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _probes.Cubes.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
             new(_linearSampler, _lightProbes.DepthView, ImageLayout.General),
             new(_sampler, _gBuffer.Baked.View, ImageLayout.ShaderReadOnlyOptimal),

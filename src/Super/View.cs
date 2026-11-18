@@ -36,9 +36,21 @@ public readonly record struct SunLight(Vector3 Direction, Vector3 Color, bool Ca
 
 /// <summary>
 /// A reflection probe placed with <see cref="View.ReflectionProbe"/>: where it photographs the scene
-/// from, the box its reflections are bent to land on, and how far towards the box's sides it fades out.
+/// from, the box its reflections are bent to land on, how far towards the box's sides it fades out,
+/// and which probe blends first where boxes overlap.
 /// </summary>
-public readonly record struct ReflectionProbeRequest(int Key, Vector3 Position, Vector3 Min, Vector3 Max, float Blend);
+public readonly record struct ReflectionProbeRequest(int Key, Vector3 Position, Vector3 Min, Vector3 Max, float Blend, float Priority = 0f)
+{
+    /// <summary>The probe as the renderer takes it.</summary>
+    internal ReflectionProbe ToProbe() => new()
+    {
+        Position = Position,
+        BoxMin = Min,
+        BoxMax = Max,
+        BlendDistance = Blend,
+        Priority = Priority,
+    };
+}
 
 /// <summary>A decal placed with <see cref="View.Decal"/>: the box it fills, what it lays on and how much of each part.</summary>
 public readonly record struct DecalRequest(int Key, Matrix4x4 Box, Surface Material, DecalBlend Blend);
@@ -840,7 +852,7 @@ public sealed class View
                 nameof(probeSpacing), probeSpacing, "The baked space's probe spacing must be more than 0 metres.");
         }
 
-        CheckBakedBox("baked space", min, max);
+        CheckBox("baked space", min, max);
         long total = ProbeGrid.Total(new ProbeVolumeSettings(min, max, probeSpacing));
         if (total > BakeFiles.MaxSpaceProbes)
         {
@@ -874,7 +886,7 @@ public sealed class View
         }
 
         BakeFiles.CheckChunkTransform(_bakedChunks.Count, name, transform, nameof(transform));
-        CheckBakedBox("baked chunk", min, max);
+        CheckBox("baked chunk", min, max);
         CheckTexelsPerMetre("baked chunk", texelsPerMetre);
         BakeFiles.CheckEdgeBlend(name, edgeBlend, min, max, nameof(edgeBlend));
         _bakedChunks.Add(new BakedChunk(name, transform, min, max, texelsPerMetre, edgeBlend));
@@ -890,7 +902,7 @@ public sealed class View
         }
     }
 
-    private static void CheckBakedBox(string what, Vector3 min, Vector3 max)
+    private static void CheckBox(string what, Vector3 min, Vector3 max, string maxName = "max")
     {
         for (int axis = 0; axis < 3; axis++)
         {
@@ -899,7 +911,7 @@ public sealed class View
                 string name = axis == 0 ? "x" : axis == 1 ? "y" : "z";
                 throw new ArgumentException(
                     $"The {what}'s box must reach further along {name} than it starts, but it runs from {min[axis].ToString(CultureInfo.InvariantCulture)} to {max[axis].ToString(CultureInfo.InvariantCulture)}.",
-                    nameof(max));
+                    maxName);
             }
         }
     }
@@ -909,12 +921,14 @@ public sealed class View
     /// <paramref name="position"/>, which shiny surfaces and glass inside the box from
     /// <paramref name="boxMin"/> to <paramref name="boxMax"/> reflect in place of the sky. The box
     /// should match the room or yard round it, since a reflection is bent to land on its walls.
-    /// Towards the box's sides the probe fades out over <paramref name="blend"/> metres. The key
-    /// names it across frames: it is photographed the first frame it's placed, and again only
-    /// when it moves or the lighting changes, so place it every frame. At most
-    /// <see cref="Renderer.MaxReflectionProbes"/> fit. See docs/rendering.md.
+    /// Towards the box's sides the probe fades out over <paramref name="blend"/> metres. Where
+    /// boxes overlap, the probe with the higher <paramref name="priority"/> blends first, and
+    /// between equal priorities the smaller box does. The key names it across frames: it is
+    /// photographed the first frame it's placed, and again only when it moves or the lighting
+    /// changes, so place it every frame. At most <see cref="Renderer.MaxReflectionProbes"/> fit.
+    /// See docs/rendering.md.
     /// </summary>
-    public void ReflectionProbe(int key, Vector3 position, Vector3 boxMin, Vector3 boxMax, float blend = 0.5f)
+    public void ReflectionProbe(int key, Vector3 position, Vector3 boxMin, Vector3 boxMax, float blend = 0.5f, float priority = 0f)
     {
         if (_reflectionProbes.Count == Renderer.MaxReflectionProbes)
         {
@@ -937,17 +951,12 @@ public sealed class View
             throw new ArgumentOutOfRangeException(nameof(blend), blend, "The reflection probe's blend must be 0 or more metres.");
         }
 
-        for (int axis = 0; axis < 3; axis++)
+        if (!float.IsFinite(priority))
         {
-            if (!(float.IsFinite(boxMin[axis]) && float.IsFinite(boxMax[axis]) && boxMax[axis] > boxMin[axis]))
-            {
-                string name = axis == 0 ? "x" : axis == 1 ? "y" : "z";
-                throw new ArgumentException(
-                    $"The reflection probe's box must reach further along {name} than it starts, but it runs from {boxMin[axis].ToString(CultureInfo.InvariantCulture)} to {boxMax[axis].ToString(CultureInfo.InvariantCulture)}.",
-                    nameof(boxMax));
-            }
+            throw new ArgumentOutOfRangeException(nameof(priority), priority, "The reflection probe's priority must be a finite number.");
         }
 
+        CheckBox("reflection probe", boxMin, boxMax, nameof(boxMax));
         if (!(Vector3.Clamp(position, boxMin, boxMax) == position))
         {
             throw new ArgumentException(
@@ -955,7 +964,7 @@ public sealed class View
                 nameof(position));
         }
 
-        _reflectionProbes.Add(new ReflectionProbeRequest(key, position, boxMin, boxMax, blend));
+        _reflectionProbes.Add(new ReflectionProbeRequest(key, position, boxMin, boxMax, blend, priority));
     }
 
     /// <summary>

@@ -9,18 +9,32 @@ public class ReflectionProbeTests
     private static readonly Vector3 BoxMax = new(10f, 6f, 7f);
 
     [Fact]
-    public void A_fifth_probe_is_refused()
+    public void Sixty_four_probes_fit_and_a_sixty_fifth_is_refused()
     {
         var view = new View();
-        for (int key = 0; key < 4; key++)
+        for (int key = 0; key < 64; key++)
         {
-            view.ReflectionProbe(key, new Vector3(key, 1.6f, 0f), BoxMin, BoxMax);
+            view.ReflectionProbe(key, new Vector3(key % 10, 1.6f, 0f), BoxMin, BoxMax);
         }
 
-        var error = Assert.Throws<InvalidOperationException>(() => view.ReflectionProbe(4, Vector3.Zero, BoxMin, BoxMax));
+        var error = Assert.Throws<InvalidOperationException>(() => view.ReflectionProbe(64, Vector3.Zero, BoxMin, BoxMax));
 
-        Assert.Equal("At most 4 reflection probes fit in a frame.", error.Message);
-        Assert.Equal(4, view.ReflectionProbes.Length);
+        Assert.Equal("At most 64 reflection probes fit in a frame.", error.Message);
+        Assert.Equal(64, view.ReflectionProbes.Length);
+    }
+
+    [Fact]
+    public void A_probe_keeps_its_priority_and_an_endless_one_is_refused()
+    {
+        var view = new View();
+        view.ReflectionProbe(1, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, priority: 2f);
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(
+            () => view.ReflectionProbe(2, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, priority: float.PositiveInfinity));
+
+        Assert.Equal(2f, Assert.Single(view.ReflectionProbes.ToArray()).Priority);
+        Assert.Equal("priority", error.ParamName);
+        Assert.StartsWith("The reflection probe's priority must be a finite number.", error.Message);
     }
 
     [Fact]
@@ -71,9 +85,9 @@ public class ReflectionProbeTests
     {
         var schedule = new ReflectionProbeSchedule();
         var probe = new ReflectionProbeRequest(1, new Vector3(3f, 1.6f, -1f), BoxMin, BoxMax, 0.5f);
-        schedule.Captured(probe, 10);
+        schedule.Captured(probe, 10, slot: 0);
 
-        // Asked, but the renderer threw before Captured, as with a fifth probe.
+        // Asked, but the renderer threw before Captured, as with a sixty-fifth probe.
         Assert.True(schedule.ShouldCapture(probe, 11));
         Assert.True(schedule.ShouldCapture(probe, 11));
         Assert.True(schedule.ShouldCapture(probe with { Key = 2 }, 10));
@@ -158,40 +172,42 @@ public class ReflectionProbeTests
             return false;
         }
 
-        schedule.Captured(request, hash);
+        schedule.Captured(request, hash, slot: request.Key);
         return true;
     }
 
     [Fact]
-    public void Each_key_keeps_its_own_slot_and_a_new_key_takes_the_next()
+    public void Each_key_keeps_the_slot_the_renderer_gave_it()
     {
         var schedule = new ReflectionProbeSchedule();
         var first = new ReflectionProbeRequest(5, new Vector3(1f, 1.6f, 0f), BoxMin, BoxMax, 0.5f);
         var second = new ReflectionProbeRequest(2, new Vector3(2f, 1.6f, 0f), BoxMin, BoxMax, 0.5f);
 
-        schedule.Captured(first, 1);
-        schedule.Captured(second, 1);
-        schedule.Captured(first with { Blend = 1f }, 1);
+        schedule.Captured(first, 1, slot: 3);
+        schedule.Captured(second, 1, slot: 0);
+        schedule.Captured(first with { Blend = 1f }, 1, slot: 3);
 
-        Assert.Equal(0, schedule.SlotOf(5));
-        Assert.Equal(1, schedule.SlotOf(2));
+        Assert.Equal(3, schedule.SlotOf(5));
+        Assert.Equal(0, schedule.SlotOf(2));
         Assert.Equal(-1, schedule.SlotOf(9));
     }
 
     [Fact]
-    public void A_probe_no_longer_asked_for_clears_them_all_so_the_rest_are_captured_again()
+    public void A_probe_no_longer_asked_for_is_forgotten_alone_and_the_rest_keep_their_pictures()
     {
         var schedule = new ReflectionProbeSchedule();
         var first = new ReflectionProbeRequest(1, new Vector3(1f, 1.6f, 0f), BoxMin, BoxMax, 0.5f);
         var second = new ReflectionProbeRequest(2, new Vector3(2f, 1.6f, 0f), BoxMin, BoxMax, 0.5f);
-        schedule.Captured(first, 1);
-        schedule.Captured(second, 1);
+        schedule.Captured(first, 1, slot: 4);
+        schedule.Captured(second, 1, slot: 6);
 
-        Assert.False(schedule.Forget([first, second]));
-        Assert.True(schedule.Forget([second]));
+        Assert.Empty(schedule.Forget([first, second]));
+        Assert.Equal(new[] { 4 }, schedule.Forget([second]));
 
-        Assert.True(CaptureIfDue(schedule, second, 1));
-        Assert.Equal(0, schedule.SlotOf(2));
+        Assert.Equal(-1, schedule.SlotOf(1));
+        Assert.Equal(6, schedule.SlotOf(2));
+        Assert.False(schedule.ShouldCapture(second, 1));
+        Assert.True(schedule.ShouldCapture(first, 1));
     }
 
     [Fact]

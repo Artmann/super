@@ -963,6 +963,20 @@ roof: a reflected ray runs on to the box before it looks the probe up, so what i
 where it would really be and doesn't slide as the camera moves. Towards the sides of its box a
 probe fades out over `blend` metres, 0.5 by default, into the sky or the next probe.
 
+Where boxes overlap, the probe with the higher `priority` (0 by default) goes first, and the
+next fills in only what the first leaves as it fades out towards its sides. Between equal
+priorities the smaller box goes first, so a room's probe wins inside the room and the yard's
+round it takes over at the door, with no priorities to set:
+
+```csharp
+view.ReflectionProbe(key: 1, position: new(0f, 2f, 0f), boxMin: new(-40f, -1f, -40f), boxMax: new(40f, 20f, 40f)); // the yard
+view.ReflectionProbe(key: 2, position: new(3f, 1.6f, 5f), boxMin: new(0f, 0f, 2f), boxMax: new(6f, 3f, 8f), blend: 0.3f); // a house in it
+```
+
+A pixel blends at most four probes, the first four that reach it in that order.
+
+![The Gallery's chapel at the same moment, before and after it got a probe of its own: before, the lantern's metal frame reflects the blue sky through the roof; after, it reflects the dark chapel round it](media/reflection-probes-chapel.webp)
+
 The key names the probe across frames, so place it every frame like a light. It is
 photographed the first frame it's placed and again only when it moves, its box changes or the
 lighting does: the sun's direction or colour, the sky, the shadow softness or cascades, the
@@ -972,10 +986,12 @@ nor does moving or adding objects, so probes suit what stands still. Once the [l
 probes](#bounced-light) round the camera have first settled, each probe is photographed once more.
 Each photograph waits for the GPU and takes a moment, so a sun that moves every frame keeps
 them drawing. Point and spot lights aren't in the photograph, so a lantern's glow doesn't show in
-a reflection. A probe left out of a frame is dropped, and the rest are photographed again.
+a reflection. A probe left out of a frame is dropped, and the rest keep their photographs.
 
-At most 4 probes fit in a frame, and a fifth throws. The position must be inside the box,
-`boxMax` above `boxMin` on every axis, `blend` 0 or more, and each key used once a frame.
+At most 64 probes fit in a frame, and a sixty-fifth throws. Each probe takes about 1 MB of
+GPU memory. Room for 8 is made at the start and doubles when it runs out, up to 64, which
+waits for the GPU once more. The position must be inside the box, `boxMax` above `boxMin` on
+every axis, `blend` 0 or more, `priority` a finite number, and each key used once a frame.
 With `Graphics.Reflections` off, no probes are photographed and shiny surfaces and glass
 reflect only the sky.
 

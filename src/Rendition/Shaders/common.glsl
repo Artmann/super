@@ -3,12 +3,6 @@ struct Light {
     vec4 radiance;  // rgb: colour multiplied by intensity; w: shadow mask channel, or -1 for none
 };
 
-struct ReflectionProbe {
-    vec4 position; // xyz: where it was captured; w: distance over which it fades out
-    vec4 boxMin;   // xyz: the room it describes
-    vec4 boxMax;
-};
-
 // Shared by every pass. Must match FrameUniforms in Passes/FrameUniforms.cs.
 layout(std140, set = 0, binding = 0) uniform Frame {
     mat4 viewProjection;
@@ -61,7 +55,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     float time;              // Seconds, as set by the game.
     int frameNumber;
     int historyValid;        // 1 when the previous frame can be used.
-    int probeCount;
+    int probeCount;          // Reflection probes the view sees, in light_data.glsl's reflectionProbes.
     int showEnvironment;     // 1 draws the environment where nothing was drawn.
     int shadowCascades;      // How many of shadowMatrices are in use.
     int localLightCount;     // Point and spot lights in light_data.glsl's lights.
@@ -70,7 +64,6 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     int probeLightCount;     // Local lights probe updates read: localLightCount in view, then the rest of the frame's.
     float previousTime;      // Last frame's time, for motion vectors; the same as time when there's no last frame.
     Light lights[8];
-    ReflectionProbe probes[4];
     mat4 probeSunMatrix;         // World to the light probes' own sun shadow map, over the largest cascade.
 } frame;
 

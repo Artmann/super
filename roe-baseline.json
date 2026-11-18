@@ -735,12 +735,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.View.ReflectionProbe",
-      "file": "src/Super/View.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Voice.Begin",
       "file": "src/Super/Audio/Voice.cs",
       "metric": 12
@@ -1263,12 +1257,6 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.View.ReflectionProbe",
-      "file": "src/Super/View.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Super.Voice.Begin",
       "file": "src/Super/Audio/Voice.cs",
       "metric": 18
@@ -1373,7 +1361,7 @@
       "kind": "long-method",
       "name": "Gallery.GalleryGame.Draw",
       "file": "examples/Gallery/GalleryGame.cs",
-      "metric": 69
+      "metric": 65
     },
     {
       "kind": "long-method",
@@ -1859,13 +1847,13 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.CreateFrame",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 82
+      "metric": 70
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.Dispose",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 86
+      "metric": 77
     },
     {
       "kind": "long-method",
@@ -1961,7 +1949,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 161
+      "metric": 159
     },
     {
       "kind": "long-method",
@@ -2070,12 +2058,6 @@
       "name": "Rendition.Vulkan.ReflectionProbes.FilterLevel",
       "file": "src/Rendition/Vulkan/ReflectionProbes.cs",
       "metric": 60
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.ReflectionProbes.ReflectionProbes",
-      "file": "src/Rendition/Vulkan/ReflectionProbes.cs",
-      "metric": 53
     },
     {
       "kind": "long-method",
@@ -2691,12 +2673,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.SceneRenderer.CaptureReflectionProbes",
-      "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 43
-    },
-    {
-      "kind": "long-method",
       "name": "Super.SceneRenderer.CreateFrame",
       "file": "src/Super/Rendering/SceneRenderer.cs",
       "metric": 57
@@ -2772,12 +2748,6 @@
       "name": "Super.Ui.GlyphAtlas.Wrap",
       "file": "src/Super/Ui/GlyphAtlas.cs",
       "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.View.ReflectionProbe",
-      "file": "src/Super/View.cs",
-      "metric": 42
     },
     {
       "kind": "long-method",
@@ -3437,13 +3407,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5857
+      "metric": 5871
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1785
+      "metric": 1791
     },
     {
       "kind": "large-file",
@@ -3479,13 +3449,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1222
+      "metric": 1216
     },
     {
       "kind": "large-file",
       "name": "src/Super/View.cs",
       "file": "src/Super/View.cs",
-      "metric": 1155
+      "metric": 1164
     },
     {
       "kind": "large-type",
@@ -3593,7 +3563,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.FrameUniforms",
       "file": "src/Rendition/Passes/FrameUniforms.cs",
-      "metric": 61
+      "metric": 60
     },
     {
       "kind": "large-type",
@@ -3629,7 +3599,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 390
+      "metric": 391
     },
     {
       "kind": "large-type",
@@ -4026,7 +3996,6 @@
         "Rendition.Passes.GBuffer",
         "Rendition.Passes.GBufferPass",
         "Rendition.Passes.GpuLightArray",
-        "Rendition.Passes.GpuReflectionProbeArray",
         "Rendition.Passes.Motion",
         "Rendition.Passes.OverlayPass",
         "Rendition.Passes.ParticlePass",
@@ -4065,6 +4034,7 @@
         "Rendition.Vulkan.GpuTexture",
         "Rendition.Vulkan.InstanceBuffer",
         "Rendition.Vulkan.PipelineFactory",
+        "Rendition.Vulkan.ProbeCubes",
         "Rendition.Vulkan.ProbeVolume",
         "Rendition.Vulkan.RayTracing",
         "Rendition.Vulkan.ReflectionProbes",

@@ -20,8 +20,11 @@ internal sealed class LocalLights
     public const int ClusterCount = ClusterX * ClusterY * ClusterZ;
     public const int ClusterLights = 256;
 
-    /// <summary>Bytes of one frame's cluster lists: a count per cluster, then two light indices to a word.</summary>
-    public const int ClusterBytes = ClusterCount * sizeof(uint) * (1 + ClusterLights / 2);
+    /// <summary>
+    /// Bytes of one frame's cluster lists: a count per cluster, then two words of reflection probe bits per
+    /// cluster, then two light indices to a word.
+    /// </summary>
+    public const int ClusterBytes = ClusterCount * sizeof(uint) * (1 + 2 + ClusterLights / 2);
 
     public const int AtlasSize = 4096;
     public const int MinTile = 64;
@@ -66,7 +69,10 @@ internal sealed class LocalLights
 
     public int TileCount { get; private set; }
 
-    /// <summary>The nearest and furthest depth from the camera any kept light reaches.</summary>
+    /// <summary>
+    /// The nearest and furthest depth from the camera any kept light reaches, widened to the depths
+    /// <see cref="Prepare"/> was asked to cover as well.
+    /// </summary>
     public float NearDepth { get; private set; }
     public float FarDepth { get; private set; }
 
@@ -81,7 +87,9 @@ internal sealed class LocalLights
     /// <paramref name="gpuTiles"/> for <see cref="MaxTiles"/>. With <paramref name="shadows"/>
     /// false no light gets a tile, as if none cast a shadow. <paramref name="maskChannels"/> gives,
     /// by <see cref="LocalLight.Key"/>, the baked shadow mask's channel of each light that has one;
-    /// the rest get -1, so the lighting never reads the mask for them.
+    /// the rest get -1, so the lighting never reads the mask for them. The clusters' slices also
+    /// reach over <paramref name="cover"/>, the depths the reflection probes' boxes span, so the
+    /// clusters can mark the probes too.
     /// </summary>
     public void Prepare(
         ReadOnlySpan<LocalLight> lights,
@@ -91,7 +99,8 @@ internal sealed class LocalLights
         Span<GpuLocalLight> gpuLights,
         Span<GpuShadowTile> gpuTiles,
         bool shadows = true,
-        IReadOnlyDictionary<int, int>? maskChannels = null)
+        IReadOnlyDictionary<int, int>? maskChannels = null,
+        (float Near, float Far)? cover = null)
     {
         if (lights.Length > LocalLight.MaxPerFrame)
         {
@@ -106,8 +115,8 @@ internal sealed class LocalLights
 
         int kept = 0;
         int shadowed = 0;
-        float nearest = float.MaxValue;
-        float furthest = float.MinValue;
+        float nearest = cover?.Near ?? float.MaxValue;
+        float furthest = cover?.Far ?? float.MinValue;
         for (int i = 0; i < lights.Length; i++)
         {
             ref readonly var light = ref lights[i];

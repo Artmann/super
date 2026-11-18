@@ -5,17 +5,15 @@ using Silk.NET.Vulkan;
 namespace Rendition.Vulkan;
 
 /// <summary>
-/// Captured views of the scene, held as an array of cube maps with one mip per roughness
-/// step. The renderer draws each face and this class blurs them into the mips.
+/// Captured views of the scene, held in <see cref="ProbeCubes"/>, one cube per probe with one mip per
+/// roughness step. The renderer draws each face and this class blurs them into the mips. Each probe
+/// keeps its cube until it's removed, and a removed probe's cube goes to the next one added. When no
+/// cube is free the array grows. Each frame <see cref="Prepare"/> picks and orders the probes the view sees.
 /// </summary>
 internal sealed unsafe class ReflectionProbes : IDisposable
 {
-    public const uint FaceSize = 256;
-
-    /// <summary>Same roughness steps as the studio. See REFLECTION_LODS in Shaders/brdf.glsl.</summary>
-    private const int Mips = 6;
-
-    private const Format CubeFormat = GBuffer.HdrFormat;
+    private const int MaxProbes = ReflectionProbeOrder.MaxProbes;
+    private const int Mips = ProbeCubes.Mips;
 
     /// <summary>Must match the Filter block in Shaders/reflection_probe.comp.</summary>
     private struct FilterConstants
@@ -25,49 +23,28 @@ internal sealed unsafe class ReflectionProbes : IDisposable
 
     private readonly VulkanContext _context;
     private readonly Sampler _sampler;
-    private readonly Image _image;
-    private readonly GpuAllocation _memory;
-    private readonly ImageView[] _levels = new ImageView[FrameUniforms.MaxProbes * Mips];
     private readonly CaptureCube _source;
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _set;
     private readonly PipelineLayout _pipelineLayout;
     private readonly LivePipeline _pipeline;
-    private readonly GpuReflectionProbe[] _probes = new GpuReflectionProbe[FrameUniforms.MaxProbes];
+    private readonly ReflectionProbe?[] _slots = new ReflectionProbe?[MaxProbes];
 
-    public readonly ImageView View;
+    /// <summary>The array every probe's cube is in.</summary>
+    public ProbeCubes Cubes { get; }
+
+    /// <summary>The probes the last <see cref="Prepare"/> found in view, in the order they blend.</summary>
+    public ReflectionProbeOrder Order { get; } = new();
+
     public int Count { get; private set; }
 
     public ReflectionProbes(VulkanContext context, Sampler sampler)
     {
         _context = context;
         _sampler = sampler;
-        var api = context.Api;
-
-        uint layers = FrameUniforms.MaxProbes * 6;
-        (_image, _memory) = CreateCubes(Mips, layers, ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit);
-        _source = new CaptureCube(context, FaceSize);
-
-        var viewInfo = new ImageViewCreateInfo
-        {
-            SType = StructureType.ImageViewCreateInfo,
-            Image = _image,
-            ViewType = ImageViewType.TypeCubeArray,
-            Format = CubeFormat,
-            SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, Mips, 0, layers),
-        };
-        api.CreateImageView(context.Device, &viewInfo, null, out View).Check();
-
-        viewInfo.ViewType = ImageViewType.Type2DArray;
-        for (int probe = 0; probe < FrameUniforms.MaxProbes; probe++)
-        {
-            for (int mip = 0; mip < Mips; mip++)
-            {
-                viewInfo.SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, (uint)mip, 1, (uint)probe * 6, 6);
-                api.CreateImageView(context.Device, &viewInfo, null, out _levels[probe * Mips + mip]).Check();
-            }
-        }
+        Cubes = new ProbeCubes(context);
+        _source = new CaptureCube(context, ProbeCubes.FaceSize);
 
         _setLayout = context.CreateSetLayout(
         [
@@ -84,54 +61,76 @@ internal sealed unsafe class ReflectionProbes : IDisposable
             [_setLayout],
             new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(FilterConstants)));
         _pipeline = PipelineFactory.CreateCompute(context, "reflection_probe.comp", _pipelineLayout);
-
-        // The lighting pass binds every probe from the start, captured or not.
-        var image = _image;
-        context.SubmitAndWait(cmd => api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.None, AccessFlags2.None,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-            mipCount: Mips, layerCount: layers));
-    }
-
-    public void CopyToUniforms(FrameUniforms* uniforms)
-    {
-        uniforms->ProbeCount = Count;
-        for (int i = 0; i < Count; i++)
-        {
-            uniforms->Probes[i] = _probes[i];
-        }
     }
 
     /// <summary>The cube the renderer copies each finished face into.</summary>
     public CaptureCube Capture => _source;
 
-    /// <summary>Blurs the six captured faces into a new probe.</summary>
+    /// <summary>
+    /// Writes the probes the view sees to <paramref name="gpu"/> in the order they blend, and says how
+    /// many. <see cref="Order"/> keeps the depths their boxes span.
+    /// </summary>
+    public int Prepare(in Matrix4x4 view, in Matrix4x4 projection, Span<GpuReflectionProbe> gpu)
+    {
+        Order.Prepare(_slots.AsSpan(0, Cubes.Capacity), view, projection, gpu);
+        return Order.Count;
+    }
+
+    /// <summary>
+    /// Blurs the six captured faces into a new probe, in the first free cube. When none is free
+    /// the array grows first, which waits for the GPU.
+    /// </summary>
     public ReflectionProbeHandle Add(in ReflectionProbe probe)
     {
-        if (Count == FrameUniforms.MaxProbes)
+        if (Count == MaxProbes)
         {
-            throw new InvalidOperationException($"Only {FrameUniforms.MaxProbes} reflection probes are supported.");
+            throw new InvalidOperationException($"Only {MaxProbes} reflection probes are supported.");
         }
 
-        Store(Count, probe);
+        int slot = Array.IndexOf(_slots, null, 0, Cubes.Capacity);
+        if (slot < 0)
+        {
+            slot = Cubes.Capacity;
+            Cubes.Grow();
+        }
+
+        Store(slot, probe);
         Count++;
-        return new ReflectionProbeHandle(Count - 1);
+        return new ReflectionProbeHandle(slot);
     }
 
     /// <summary>Blurs the six captured faces into an existing probe, in place of what it held.</summary>
     public void Replace(ReflectionProbeHandle handle, in ReflectionProbe probe)
     {
-        if ((uint)handle.Index >= (uint)Count)
-        {
-            throw new ArgumentException($"Reflection probe {handle.Index} does not exist; there are {Count}.", nameof(handle));
-        }
-
+        CheckHeld(handle);
         Store(handle.Index, probe);
     }
 
+    /// <summary>Forgets one probe, whose cube goes to the next probe added. The rest keep theirs.</summary>
+    public void Remove(ReflectionProbeHandle handle)
+    {
+        CheckHeld(handle);
+        _slots[handle.Index] = null;
+        Count--;
+    }
+
     /// <summary>Forgets every probe. Surfaces reflect the sky again from the next frame.</summary>
-    public void Clear() => Count = 0;
+    public void Clear()
+    {
+        Array.Clear(_slots);
+        Count = 0;
+    }
+
+    /// <summary>Whether a handle names a probe that was added and not removed since.</summary>
+    public bool Holds(ReflectionProbeHandle handle) => (uint)handle.Index < (uint)Cubes.Capacity && _slots[handle.Index] is not null;
+
+    private void CheckHeld(ReflectionProbeHandle handle)
+    {
+        if (!Holds(handle))
+        {
+            throw new ArgumentException($"Reflection probe {handle.Index} does not exist.", nameof(handle));
+        }
+    }
 
     private void Store(int index, in ReflectionProbe probe)
     {
@@ -140,12 +139,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
             FilterLevel(index, mip);
         }
 
-        _probes[index] = new GpuReflectionProbe
-        {
-            Position = new Vector4(probe.Position, probe.BlendDistance),
-            BoxMin = new Vector4(probe.BoxMin, 0f),
-            BoxMax = new Vector4(probe.BoxMax, 0f),
-        };
+        _slots[index] = probe;
     }
 
     public void Dispose()
@@ -155,14 +149,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
-        foreach (var level in _levels)
-        {
-            api.DestroyImageView(_context.Device, level, null);
-        }
-
-        api.DestroyImageView(_context.Device, View, null);
-        api.DestroyImage(_context.Device, _image, null);
-        _context.Memory.Free(_memory);
+        Cubes.Dispose();
         _source.Dispose();
     }
 
@@ -171,7 +158,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         var api = _context.Api;
 
         var sourceInfo = new DescriptorImageInfo(_sampler, _source.CubeView, ImageLayout.ShaderReadOnlyOptimal);
-        var targetInfo = new DescriptorImageInfo(default, _levels[probe * Mips + mip], ImageLayout.General);
+        var targetInfo = new DescriptorImageInfo(default, Cubes.Level(probe, mip), ImageLayout.General);
         var writes = stackalloc WriteDescriptorSet[]
         {
             new()
@@ -195,12 +182,12 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         };
         api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
 
-        var image = _image;
+        var image = Cubes.Image;
         var set = _set;
         var layout = _pipelineLayout;
         var pipeline = _pipeline;
         uint baseLayer = (uint)probe * 6;
-        uint size = FaceSize >> mip;
+        uint size = ProbeCubes.FaceSize >> mip;
         var constants = new FilterConstants { Roughness = mip / (float)(Mips - 1) };
 
         // Each level runs separately to keep GPU work short.
@@ -228,31 +215,6 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         });
     }
 
-    private (Image Image, GpuAllocation Memory) CreateCubes(uint mips, uint layers, ImageUsageFlags usage)
-    {
-        var api = _context.Api;
-        var imageInfo = new ImageCreateInfo
-        {
-            SType = StructureType.ImageCreateInfo,
-            Flags = ImageCreateFlags.CreateCubeCompatibleBit,
-            ImageType = ImageType.Type2D,
-            Format = CubeFormat,
-            Extent = new Extent3D(FaceSize, FaceSize, 1),
-            MipLevels = mips,
-            ArrayLayers = layers,
-            Samples = SampleCountFlags.Count1Bit,
-            Tiling = ImageTiling.Optimal,
-            Usage = usage,
-            SharingMode = SharingMode.Exclusive,
-            InitialLayout = ImageLayout.Undefined,
-        };
-        api.CreateImage(_context.Device, &imageInfo, null, out var image).Check();
-
-        api.GetImageMemoryRequirements(_context.Device, image, out var requirements);
-        var memory = _context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
-        api.BindImageMemory(_context.Device, image, memory.Memory, memory.Offset).Check();
-        return (image, memory);
-    }
 }
 
 /// <summary>

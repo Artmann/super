@@ -130,7 +130,7 @@ void main() {
             multiscatter = multiscatterCompensation(f0, nDotV, roughness);
         }
         // Glass reflects the yard or room round it where a reflection probe sees it, as lit surfaces do.
-        vec3 reflectedLight = probeReflection(probeTexture, reflectionTexture, inPosition, reflect(-v, n), roughness * REFLECTION_LODS);
+        vec3 reflectedLight = probeReflection(probeTexture, reflectionTexture, gl_FragCoord.xy, inPosition, reflect(-v, n), roughness * REFLECTION_LODS);
         specular = reflectedLight * (f0 * brdf.x + brdf.y) * frame.backgroundRadiance.a * multiscatter;
     }
     vec3 diffuse = skyIrradiance(irradianceTexture, n) * frame.backgroundRadiance.a;

@@ -370,15 +370,15 @@ internal sealed class SceneRenderer : IDisposable
 
     /// <summary>
     /// Photographs each of the view's reflection probes the first frame it's placed, and again when
-    /// it moves or the lighting changes. Moving the camera isn't a lighting change. A probe that's gone takes the others with it, and they're
-    /// photographed again in their new slots.
+    /// it moves or the lighting changes. Moving the camera isn't a lighting change. A probe that's gone is
+    /// removed alone, and the others keep their pictures.
     /// </summary>
     private void CaptureReflectionProbes(View view, in FrameView frame, ReadOnlySpan<DrawItem> draws)
     {
         var wanted = WantedReflectionProbes(view, Off);
-        if (_reflectionProbes.Forget(wanted))
+        foreach (int slot in _reflectionProbes.Forget(wanted))
         {
-            _renderer.ClearReflectionProbes();
+            _renderer.RemoveReflectionProbe(new ReflectionProbeHandle(slot));
         }
 
         if (wanted.IsEmpty)
@@ -394,13 +394,7 @@ internal sealed class SceneRenderer : IDisposable
                 continue;
             }
 
-            var probe = new ReflectionProbe
-            {
-                Position = request.Position,
-                BoxMin = request.Min,
-                BoxMax = request.Max,
-                BlendDistance = request.Blend,
-            };
+            var probe = request.ToProbe();
 
             // The probe stands in the open, so it sees every draw, and every draw casts its shadow.
             // The schedule hears of the capture only once it worked, so a throw leaves the two in step.
@@ -411,10 +405,10 @@ internal sealed class SceneRenderer : IDisposable
             }
             else
             {
-                _renderer.CaptureReflectionProbe(probe, frame, draws, draws);
+                slot = _renderer.CaptureReflectionProbe(probe, frame, draws, draws).Index;
             }
 
-            _reflectionProbes.Captured(request, lighting);
+            _reflectionProbes.Captured(request, lighting, slot);
         }
     }
 

@@ -667,6 +667,12 @@ public struct ReflectionProbe
 
     /// <summary>The probe fades out over this distance inside its box.</summary>
     public float BlendDistance;
+
+    /// <summary>
+    /// Where boxes overlap, the probe with the higher priority is blended first and the next fills in
+    /// only what it leaves, towards its sides. Between equal priorities the smaller box goes first.
+    /// </summary>
+    public float Priority;
 }
 
 /// <summary>The look of the finished picture. Leaving a value at zero leaves that part unchanged.</summary>

@@ -61,10 +61,6 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
     private const int LampLightKey = 100;
     private const int LanternKey = 110;
     private const int CandleKey = 120;
-    private const int WhaleProbeKey = 1;
-    private const int ColourProbeKey = 2;
-    private const int LampProbeKey = 3;
-    private const int HallProbeKey = 4;
     private const int FlameKey = 1_000_000;
 
     private const float BrassRadius = 0.35f;
@@ -263,11 +259,7 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
         // pieces take their light from it.
         view.BakedLighting("gallery", new Vector3(-11.8f, -0.4f, -56.6f), new Vector3(7.8f, 8.6f, 10.6f), 1.65f);
 
-        // The four reflection probes a frame can have, in the rooms with something shiny.
-        view.ReflectionProbe(WhaleProbeKey, new Vector3(-6.5f, 2.5f, -15f), new Vector3(-11f, 0f, -19.85f), new Vector3(-2.3f, 7f, -10.15f));
-        view.ReflectionProbe(ColourProbeKey, new Vector3(-6.5f, 2f, -5f), new Vector3(-11f, 0f, -9.85f), new Vector3(-2.3f, 7f, -0.3f));
-        view.ReflectionProbe(LampProbeKey, new Vector3(-6.5f, 1.5f, -25f), new Vector3(-11f, 0f, -29.85f), new Vector3(-2.3f, 4.5f, -20.15f));
-        view.ReflectionProbe(HallProbeKey, new Vector3(0f, 2f, 5f), new Vector3(-6f, 0f, 0f), new Vector3(6f, 6f, 10f));
+        ReflectionProbes.Place(view);
 
         view.Finish(new PostSettings
         {

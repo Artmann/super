@@ -63,7 +63,7 @@ internal sealed unsafe class TransparentPass : IDisposable
             new(environment.Sampler, environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
             new(environment.Sampler, environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
         ]);
-        WriteImages(4, [new(environment.Sampler, probes.View, ImageLayout.ShaderReadOnlyOptimal)]);
+        WriteProbes(environment.Sampler, probes.Cubes.View);
 
         _layout = context.CreatePipelineLayout([frameSetLayout, resources.Layout, _environmentLayout], SceneDraws.PushRange);
 
@@ -88,6 +88,12 @@ internal sealed unsafe class TransparentPass : IDisposable
     /// also attached for testing. Call again after a resize.
     /// </summary>
     public void WriteTargets(DescriptorImageInfo sceneColor, DescriptorImageInfo depth) => WriteImages(2, [sceneColor, depth]);
+
+    /// <summary>
+    /// Points glass at the reflection probes' cubes. Call again when the array grows, while no frame
+    /// that reads the old one is in flight.
+    /// </summary>
+    public void WriteProbes(Sampler sampler, ImageView cubes) => WriteImages(4, [new(sampler, cubes, ImageLayout.ShaderReadOnlyOptimal)]);
 
     private void WriteImages(uint firstBinding, ReadOnlySpan<DescriptorImageInfo> images)
     {

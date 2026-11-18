@@ -74,6 +74,12 @@ public sealed class GpuFixture : IDisposable
         Renderer.Render(view, draws ?? []);
     }
 
+    /// <summary>A new white metal, nearly smooth, that mirrors what's round it. The caller destroys it.</summary>
+    public MaterialHandle CreateMirror() => Renderer.CreateMaterial(new Material
+    {
+        BaseColor = new Vector4(1f, 1f, 1f, 1f), Metallic = 1f, Roughness = 0.05f,
+    });
+
     /// <summary>Renders one frame of nothing, as <see cref="RenderOneFrame"/> does, naming a baked space and chunks.</summary>
     public void RenderOneFrame(BakedSpace? bakedSpace, BakedChunk[] bakedChunks)
     {
