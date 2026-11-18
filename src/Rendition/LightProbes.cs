@@ -83,7 +83,8 @@ internal sealed class LightProbes(VulkanContext context, EnvironmentMap environm
 
         Batch.Restart(Quality);
         SettledOnce = false;
-        _sun ??= new ProbeSunShadow(context, sources.Resources.GetFlags);
+        var materials = sources.Resources.Materials;
+        _sun ??= new ProbeSunShadow(context, material => materials[material].Flags);
         var irradiance = new DescriptorImageInfo(kit.LinearSampler, Volume.IrradianceView, ImageLayout.General);
         var depth = new DescriptorImageInfo(kit.LinearSampler, Volume.DepthView, ImageLayout.General);
         _updatePass.WriteSet(irradiance, depth,

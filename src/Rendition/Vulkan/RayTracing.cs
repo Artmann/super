@@ -528,7 +528,7 @@ internal sealed unsafe partial class RayTracing : IDisposable
                 SType = StructureType.AccelerationStructureGeometryKhr,
                 GeometryType = GeometryTypeKHR.TrianglesKhr,
                 Geometry = new AccelerationStructureGeometryDataKHR { Triangles = triangles },
-                Flags = GeometryFlagsFor(_resources.HasCutouts(part.Material), _resources.GetFlags(part.Material)),
+                Flags = GeometryFlagsFor(_resources.Materials[part.Material].Cutouts, _resources.Materials[part.Material].Flags),
             };
             triangleCounts[i] = part.IndexCount / 3;
             ranges[i] = new AccelerationStructureBuildRangeInfoKHR

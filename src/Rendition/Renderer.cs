@@ -681,7 +681,7 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>How rays treat a material, for <see cref="TraceScene.Collect"/>.</summary>
     internal TraceFlags TraceFlagsOf(MaterialHandle material) =>
-        RayTracing.TraceFlagsFor(_resources.HasCutouts(material), _resources.GetFlags(material));
+        RayTracing.TraceFlagsFor(_resources.Materials[material].Cutouts, _resources.Materials[material].Flags);
 
     /// <summary>
     /// Lets go of a mesh and its detail entries. Returns at once; the memory comes back
@@ -711,7 +711,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public void DestroyTexture(TextureHandle texture)
     {
-        if (_resources.IsBuiltIn(texture) || !_resources.IsLive(texture))
+        if (_resources.Defaults.Holds(texture) || !_resources.Textures.IsLive(texture.Index))
         {
             throw new ArgumentException("The texture does not exist.", nameof(texture));
         }
@@ -722,19 +722,19 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>Lets go of a texture array, with the same rules as <see cref="DestroyTexture"/>.</summary>
     public void DestroyTextureArray(TextureArrayHandle array)
     {
-        if (_resources.IsBuiltIn(array) || !_resources.IsLive(array))
+        if (_resources.Defaults.Holds(array) || !_resources.TextureArrays.IsLive(array.Index))
         {
             throw new ArgumentException("The texture array does not exist.", nameof(array));
         }
 
-        _uploads.Cancel(_resources.MarkTextureArrayDying(array.Index));
+        _uploads.Cancel(_resources.TextureArrays.MarkDying(array.Index));
         _retired.AfterLastSubmitted.FreedTextureArrays.Add(array.Index);
     }
 
     /// <summary>Lets go of a material slot. Draws that still use it are a caller mistake.</summary>
     public void DestroyMaterial(MaterialHandle material)
     {
-        if (!_resources.IsLive(material))
+        if (!_resources.Materials.IsLive(material))
         {
             throw new ArgumentException("The material does not exist.", nameof(material));
         }
@@ -756,15 +756,15 @@ public sealed unsafe class Renderer : IDisposable
 
         foreach (ref readonly var part in parts)
         {
-            if (!_resources.IsLive(part.Material))
+            if (!_resources.Materials.IsLive(part.Material))
             {
                 continue;
             }
 
-            foreach (int texture in _resources.TexturesOf(part.Material))
+            foreach (int texture in _resources.Materials.TexturesOf(part.Material))
             {
                 var handle = new TextureHandle(texture);
-                if (texture >= 0 && !_resources.IsBuiltIn(handle) && _resources.IsLive(handle))
+                if (texture >= 0 && !_resources.Defaults.Holds(handle) && _resources.Textures.IsLive(handle.Index))
                 {
                     QueueTextureDestroy(texture);
                 }
@@ -783,7 +783,7 @@ public sealed unsafe class Renderer : IDisposable
         // A background bake whose materials read it would trace a freed image.
         BackgroundBakes.StopIfReads(job => BakeReadsTexture(job, slot));
 
-        _uploads.Cancel(_resources.MarkTextureDying(slot));
+        _uploads.Cancel(_resources.Textures.MarkDying(slot));
         _retired.AfterLastSubmitted.FreedTextures.Add(slot);
     }
 
@@ -792,12 +792,12 @@ public sealed unsafe class Renderer : IDisposable
     {
         foreach (ref readonly var draw in job.Area.Draws.AsSpan())
         {
-            if (!_resources.IsLive(draw.Material))
+            if (!_resources.Materials.IsLive(draw.Material))
             {
                 continue;
             }
 
-            foreach (int texture in _resources.TexturesOf(draw.Material))
+            foreach (int texture in _resources.Materials.TexturesOf(draw.Material))
             {
                 if (texture == slot)
                 {
@@ -817,7 +817,7 @@ public sealed unsafe class Renderer : IDisposable
         var material = new MaterialHandle(slot);
         BackgroundBakes.StopIfReads(job => job.Area.Uses(material));
         _tracing?.ForgetMaterial(material);
-        _resources.MarkMaterialDying(slot);
+        _resources.Materials.MarkDying(slot);
         _retired.AfterLastSubmitted.FreedMaterials.Add(slot);
     }
 
@@ -1486,7 +1486,7 @@ public sealed unsafe class Renderer : IDisposable
     public MaterialHandle CreateMaterial(in Material material)
     {
         ValidateMaterial(material);
-        return _resources.AddMaterial(material);
+        return _resources.Materials.Add(material);
     }
 
     /// <summary>
@@ -1497,11 +1497,11 @@ public sealed unsafe class Renderer : IDisposable
     {
         ValidateMaterial(material);
         // A destroyed material's structures are already gone, so only a live one is checked.
-        bool traced = _tracing is not null && _resources.IsLive(handle);
-        var opaqueBefore = traced ? RayTracing.GeometryFlagsFor(_resources.HasCutouts(handle), _resources.GetFlags(handle)) : default;
-        _resources.UpdateMaterial(handle, material);
+        bool traced = _tracing is not null && _resources.Materials.IsLive(handle);
+        var opaqueBefore = traced ? RayTracing.GeometryFlagsFor(_resources.Materials[handle].Cutouts, _resources.Materials[handle].Flags) : default;
+        _resources.Materials.Update(handle, material);
         if (traced
-            && RayTracing.GeometryFlagsFor(_resources.HasCutouts(handle), _resources.GetFlags(handle)) != opaqueBefore)
+            && RayTracing.GeometryFlagsFor(_resources.Materials[handle].Cutouts, _resources.Materials[handle].Flags) != opaqueBefore)
         {
             // Structures bake each part's opaque flag in, so ones drawn in this material are rebuilt when next traced.
             // A background bake's held top level still points at the old ones, so it stops first.
@@ -1544,12 +1544,12 @@ public sealed unsafe class Renderer : IDisposable
     {
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
-            if (material.ShaderTextures[i] is { } texture && !_resources.IsLive(texture))
+            if (material.ShaderTextures[i] is { } texture && !_resources.Textures.IsLive(texture.Index))
             {
                 throw new ArgumentException($"The material's shader texture {i} does not exist.", nameof(material));
             }
 
-            if (material.ShaderArrays[i] is { } array && !_resources.IsLive(array))
+            if (material.ShaderArrays[i] is { } array && !_resources.TextureArrays.IsLive(array.Index))
             {
                 throw new ArgumentException($"The material's shader texture array {i} does not exist.", nameof(material));
             }
@@ -1794,8 +1794,8 @@ public sealed unsafe class Renderer : IDisposable
     {
         // Metering is left out of the shaders unless the view asked for it, so the fixed exposure stays as it was.
         _off = Exposure.ShaderOff(view.Post, viewOff & RenderEffects.All);
-        _windReach = new WindReach(Wind.Strength(view.Wind, _off), _resources.SwayOf);
-        _fadeRules = new FadeRules(view.CameraPosition, !_off.HasFlag(RenderEffects.Fades), _resources.FadeOf);
+        _windReach = new WindReach(Wind.Strength(view.Wind, _off), _resources.Materials.SwayOf);
+        _fadeRules = new FadeRules(view.CameraPosition, !_off.HasFlag(RenderEffects.Fades), _resources.Materials.FadeOf);
         KeepVolumetricTargets(view);
         _depthOfField = DepthOfFieldConstants.For(view.Post, _off, (int)_gBuffer.Extent.Width);
     }
@@ -2222,7 +2222,7 @@ public sealed unsafe class Renderer : IDisposable
         ReadOnlySpan<DecalDraw> decals = _off.HasFlag(RenderEffects.Decals) ? [] : view.Decals;
         for (int i = 0; i < decals.Length; i++)
         {
-            if (!_resources.IsLive(decals[i].Material))
+            if (!_resources.Materials.IsLive(decals[i].Material))
             {
                 throw new ArgumentException(
                     string.Create(CultureInfo.InvariantCulture, $"Decal {i}'s material does not exist."), nameof(view));

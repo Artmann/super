@@ -575,7 +575,7 @@ internal sealed class ChunkBakePool : IDisposable
             {
                 if (page.Slot >= 0)
                 {
-                    resources.MarkTextureDying(page.Slot);
+                    resources.Textures.MarkDying(page.Slot);
                     textures.Add(page.Slot);
                 }
                 else

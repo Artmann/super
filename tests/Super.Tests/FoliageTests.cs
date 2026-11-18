@@ -89,9 +89,9 @@ public class FoliageTests
     [Fact]
     public void Foliage_sends_its_translucency_to_the_shader_clamped_to_0_to_1()
     {
-        Assert.Equal(0.35f, Rendition.Vulkan.ResourceTable.Transmission(new Material { Flags = MaterialFlags.Foliage, Translucency = 0.35f }));
-        Assert.Equal(1f, Rendition.Vulkan.ResourceTable.Transmission(new Material { Flags = MaterialFlags.Foliage, Translucency = 1.5f }));
-        Assert.Equal(0f, Rendition.Vulkan.ResourceTable.Transmission(new Material { Flags = MaterialFlags.Foliage, Translucency = -1f }));
+        Assert.Equal(0.35f, Rendition.Vulkan.GpuMaterials.Transmission(new Material { Flags = MaterialFlags.Foliage, Translucency = 0.35f }));
+        Assert.Equal(1f, Rendition.Vulkan.GpuMaterials.Transmission(new Material { Flags = MaterialFlags.Foliage, Translucency = 1.5f }));
+        Assert.Equal(0f, Rendition.Vulkan.GpuMaterials.Transmission(new Material { Flags = MaterialFlags.Foliage, Translucency = -1f }));
     }
 
     [Fact]
@@ -99,8 +99,8 @@ public class FoliageTests
     {
         var subsurface = new Subsurface { Radius = 0.01f, Transmission = 0.25f };
 
-        Assert.Equal(0.25f, Rendition.Vulkan.ResourceTable.Transmission(new Material { Subsurface = subsurface, Translucency = 0.9f }));
-        Assert.Equal(0f, Rendition.Vulkan.ResourceTable.Transmission(new Material { Translucency = 0.9f }));
+        Assert.Equal(0.25f, Rendition.Vulkan.GpuMaterials.Transmission(new Material { Subsurface = subsurface, Translucency = 0.9f }));
+        Assert.Equal(0f, Rendition.Vulkan.GpuMaterials.Transmission(new Material { Translucency = 0.9f }));
     }
 
     [Theory]
@@ -110,7 +110,7 @@ public class FoliageTests
     [InlineData(float.PositiveInfinity, 0f)]
     public void A_materials_sway_is_its_wind_but_never_below_0_or_not_a_number(float wind, float sway)
     {
-        Assert.Equal(sway, Rendition.Vulkan.ResourceTable.Sway(new Material { Wind = wind }));
+        Assert.Equal(sway, Rendition.Vulkan.GpuMaterials.Sway(new Material { Wind = wind }));
     }
 
     [Fact]

@@ -184,7 +184,7 @@ internal sealed class BakeJobs(
                 var moved = draw;
                 moved.Transform = BakeAreas.Relative(draw.Transform, baked.Transform);
                 owned.Add(moved);
-                glows |= resources.Glows(draw.Material);
+                glows |= resources.Materials[draw.Material].Glows;
             }
         }
 
@@ -235,7 +235,7 @@ internal sealed class BakeJobs(
 
     // Whether a material may have a lightmap: not one that sways in the wind or is see-through.
     private bool GetsLightmap(MaterialHandle material) =>
-        resources.GetWind(material) == 0f && (resources.GetFlags(material) & MaterialFlags.Transparent) == 0;
+        resources.Materials[material].Wind == 0f && (resources.Materials[material].Flags & MaterialFlags.Transparent) == 0;
 
     /// <summary>A baked space that passed <see cref="BakeChecks.Space"/>, its probes' grid, and when its bake started.</summary>
     public readonly record struct CheckedSpace(BakedSpace Space, ProbeVolumeSettings Probes, long Started);

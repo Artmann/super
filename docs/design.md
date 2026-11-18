@@ -1220,7 +1220,7 @@ keep complementary pixels and never both draw, or both miss, the same one. A dis
 
 `DrawSelection.Select` works the shares out for every view with the same `FadeRules`, measured
 from the camera, so a shadow fades with what casts it. A draw's keep comes from
-`DrawItem.Fade`, or else its material's (`ResourceTable.FadeOf`), at the middle of its bounds.
+`DrawItem.Fade`, or else its material's (`MaterialTable.FadeOf`), at the middle of its bounds.
 A keep of 0 drops the draw before anything else is paid for it. With bounds, the coarsest
 version that passes is found as before, and when its error is within `CrossFade` (a quarter)
 of the limit, the finer version is written too, just before it, so `selected` needs room for
@@ -1262,7 +1262,7 @@ leaves. It points the normals out of the crown, so the crown is lit as one shape
 not as a pile of separate cards (unless the rule says `"crown": false`, which keeps the
 model's normals, for ivy and grass whose leaves aren't one shape), draws both sides, and keeps back faces from flipping
 their normal. The lighting pass then lets sunlight through the leaves from behind, by the
-material's own translucency. That rides in `GpuMaterial.Transmission` (`ResourceTable.Transmission` picks it), which subsurface
+material's own translucency. That rides in `GpuMaterial.Transmission` (`GpuMaterials.Transmission` picks it), which subsurface
 uses for its own and foliage can share since the two exclude each other, and `writeSurface`
 writes it negated into the clearcoat channel (`foliageChannel`, never above `-1/1024` so 0
 still reads as foliage). The lighting pass reads the size of a negative channel back as the
@@ -3232,7 +3232,7 @@ triangles:
 Texels no triangle covers read as flat, open, high and fully broken up, (128, 255, 255, 255),
 which is clean. Eight rings around each island take the average of their covered neighbours,
 so bilinear filtering and the first mips at an island's edge read the island. The texture
-is sampled with a clamp-to-edge sampler (`_edgeSampler` in `ResourceTable`), so an island
+is sampled with a clamp-to-edge sampler (the clamp sampler `ResourceTable` hands its `BindlessSlots`), so an island
 at the border never filters in the opposite side. The sampler belongs to the texture, not the
 material: `CreateModel` creates mask textures with `TextureEdges.Clamp`, and the slot's
 descriptor is written once, so a texture another material tiles is never changed under it. Each texel is independent, so rows run
@@ -3275,8 +3275,10 @@ without a texture reads the white one, one extra fetch of a 1x1 texture.
 `GpuMaterial.OcclusionTexture` goes after `dirt`, at byte 320, since the padding after
 `MaskTexture` holds the glass's `softEdge`. std430 rounds the struct up to a whole 16 bytes,
 so it grew from 320 to 336, and `GpuMaterial` pads the last 12 by hand (`EndPadding`). It's
-the ninth of a material's own texture slots in `ResourceTable`, so destroying the material
-frees it.
+the tenth of a material's own texture slots in `MaterialTable`, so destroying the material
+frees it. On the C# side the first 48 bytes, the wear and dirt layers and the toon fields are
+grouped as `GpuSurface`, `GpuLayers` and `GpuToon`; every field is four-byte aligned, so the
+groups move no offset, which `GpuMaterialTests` checks field by field.
 
 `ModelData.MaterialOcclusion` holds each material's occlusion texture, -1 for none, and is
 empty when no material has one, like `MaterialShaders` and `MaterialMasks`. It isn't a field
@@ -3310,7 +3312,7 @@ index plus `SUBSURFACE_MARK` in RT2's alpha, so `writeSurface` marks toon (`MATE
 outlined (`MATERIAL_OUTLINE`) materials the same way, and `lighting.frag` reads the flags of
 the marked material: toon wins, and a pixel is subsurface only when the material has a radius
 and subsurface isn't off. This is why a toon material loses clearcoat, foliage and
-subsurface. `MATERIAL_TOON` is bit 16, set by `ResourceTable` from `Material.Toon` rather than
+subsurface. `MATERIAL_TOON` is bit 16, set by `GpuMaterials` from `Material.Toon` rather than
 from `MaterialFlags`, so a material can't be marked toon without its settings.
 
 `GpuMaterial` grew from 336 to 352 bytes: `toonSteps`, `toonRamp` and a padding take the 12
@@ -3590,15 +3592,15 @@ match.
 A vertex can move no further than `strength * share` at a gust's peak plus the 0.02 m of
 flutter, so culling grows a swaying draw's ball by that much, in world metres after its scale
 (`WindReach`, which the renderer makes each frame from `Wind.Strength`, 0 with the switch off,
-and `ResourceTable.SwayOf`). `DrawSelection.Select` adds it only to the test for being seen,
+and `MaterialTable.SwayOf`). `DrawSelection.Select` adds it only to the test for being seen,
 not to the distance that picks a simpler version, and `DrawSelection.Bounds`, which the
 shadow casters' balls come from, and the glass bounds in `TransparentPass` add it too.
 
 The detail colour divides by 128/255, so mid grey is neutral and the detail can lighten as
 well as darken. The detail normal is laid over the surface's normal with reoriented normal
 mapping (`blendNormals`), which keeps the detail following the larger bumps instead of
-averaging them flat. Unset detail textures are a mid grey built-in texture (`_grey` in
-`ResourceTable`) and the flat normal, and a `DetailScale` of 0 on the GPU skips the reads.
+averaging them flat. Unset detail textures are a mid grey built-in texture (`Grey` in
+`MaterialDefaults`) and the flat normal, and a `DetailScale` of 0 on the GPU skips the reads.
 
 Each material owns eight texture slots now: colour, normal, surface, emissive, height,
 detail colour, detail normal and the [wear and dirt masks](#mask-bakes), then the shader textures. `GpuMaterial` grew to 320
@@ -4552,7 +4554,7 @@ staging buffer. A finished page goes into the resource table with clamped edges.
 page is in, its rects become `GpuLightmapRect`s with its irradiance and direction slots, a mask
 of -1 (fully lit) until the mask is wired up, and the bake's bytes are let go.
 
-Before a page's last band is recorded, the pool asks `ResourceTable.HasTextureRoom`. A full
+Before a page's last band is recorded, the pool asks the table's `Textures.HasRoom` (a `BindlessSlots`). A full
 table would free the texture it refuses at once, while this frame's and older frames' copies may
 still be writing it, so the band isn't recorded. The bake is refused instead: at the end of
 `Record` it is let go the deferred way, pages already in the table included, removed, and
@@ -4958,7 +4960,7 @@ after encoding (`BakeEncoding.Crop`). Its lights are its own local `Baked` and `
 come from `ShadowMaskChannels.AssignChunk`, with every other light counted as `Realtime`, and are listed in
 `ChunkChannels` by `BakeInputHash.Light` under the chunk's transform. A chunk has no sun channel. The plain light has
 no sky (`skyIntensity` 0) and no suns, and its irradiance and direction pages are kept only when the chunk has a light
-or a glowing static surface (`ResourceTable.Glows`, any emissive channel above 0). That counts a surface with no
+or a glowing static surface (`MaterialFacts.Glows`, any emissive channel above 0). That counts a surface with no
 lightmap of its own, such as a swaying one: it is still traced, so its glow still lights the chunk's other surfaces.
 There are no probes.
 

@@ -52,7 +52,8 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
         _resources = resources;
         _scene = scene;
         Cube = new ReflectionCaptureCube(context, sky);
-        _sun = new ProbeSunShadow(context, resources.GetFlags, SunShadowResolution);
+        var materials = resources.Materials;
+        _sun = new ProbeSunShadow(context, material => materials[material].Flags, SunShadowResolution);
 
         _setLayout = context.CreateSetLayout(
             [.. ProbeCapturePass.AtlasBindings, new(EnvironmentBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit)]);
