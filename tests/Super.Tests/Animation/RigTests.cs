@@ -172,7 +172,7 @@ public class RigTests
         var pose = new AnimationPose(TestRig.Rig());
         pose.Add(new PoseLayer(Clip: 1, Time: 1f, Speed: 1f, Amount: 1f, Loops: false, Mask: null));
 
-        pose.SetJoint(TestRig.Child, TestRig.ChildAt(7f));
+        pose.Joints.Set(TestRig.Child, TestRig.ChildAt(7f));
         var joints = TestRig.Evaluate(pose);
 
         Assert.Equal(7f, joints[1].Position.X, Tolerance);
@@ -184,15 +184,15 @@ public class RigTests
     public void A_set_joint_stays_when_the_layers_are_cleared_until_the_joints_are()
     {
         var pose = new AnimationPose(TestRig.Rig());
-        pose.SetJoint(0, TestRig.RootAt(3f));
+        pose.Joints.Set(0, TestRig.RootAt(3f));
 
         pose.Clear();
         Assert.Equal(3f, TestRig.Evaluate(pose)[0].Position.X, Tolerance);
-        Assert.True(pose.HasSetJoints);
+        Assert.True(pose.Joints.AnySet);
 
-        pose.ClearJoints();
+        pose.Joints.Clear();
         Assert.Equal(0f, TestRig.Evaluate(pose)[0].Position.X, Tolerance);
-        Assert.False(pose.HasSetJoints);
+        Assert.False(pose.Joints.AnySet);
     }
 
     [Fact]
@@ -200,8 +200,8 @@ public class RigTests
     {
         var pose = new AnimationPose(TestRig.Rig());
 
-        var byName = Assert.Throws<ArgumentException>(() => pose.SetJoint("tail", JointPose.Identity));
-        var byNumber = Assert.Throws<ArgumentOutOfRangeException>(() => pose.SetJoint(2, JointPose.Identity));
+        var byName = Assert.Throws<ArgumentException>(() => pose.Joints.Set("tail", JointPose.Identity));
+        var byNumber = Assert.Throws<ArgumentOutOfRangeException>(() => pose.Joints.Set(2, JointPose.Identity));
 
         Assert.Contains("root, child", byName.Message);
         Assert.Contains("2 joints", byNumber.Message);

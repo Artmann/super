@@ -1,12 +1,11 @@
 using System.Numerics;
-using System.Runtime.CompilerServices;
 using Rendition;
 
 namespace Super;
 
 /// <summary>
-/// One character's animation: which base state it's in, how far through its cycle,
-/// and which actions are playing over it. Comes from
+/// One character's animation: which base state it's in, how far through its cycle, and
+/// which actions are playing over it. Comes from
 /// <see cref="AnimationController{TState, TAction}.Start"/>. The game loop moves it on
 /// after every Update, so a game only says what the character is doing, and draws it
 /// with <see cref="View.Model(int, Animator, System.Numerics.Matrix4x4, System.Numerics.Vector3?)"/>.
@@ -15,31 +14,16 @@ public sealed class Animator
 {
     private readonly AnimationControllerBase _controller;
     private readonly EventTracker _events;
-    private ActionPlay[] _actions;
-
-    private int _state;
-    private float _phase;
-    private float _parameter;
-    private float _speed = 1f;
-
-    // The state a change left, while the new one blends in over it, or null once it has. See "Lifecycle state in
-    // engine code" in docs/design.md.
-    private Outgoing? _outgoing;
-
-    // Each joint in the model for this tick, worked out when first asked for.
-    private Matrix4x4[]? _joints;
-    private JointPose[]? _locals;
-    private JointPose[]? _scratch;
-    private bool _jointsFresh;
-    private int _jointsVersion;
+    private AnimatorClock _clock;
 
     internal Animator(AnimationControllerBase controller, int state)
     {
         _controller = controller;
-        _state = state;
-        _actions = new ActionPlay[controller.ActionCount];
+        _clock = new AnimatorClock { StateNumber = state, Speed = 1f };
         _events = new EventTracker(controller);
+        Moves = new AnimatorActions(controller.ActionType, controller.ActionCount, controller.Timing, _events.SweepAction, Rebuild);
         Pose = new AnimationPose(controller.Rig);
+        JointCache = new PoseJointCache(controller.Rig.Skeleton, (locals, scratch) => Pose.Evaluate(0f, locals, scratch, 1f));
         controller.GetState(state);
         Rebuild();
         controller.Rig.Runner?.Add(this);
@@ -50,13 +34,16 @@ public sealed class Animator
     /// <summary>What to draw. <see cref="View.Model(int, Animator, System.Numerics.Matrix4x4, System.Numerics.Vector3?)"/> uses it for you.</summary>
     public AnimationPose Pose { get; }
 
+    /// <summary>The one-shot actions playing over the state: play, stop and ask about them here.</summary>
+    public AnimatorActions Moves { get; }
+
     /// <summary>
     /// How fast everything plays: 1 as made, 2 twice as fast, and 0 holds the character
     /// still, such as while the game is paused.
     /// </summary>
     public float Speed
     {
-        get => _speed;
+        get => _clock.Speed;
         set
         {
             if (!(value >= 0f) || !float.IsFinite(value))
@@ -64,7 +51,7 @@ public sealed class Animator
                 throw new ArgumentOutOfRangeException(nameof(value), value, "The speed must be a number of at least zero.");
             }
 
-            _speed = value;
+            _clock.Speed = value;
             Rebuild();
         }
     }
@@ -75,7 +62,7 @@ public sealed class Animator
     /// </summary>
     public float Parameter
     {
-        get => _parameter;
+        get => _clock.Parameter;
         set
         {
             if (!float.IsFinite(value))
@@ -83,7 +70,7 @@ public sealed class Animator
                 throw new ArgumentOutOfRangeException(nameof(value), value, "The parameter must be a number.");
             }
 
-            _parameter = value;
+            _clock.Parameter = value;
         }
     }
 
@@ -93,6 +80,25 @@ public sealed class Animator
     /// character's own rotation and scale, then add it to where the character is.
     /// </summary>
     public Vector3 RootMotion { get; private set; }
+
+    /// <summary>
+    /// What the clips passed on the last tick: moments, and windows opening and closing, in
+    /// the order they happened. Read it in Update; it holds until the next tick and allocates
+    /// nothing. A loop passes its moments every time round, and a long tick reports every one
+    /// it skipped. Cross-fading states count while their share is at least
+    /// <see cref="AnimationControllerBase.EventThreshold"/>, and a blended state's events come
+    /// from its heavier clip, so a walk and a run in step don't both step.
+    /// </summary>
+    public ReadOnlySpan<AnimationEvent> Events => _events.Events;
+
+    /// <summary>How far through the state's cycle, from 0 to 1.</summary>
+    public float Phase => _clock.Phase;
+
+    /// <summary>Whether a change of state is still blending from the old clip.</summary>
+    public bool IsCrossFading => _clock.FadeOut is not null;
+
+    /// <summary>Each joint in the model this tick, worked out when first asked for.</summary>
+    internal PoseJointCache JointCache { get; }
 
     /// <summary>
     /// Where a joint is in the model this tick, such as the hand an arrow leaves from.
@@ -106,56 +112,14 @@ public sealed class Animator
             throw new ArgumentException($"The rig has no joint called {name}. It has: {string.Join(", ", Rig.Skeleton.Names)}.", nameof(name));
         }
 
-        return JointInModel(joint);
+        return JointCache.InModel(joint, Pose.Version);
     }
-
-    /// <summary>
-    /// What the clips passed on the last tick: moments, and windows opening and closing, in
-    /// the order they happened. Read it in Update; it holds until the next tick and allocates
-    /// nothing. A loop passes its moments every time round, and a long tick reports every one
-    /// it skipped. Cross-fading states count while their share is at least
-    /// <see cref="AnimationControllerBase.EventThreshold"/>, and a blended state's events come
-    /// from its heavier clip, so a walk and a run in step don't both step.
-    /// </summary>
-    public ReadOnlySpan<AnimationEvent> Events => _events.Events;
 
     /// <summary>Whether a window with this name is open now in any clip that counts, such as a hitbox mid-swing.</summary>
     public bool IsActive(string name) => _events.IsActive(name);
 
-    internal Matrix4x4 JointInModel(int joint)
-    {
-        var skeleton = Rig.Skeleton;
-        if (!_jointsFresh || _joints is null || _jointsVersion != Pose.Version)
-        {
-            _jointsVersion = Pose.Version;
-            _joints ??= new Matrix4x4[skeleton.Count];
-            _locals ??= new JointPose[skeleton.Count];
-            _scratch ??= new JointPose[skeleton.Count];
-            var locals = _locals;
-            Pose.Evaluate(0f, locals, _scratch, 1f);
-            for (int i = 0; i < skeleton.Count; i++)
-            {
-                _joints[i] = skeleton.Parents[i] >= 0 ? locals[i].Matrix * _joints[skeleton.Parents[i]] : locals[i].Matrix;
-            }
-
-            _jointsFresh = true;
-        }
-
-        return _joints[joint] * skeleton.RootTransform;
-    }
-
-    /// <summary>How far through the state's cycle, from 0 to 1.</summary>
-    public float Phase => _phase;
-
-    /// <summary>Whether a change of state is still blending from the old clip.</summary>
-    public bool IsCrossFading => _outgoing is not null;
-
     /// <summary>Whether the animator is in this state.</summary>
-    public bool IsIn<TState>(TState state) where TState : struct, Enum
-    {
-        CheckState<TState>();
-        return _state == Index(state);
-    }
+    public bool IsIn<TState>(TState state) where TState : struct, Enum => _clock.StateNumber == _controller.StateIndex(state);
 
     /// <summary>
     /// Changes the base state. The new clip blends in over the controller's cross-fade
@@ -164,82 +128,16 @@ public sealed class Animator
     /// </summary>
     public void Set<TState>(TState state) where TState : struct, Enum
     {
-        CheckState<TState>();
-        int index = Index(state);
-        if (index == _state)
+        int index = _controller.StateIndex(state);
+        if (index == _clock.StateNumber)
         {
             return;
         }
 
         _controller.GetState(index);
-        _outgoing = _controller.CrossFadeSeconds > 0f ? new Outgoing(_state, _parameter, _phase, Seconds: 0f) : null;
-        _state = index;
+        _clock.FadeOut = _controller.CrossFadeSeconds > 0f ? new StateFadeOut(_clock.StateNumber, _clock.Parameter, _clock.Phase, Seconds: 0f) : null;
+        _clock.StateNumber = index;
         Rebuild();
-    }
-
-    /// <summary>Plays an action from its start, over whatever is playing. Playing it again restarts it.</summary>
-    public void Play<TAction>(TAction action) where TAction : struct, Enum
-    {
-        CheckAction<TAction>();
-        int index = Index(action);
-        _controller.GetAction(index);
-        if (index >= _actions.Length)
-        {
-            Array.Resize(ref _actions, index + 1);
-        }
-
-        _actions[index] = new ActionPlay(Playing: true, Time: 0f, PreviousTime: -1f);
-        Rebuild();
-    }
-
-    /// <summary>Stops an action before its end.</summary>
-    public void Stop<TAction>(TAction action) where TAction : struct, Enum
-    {
-        CheckAction<TAction>();
-        int index = Index(action);
-        if (index < _actions.Length)
-        {
-            _actions[index] = _actions[index] with { Playing = false };
-        }
-
-        Rebuild();
-    }
-
-    public bool IsPlaying<TAction>(TAction action) where TAction : struct, Enum
-    {
-        CheckAction<TAction>();
-        int index = Index(action);
-        return index < _actions.Length && _actions[index].Playing;
-    }
-
-    /// <summary>
-    /// How far into its clip an action is, in seconds of the clip, as of the last tick, or
-    /// null when it isn't playing. Between ticks the drawn pose is further on, by the view's
-    /// blend times the tick, times <see cref="Speed"/> and the action's own speed.
-    /// </summary>
-    public float? TimeOf<TAction>(TAction action) where TAction : struct, Enum
-    {
-        CheckAction<TAction>();
-        int index = Index(action);
-        return index < _actions.Length && _actions[index].Playing ? _actions[index].Time : null;
-    }
-
-    /// <summary>
-    /// True on the one tick an action passed this moment of its clip, in seconds, so a
-    /// shot fires when the hand squeezes, not when the clip starts. Passing 0 is true
-    /// the tick the action starts.
-    /// </summary>
-    public bool Crossed<TAction>(TAction action, float seconds) where TAction : struct, Enum
-    {
-        CheckAction<TAction>();
-        int index = Index(action);
-        if (index >= _actions.Length)
-        {
-            return false;
-        }
-
-        var play = _actions[index];
-        return play.PreviousTime < seconds && seconds <= play.Time;
     }
 
     /// <summary>
@@ -254,173 +152,52 @@ public sealed class Animator
             throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "Time can't go backwards.");
         }
 
-        RootMotion = Rig.RootJoint >= 0 ? TravelOver(seconds) : Vector3.Zero;
-        seconds *= _speed;
-        _events.SweepStates(_state, _parameter, _phase, _outgoing, seconds);
-        _phase = AdvancePhase(_controller.GetState(_state), _parameter, _phase, seconds);
-        if (_outgoing is { } outgoing)
+        RootMotion = Pose.TravelOver(seconds);
+        seconds *= _clock.Speed;
+        _events.SweepStates(_clock.StateNumber, _clock.Parameter, _clock.Phase, _clock.FadeOut, seconds);
+        _clock.Phase = _controller.GetState(_clock.StateNumber).Advance(_clock.Parameter, _clock.Phase, seconds);
+        if (_clock.FadeOut is { } outgoing)
         {
             float faded = outgoing.Seconds + seconds;
-            _outgoing = faded >= _controller.CrossFadeSeconds
+            _clock.FadeOut = faded >= _controller.CrossFadeSeconds
                 ? null
-                : outgoing with { Phase = AdvancePhase(_controller.GetState(outgoing.From), outgoing.Parameter, outgoing.Phase, seconds), Seconds = faded };
+                : outgoing with { Phase = _controller.GetState(outgoing.From).Advance(outgoing.Parameter, outgoing.Phase, seconds), Seconds = faded };
         }
 
-        AdvanceActions(seconds);
+        Moves.Advance(seconds);
         Rebuild();
         _events.Finish(this, play);
     }
 
-    private void AdvanceActions(float seconds)
-    {
-        for (int i = 0; i < _actions.Length; i++)
-        {
-            ref var play = ref _actions[i];
-            bool fresh = play.PreviousTime < 0f;
-            play.PreviousTime = play.Time;
-            if (!play.Playing)
-            {
-                continue;
-            }
-
-            var action = _controller.GetAction(i);
-            play.Time += seconds * action.Speed;
-            _events.SweepAction(i, action.Clip, play.PreviousTime, play.Time, fresh);
-            if (play.Time >= Rig.Clips[action.Clip].Duration)
-            {
-                play.Playing = false;
-            }
-        }
-    }
-
-    /// <summary>
-    /// How far the pose's layers carry the character over this much time, mixed as the
-    /// layers mix the root joint: each later layer takes its share from those before.
-    /// </summary>
-    private Vector3 TravelOver(float seconds)
-    {
-        var travel = Vector3.Zero;
-        float left = 1f;
-        var layers = Pose.Layers;
-        for (int i = layers.Length - 1; i >= 0 && left > 0f; i--)
-        {
-            var layer = layers[i];
-            float share = Math.Clamp(layer.Amount * (layer.Mask?.Weights[Rig.RootJoint] ?? 1f), 0f, 1f);
-            if (share <= 0f)
-            {
-                continue;
-            }
-
-            travel += left * share * LayerTravel(layer, seconds);
-            left *= 1f - share;
-        }
-
-        return travel;
-    }
-
-    private Vector3 LayerTravel(in PoseLayer layer, float seconds)
-    {
-        float duration = Rig.Clips[layer.Clip].Duration;
-        float from = layer.Time;
-        float to = from + seconds * layer.Speed;
-        if (!layer.Loops || duration <= 0f)
-        {
-            return Rig.Travel(layer.Clip, to) - Rig.Travel(layer.Clip, from);
-        }
-
-        // A loop carries on from where its last cycle ended, so each wrap adds a whole cycle.
-        float cycles = MathF.Floor(to / duration);
-        var lap = Rig.Travel(layer.Clip, duration);
-        return Rig.Travel(layer.Clip, to - cycles * duration) + cycles * lap - Rig.Travel(layer.Clip, from);
-    }
-
-    private float AdvancePhase(StateDefinition state, float parameter, float phase, float seconds)
-    {
-        if (state.Motion.CycleSeconds(parameter) <= 0f)
-        {
-            return 0f;
-        }
-
-        phase += state.Cycles(parameter, seconds);
-        return phase - MathF.Floor(phase);
-    }
-
+    /// <summary>Lays the pose out again: the state, or the old state with the new one blending in over it, then the actions.</summary>
     private void Rebuild()
     {
-        _jointsFresh = false;
+        JointCache.Invalidate();
         Pose.Clear();
-        if (_outgoing is { } outgoing)
+        var state = _controller.GetState(_clock.StateNumber);
+        if (_clock.FadeOut is { } outgoing)
         {
             float f = Math.Clamp(outgoing.Seconds / _controller.CrossFadeSeconds, 0f, 1f);
-            var (first, second, w) = _controller.GetState(_state).Motion.Pick(_parameter);
-            AddState(outgoing.From, outgoing.Parameter, outgoing.Phase, 1f);
+            var (first, second, w) = state.Motion.Pick(_clock.Parameter);
+            _controller.GetState(outgoing.From).AddTo(Pose, outgoing.Parameter, outgoing.Phase, 1f, _clock.Speed);
             // Lerping into the previous pose by f, towards a mix of (first, second) at w,
             // takes two layers: first by f(1-w)/(1-fw), then second by fw.
-            AddStateClip(_controller.GetState(_state), _parameter, first, _phase, f * (1f - w) / (1f - f * w));
-            AddStateClip(_controller.GetState(_state), _parameter, second, _phase, f * w);
+            Pose.Add(state.ClipLayer(first, _clock.Parameter, _clock.Phase, f * (1f - w) / (1f - f * w), _clock.Speed));
+            Pose.Add(state.ClipLayer(second, _clock.Parameter, _clock.Phase, f * w, _clock.Speed));
         }
         else
         {
-            AddState(_state, _parameter, _phase, 1f);
+            state.AddTo(Pose, _clock.Parameter, _clock.Phase, 1f, _clock.Speed);
         }
 
-        for (int i = 0; i < _actions.Length; i++)
+        var plays = Moves.Plays;
+        for (int i = 0; i < plays.Length; i++)
         {
-            var play = _actions[i];
-            if (!play.Playing)
+            if (plays[i].Playing)
             {
-                continue;
+                var action = _controller.GetAction(i);
+                Pose.Add(action.Layer(plays[i].Time, Rig.Clips[action.Clip].Duration, _clock.Speed));
             }
-
-            var action = _controller.GetAction(i);
-            float duration = Rig.Clips[action.Clip].Duration;
-            float weight = 1f;
-            if (action.FadeSeconds > 0f)
-            {
-                weight = Math.Clamp(Math.Min(play.Time / action.FadeSeconds, (duration - play.Time) / action.FadeSeconds), 0f, 1f);
-            }
-
-            Pose.Add(new PoseLayer(action.Clip, play.Time, action.Speed * _speed, weight, Loops: false, action.Mask));
         }
     }
-
-    /// <summary>The whole of a state as layers: its first clip at <paramref name="amount"/>, then its second by the blend.</summary>
-    private void AddState(int stateIndex, float parameter, float phase, float amount)
-    {
-        var state = _controller.GetState(stateIndex);
-        var (first, second, towards) = state.Motion.Pick(parameter);
-        AddStateClip(state, parameter, first, phase, amount);
-        AddStateClip(state, parameter, second, phase, towards);
-    }
-
-    private void AddStateClip(StateDefinition state, float parameter, int clip, float phase, float amount)
-    {
-        float clipDuration = Rig.Clips[clip].Duration;
-        float cycle = state.Motion.CycleSeconds(parameter);
-        float speed = cycle > 0f ? state.Speed * _speed * clipDuration / cycle : 0f;
-        Pose.Add(new PoseLayer(clip, phase * clipDuration, speed, amount, Loops: true, Mask: null));
-    }
-
-    private void CheckState<TState>()
-    {
-        if (typeof(TState) != _controller.StateType)
-        {
-            throw new InvalidOperationException($"The animator's states are {_controller.StateType.Name}, not {typeof(TState).Name}.");
-        }
-    }
-
-    private void CheckAction<TAction>()
-    {
-        if (typeof(TAction) != _controller.ActionType)
-        {
-            throw new InvalidOperationException($"The animator's actions are {_controller.ActionType.Name}, not {typeof(TAction).Name}.");
-        }
-    }
-
-    private static int Index<T>(T value) where T : struct, Enum => Unsafe.As<T, int>(ref value);
-
-    private record struct ActionPlay(bool Playing, float Time, float PreviousTime);
-
-    /// <summary>The state blending out: where its cycle is, and how long it has been fading.</summary>
-    internal readonly record struct Outgoing(int From, float Parameter, float Phase, float Seconds);
 }

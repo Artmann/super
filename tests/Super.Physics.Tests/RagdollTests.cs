@@ -420,7 +420,7 @@ public class RagdollTests
         var hips = JointAt(world, person, animator, "Hips");
 
         world.Get<Ragdoll>(person) = world.Get<Ragdoll>(person) with { Mode = RagdollMode.Off };
-        animator.Play(TestHumanoid.Deed.GetUp);
+        animator.Moves.Play(TestHumanoid.Deed.GetUp);
         Run(physics, animator, 1);
 
         // The clip lies with its head towards -z and the ragdoll's head lies towards +x, so the entity faces -x.

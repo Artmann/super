@@ -15,25 +15,20 @@ public readonly record struct PoseLayer(int Clip, float Time, float Speed, float
 /// Which clips a model is playing, at what time and how strongly. An <see cref="Animator"/>
 /// keeps one up to date; a view hands it to the renderer, which samples the clips and
 /// skins the model. Its layers hold no joint data, so a headless game can look at it.
-/// A game can also set joints itself, which go over whatever the layers give; turn joints
-/// on top of the layers, such as a body knocked back by a blow; and reach limbs to goals
+/// A game can also set and turn joints itself through <see cref="Joints"/>, which go over
+/// whatever the layers give, such as a body knocked back by a blow, and reach limbs to goals
 /// by IK, such as a hand bringing a sword onto what it strikes.
 /// </summary>
 public sealed class AnimationPose
 {
-    private PoseLayer[] _layers = new PoseLayer[6];
-    private JointPose[]? _joints;
-    private bool[]? _isSet;
-    private Quaternion[]? _turns;
-    private bool[]? _isTurned;
-    private bool _hasTurns;
-    private readonly List<Goal> _reaches = [];
-
     private readonly HeldJoints _held = new();
+    private PoseLayer[] _layers = new PoseLayer[6];
+    private int _version;
 
     public AnimationPose(Rig rig)
     {
         Rig = rig;
+        Joints = new PoseJoints(rig.Skeleton);
     }
 
     public Rig Rig { get; }
@@ -43,75 +38,30 @@ public sealed class AnimationPose
     public ReadOnlySpan<PoseLayer> Layers => _layers.AsSpan(0, LayerCount);
 
     /// <summary>
+    /// The joints the game sets, turns and reaches over the layers. They stay until
+    /// <see cref="PoseJoints.Clear"/>; taking the layers away leaves them.
+    /// </summary>
+    public PoseJoints Joints { get; }
+
+    /// <summary>
     /// Where the model was last drawn with this pose, in the world, so its clips' sounds play
     /// where it stands. Null until it's drawn.
     /// </summary>
     internal Matrix4x4? Drawn { get; set; }
 
-    /// <summary>Whether any joint is set by <see cref="SetJoint(int, in JointPose)"/>.</summary>
-    public bool HasSetJoints { get; private set; }
+    /// <summary>
+    /// Changes whenever the game sets, turns or reaches a joint, or physics takes or lets go of
+    /// joints, so whoever works the joints out knows to again.
+    /// </summary>
+    internal int Version => _version + Joints.Version;
 
-    /// <summary>Takes away the layers. Joints set by the game stay until <see cref="ClearJoints"/>.</summary>
+    /// <summary>
+    /// Whether physics holds any joints, such as while a ragdoll is simulated or blending back to the clips.
+    /// </summary>
+    public bool IsPhysical => _held.IsActive;
+
+    /// <summary>Takes away the layers. Joints set by the game stay until <see cref="PoseJoints.Clear"/>.</summary>
     public void Clear() => LayerCount = 0;
-
-    /// <summary>
-    /// Sets a joint's local pose, relative to its parent, over whatever the layers give.
-    /// It stays until it's set again or cleared, and isn't moved ahead between ticks, so
-    /// set it in Draw from values already blended with <c>view.Blend</c>.
-    /// </summary>
-    public void SetJoint(int joint, in JointPose local)
-    {
-        int count = Rig.Skeleton.Count;
-        if ((uint)joint >= (uint)count)
-        {
-            throw new ArgumentOutOfRangeException(nameof(joint), joint, $"The rig has {count} joints, numbered from 0.");
-        }
-
-        _joints ??= new JointPose[count];
-        _isSet ??= new bool[count];
-        _joints[joint] = local;
-        _isSet[joint] = true;
-        HasSetJoints = true;
-        Version++;
-    }
-
-    /// <summary>
-    /// Changes whenever the game sets, turns or reaches a joint, so whoever works the joints
-    /// out knows to again.
-    /// </summary>
-    internal int Version { get; private set; }
-
-    /// <summary>
-    /// Turns a joint on top of whatever the layers give, by a rotation in the model's space,
-    /// about the joint itself. Everything under it goes with it, so a turn of the spine
-    /// leans the chest, arms and head together. It stays until it's turned again or the
-    /// joints are cleared; <see cref="Quaternion.Identity"/> takes it away. Like a set joint,
-    /// it isn't moved ahead between ticks, so turn it in Draw from values blended with
-    /// <c>view.Blend</c>.
-    /// </summary>
-    public void Turn(int joint, Quaternion turn)
-    {
-        int count = Rig.Skeleton.Count;
-        if ((uint)joint >= (uint)count)
-        {
-            throw new ArgumentOutOfRangeException(nameof(joint), joint, $"The rig has {count} joints, numbered from 0.");
-        }
-
-        if (!float.IsFinite(turn.X + turn.Y + turn.Z + turn.W) || turn.LengthSquared() < 1e-6f)
-        {
-            throw new ArgumentException($"A turn must be a rotation, not {turn}.", nameof(turn));
-        }
-
-        _turns ??= new Quaternion[count];
-        _isTurned ??= new bool[count];
-        _turns[joint] = Quaternion.Normalize(turn);
-        _isTurned[joint] = !turn.IsIdentity;
-        _hasTurns = Array.IndexOf(_isTurned, true) >= 0;
-        Version++;
-    }
-
-    /// <summary>Turns a joint by name. An unknown name throws, listing the joints the rig has.</summary>
-    public void Turn(string joint, Quaternion turn) => Turn(JointIndex(joint), turn);
 
     /// <summary>
     /// Bends a limb so the point its tip holds reaches a goal in the model's space, by
@@ -141,47 +91,7 @@ public sealed class AnimationPose
             throw new ArgumentOutOfRangeException(nameof(weight), weight, "A reach's weight runs from 0 to 1.");
         }
 
-        _reaches.RemoveAll(reach => reach.Limb == limb);
-        if (weight > 0f)
-        {
-            _reaches.Add(new Goal(limb, goal, weight, point));
-        }
-
-        Version++;
-    }
-
-    /// <summary>Sets a joint by name. An unknown name throws, listing the joints the rig has.</summary>
-    public void SetJoint(string joint, in JointPose local) => SetJoint(JointIndex(joint), local);
-
-    /// <summary>The number of a joint, for setting it quickly every frame. An unknown name throws, listing the joints.</summary>
-    public int JointIndex(string joint)
-    {
-        int index = Rig.Skeleton.IndexOf(joint);
-        if (index < 0)
-        {
-            throw new ArgumentException($"The rig has no joint called {joint}. It has: {string.Join(", ", Rig.Skeleton.Names)}.", nameof(joint));
-        }
-
-        return index;
-    }
-
-    /// <summary>Hands every joint the game set, turned or reached back to the layers.</summary>
-    public void ClearJoints()
-    {
-        if (_isSet is not null)
-        {
-            Array.Clear(_isSet);
-        }
-
-        if (_isTurned is not null)
-        {
-            Array.Clear(_isTurned);
-        }
-
-        HasSetJoints = false;
-        _hasTurns = false;
-        _reaches.Clear();
-        Version++;
+        Joints.Reach(limb.Joints, goal, weight, point);
     }
 
     /// <summary>Adds a layer. Layers with no amount are left out, since they'd change nothing.</summary>
@@ -192,7 +102,7 @@ public sealed class AnimationPose
             return;
         }
 
-        Rig.Check(new ClipRef(layer.Clip));
+        Rig.ClipIndex.Check(new ClipRef(layer.Clip));
         if (layer.Mask is { } mask && mask.Rig != Rig)
         {
             throw new ArgumentException("The mask is for another rig.", nameof(layer));
@@ -217,11 +127,6 @@ public sealed class AnimationPose
         Evaluate(ahead, pose, scratch, _held.Progress(ahead));
 
     /// <summary>
-    /// Whether physics holds any joints, such as while a ragdoll is simulated or blending back to the clips.
-    /// </summary>
-    public bool IsPhysical => _held.IsActive;
-
-    /// <summary>
     /// Hands joints to physics. Each is where it is in the skeleton's space, before the root transform, at the tick
     /// before and at this one; between ticks the pose moves from one to the other over
     /// <paramref name="tickSeconds"/>. A joint's weight mixes from the layers, at 0, to physics, at 1. Only joints'
@@ -236,7 +141,7 @@ public sealed class AnimationPose
         }
 
         _held.Set(from, to, weights, placed, tickSeconds);
-        Version++;
+        _version++;
     }
 
     /// <summary>Hands every joint physics held back to the layers.</summary>
@@ -244,7 +149,7 @@ public sealed class AnimationPose
     {
         if (_held.Clear())
         {
-            Version++;
+            _version++;
         }
     }
 
@@ -262,26 +167,41 @@ public sealed class AnimationPose
         }
 
         Sample(ahead, pose, scratch);
-        if (HasSetJoints)
-        {
-            for (int i = 0; i < pose.Length; i++)
-            {
-                if (_isSet![i])
-                {
-                    pose[i] = _joints![i];
-                }
-            }
-        }
-
-        if (_hasTurns || _reaches.Count > 0)
-        {
-            Solve(pose);
-        }
-
+        Joints.Apply(pose);
         if (physical is { } amount && _held.IsActive)
         {
             _held.Apply(skeleton.Parents, amount, pose);
         }
+    }
+
+    /// <summary>
+    /// How far the layers carry the character over this much time, once the rig has root motion, mixed as the
+    /// layers mix the root joint: each later layer takes its share from those before. Zero without root motion.
+    /// </summary>
+    internal Vector3 TravelOver(float seconds)
+    {
+        if (Rig.RootTravel is not { } travel)
+        {
+            return Vector3.Zero;
+        }
+
+        var sum = Vector3.Zero;
+        float left = 1f;
+        var layers = Layers;
+        for (int i = layers.Length - 1; i >= 0 && left > 0f; i--)
+        {
+            var layer = layers[i];
+            float share = Math.Clamp(layer.Amount * (layer.Mask?.Weights[travel.CarrierJoint] ?? 1f), 0f, 1f);
+            if (share <= 0f)
+            {
+                continue;
+            }
+
+            sum += left * share * travel.Over(layer.Clip, layer.Time, layer.Speed, layer.Loops, seconds);
+            left *= 1f - share;
+        }
+
+        return sum;
     }
 
     /// <summary>The rest pose with each layer's clip blended over it in turn, <paramref name="ahead"/> seconds after the last tick.</summary>
@@ -301,37 +221,4 @@ public sealed class AnimationPose
             PoseBlend.Blend(pose, scratch, layer.Amount, layer.Mask?.Weights ?? default(ReadOnlySpan<float>));
         }
     }
-
-    /// <summary>
-    /// Puts the turns and reaches on. The work is in the skeleton's own space, before the root
-    /// transform, with each joint's place and rotation in it kept beside the local poses.
-    /// </summary>
-    private void Solve(Span<JointPose> pose)
-    {
-        var skeleton = Rig.Skeleton;
-        int count = skeleton.Count;
-        Span<Matrix4x4> globals = count <= 128 ? stackalloc Matrix4x4[count] : new Matrix4x4[count];
-        Span<Quaternion> turned = count <= 128 ? stackalloc Quaternion[count] : new Quaternion[count];
-        var space = new SkeletonSpace(skeleton.Parents, pose, globals, turned);
-        Matrix4x4.Decompose(skeleton.RootTransform, out _, out var rootTurn, out _);
-        Matrix4x4.Invert(skeleton.RootTransform, out var fromModel);
-
-        // Parents come first, so each turn is in place before its children are worked out.
-        for (int i = 0; i < count; i++)
-        {
-            if (_hasTurns && _isTurned![i])
-            {
-                space.Turn(i, SkeletonSpace.Within(_turns![i], rootTurn));
-            }
-
-            space.Place(i);
-        }
-
-        foreach (var reach in _reaches)
-        {
-            space.Reach(reach.Limb, reach.Point, reach.Weight, Vector3.Transform(reach.Target, fromModel));
-        }
-    }
-
-    private readonly record struct Goal(Limb Limb, Vector3 Target, float Weight, Vector3 Point);
 }

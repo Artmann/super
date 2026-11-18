@@ -111,7 +111,7 @@ public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
         _animator.Parameter = Speed;
         if (actions.Pressed(Control.Look))
         {
-            _animator.Play(FoxAction.Look);
+            _animator.Moves.Play(FoxAction.Look);
         }
     }
 

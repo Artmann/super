@@ -148,7 +148,7 @@ internal sealed class EventTracker(AnimationControllerBase controller)
     /// Starts a tick with the base states' play over it: the state fading out first, if there is
     /// one, then the current state, each with its share of the cross-fade once the tick is done.
     /// </summary>
-    public void SweepStates(int state, float parameter, float phase, Animator.Outgoing? outgoing, float seconds)
+    public void SweepStates(int state, float parameter, float phase, StateFadeOut? outgoing, float seconds)
     {
         _tick.Clear();
         _wanted.Clear();
@@ -224,7 +224,7 @@ internal sealed class EventTracker(AnimationControllerBase controller)
     private void Sweep(in EventSweep sweep)
     {
         _order++;
-        var table = _rig.EventTable(sweep.Clip);
+        var table = _rig.EventTables[sweep.Clip];
         if (!sweep.Counts || table.Events.Count == 0)
         {
             return;
@@ -328,7 +328,7 @@ internal sealed class EventTracker(AnimationControllerBase controller)
         _tick.Add(window, mark.Kind, sweep.Weight, fraction, _order);
     }
 
-    private string NameOf(int clip, int clipEvent) => _rig.EventTable(clip).Events[clipEvent].Name;
+    private string NameOf(int clip, int clipEvent) => _rig.EventTables[clip].Events[clipEvent].Name;
 }
 
 /// <summary>A clip event as one source plays it. Windows open and close per source.</summary>
@@ -367,11 +367,11 @@ internal sealed class TickEvents
         for (int i = 0; i < pending.Length; i++)
         {
             var (window, kind, weight, _, _, _) = pending[i];
-            var table = rig.EventTable(window.Clip);
+            var table = rig.EventTables[window.Clip];
             int joint = table.JointOf(window.Event);
             _events[i] = new AnimationEvent(
                 table.Events[window.Event].Name, kind, new ClipRef(window.Clip), weight,
-                joint >= 0 ? animator.JointInModel(joint) : null);
+                joint >= 0 ? animator.JointCache.InModel(joint, animator.Pose.Version) : null);
             _windows[i] = window;
         }
 
@@ -388,7 +388,7 @@ internal sealed class TickEvents
         for (int i = 0; i < _count; i++)
         {
             var animationEvent = _events[i];
-            var table = rig.EventTable(_windows[i].Clip);
+            var table = rig.EventTables[_windows[i].Clip];
             if (animationEvent.Kind == AnimationEventKind.End || table.SoundOf(_windows[i].Event) is not { } sound)
             {
                 continue;

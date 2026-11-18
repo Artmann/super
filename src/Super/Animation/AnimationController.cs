@@ -22,7 +22,7 @@ public sealed class AnimationController<TState, TAction> : AnimationControllerBa
     /// <summary>A state that loops one clip. Speed scales its pace.</summary>
     public AnimationController<TState, TAction> State(TState state, ClipRef clip, float speed = 1f)
     {
-        Rig.Check(clip);
+        Rig.ClipIndex.Check(clip);
         return State(state, new Motion(Rig, [(clip.Index, 0f)]), speed);
     }
 
@@ -46,7 +46,7 @@ public sealed class AnimationController<TState, TAction> : AnimationControllerBa
     /// </summary>
     public AnimationController<TState, TAction> Action(TAction action, ClipRef clip, BoneMask? mask = null, float fadeSeconds = 0.1f, float speed = 1f)
     {
-        Rig.Check(clip);
+        Rig.ClipIndex.Check(clip);
         if (mask is not null && mask.Rig != Rig)
         {
             throw new ArgumentException("The mask is for another rig.", nameof(mask));
@@ -141,6 +141,24 @@ public abstract class AnimationControllerBase
             ? definition
             : throw new InvalidOperationException($"The controller has no clip for the action {Enum.ToObject(ActionType, action)}.");
 
+    /// <summary>An action's clip, speed and the clip's length, throwing for an action the controller has no clip for.</summary>
+    internal ActionTiming Timing(int action)
+    {
+        var definition = GetAction(action);
+        return new ActionTiming(definition.Clip, definition.Speed, Rig.Clips[definition.Clip].Duration);
+    }
+
+    /// <summary>A state's number, throwing when the enum isn't the controller's states.</summary>
+    internal int StateIndex<TState>(TState state) where TState : struct, Enum
+    {
+        if (typeof(TState) != StateType)
+        {
+            throw new InvalidOperationException($"The animator's states are {StateType.Name}, not {typeof(TState).Name}.");
+        }
+
+        return Unsafe.As<TState, int>(ref state);
+    }
+
     private protected void AddState(int state, StateDefinition definition) => _states[state] = definition;
 
     private protected void AddAction(int action, ActionDefinition definition)
@@ -168,6 +186,48 @@ internal sealed record StateDefinition(Motion Motion, float Speed)
         float cycle = Motion.CycleSeconds(parameter);
         return cycle > 0f ? seconds * Speed / cycle : 0f;
     }
+
+    /// <summary>Where the cycle is after this much time at this parameter, from 0 to 1.</summary>
+    public float Advance(float parameter, float phase, float seconds)
+    {
+        if (Motion.CycleSeconds(parameter) <= 0f)
+        {
+            return 0f;
+        }
+
+        phase += Cycles(parameter, seconds);
+        return phase - MathF.Floor(phase);
+    }
+
+    /// <summary>The whole state as layers: its first clip at <paramref name="amount"/>, then its second by the blend.</summary>
+    public void AddTo(AnimationPose pose, float parameter, float phase, float amount, float animatorSpeed)
+    {
+        var (first, second, towards) = Motion.Pick(parameter);
+        pose.Add(ClipLayer(first, parameter, phase, amount, animatorSpeed));
+        pose.Add(ClipLayer(second, parameter, phase, towards, animatorSpeed));
+    }
+
+    /// <summary>One of the state's clips as a looping layer, at the phase, played so its cycle keeps the state's pace.</summary>
+    public PoseLayer ClipLayer(int clip, float parameter, float phase, float amount, float animatorSpeed)
+    {
+        float clipDuration = Motion.Rig.Clips[clip].Duration;
+        float cycle = Motion.CycleSeconds(parameter);
+        float speed = cycle > 0f ? Speed * animatorSpeed * clipDuration / cycle : 0f;
+        return new PoseLayer(clip, phase * clipDuration, speed, amount, Loops: true, Mask: null);
+    }
 }
 
-internal sealed record ActionDefinition(int Clip, BoneMask? Mask, float FadeSeconds, float Speed);
+internal sealed record ActionDefinition(int Clip, BoneMask? Mask, float FadeSeconds, float Speed)
+{
+    /// <summary>The action as a layer at this time in its clip, fading in at the start and out at the end.</summary>
+    public PoseLayer Layer(float time, float duration, float animatorSpeed)
+    {
+        float weight = 1f;
+        if (FadeSeconds > 0f)
+        {
+            weight = Math.Clamp(Math.Min(time / FadeSeconds, (duration - time) / FadeSeconds), 0f, 1f);
+        }
+
+        return new PoseLayer(Clip, time, Speed * animatorSpeed, weight, Loops: false, Mask);
+    }
+}

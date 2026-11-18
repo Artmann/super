@@ -128,7 +128,7 @@ public void Update(GameTime time)
     _animator.Parameter = Speed;
     if (actions.Pressed(Control.Look))
     {
-        _animator.Play(FoxAction.Look);
+        _animator.Moves.Play(FoxAction.Look);
     }
 }
 
@@ -146,11 +146,11 @@ state. With the ECS, even that goes away; see below.
 | `Parameter` | Picks the mix in a blended state |
 | `Phase` | How far through the state's cycle, from 0 to 1 |
 | `IsCrossFading` | Whether a change of state is still blending |
-| `Play(action)` | Plays an action from its start. Playing it again restarts it |
-| `Stop(action)` | Ends an action early |
-| `IsPlaying(action)` | Whether an action is still playing. It ends when its clip does |
-| `Crossed(action, seconds)` | True on the one tick an action passed that moment of its clip |
-| `TimeOf(action)` | How far into its clip an action is, in seconds, as of the last tick, or null when it isn't playing |
+| `Moves.Play(action)` | Plays an action from its start. Playing it again restarts it |
+| `Moves.Stop(action)` | Ends an action early |
+| `Moves.IsPlaying(action)` | Whether an action is still playing. It ends when its clip does |
+| `Moves.Crossed(action, seconds)` | True on the one tick an action passed that moment of its clip |
+| `Moves.TimeOf(action)` | How far into its clip an action is, in seconds, as of the last tick, or null when it isn't playing |
 | `Events` | The clip events the last tick passed, in order. See [Events](#events) |
 | `IsActive(name)` | Whether a window event with that name is open now |
 | `Speed` | How fast everything plays, 1 by default. 0 holds the character still, such as while the game is paused |
@@ -165,17 +165,17 @@ they would have.
 whatever the state is doing. With a mask, the rest of the body carries on: walk and wave,
 walk and shoot. Several actions can play at once; later ones in the enum go on top.
 
-**Moments in an action.** Use `Crossed` to make things happen partway through a clip,
+**Moments in an action.** Use `Moves.Crossed` to make things happen partway through a clip,
 so a shot fires when the trigger is squeezed rather than when the clip starts:
 
 ```csharp
-if (_animator.Crossed(SoldierAction.Shoot, 0.25f))
+if (_animator.Moves.Crossed(SoldierAction.Shoot, 0.25f))
 {
     FireBullet();
 }
 ```
 
-`Crossed(action, 0)` is true on the tick the action starts, right after `Play`. Later
+`Moves.Crossed(action, 0)` is true on the tick the action starts, right after `Moves.Play`. Later
 moments come true in a later `Update`, once the engine has moved the clip past them. For moments
 that belong to the clip wherever it plays, such as footsteps in a walk, mark them as
 [events](#events) instead.
@@ -373,29 +373,29 @@ it's for searching a clip once, not for every frame.
 ## Setting joints yourself
 
 For procedural motion, such as feet placed on uneven ground by IK or a head turned to
-look at something, set joints directly. `pose.SetJoint` takes a joint's local pose,
+look at something, set joints directly through `pose.Joints`. `pose.Joints.Set` takes a joint's local pose,
 relative to its parent, and puts it over whatever the clips give. The others still
 follow the clips, or stay at rest if there are none:
 
 ```csharp
 var rig = content.Rig("bug.glb");
 var pose = new AnimationPose(rig);
-int knee = pose.JointIndex("Leg_F_Tibia_L");
+int knee = pose.Joints.Index("Leg_F_Tibia_L");
 
 public void Draw(View view)
 {
     // Work out from state already blended with view.Blend; set joints aren't moved ahead.
-    pose.SetJoint(knee, new JointPose(rest.Position, kneeTurn, Vector3.One));
+    pose.Joints.Set(knee, new JointPose(rest.Position, kneeTurn, Vector3.One));
     view.Model(BugKey, rig.Model!.Value, transform, pose);
 }
 ```
 
-A set joint stays until it's set again or `pose.ClearJoints()` hands every joint back to
+A set joint stays until it's set again or `pose.Joints.Clear()` hands every joint back to
 the clips. `Clear()` only takes away the layers. It works on an animator's pose too
 (`animator.Pose`), so IK can go over a walk clip. The skeleton's `Rest`, `Parents` and
 `Names` give what's needed to work out where joints are in the model.
 
-**Turns.** `pose.Turn(joint, turn)` swings a joint, and everything under it, about the
+**Turns.** `pose.Joints.Turn(joint, turn)` swings a joint, and everything under it, about the
 joint itself, by a turn in the model's space, on top of what the clips give. A struck
 body bending back, or a head turned to look, is a turn shared along a few joints. Turns
 go on in order down the skeleton, so turning the waist and the chest each by half bends
@@ -416,9 +416,9 @@ animator.Pose.Reach(arm, goalInModel, weight, point: new Vector3(80f, 0f, 0f));
 The hand keeps the turn the clip gives it, so a sword is brought over without twisting,
 and the elbow stays bent the way the clip bends it. A goal out of reach straightens the
 limb towards it. `weight` mixes from the clip at 0 to the goal at 1; easing it in and out
-around a moment, read from `animator.TimeOf(action)` and the view's blend, lands a swing
+around a moment, read from `animator.Moves.TimeOf(action)` and the view's blend, lands a swing
 on its mark and lets it go on. A reach on the same limb replaces the last, weight 0 takes
-it away, and `ClearJoints()` takes away turns and reaches too. Like set joints, turns and
+it away, and `Joints.Clear()` takes away turns and reaches too. Like set joints, turns and
 reaches aren't moved ahead between ticks, so set them in Draw from blended values; the
 clips under them still are.
 

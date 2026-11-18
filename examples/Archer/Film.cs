@@ -35,7 +35,7 @@ public static class Film
         return new Cutscene()
             // 1. Golden hour. The camera swoops down and round to her face as she looks about.
             .Then(Shot.Custom(2f, time => Swing(erika().Position, new Spot(1.1f, 10f, 2.6f), new Spot(-0.7f, 2.4f, 1.5f), time.Amount, Chest, 0.75f, 0.6f), Easing.InOut))
-            .At(0.1f, () => erika().Animator.Play(Move.Look))
+            .At(0.1f, () => erika().Animator.Moves.Play(Move.Look))
 
             // 2. Over her shoulder, pushing in, as she draws on the first dummy.
             .Then(Shot.Move(1.5f,
@@ -51,7 +51,7 @@ public static class Film
             // 4. A dodge to her right, then a sprint for the boulder, tracked from the side.
             .At(5f, () =>
             {
-                erika().Animator.Play(Move.Dodge);
+                erika().Animator.Moves.Play(Move.Dodge);
                 erika().Animator.Set(Pose.Idle);
             })
             .At(5.7f, () =>
@@ -65,11 +65,11 @@ public static class Film
             .At(6.8f, () =>
             {
                 var her = erika();
-                her.Animator.Play(Move.Jump);
+                her.Animator.Moves.Play(Move.Jump);
                 her.Animator.Set(Pose.Fall);
                 her.LeapTo(rockTop, apex: 0.8f, seconds: 0.6f, landed: () =>
                 {
-                    her.Animator.Play(Move.Land);
+                    her.Animator.Moves.Play(Move.Land);
                     her.Animator.Set(Pose.Idle);
                     her.Face(dummies[1].Position);
                 });
@@ -94,7 +94,7 @@ public static class Film
             })
             .At(10.85f, () =>
             {
-                erika().Animator.Play(Move.Dive);
+                erika().Animator.Moves.Play(Move.Dive);
                 erika().DropTo(0f, 0.5f);
             })
             .At(12.1f, () =>
@@ -115,7 +115,7 @@ public static class Film
             // 9. Pleased with herself. The camera pulls back and up over the clearing.
             .At(14.7f, () =>
             {
-                erika().Animator.Play(Move.Cocky);
+                erika().Animator.Moves.Play(Move.Cocky);
                 erika().Animator.Set(Pose.Idle);
             })
             .Then(Shot.Custom(2.8f, time =>
@@ -134,13 +134,13 @@ public static class Film
     // She draws, and holds her aim once the draw is done.
     private static void Draw(Erika erika)
     {
-        erika.Animator.Play(Move.Draw);
+        erika.Animator.Moves.Play(Move.Draw);
         erika.Animator.Set(Pose.Aim);
     }
 
     private static void Shoot(ArcherGame game, Dummy target)
     {
-        game.Erika.Animator.Play(Move.Recoil);
+        game.Erika.Animator.Moves.Play(Move.Recoil);
         game.Shoot(target);
     }
 

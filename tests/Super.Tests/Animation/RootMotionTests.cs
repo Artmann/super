@@ -48,8 +48,8 @@ public class RootMotionTests
         var pose = new JointPose[2];
         move.Sample(1f, pose);
         Assert.Equal(Vector3.Zero, pose[0].Position);
-        Assert.Equal(new Vector3(2f, 0f, 0f), rig.Travel(rig.Clip("move").Index, 1f));
-        Assert.Equal(new Vector3(3f, 0f, 0f), rig.Travel(rig.Clip("move").Index, 1.5f));
+        Assert.Equal(new Vector3(2f, 0f, 0f), rig.RootTravel!.At(rig.Clip("move").Index, 1f));
+        Assert.Equal(new Vector3(3f, 0f, 0f), rig.RootTravel!.At(rig.Clip("move").Index, 1.5f));
         Assert.Equal(TestRig.Root, rig.RootMotionJoint);
     }
 
@@ -62,7 +62,7 @@ public class RootMotionTests
 
         var frame = rig.Clips[0].Frames[1];
         Assert.Equal(new Vector3(0f, 1f, 0f), frame.Position);
-        Assert.Equal(new Vector3(1f, 0f, 3f), rig.Travel(0, 1f));
+        Assert.Equal(new Vector3(1f, 0f, 3f), rig.RootTravel!.At(0, 1f));
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class RootMotionTests
 
         rig.RootMotion("root");
 
-        var travel = rig.Travel(0, 1f);
+        var travel = rig.RootTravel!.At(0, 1f);
         Assert.Equal(0f, travel.X, Tolerance);
         Assert.Equal(-2f, travel.Z, Tolerance);
         Assert.Equal(0f, rig.Clips[0].Frames[1].Position.Length(), Tolerance);
@@ -89,7 +89,7 @@ public class RootMotionTests
 
         rig.RootMotion("root");
 
-        Assert.Equal(0f, rig.Travel(0, 1f).Length(), Tolerance);
+        Assert.Equal(0f, rig.RootTravel!.At(0, 1f).Length(), Tolerance);
         Assert.Equal(0f, Vector3.Distance(new Vector3(0f, 0f, 1f), rig.Clips[0].Frames[1].Position), Tolerance);
     }
 
@@ -139,7 +139,7 @@ public class RootMotionTests
         var rig = TestRig.Rig();
         rig.RootMotion(TestRig.Root);
         var animator = Start(rig, Stance.Idle);
-        animator.Play(Deed.Dash);
+        animator.Moves.Play(Deed.Dash);
 
         animator.Advance(0.5f);
 
@@ -152,7 +152,7 @@ public class RootMotionTests
         var rig = TestRig.Rig();
         rig.RootMotion(TestRig.Root);
         var animator = Start(rig, Stance.Idle);
-        animator.Play(Deed.Dash);
+        animator.Moves.Play(Deed.Dash);
         animator.Advance(1.5f);
 
         animator.Advance(1f);
@@ -166,7 +166,7 @@ public class RootMotionTests
         var rig = TestRig.Rig();
         rig.RootMotion(TestRig.Root);
         var animator = Start(rig, Stance.Idle);
-        animator.Play(Deed.Shuffle);
+        animator.Moves.Play(Deed.Shuffle);
 
         animator.Advance(0.5f);
 
@@ -192,7 +192,7 @@ public class RootMotionTests
 
         rig.RootMotion(TestRig.Root);
 
-        Assert.Equal(new Vector3(2f, 0f, 0f), rig.Travel(rig.Clip("move").Index, 1f));
+        Assert.Equal(new Vector3(2f, 0f, 0f), rig.RootTravel!.At(rig.Clip("move").Index, 1f));
     }
 
     [Fact]
