@@ -43,7 +43,7 @@ internal sealed class CacheUsage
     /// <summary>How stale a file's last-write time must be before using it sets it again: the grain of the cache's LRU order.</summary>
     public static readonly TimeSpan TouchAfter = TimeSpan.FromHours(1);
 
-    private readonly ConcurrentDictionary<string, byte> _used = new(CacheFolder.PathComparer);
+    private readonly ConcurrentDictionary<string, byte> _used = new(PathCase.PathComparer);
 
     public CacheUsage(DateTime started)
     {
@@ -97,11 +97,6 @@ public static class CacheFolder
 
     /// <summary>What <see cref="Parts"/> calls files in the folder that the cache didn't write. They're never deleted.</summary>
     public const string NotTheCaches = "not the cache's";
-
-    /// <summary>Windows' and macOS' file systems ignore case by default; Linux's don't.</summary>
-    internal static readonly StringComparer PathComparer = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-        ? StringComparer.OrdinalIgnoreCase
-        : StringComparer.Ordinal;
 
     /// <summary>The parts trimming may delete from. Anything else, such as <c>hashes.json</c>, is counted but kept.</summary>
     private static readonly string[] Evictable = ["records", "objects", "steps"];

@@ -3,21 +3,21 @@ using System.Numerics;
 namespace Super.Ecs;
 
 /// <summary>One component type's values in an archetype, packed side by side.</summary>
-internal abstract class Column
+internal abstract class ComponentColumn
 {
     public abstract void Grow(int capacity);
 
     /// <summary>Fills a hole by moving the last row into it, which keeps rows packed.</summary>
     public abstract void MoveRow(int from, int to);
 
-    public abstract void CopyRowTo(Column target, int from, int to);
+    public abstract void CopyRowTo(ComponentColumn target, int from, int to);
 
     public abstract void ClearRow(int row);
 
-    public abstract Column CreateEmpty(int capacity);
+    public abstract ComponentColumn CreateEmpty(int capacity);
 }
 
-internal sealed class Column<T>(int capacity) : Column
+internal sealed class Column<T>(int capacity) : ComponentColumn
 {
     public T[] Values = new T[capacity];
 
@@ -25,11 +25,11 @@ internal sealed class Column<T>(int capacity) : Column
 
     public override void MoveRow(int from, int to) => Values[to] = Values[from];
 
-    public override void CopyRowTo(Column target, int from, int to) => ((Column<T>)target).Values[to] = Values[from];
+    public override void CopyRowTo(ComponentColumn target, int from, int to) => ((Column<T>)target).Values[to] = Values[from];
 
     public override void ClearRow(int row) => Values[row] = default!;
 
-    public override Column CreateEmpty(int capacity) => new Column<T>(capacity);
+    public override ComponentColumn CreateEmpty(int capacity) => new Column<T>(capacity);
 }
 
 /// <summary>
@@ -43,9 +43,9 @@ internal sealed class Archetype
 
     private const int FirstCapacity = 16;
 
-    private readonly Column?[] _columns = new Column?[MaxComponentTypes];
+    private readonly ComponentColumn?[] _columns = new ComponentColumn?[MaxComponentTypes];
 
-    public Archetype(ulong mask, Archetype? source, Column? added, int addedType)
+    public Archetype(ulong mask, Archetype? source, ComponentColumn? added, int addedType)
     {
         Mask = mask;
         ulong remaining = mask;
