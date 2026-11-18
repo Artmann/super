@@ -1900,7 +1900,7 @@ reads its own texel. The lighting tells the two apart by comparing the target's 
 with the depth buffer's, and a change of `Renderer.ReflectionResolution` rebuilds the
 targets as a change of render scale does.
 
-`RecordReflections` leaves the pass out when nothing would be traced: with
+`LightingStage.RecordReflections` (`src/Rendition/LightingStage.cs`) leaves the pass out when nothing would be traced: with
 `RenderEffects.Reflections` or `Specular` off, or with no last frame to read. It still moves the target to a readable layout, since the
 lighting binds it, and `traceStrength` is 0 in the same cases, so it is never read.
 

@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
+using static Rendition.PassStages;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
 
 namespace Rendition;
@@ -28,16 +29,6 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The most reflection probes the renderer holds at once.</summary>
     public const int MaxReflectionProbes = ReflectionProbeOrder.MaxProbes;
 
-    private const PipelineStageFlags2 SampledStage = PipelineStageFlags2.FragmentShaderBit;
-
-    // The shadow maps are read by the lighting pass and by the volumetric fog's compute pass.
-    private const PipelineStageFlags2 ShadowReadStages = SampledStage | PipelineStageFlags2.ComputeShaderBit;
-    private const AccessFlags2 SampledAccess = AccessFlags2.ShaderSampledReadBit;
-    private const PipelineStageFlags2 ColorStage = PipelineStageFlags2.ColorAttachmentOutputBit;
-    private const AccessFlags2 ColorWrite = AccessFlags2.ColorAttachmentWriteBit;
-    private const PipelineStageFlags2 DepthStages =
-        PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit;
-    private const AccessFlags2 DepthWrite = AccessFlags2.DepthStencilAttachmentWriteBit;
 
     private struct Frame
     {
@@ -145,15 +136,9 @@ public sealed unsafe class Renderer : IDisposable
     private bool _environmentPending;
 
     private readonly DescriptorKit _kit;
-    private readonly DescriptorSet _aoSet;
-    private readonly DescriptorSet _aoAcrossSet;
-    private readonly DescriptorSet _aoSteadySet;
-    private readonly DescriptorSet _aoSteadyAcrossSet;
-    private readonly DescriptorSet _aoDownSet;
-    private readonly DescriptorSet _scatterAcrossSet;
-    private readonly DescriptorSet _scatterDownSet;
-    private readonly DescriptorSet _lightingSet;
-    private readonly DescriptorSet _reflectionSet;
+    private readonly HistoryCopier _copier;
+    private readonly OcclusionStage _occlusion;
+    private readonly LightingStage _lighting;
     private readonly DescriptorSet _taaSet;
     private readonly DescriptorSet _tonemapSet;
     private readonly DescriptorSet _finishSet;
@@ -165,13 +150,6 @@ public sealed unsafe class Renderer : IDisposable
     private DetailView _cameraView;
 
     private DetailView? DepthFirstView => _off.HasFlag(RenderEffects.DepthFirst) ? null : _cameraView;
-    private readonly FullscreenPass _aoPass;
-    private readonly FullscreenPass _aoSteadyPass;
-    private readonly FullscreenPass _aoBlurPass;
-    private readonly FullscreenPass _reflectionPass;
-    private readonly FullscreenPass _lightingPass;
-    private readonly FullscreenPass _scatterAcrossPass;
-    private readonly FullscreenPass _scatterDownPass;
     private readonly TransparentPass _transparentPass;
     private readonly ParticlePass _particlePass;
     private readonly DecalPass _decalPass;
@@ -608,15 +586,10 @@ public sealed unsafe class Renderer : IDisposable
 
         _volumetricFog = new VolumetricFogVolume(_context, _kit.FrameSetLayout, _kit.LinearSampler);
 
-        _aoSet = _kit.NewSet(_kit.FourTextureLayout);
-        _aoAcrossSet = _kit.NewSet(_kit.FourTextureLayout);
-        _aoSteadySet = _kit.NewSet(_kit.SixTextureLayout);
-        _aoSteadyAcrossSet = _kit.NewSet(_kit.FourTextureLayout);
-        _aoDownSet = _kit.NewSet(_kit.FourTextureLayout);
-        _scatterAcrossSet = _kit.NewSet(_kit.TwoTextureLayout);
-        _scatterDownSet = _kit.NewSet(_kit.TwoTextureLayout);
-        _lightingSet = _kit.NewLightingSet();
-        _reflectionSet = _kit.NewSet(_kit.FourTextureLayout);
+        _copier = new HistoryCopier(_api);
+        _occlusion = new OcclusionStage(_context, _kit, _copier);
+        _lighting = new LightingStage(_context, _kit,
+            new LightingStage.Sources(_resources, _environment, _probes, probeVolume, _shadowPass));
         _taaSet = _kit.NewSet(_kit.FourTextureLayout);
         _tonemapSet = _kit.NewSet(_kit.TwoTextureLayout);
         _finishSet = _kit.NewSet(_kit.TwoTextureLayout);
@@ -633,19 +606,6 @@ public sealed unsafe class Renderer : IDisposable
         WriteTargetDescriptors();
 
         _gBufferPass = new GBufferPass(_context, _kit.FrameSetLayout, _resources);
-        _aoPass = new FullscreenPass(
-            _context, "ao.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [_kit.FrameSetLayout, _kit.FourTextureLayout], sizeof(int));
-        _aoBlurPass = new FullscreenPass(
-            _context, "ao_blur.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [_kit.FrameSetLayout, _kit.FourTextureLayout], 3 * sizeof(int));
-        _aoSteadyPass = new FullscreenPass(
-            _context, "ao_temporal.frag", [GBuffer.AoSteadyFormat, GBuffer.AoSteadyFormat], [_kit.FrameSetLayout, _kit.SixTextureLayout], 2 * sizeof(int));
-        _reflectionPass = new FullscreenPass(_context, "reflections.frag", GBuffer.HdrFormat, [_kit.FrameSetLayout, _kit.FourTextureLayout], sizeof(int));
-        _lightingPass = new FullscreenPass(_context, "lighting.frag", [GBuffer.HdrFormat, GBuffer.HdrFormat],
-            [_kit.FrameSetLayout, _kit.LightingSetLayout, _resources.Layout]);
-        _scatterAcrossPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
-            [_kit.FrameSetLayout, _kit.TwoTextureLayout, _resources.Layout], BlurConstants.Size);
-        _scatterDownPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
-            [_kit.FrameSetLayout, _kit.TwoTextureLayout, _resources.Layout], BlurConstants.Size, blend: true);
         _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_kit.FrameSetLayout, _kit.FourTextureLayout]);
         _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat,
             [_kit.FrameSetLayout, _kit.TwoTextureLayout, _exposureMeter.SetLayout]);
@@ -2425,13 +2385,8 @@ public sealed unsafe class Renderer : IDisposable
         _probeDebugPass.Dispose();
         _particlePass.Dispose();
         _decalPass.Dispose();
-        _lightingPass.Dispose();
-        _reflectionPass.Dispose();
-        _scatterAcrossPass.Dispose();
-        _scatterDownPass.Dispose();
-        _aoBlurPass.Dispose();
-        _aoSteadyPass.Dispose();
-        _aoPass.Dispose();
+        _lighting.Dispose();
+        _occlusion.Dispose();
         _gBufferPass.Dispose();
         _shadowPass.Dispose();
         _clusterPipeline.Destroy();
@@ -2633,50 +2588,10 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void RecordHistoryCopy(CommandBuffer cmd, Image frame, bool drawnJustNow)
     {
-        RecordCopy(cmd, frame, _gBuffer.History.Image, _gBuffer.Extent, drawnJustNow);
+        _copier.RecordCopy(cmd, frame, _gBuffer.History.Image, _gBuffer.Extent, drawnJustNow);
         _gBuffer.HistoryReady = true;
     }
 
-    /// <summary>
-    /// Copies <paramref name="frame"/> into <paramref name="history"/>, an image of the same size and format that is
-    /// only ever sampled, and leaves both ready to sample. The frame is still a target when it was
-    /// <paramref name="drawnJustNow"/>, and already ready to sample when not.
-    /// </summary>
-    private void RecordCopy(CommandBuffer cmd, Image frame, Image history, Extent2D extent, bool drawnJustNow)
-    {
-        if (drawnJustNow)
-        {
-            _api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
-                ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal, ColorStage, ColorWrite,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
-        }
-        else
-        {
-            _api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
-                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal, SampledStage, SampledAccess,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
-        }
-
-        _api.Transition(cmd, history, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, SampledAccess,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit);
-
-        var region = new ImageCopy
-        {
-            SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-            DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-            Extent = new Extent3D(extent.Width, extent.Height, 1),
-        };
-        _api.CmdCopyImage(cmd, frame, ImageLayout.TransferSrcOptimal,
-            history, ImageLayout.TransferDstOptimal, 1, &region);
-
-        _api.Transition(cmd, history, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit, SampledStage, SampledAccess);
-        _api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit, SampledStage, SampledAccess);
-    }
 
     /// <summary>
     /// Draws and lights the frame's scene into the HDR target. Its shadow draws were picked per cascade by
@@ -2702,7 +2617,7 @@ public sealed unsafe class Renderer : IDisposable
         RecordGBuffer(cmd, targets, frameSet, draws.Camera, instances);
         _gpuTimer.Mark(cmd);
 
-        RecordAmbientOcclusion(cmd, targets, frameSet, keepHistory: true);
+        _occlusion.Record(cmd, targets, frameSet, _off, _gpuTimer);
 
         if (_traceView && draws.Traced is { } scene)
         {
@@ -2710,8 +2625,8 @@ public sealed unsafe class Renderer : IDisposable
             return;
         }
 
-        RecordReflections(cmd, targets, frameSet);
-        RecordLighting(cmd, targets, frameSet);
+        _lighting.RecordReflections(cmd, targets, frameSet, _off, _gpuTimer);
+        _lighting.RecordLighting(cmd, targets, frameSet, _off, _gpuTimer);
         RecordTransparent(cmd, targets, frameSet, draws.Camera, instances);
     }
 
@@ -2887,42 +2802,6 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Lights the G-buffer into Hdr, and spreads the diffuse light of skin and wax across the screen, then down it and
-    /// onto the lit image. Nothing to spread when no material scatters, or while subsurface is off. Leaves Hdr a target.
-    /// </summary>
-    private void RecordLighting(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet)
-    {
-        var extent = targets.Extent;
-        _api.BeginColorTarget(cmd, targets.Hdr.Image);
-        _api.BeginColorTarget(cmd, targets.Scatter.Image);
-
-        ReadOnlySpan<DescriptorSet> lightingSets = [frameSet, _lightingSet, _resources.Set];
-        _lightingPass.Record(cmd, [targets.Hdr.View, targets.Scatter.View], extent, lightingSets, []);
-        _api.EndColorTarget(cmd, targets.Scatter.Image);
-        _gpuTimer.Mark(cmd);
-
-        if (_resources.AnySubsurface && !_off.HasFlag(RenderEffects.Subsurface))
-        {
-            var across = BlurConstants.Across;
-            ReadOnlySpan<DescriptorSet> acrossSets = [frameSet, _scatterAcrossSet, _resources.Set];
-            _api.BeginColorTarget(cmd, targets.ScatterBlurred.Image);
-            _scatterAcrossPass.Record(cmd, targets.ScatterBlurred.View, extent, acrossSets,
-                new ReadOnlySpan<byte>(&across, (int)BlurConstants.Size));
-            _api.EndColorTarget(cmd, targets.ScatterBlurred.Image);
-
-            var down = BlurConstants.Down;
-            ReadOnlySpan<DescriptorSet> downSets = [frameSet, _scatterDownSet, _resources.Set];
-            _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-                ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-            _scatterDownPass.Record(cmd, targets.Hdr.View, extent, downSets,
-                new ReadOnlySpan<byte>(&down, (int)BlurConstants.Size));
-        }
-
-        _gpuTimer.Mark(cmd);
-    }
-
-    /// <summary>
     /// Blends glass and particles over the lit image, furthest first, and the probe debug view's spheres over
     /// everything. Depth is read-only throughout: glass tests against it, and both read it to see what's behind them.
     /// </summary>
@@ -2948,145 +2827,11 @@ public sealed unsafe class Renderer : IDisposable
                 spheres += (uint)(x * y * z);
             }
 
-            _probeDebugPass.Record(cmd, targets, frameSet, _lightingSet, spheres);
+            _probeDebugPass.Record(cmd, targets, frameSet, _lighting.LightingSet, spheres);
         }
 
         _api.EndColorTarget(cmd, targets.Hdr.Image);
         _gpuTimer.Mark(cmd);
-    }
-
-    /// <summary>
-    /// Works out the ambient occlusion and the light bounced from the screen, from the G-buffer just drawn and last
-    /// frame's picture, and takes their grain away, as two timed passes: the trace, and then the average over the last
-    /// frames and the blur. Left out, the lighting pass reads neither, but it still binds the targets. Only a frame
-    /// asks to <paramref name="keepHistory"/>: a probe's faces are drawn once each, so theirs is one frame's occlusion,
-    /// blurred wide.
-    /// </summary>
-    private void RecordAmbientOcclusion(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, bool keepHistory)
-    {
-        if (_off.HasFlag(RenderEffects.AmbientOcclusion))
-        {
-            targets.OcclusionHistoryReady = false;
-            _api.Transition(cmd, targets.AoBlurred.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
-            _api.Transition(cmd, targets.BounceBlurred.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
-            _gpuTimer.Mark(cmd);
-            _gpuTimer.Mark(cmd);
-            return;
-        }
-
-        var extent = targets.AoExtent;
-        int scale = targets.Occlusion == OcclusionResolution.Full ? 1 : 2;
-
-        // Averaged with the frames before, where there are any to keep, and that average kept for the next frame.
-        bool averaged = keepHistory && !_off.HasFlag(RenderEffects.OcclusionHistory);
-        var constants = new AoConstants(scale, AoSlices(scale, averaged));
-        ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
-        _api.BeginColorTarget(cmd, targets.Ao.Image);
-        _api.BeginColorTarget(cmd, targets.Bounce.Image);
-        _aoPass.Record(cmd, [targets.Ao.View, targets.Bounce.View], extent, aoSets, new ReadOnlySpan<byte>(&constants, sizeof(AoConstants)));
-        _api.EndColorTarget(cmd, targets.Ao.Image);
-        _api.EndColorTarget(cmd, targets.Bounce.Image);
-        _gpuTimer.Mark(cmd);
-
-        if (averaged)
-        {
-            RecordOcclusionAverage(cmd, targets, frameSet, scale);
-        }
-
-        targets.OcclusionHistoryReady = averaged;
-
-        // Blurred across into a second pair of images, then down into the pair the lighting reads.
-        var across = averaged ? _aoSteadyAcrossSet : _aoAcrossSet;
-        RecordAoBlur(cmd, [targets.AoAcross, targets.BounceAcross], [frameSet, across], new AoBlurStep(1, 0, scale), extent);
-        RecordAoBlur(cmd, [targets.AoBlurred, targets.BounceBlurred], [frameSet, _aoDownSet], new AoBlurStep(0, 1, scale), extent);
-        _gpuTimer.Mark(cmd);
-    }
-
-    /// <summary>
-    /// Averages this frame's occlusion and bounce with the frames before, where the history still shows the same
-    /// surface, and copies the average to the history for the next frame. <paramref name="scale"/> is screen pixels
-    /// per pixel of occlusion.
-    /// </summary>
-    private void RecordOcclusionAverage(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, int scale)
-    {
-        if (!targets.OcclusionHistoryReady)
-        {
-            // The pass binds the history even before there is any.
-            _api.Transition(cmd, targets.AoHistory.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
-            _api.Transition(cmd, targets.BounceHistory.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
-        }
-
-        var extent = targets.AoExtent;
-        var steady = new AoSteadyConstants(scale, targets.OcclusionHistoryReady ? 1 : 0);
-        _api.BeginColorTarget(cmd, targets.AoSteady.Image);
-        _api.BeginColorTarget(cmd, targets.BounceSteady.Image);
-        _aoSteadyPass.Record(cmd, [targets.AoSteady.View, targets.BounceSteady.View], extent, [frameSet, _aoSteadySet],
-            new ReadOnlySpan<byte>(&steady, sizeof(AoSteadyConstants)));
-        RecordCopy(cmd, targets.AoSteady.Image, targets.AoHistory.Image, extent, drawnJustNow: true);
-        RecordCopy(cmd, targets.BounceSteady.Image, targets.BounceHistory.Image, extent, drawnJustNow: true);
-    }
-
-    /// <summary>ao.frag's constants: screen pixels per pixel of occlusion, and how many slices each pixel traces.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly record struct AoConstants(int Scale, int Slices);
-
-    /// <summary>
-    /// How many slices round a pixel the occlusion traces a frame. At full size with the frames averaged one does, a
-    /// different way each frame, and the average gathers the turns. That is still twice the slices a screen pixel gets
-    /// at half size, where each pixel traces two every fourth frame. Without the average, or at half size, two do.
-    /// </summary>
-    private static int AoSlices(int scale, bool averaged) => scale == 1 && averaged ? 1 : 2;
-
-    /// <summary>ao_blur.frag's constants: one pixel along the way a pass blurs, and screen pixels per pixel of occlusion.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly record struct AoBlurStep(int X, int Y, int Scale);
-
-    /// <summary>ao_temporal.frag's constants: screen pixels per pixel of occlusion, and 1 when there is a history to read.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly record struct AoSteadyConstants(int Scale, int HistoryValid);
-
-    /// <summary>
-    /// Traces the screen-space reflections from the G-buffer just drawn and last frame's picture, for the lighting to
-    /// read: one ray a pixel, or one for each block of four at <see cref="ReflectionResolution.Half"/>. Left out when
-    /// nothing would be traced: with reflections or specular off, or with no last frame, as on a probe's faces. The
-    /// lighting reads no reflection then, but it still binds the target.
-    /// </summary>
-    private void RecordReflections(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet)
-    {
-        if (!targets.HistoryReady || (_off &(RenderEffects.Reflections | RenderEffects.Specular)) != 0)
-        {
-            _api.Transition(cmd, targets.Traced.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
-            _gpuTimer.Mark(cmd);
-            return;
-        }
-
-        int scale = targets.Reflections == ReflectionResolution.Full ? 1 : 2;
-        ReadOnlySpan<DescriptorSet> sets = [frameSet, _reflectionSet];
-        _api.BeginColorTarget(cmd, targets.Traced.Image);
-        _reflectionPass.Record(cmd, targets.Traced.View, targets.TracedExtent, sets, new ReadOnlySpan<byte>(&scale, sizeof(int)));
-        _api.EndColorTarget(cmd, targets.Traced.Image);
-        _gpuTimer.Mark(cmd);
-    }
-
-    /// <summary>
-    /// One direction of the occlusion and bounce blur: <paramref name="step"/> is one pixel along it, and
-    /// <paramref name="sets"/> the frame's set and then the one with the occlusion and bounce to blur.
-    /// </summary>
-    private void RecordAoBlur(
-        CommandBuffer cmd, ReadOnlySpan<RenderTarget> occlusionAndBounce, ReadOnlySpan<DescriptorSet> sets, AoBlurStep step,
-        Extent2D extent)
-    {
-        var (occlusion, bounce) = (occlusionAndBounce[0], occlusionAndBounce[1]);
-        _api.BeginColorTarget(cmd, occlusion.Image);
-        _api.BeginColorTarget(cmd, bounce.Image);
-        _aoBlurPass.Record(cmd, [occlusion.View, bounce.View], extent, sets, new ReadOnlySpan<byte>(&step, sizeof(AoBlurStep)));
-        _api.EndColorTarget(cmd, occlusion.Image);
-        _api.EndColorTarget(cmd, bounce.Image);
     }
 
     /// <summary>
@@ -3871,103 +3616,25 @@ public sealed unsafe class Renderer : IDisposable
         _decalPass.WriteTargets(depth, new DescriptorImageInfo(_kit.NearestSampler, _gBuffer.NormalCopy.View, ImageLayout.ShaderReadOnlyOptimal));
 
         var shadowDepth = new DescriptorImageInfo(_kit.NearestSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal);
-        WriteOcclusionSets(depth, normal, shadowDepth);
-        WriteLightingSets(depth, normal, shadowDepth);
-        WriteBlendSets(depth);
+        _occlusion.WriteSets(_gBuffer, depth, normal, shadowDepth);
+        _lighting.WriteSets(_gBuffer, depth, normal, shadowDepth);
+        WriteBlendSets();
         WriteDisplaySets();
     }
 
-    // The ambient occlusion's sets: the trace, the average over the last frames and the blur's two steps.
-    private void WriteOcclusionSets(DescriptorImageInfo depth, DescriptorImageInfo normal, DescriptorImageInfo shadowDepth)
+    // The reflection probe capture's set, and what blends over the lit image: glass and particles.
+    private void WriteBlendSets()
     {
-        WriteImages(_aoSet, [depth, normal, shadowDepth, new(_kit.LinearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal)]);
-        WriteImages(_aoAcrossSet,
-        [
-            new(_kit.NearestSampler, _gBuffer.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
-            depth,
-            normal,
-        ]);
-        WriteImages(_aoSteadySet,
-        [
-            new(_kit.NearestSampler, _gBuffer.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.AoHistory.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.BounceHistory.View, ImageLayout.ShaderReadOnlyOptimal),
-            depth,
-            new(_kit.NearestSampler, _gBuffer.Motion.View, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
-        WriteImages(_aoSteadyAcrossSet,
-        [
-            new(_kit.NearestSampler, _gBuffer.AoSteady.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.BounceSteady.View, ImageLayout.ShaderReadOnlyOptimal),
-            depth,
-            normal,
-        ]);
-        WriteImages(_aoDownSet,
-        [
-            new(_kit.NearestSampler, _gBuffer.AoAcross.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.BounceAcross.View, ImageLayout.ShaderReadOnlyOptimal),
-            depth,
-            normal,
-        ]);
-    }
-
-    // The lighting pass's set, the reflection probe capture's, and the screen reflections'.
-    private void WriteLightingSets(DescriptorImageInfo depth, DescriptorImageInfo normal, DescriptorImageInfo shadowDepth)
-    {
-        WriteImages(_lightingSet,
-        [
-            new(_kit.NearestSampler, _gBuffer.BaseColor.View, ImageLayout.ShaderReadOnlyOptimal),
-            normal,
-            depth,
-            shadowDepth,
-            new(_kit.ShadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.AoBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _probes.Cubes.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, LightProbes.Volume.IrradianceView, ImageLayout.General),
-            new(_kit.LinearSampler, LightProbes.Volume.DepthView, ImageLayout.General),
-            new(_kit.NearestSampler, _gBuffer.Baked.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.Mask.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.Traced.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.BounceBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
         _reflectionCapture.WriteSet(
             new(_kit.LinearSampler, LightProbes.Volume.IrradianceView, ImageLayout.General),
             new(_kit.LinearSampler, LightProbes.Volume.DepthView, ImageLayout.General),
             new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
             _kit.ShadowSampler);
-        WriteImages(_reflectionSet,
-        [
-            depth,
-            normal,
-            new(_kit.NearestSampler, _gBuffer.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
-    }
 
-    // What blends over the lit image: glass, particles and the spread of skin and wax.
-    private void WriteBlendSets(DescriptorImageInfo depth)
-    {
         // Glass and particles read depth while it's also attached for glass to test against.
         var testedDepth = new DescriptorImageInfo(_kit.NearestSampler, _gBuffer.Depth.View, ImageLayout.DepthReadOnlyOptimal);
         _transparentPass.WriteTargets(new(_kit.MipSampler, _gBuffer.SceneColor.View, ImageLayout.ShaderReadOnlyOptimal), testedDepth);
 
-        WriteImages(_scatterAcrossSet,
-        [
-            new(_kit.NearestSampler, _gBuffer.Scatter.View, ImageLayout.ShaderReadOnlyOptimal),
-            depth,
-        ]);
-        WriteImages(_scatterDownSet,
-        [
-            new(_kit.NearestSampler, _gBuffer.ScatterBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
-            depth,
-        ]);
         _particlePass.WriteTargets(
             testedDepth,
             new(_kit.ShadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
@@ -4010,25 +3677,6 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
-    private void WriteImages(DescriptorSet set, ReadOnlySpan<DescriptorImageInfo> images)
-    {
-        var writes = stackalloc WriteDescriptorSet[images.Length];
-        fixed (DescriptorImageInfo* imagesPtr = images)
-        {
-            for (int i = 0; i < images.Length; i++)
-            {
-                writes[i] = new WriteDescriptorSet
-                {
-                    SType = StructureType.WriteDescriptorSet,
-                    DstSet = set,
-                    DstBinding = (uint)i,
-                    DescriptorCount = 1,
-                    DescriptorType = DescriptorType.CombinedImageSampler,
-                    PImageInfo = &imagesPtr[i],
-                };
-            }
-
-            _api.UpdateDescriptorSets(_context.Device, (uint)images.Length, writes, 0, null);
-        }
-    }
+    private void WriteImages(DescriptorSet set, ReadOnlySpan<DescriptorImageInfo> images) =>
+        ImageSets.Write(_context, set, images);
 }
