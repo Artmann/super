@@ -541,9 +541,9 @@ public sealed unsafe class Renderer : IDisposable
         _chunkPool = new ChunkBakePool(_context, _resources, ChunkBakePool.ChunkUploadBudget, _readableBakes.ChunkUnreadable);
         if (_context.CanTrace)
         {
-            _tracing = new RayTracing(_context, _resources, MeshFor, _uploads.IsPending,
-                releaseAfterSubmitted: structure => _retired.AfterLastSubmitted.FreedOthers.Add(structure),
-                releaseAfterRecorded: used => _retired.AfterRecording.FreedOthers.Add(used));
+            _tracing = new RayTracing(_context, _resources, (MeshFor, _uploads.IsPending),
+                (AfterSubmitted: structure => _retired.AfterLastSubmitted.FreedOthers.Add(structure),
+                AfterRecorded: used => _retired.AfterRecording.FreedOthers.Add(used)));
             _traceScene = new TraceScene(TraceFlagsOf);
         }
 
@@ -681,7 +681,7 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>How rays treat a material, for <see cref="TraceScene.Collect"/>.</summary>
     internal TraceFlags TraceFlagsOf(MaterialHandle material) =>
-        RayTracing.TraceFlagsFor(_resources.Materials[material].Cutouts, _resources.Materials[material].Flags);
+        TraceEncoding.TraceFlagsFor(_resources.Materials[material].Cutouts, _resources.Materials[material].Flags);
 
     /// <summary>
     /// Lets go of a mesh and its detail entries. Returns at once; the memory comes back
@@ -1498,10 +1498,10 @@ public sealed unsafe class Renderer : IDisposable
         ValidateMaterial(material);
         // A destroyed material's structures are already gone, so only a live one is checked.
         bool traced = _tracing is not null && _resources.Materials.IsLive(handle);
-        var opaqueBefore = traced ? RayTracing.GeometryFlagsFor(_resources.Materials[handle].Cutouts, _resources.Materials[handle].Flags) : default;
+        var opaqueBefore = traced ? TraceEncoding.GeometryFlagsFor(_resources.Materials[handle].Cutouts, _resources.Materials[handle].Flags) : default;
         _resources.Materials.Update(handle, material);
         if (traced
-            && RayTracing.GeometryFlagsFor(_resources.Materials[handle].Cutouts, _resources.Materials[handle].Flags) != opaqueBefore)
+            && TraceEncoding.GeometryFlagsFor(_resources.Materials[handle].Cutouts, _resources.Materials[handle].Flags) != opaqueBefore)
         {
             // Structures bake each part's opaque flag in, so ones drawn in this material are rebuilt when next traced.
             // A background bake's held top level still points at the old ones, so it stops first.

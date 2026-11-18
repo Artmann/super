@@ -212,7 +212,7 @@ public sealed class GeometryFlagsTests
     [InlineData(false, MaterialFlags.Transparent, GeometryFlagsKHR.None)]
     public void Only_surfaces_without_holes_or_see_through_parts_are_opaque(bool cutouts, MaterialFlags flags, GeometryFlagsKHR expected)
     {
-        Assert.Equal(expected, RayTracing.GeometryFlagsFor(cutouts, flags));
+        Assert.Equal(expected, TraceEncoding.GeometryFlagsFor(cutouts, flags));
     }
 }
 
@@ -225,6 +225,6 @@ public sealed class AlignUpTests
     [InlineData(0ul, 64ul, 0ul)]
     public void Rounds_up_to_the_next_multiple(ulong value, ulong alignment, ulong expected)
     {
-        Assert.Equal(expected, RayTracing.AlignUp(value, alignment));
+        Assert.Equal(expected, TraceEncoding.AlignUp(value, alignment));
     }
 }
