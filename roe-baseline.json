@@ -597,12 +597,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.GameArguments.Parse",
-      "file": "src/Super/GameArguments.cs",
-      "metric": 60
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.GameWindow.ListenForInput",
       "file": "src/Super/Rendering/GameWindow.cs",
       "metric": 13
@@ -1164,12 +1158,6 @@
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
       "metric": 34
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.GameArguments.Parse",
-      "file": "src/Super/GameArguments.cs",
-      "metric": 51
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2460,12 +2448,6 @@
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
       "metric": 150
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.GameArguments.Parse",
-      "file": "src/Super/GameArguments.cs",
-      "metric": 179
     },
     {
       "kind": "long-method",
