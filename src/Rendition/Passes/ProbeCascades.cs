@@ -47,15 +47,7 @@ internal readonly record struct ScrollResult
     /// </summary>
     public IReadOnlyList<int> NewSlots(int cascade)
     {
-        if (_layouts == null)
-        {
-            return Array.Empty<int>();
-        }
-
-        var x = Slabs[cascade * 3];
-        var y = Slabs[cascade * 3 + 1];
-        var z = Slabs[cascade * 3 + 2];
-        if (x.Count == 0 && y.Count == 0 && z.Count == 0)
+        if (_layouts == null || !Moved(cascade))
         {
             return Array.Empty<int>();
         }
@@ -72,7 +64,7 @@ internal readonly record struct ScrollResult
                 for (int i = 0; i < layout.CountX; i++)
                 {
                     var cell = new Int3(origin.X + i, origin.Y + j, origin.Z + k);
-                    if (x.Contains(cell.X) || y.Contains(cell.Y) || z.Contains(cell.Z))
+                    if (IsNew(cascade, cell))
                     {
                         slots.Add(ProbeCascades.Wrap(cell, layout));
                     }
@@ -82,6 +74,14 @@ internal readonly record struct ScrollResult
 
         return slots;
     }
+
+    // Whether any of the cascade's slabs of new cells holds a cell.
+    private bool Moved(int cascade) =>
+        Slabs[cascade * 3].Count != 0 || Slabs[cascade * 3 + 1].Count != 0 || Slabs[cascade * 3 + 2].Count != 0;
+
+    // Whether the cell is in one of the cascade's slabs of new cells.
+    private bool IsNew(int cascade, Int3 cell) =>
+        Slabs[cascade * 3].Contains(cell.X) || Slabs[cascade * 3 + 1].Contains(cell.Y) || Slabs[cascade * 3 + 2].Contains(cell.Z);
 
     internal readonly record struct Slab(int Start, int Count)
     {

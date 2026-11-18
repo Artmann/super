@@ -69,15 +69,7 @@ internal sealed unsafe class FsrPass : IDisposable
         var writes = stackalloc WriteDescriptorSet[2];
         for (int i = 0; i < 2; i++)
         {
-            writes[i] = new WriteDescriptorSet
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = _motionSet,
-                DstBinding = (uint)i,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                PImageInfo = &images[i],
-            };
+            writes[i] = Descriptors.ImageWrite(_motionSet, (uint)i, DescriptorType.CombinedImageSampler, &images[i]);
         }
 
         _context.Api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);

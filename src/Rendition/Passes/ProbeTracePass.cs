@@ -215,33 +215,9 @@ internal sealed unsafe class ProbeTracePass : IDisposable
         var probesInfo = new DescriptorBufferInfo(probes.Handle, 0, Vk.WholeSize);
         var writes = stackalloc WriteDescriptorSet[]
         {
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                PNext = &structureInfo,
-                DstSet = set,
-                DstBinding = 0,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.AccelerationStructureKhr,
-            },
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = set,
-                DstBinding = 1,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.StorageBuffer,
-                PBufferInfo = &tableInfo,
-            },
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = set,
-                DstBinding = 2,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.StorageBuffer,
-                PBufferInfo = &probesInfo,
-            },
+            Descriptors.StructureWrite(set, 0, &structureInfo),
+            Descriptors.BufferWrite(set, 1, &tableInfo),
+            Descriptors.BufferWrite(set, 2, &probesInfo),
         };
         _context.Api.UpdateDescriptorSets(_context.Device, 3, writes, 0, null);
     }

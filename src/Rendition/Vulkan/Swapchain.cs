@@ -20,31 +20,16 @@ internal sealed unsafe class Swapchain : IDisposable
     public Swapchain(VulkanContext context, uint width, uint height, bool disableVsync)
     {
         _context = context;
-        var api = context.Api;
-        var surfaceApi = context.SurfaceApi;
-
-        surfaceApi.GetPhysicalDeviceSurfaceCapabilities(context.PhysicalDevice, context.Surface, out var capabilities).Check();
+        context.SurfaceApi.GetPhysicalDeviceSurfaceCapabilities(context.PhysicalDevice, context.Surface, out var capabilities).Check();
         var surfaceFormat = ChooseFormat();
         Format = surfaceFormat.Format;
-
-        // A current extent of uint.MaxValue means the window lets us choose.
-        Extent = capabilities.CurrentExtent.Width != uint.MaxValue
-            ? capabilities.CurrentExtent
-            : new Extent2D(
-                Math.Clamp(width, capabilities.MinImageExtent.Width, capabilities.MaxImageExtent.Width),
-                Math.Clamp(height, capabilities.MinImageExtent.Height, capabilities.MaxImageExtent.Height));
-
-        uint imageCount = capabilities.MinImageCount + 1;
-        if (capabilities.MaxImageCount != 0)
-        {
-            imageCount = Math.Min(imageCount, capabilities.MaxImageCount);
-        }
+        Extent = ChooseExtent(capabilities, width, height);
 
         var createInfo = new SwapchainCreateInfoKHR
         {
             SType = StructureType.SwapchainCreateInfoKhr,
             Surface = context.Surface,
-            MinImageCount = imageCount,
+            MinImageCount = ImageCount(capabilities),
             ImageFormat = surfaceFormat.Format,
             ImageColorSpace = surfaceFormat.ColorSpace,
             ImageExtent = Extent,
@@ -58,18 +43,51 @@ internal sealed unsafe class Swapchain : IDisposable
         };
         context.SwapchainApi.CreateSwapchain(context.Device, &createInfo, null, out Handle).Check();
 
-        uint count = 0;
-        context.SwapchainApi.GetSwapchainImages(context.Device, Handle, &count, null).Check();
-        Images = new Image[count];
-        fixed (Image* ptr = Images)
+        Images = GetImages(context, Handle);
+        Views = new ImageView[Images.Length];
+        RenderFinished = new Semaphore[Images.Length];
+        CreatePerImage();
+    }
+
+    // A current extent of uint.MaxValue means the window lets us choose.
+    private static Extent2D ChooseExtent(in SurfaceCapabilitiesKHR capabilities, uint width, uint height) =>
+        capabilities.CurrentExtent.Width != uint.MaxValue
+            ? capabilities.CurrentExtent
+            : new Extent2D(
+                Math.Clamp(width, capabilities.MinImageExtent.Width, capabilities.MaxImageExtent.Width),
+                Math.Clamp(height, capabilities.MinImageExtent.Height, capabilities.MaxImageExtent.Height));
+
+    // One more image than the surface needs, where it allows that many.
+    private static uint ImageCount(in SurfaceCapabilitiesKHR capabilities)
+    {
+        uint imageCount = capabilities.MinImageCount + 1;
+        if (capabilities.MaxImageCount != 0)
         {
-            context.SwapchainApi.GetSwapchainImages(context.Device, Handle, &count, ptr).Check();
+            imageCount = Math.Min(imageCount, capabilities.MaxImageCount);
         }
 
-        Views = new ImageView[count];
-        RenderFinished = new Semaphore[count];
+        return imageCount;
+    }
+
+    private static Image[] GetImages(VulkanContext context, SwapchainKHR handle)
+    {
+        uint count = 0;
+        context.SwapchainApi.GetSwapchainImages(context.Device, handle, &count, null).Check();
+        var images = new Image[count];
+        fixed (Image* ptr = images)
+        {
+            context.SwapchainApi.GetSwapchainImages(context.Device, handle, &count, ptr).Check();
+        }
+
+        return images;
+    }
+
+    // Each image's view and its RenderFinished semaphore.
+    private void CreatePerImage()
+    {
+        var api = _context.Api;
         var semaphoreInfo = new SemaphoreCreateInfo { SType = StructureType.SemaphoreCreateInfo };
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < Images.Length; i++)
         {
             var viewInfo = new ImageViewCreateInfo
             {
@@ -79,8 +97,8 @@ internal sealed unsafe class Swapchain : IDisposable
                 Format = Format,
                 SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1),
             };
-            api.CreateImageView(context.Device, &viewInfo, null, out Views[i]).Check();
-            api.CreateSemaphore(context.Device, &semaphoreInfo, null, out RenderFinished[i]).Check();
+            api.CreateImageView(_context.Device, &viewInfo, null, out Views[i]).Check();
+            api.CreateSemaphore(_context.Device, &semaphoreInfo, null, out RenderFinished[i]).Check();
         }
     }
 

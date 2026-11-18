@@ -360,21 +360,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
         // ids is two ints per probe, and StagingSlots keeps it well under CmdUpdateBuffer's 65,536 bytes.
         int count = batch.Count;
         int* ids = stackalloc int[count * 2];
-        for (int i = 0; i < count; i++)
-        {
-            var id = batch[i];
-            if (id.Cascade < 0 || id.Cascade >= Layers || id.Slot < 0 || id.Slot >= Columns * Rows)
-            {
-                throw new ArgumentOutOfRangeException(nameof(batch), id, "There is no such probe in the atlases.");
-            }
-
-            ids[i * 2] = id.Cascade;
-            ids[i * 2 + 1] = id.Slot;
-            if (id.Cascade < FixedGridLayer)
-            {
-                CascadesWritten = true;
-            }
-        }
+        PackIds(batch, ids);
 
         // The last blend may still be reading the ids.
         Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit,
@@ -399,6 +385,26 @@ internal sealed unsafe class ProbeVolume : IDisposable
         Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
             PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit,
             AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
+    }
+
+    // Writes each probe's layer and slot into ids, two ints a probe, and notes when a cascade is written.
+    private void PackIds(IReadOnlyList<ProbeId> batch, int* ids)
+    {
+        for (int i = 0; i < batch.Count; i++)
+        {
+            var id = batch[i];
+            if (id.Cascade < 0 || id.Cascade >= Layers || id.Slot < 0 || id.Slot >= Columns * Rows)
+            {
+                throw new ArgumentOutOfRangeException(nameof(batch), id, "There is no such probe in the atlases.");
+            }
+
+            ids[i * 2] = id.Cascade;
+            ids[i * 2 + 1] = id.Slot;
+            if (id.Cascade < FixedGridLayer)
+            {
+                CascadesWritten = true;
+            }
+        }
     }
 
     /// <summary>Clears every layer of both atlases, so every probe is uncaptured again.</summary>
@@ -462,16 +468,21 @@ internal sealed unsafe class ProbeVolume : IDisposable
         CreateAtlases();
 
         uint layers = (uint)(FaceSlots * 6);
-        (_facesColor, _facesColorMemory) = CreateFacesImage(
-            FacesFormat, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit, layers);
-        (_facesDepth, _facesDepthMemory) = CreateFacesImage(GBuffer.DepthFormat, ImageUsageFlags.DepthStencilAttachmentBit, layers);
-        _facesArray = CreateFacesView(_facesColor, FacesFormat, ImageAspectFlags.ColorBit, 0, layers);
+        (_facesColor, _facesColorMemory) = CreateArrayImage(
+            FaceSize,
+            FaceSize,
+            FacesFormat,
+            ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit,
+            layers);
+        (_facesDepth, _facesDepthMemory) = CreateArrayImage(
+            FaceSize, FaceSize, GBuffer.DepthFormat, ImageUsageFlags.DepthStencilAttachmentBit, layers);
+        _facesArray = CreateArrayView(_facesColor, FacesFormat, ImageAspectFlags.ColorBit, 0, layers);
         _slotColorViews = new ImageView[FaceSlots];
         _slotDepthViews = new ImageView[FaceSlots];
         for (int slot = 0; slot < FaceSlots; slot++)
         {
-            _slotColorViews[slot] = CreateFacesView(_facesColor, FacesFormat, ImageAspectFlags.ColorBit, (uint)slot * 6, 6);
-            _slotDepthViews[slot] = CreateFacesView(_facesDepth, GBuffer.DepthFormat, ImageAspectFlags.DepthBit, (uint)slot * 6, 6);
+            _slotColorViews[slot] = CreateArrayView(_facesColor, FacesFormat, ImageAspectFlags.ColorBit, (uint)slot * 6, 6);
+            _slotDepthViews[slot] = CreateArrayView(_facesDepth, GBuffer.DepthFormat, ImageAspectFlags.DepthBit, (uint)slot * 6, 6);
         }
 
         // The fold samples the faces, so they start readable for the first frame's barriers.
@@ -591,7 +602,9 @@ internal sealed unsafe class ProbeVolume : IDisposable
         _context.Api.CmdPipelineBarrier2(cmd, &dependency);
     }
 
-    private (Image Image, GpuAllocation Memory) CreateFacesImage(Format format, ImageUsageFlags usage, uint layers)
+    // A 2D image of `layers` layers in device memory, with one mip.
+    private (Image Image, GpuAllocation Memory) CreateArrayImage(
+        uint width, uint height, Format format, ImageUsageFlags usage, uint layers)
     {
         var api = _context.Api;
         var imageInfo = new ImageCreateInfo
@@ -599,7 +612,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
             SType = StructureType.ImageCreateInfo,
             ImageType = ImageType.Type2D,
             Format = format,
-            Extent = new Extent3D(FaceSize, FaceSize, 1),
+            Extent = new Extent3D(width, height, 1),
             MipLevels = 1,
             ArrayLayers = layers,
             Samples = SampleCountFlags.Count1Bit,
@@ -615,7 +628,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
         return (image, memory);
     }
 
-    private ImageView CreateFacesView(Image image, Format format, ImageAspectFlags aspect, uint firstLayer, uint layers)
+    private ImageView CreateArrayView(Image image, Format format, ImageAspectFlags aspect, uint firstLayer, uint layers)
     {
         var viewInfo = new ImageViewCreateInfo
         {
@@ -642,59 +655,14 @@ internal sealed unsafe class ProbeVolume : IDisposable
             usage |= ImageUsageFlags.StorageBit;
         }
 
-        var imageInfo = new ImageCreateInfo
-        {
-            SType = StructureType.ImageCreateInfo,
-            ImageType = ImageType.Type2D,
-            Format = format,
-            Extent = new Extent3D(width, height, 1),
-            MipLevels = 1,
-            ArrayLayers = Layers,
-            Samples = SampleCountFlags.Count1Bit,
-            Tiling = ImageTiling.Optimal,
-            Usage = usage,
-            SharingMode = SharingMode.Exclusive,
-            InitialLayout = ImageLayout.Undefined,
-        };
-        api.CreateImage(_context.Device, &imageInfo, null, out var image).Check();
-        api.GetImageMemoryRequirements(_context.Device, image, out var requirements);
-        var memory = _context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
-        api.BindImageMemory(_context.Device, image, memory.Memory, memory.Offset).Check();
-
+        var (image, memory) = CreateArrayImage(width, height, format, usage, Layers);
+        var view = CreateArrayView(image, format, ImageAspectFlags.ColorBit, 0, Layers);
         var range = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, Layers);
-        var viewInfo = new ImageViewCreateInfo
-        {
-            SType = StructureType.ImageViewCreateInfo,
-            Image = image,
-            ViewType = ImageViewType.Type2DArray,
-            Format = format,
-            SubresourceRange = range,
-        };
-        api.CreateImageView(_context.Device, &viewInfo, null, out var view).Check();
-
         _context.SubmitAndWait(cmd =>
         {
-            var barrier = new ImageMemoryBarrier2
-            {
-                SType = StructureType.ImageMemoryBarrier2,
-                SrcStageMask = PipelineStageFlags2.None,
-                SrcAccessMask = AccessFlags2.None,
-                DstStageMask = PipelineStageFlags2.ClearBit,
-                DstAccessMask = AccessFlags2.TransferWriteBit,
-                OldLayout = ImageLayout.Undefined,
-                NewLayout = ImageLayout.General,
-                SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
-                DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
-                Image = image,
-                SubresourceRange = range,
-            };
-            var dependency = new DependencyInfo
-            {
-                SType = StructureType.DependencyInfo,
-                ImageMemoryBarrierCount = 1,
-                PImageMemoryBarriers = &barrier,
-            };
-            api.CmdPipelineBarrier2(cmd, &dependency);
+            api.Transition(cmd, image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General,
+                PipelineStageFlags2.None, AccessFlags2.None, PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
+                layerCount: Layers);
             var black = new ClearColorValue(0f, 0f, 0f, 0f);
             var cleared = range;
             api.CmdClearColorImage(cmd, image, ImageLayout.General, &black, 1, &cleared);

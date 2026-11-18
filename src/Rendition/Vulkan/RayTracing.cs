@@ -5,41 +5,11 @@ using Silk.NET.Vulkan.Extensions.KHR;
 namespace Rendition.Vulkan;
 
 /// <summary>
-/// A built top-level structure: its handle, the address a shader traces it by, and the geometry table its instances
-/// index, <see cref="GeometryCount"/> entries, one per part. Valid only in the command buffer it was recorded into;
-/// see <see cref="RayTracing.TopLevel(CommandBuffer, IReadOnlyList{TraceInstance})"/>.
-/// </summary>
-internal readonly unsafe record struct TopLevelStructure(
-    AccelerationStructureKHR Handle, ulong Address, GpuBuffer GeometryTable, int GeometryCount)
-{
-    /// <summary>The geometry table as the GPU will read it. For tests, before the work it was built for is done.</summary>
-    public ReadOnlySpan<GpuTraceGeometry> ReadGeometries() =>
-        new(GeometryTable.Mapped, GeometryCount);
-}
-
-/// <summary>
-/// One entry of the geometry table, for one part: where its mesh's vertices and indices are, where its triangles start
-/// among the indices, its material, and its draw's tint. A hit's entry is its instance's custom index plus its geometry
-/// index. Must match TraceGeometry in Shaders/trace.glsl, laid out as std430: 32 bytes, with the addresses read as
-/// uvec2 and the tint as three half floats, red and green in one word and blue in the low half of the next.
-/// </summary>
-[StructLayout(LayoutKind.Sequential)]
-internal struct GpuTraceGeometry
-{
-    public ulong Vertices;
-    public ulong Indices;
-    public uint FirstIndex;
-    public uint Material;
-    public uint TintRG;
-    public uint TintB;
-}
-
-/// <summary>
 /// The acceleration structures rays are traced through. A mesh's bottom-level structure is built the first time
 /// something traces it, into whatever command buffer asks, and kept until the mesh is destroyed. Exists only where
 /// the device can trace. See "Ray tracing" in docs/design.md.
 /// </summary>
-internal sealed unsafe class RayTracing : IDisposable
+internal sealed unsafe partial class RayTracing : IDisposable
 {
     /// <summary>
     /// The stages that trace rays and read hit data: mesh bytes through buffer addresses and textures through the
@@ -176,17 +146,7 @@ internal sealed unsafe class RayTracing : IDisposable
 
     private TopLevelStructure Build(CommandBuffer cmd, IReadOnlyList<TraceInstance> instances, bool hold, out IDisposable? release)
     {
-        if (_bottomLevelAddresses.Length < instances.Count)
-        {
-            Array.Resize(ref _bottomLevelAddresses, Math.Max(instances.Count, _bottomLevelAddresses.Length * 2));
-        }
-
-        var bottomLevels = _bottomLevelAddresses.AsSpan(0, instances.Count);
-        for (int i = 0; i < instances.Count; i++)
-        {
-            bottomLevels[i] = BottomLevel(cmd, instances[i].Mesh, instances[i].Parts.Span);
-        }
-
+        var bottomLevels = BottomLevels(cmd, instances);
         var target = Rent(instances.Count);
         var packed = new Span<AccelerationStructureInstanceKHR>(target.Instances.Mapped, instances.Count);
         _packed.Clear();
@@ -202,38 +162,8 @@ internal sealed unsafe class RayTracing : IDisposable
         }
 
         // Copied into the target's own table now, so nothing holds on to the list once this returns.
-        var table = target.Table(_packed.Count);
-        for (int i = 0; i < _packed.Count; i++)
-        {
-            var (meshHandle, part, tint) = _packed[i];
-            var mesh = _meshes(meshHandle);
-            table[i] = new GpuTraceGeometry
-            {
-                Vertices = mesh.Vertices.Address,
-                Indices = mesh.Indices.Address,
-                FirstIndex = part.FirstIndex,
-                Material = (uint)part.Material.Index,
-                TintRG = Half2(tint.X, tint.Y),
-                TintB = Half2(tint.Z, 0f),
-            };
-        }
-
-        var geometry = InstancesGeometry(target.Instances.Address);
-        var range = new AccelerationStructureBuildRangeInfoKHR { PrimitiveCount = (uint)instances.Count };
-        var rangePointer = &range;
-        var info = new AccelerationStructureBuildGeometryInfoKHR
-        {
-            SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
-            Type = AccelerationStructureTypeKHR.TopLevelKhr,
-            Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
-            Mode = BuildAccelerationStructureModeKHR.BuildKhr,
-            GeometryCount = 1,
-            PGeometries = &geometry,
-            DstAccelerationStructure = target.Handle,
-            ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = Scratch(target.ScratchSize) },
-        };
-        _api.CmdBuildAccelerationStructures(cmd, 1, &info, &rangePointer);
-        WaitForBuild(cmd);
+        target.WriteTable(_packed, _meshes);
+        RecordTopLevel(cmd, target, instances.Count);
 
         target.Recycler ??= new Recycle(this, target);
         if (hold)
@@ -248,6 +178,44 @@ internal sealed unsafe class RayTracing : IDisposable
 
         _topLevelBuilds++;
         return new TopLevelStructure(target.Handle, target.Address, target.GeometryTable!, _packed.Count);
+    }
+
+    // The bottom-level structure of each instance, built now for a mesh and parts that have none yet.
+    private Span<ulong> BottomLevels(CommandBuffer cmd, IReadOnlyList<TraceInstance> instances)
+    {
+        if (_bottomLevelAddresses.Length < instances.Count)
+        {
+            Array.Resize(ref _bottomLevelAddresses, Math.Max(instances.Count, _bottomLevelAddresses.Length * 2));
+        }
+
+        var bottomLevels = _bottomLevelAddresses.AsSpan(0, instances.Count);
+        for (int i = 0; i < instances.Count; i++)
+        {
+            bottomLevels[i] = BottomLevel(cmd, instances[i].Mesh, instances[i].Parts.Span);
+        }
+
+        return bottomLevels;
+    }
+
+    // Records the build of the target's structure over the first `count` instances in its instance buffer.
+    private void RecordTopLevel(CommandBuffer cmd, TopLevelTarget target, int count)
+    {
+        var geometry = InstancesGeometry(target.Instances.Address);
+        var range = new AccelerationStructureBuildRangeInfoKHR { PrimitiveCount = (uint)count };
+        var rangePointer = &range;
+        var info = new AccelerationStructureBuildGeometryInfoKHR
+        {
+            SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
+            Type = AccelerationStructureTypeKHR.TopLevelKhr,
+            Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
+            Mode = BuildAccelerationStructureModeKHR.BuildKhr,
+            GeometryCount = 1,
+            PGeometries = &geometry,
+            DstAccelerationStructure = target.Handle,
+            ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = Scratch(target.ScratchSize) },
+        };
+        _api.CmdBuildAccelerationStructures(cmd, 1, &info, &rangePointer);
+        WaitForBuild(cmd);
     }
 
     /// <summary>
@@ -507,21 +475,41 @@ internal sealed unsafe class RayTracing : IDisposable
             throw new ArgumentException("A structure needs at least one part.", nameof(parts));
         }
 
-        uint vertexCount = (uint)(mesh.Vertices.Size / (ulong)sizeof(Vertex));
-        var triangles = new AccelerationStructureGeometryTrianglesDataKHR
+        var (geometries, ranges, triangleCounts) = DescribeParts(mesh, parts);
+        fixed (AccelerationStructureGeometryKHR* geometry = geometries)
+        fixed (AccelerationStructureBuildRangeInfoKHR* range = ranges)
+        fixed (uint* triangleCount = triangleCounts)
         {
-            SType = StructureType.AccelerationStructureGeometryTrianglesDataKhr,
-            VertexFormat = Format.R32G32B32Sfloat,
-            VertexData = new DeviceOrHostAddressConstKHR
+            var info = new AccelerationStructureBuildGeometryInfoKHR
             {
-                DeviceAddress = mesh.Vertices.Address + (ulong)Marshal.OffsetOf<Vertex>(nameof(Vertex.Position)),
-            },
-            VertexStride = (ulong)sizeof(Vertex),
-            MaxVertex = vertexCount - 1,
-            IndexType = IndexType.Uint32,
-            IndexData = new DeviceOrHostAddressConstKHR { DeviceAddress = mesh.Indices.Address },
-        };
+                SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
+                Type = AccelerationStructureTypeKHR.BottomLevelKhr,
+                Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
+                Mode = BuildAccelerationStructureModeKHR.BuildKhr,
+                GeometryCount = (uint)parts.Length,
+                PGeometries = geometry,
+            };
+            var sizes = new AccelerationStructureBuildSizesInfoKHR { SType = StructureType.AccelerationStructureBuildSizesInfoKhr };
+            _api.GetAccelerationStructureBuildSizes(
+                _context.Device, AccelerationStructureBuildTypeKHR.DeviceKhr, &info, triangleCount, &sizes);
 
+            var structure = new BottomLevelStructure(this, parts.ToArray(), sizes.AccelerationStructureSize);
+            info.DstAccelerationStructure = structure.Handle;
+            info.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = Scratch(sizes.BuildScratchSize) };
+            _api.CmdBuildAccelerationStructures(cmd, 1, &info, &range);
+            WaitForBuild(cmd);
+            return structure;
+        }
+    }
+
+    /// <summary>
+    /// Each part as a geometry of the mesh's triangles, with its range of them and how many there are. Throws for a
+    /// part that isn't whole triangles within the mesh.
+    /// </summary>
+    private (AccelerationStructureGeometryKHR[] Geometries, AccelerationStructureBuildRangeInfoKHR[] Ranges, uint[] TriangleCounts)
+        DescribeParts(Mesh mesh, ReadOnlySpan<TracePart> parts)
+    {
+        var triangles = Triangles(mesh);
         var geometries = new AccelerationStructureGeometryKHR[parts.Length];
         var ranges = new AccelerationStructureBuildRangeInfoKHR[parts.Length];
         var triangleCounts = new uint[parts.Length];
@@ -550,31 +538,23 @@ internal sealed unsafe class RayTracing : IDisposable
             };
         }
 
-        fixed (AccelerationStructureGeometryKHR* geometry = geometries)
-        fixed (AccelerationStructureBuildRangeInfoKHR* range = ranges)
-        fixed (uint* triangleCount = triangleCounts)
-        {
-            var info = new AccelerationStructureBuildGeometryInfoKHR
-            {
-                SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
-                Type = AccelerationStructureTypeKHR.BottomLevelKhr,
-                Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
-                Mode = BuildAccelerationStructureModeKHR.BuildKhr,
-                GeometryCount = (uint)parts.Length,
-                PGeometries = geometry,
-            };
-            var sizes = new AccelerationStructureBuildSizesInfoKHR { SType = StructureType.AccelerationStructureBuildSizesInfoKhr };
-            _api.GetAccelerationStructureBuildSizes(
-                _context.Device, AccelerationStructureBuildTypeKHR.DeviceKhr, &info, triangleCount, &sizes);
-
-            var structure = new BottomLevelStructure(this, parts.ToArray(), sizes.AccelerationStructureSize);
-            info.DstAccelerationStructure = structure.Handle;
-            info.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = Scratch(sizes.BuildScratchSize) };
-            _api.CmdBuildAccelerationStructures(cmd, 1, &info, &range);
-            WaitForBuild(cmd);
-            return structure;
-        }
+        return (geometries, ranges, triangleCounts);
     }
+
+    // The mesh's vertex positions and indices, as triangles for a bottom-level structure.
+    private static AccelerationStructureGeometryTrianglesDataKHR Triangles(Mesh mesh) => new()
+    {
+        SType = StructureType.AccelerationStructureGeometryTrianglesDataKhr,
+        VertexFormat = Format.R32G32B32Sfloat,
+        VertexData = new DeviceOrHostAddressConstKHR
+        {
+            DeviceAddress = mesh.Vertices.Address + (ulong)Marshal.OffsetOf<Vertex>(nameof(Vertex.Position)),
+        },
+        VertexStride = (ulong)sizeof(Vertex),
+        MaxVertex = (uint)(mesh.Vertices.Size / (ulong)sizeof(Vertex)) - 1,
+        IndexType = IndexType.Uint32,
+        IndexData = new DeviceOrHostAddressConstKHR { DeviceAddress = mesh.Indices.Address },
+    };
 
     /// <summary>A scratch address with room for <paramref name="size"/> bytes, aligned as the device asks.</summary>
     private ulong Scratch(ulong size)
@@ -643,132 +623,5 @@ internal sealed unsafe class RayTracing : IDisposable
         _disposed = true;
         _scratch?.Dispose();
         _scratch = null;
-    }
-
-    /// <summary>Hands a top-level target back to the pool once the work recorded with it is done.</summary>
-    private sealed class Recycle(RayTracing owner, TopLevelTarget target) : IDisposable
-    {
-        public void Dispose() => owner.Return(target);
-    }
-
-    /// <summary>
-    /// A top-level structure sized for up to <see cref="Capacity"/> instances, the host-visible buffer its instances are
-    /// written into, and the host-visible geometry table those instances index.
-    /// </summary>
-    private sealed class TopLevelTarget : IDisposable
-    {
-        private readonly VulkanContext _context;
-        private readonly KhrAccelerationStructure _api;
-        private readonly GpuBuffer _buffer;
-
-        public readonly int Capacity;
-        public readonly ulong ScratchSize;
-        public readonly GpuBuffer Instances;
-        public readonly AccelerationStructureKHR Handle;
-
-        /// <summary>Hands this target back to the pool. Made the first time the target goes out, then reused.</summary>
-        public IDisposable? Recycler;
-
-        /// <summary>The geometry table, made by the first <see cref="Table"/> call and grown by later ones.</summary>
-        public GpuBuffer? GeometryTable { get; private set; }
-
-        private int _tableCapacity;
-
-        /// <summary>
-        /// Room for <paramref name="count"/> entries in the geometry table. A target is only handed out once nothing
-        /// reads it, so a table that's too small can go at once.
-        /// </summary>
-        public Span<GpuTraceGeometry> Table(int count)
-        {
-            if (GeometryTable is null || _tableCapacity < count)
-            {
-                GeometryTable?.Dispose();
-                _tableCapacity = (int)Math.Max(16u, System.Numerics.BitOperations.RoundUpToPowerOf2((uint)count));
-                GeometryTable = GpuBuffer.CreateHostVisible(
-                    _context, (ulong)(_tableCapacity * sizeof(GpuTraceGeometry)), BufferUsageFlags.StorageBufferBit);
-            }
-
-            return new Span<GpuTraceGeometry>(GeometryTable.Mapped, count);
-        }
-        public readonly ulong Address;
-
-        public TopLevelTarget(VulkanContext context, KhrAccelerationStructure api, int capacity, ulong size, ulong scratchSize)
-        {
-            _context = context;
-            _api = api;
-            Capacity = capacity;
-            ScratchSize = scratchSize;
-            Instances = GpuBuffer.CreateHostVisible(
-                context, (ulong)(capacity * sizeof(AccelerationStructureInstanceKHR)), GpuBuffer.TraceInput(context));
-            if (Instances.Address % 16 != 0)
-            {
-                throw new InvalidOperationException($"Instance data must be 16-byte aligned, but sits at {Instances.Address:X}.");
-            }
-
-            _buffer = new GpuBuffer(context, size,
-                BufferUsageFlags.AccelerationStructureStorageBitKhr | BufferUsageFlags.ShaderDeviceAddressBit,
-                MemoryPropertyFlags.DeviceLocalBit);
-            (Handle, Address) = CreateStructure(context, api, _buffer, size, AccelerationStructureTypeKHR.TopLevelKhr);
-        }
-
-        public void Dispose()
-        {
-            _api.DestroyAccelerationStructure(_context.Device, Handle, null);
-            _buffer.Dispose();
-            Instances.Dispose();
-            GeometryTable?.Dispose();
-        }
-    }
-
-    private static (AccelerationStructureKHR Handle, ulong Address) CreateStructure(
-        VulkanContext context, KhrAccelerationStructure api, GpuBuffer buffer, ulong size, AccelerationStructureTypeKHR type)
-    {
-        var createInfo = new AccelerationStructureCreateInfoKHR
-        {
-            SType = StructureType.AccelerationStructureCreateInfoKhr,
-            Buffer = buffer.Handle,
-            Size = size,
-            Type = type,
-        };
-        api.CreateAccelerationStructure(context.Device, &createInfo, null, out var handle).Check();
-
-        var addressInfo = new AccelerationStructureDeviceAddressInfoKHR
-        {
-            SType = StructureType.AccelerationStructureDeviceAddressInfoKhr,
-            AccelerationStructure = handle,
-        };
-        return (handle, api.GetAccelerationStructureDeviceAddress(context.Device, &addressInfo));
-    }
-
-    /// <summary>One built bottom-level structure and the buffer it lives in.</summary>
-    private sealed class BottomLevelStructure : IDisposable
-    {
-        private readonly RayTracing _owner;
-        private readonly VulkanContext _context;
-        private readonly KhrAccelerationStructure _api;
-        private readonly GpuBuffer _buffer;
-
-        public readonly TracePart[] Parts;
-        public readonly AccelerationStructureKHR Handle;
-        public readonly ulong Address;
-
-        public BottomLevelStructure(RayTracing owner, TracePart[] parts, ulong size)
-        {
-            _owner = owner;
-            _context = owner._context;
-            _api = owner._api;
-            Parts = parts;
-            _buffer = new GpuBuffer(_context, size,
-                BufferUsageFlags.AccelerationStructureStorageBitKhr | BufferUsageFlags.ShaderDeviceAddressBit,
-                MemoryPropertyFlags.DeviceLocalBit);
-            (Handle, Address) = CreateStructure(_context, _api, _buffer, size, AccelerationStructureTypeKHR.BottomLevelKhr);
-        }
-
-        public void Dispose()
-        {
-            _api.DestroyAccelerationStructure(_context.Device, Handle, null);
-            _buffer.Dispose();
-            _owner._bottomLevelsReleased++;
-        }
     }
 }
