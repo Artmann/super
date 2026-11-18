@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.0](https://github.com/Artmann/super/compare/v1.4.0...v1.5.0) (2026-11-18)
+
+
+### Features
+
+* 64 reflection probes that update during play without a hitch ([#139](https://github.com/Artmann/super/issues/139)) ([c97b92a](https://github.com/Artmann/super/commit/c97b92a9a0469eeef9b2c6a21884dff506ffed0e))
+* animation events from the import settings and from code ([#136](https://github.com/Artmann/super/issues/136)) ([88ccdeb](https://github.com/Artmann/super/commit/88ccdebd28777bab56d4d9e54e498d6621ee4d89))
+* sounds tied to animation events, such as footsteps ([#138](https://github.com/Artmann/super/issues/138)) ([eec1699](https://github.com/Artmann/super/commit/eec16991cb146e3b02a7f9c1fbe8198d41617019))
+
 ## [1.4.0](https://github.com/Artmann/super/compare/v1.3.1...v1.4.0) (2026-11-17)
 
 
