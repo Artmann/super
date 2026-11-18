@@ -45,12 +45,6 @@
     },
     {
       "kind": "large-type",
-      "name": "Rendition.ProbeScheduler",
-      "file": "src/Rendition/Passes/ProbeScheduler.cs",
-      "metric": 39
-    },
-    {
-      "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
       "metric": 293
@@ -68,26 +62,5 @@
       "metric": 45
     }
   ],
-  "cycles": [
-    {
-      "members": [
-        "Super.Cook.CacheFolder",
-        "Super.Cook.CacheUsage"
-      ]
-    },
-    {
-      "members": [
-        "Super.Ecs.Column",
-        "Super.Ecs.Column<T>"
-      ]
-    },
-    {
-      "members": [
-        "Super.Tween",
-        "Super.Tween<T>",
-        "Super.TweenGroup<T>",
-        "Super.TweenSequence<T>"
-      ]
-    }
-  ]
+  "cycles": []
 }
