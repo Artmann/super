@@ -39,16 +39,14 @@ public class ToonTests
     }
 
     [Fact]
-    public void The_outline_thickness_is_scaled_to_scene_pixels_and_dropped_for_probe_captures()
+    public void The_outline_thickness_is_scaled_to_scene_pixels()
     {
         var settings = new OutlineSettings(new Vector3(0.1f, 0.2f, 0.3f), Thickness: 2f, FadeStart: 10f, FadeEnd: 20f);
 
-        var (outline, fade) = Outlines.Pack(settings, sceneToPicture: 0.75f, capturingProbe: false);
-        var (captured, _) = Outlines.Pack(settings, sceneToPicture: 0.75f, capturingProbe: true);
+        var (outline, fade) = Outlines.Pack(settings, sceneToPicture: 0.75f);
 
         Assert.Equal(new Vector4(0.1f, 0.2f, 0.3f, 1.5f), outline);
         Assert.Equal(new Vector4(10f, 20f, 0f, 0f), fade);
-        Assert.Equal(0f, captured.W);
     }
 
     [Theory]

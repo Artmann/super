@@ -19,12 +19,11 @@ internal static class Fog
         new(settings.Density, settings.Height, settings.Falloff, settings.SunScatter);
 
     /// <summary>
-    /// What the frame block gets: nothing with the <see cref="RenderEffects.Fog"/> switch off,
-    /// nothing while a probe is captured, since fog belongs to the view that looks through it, and
+    /// What the frame block gets: nothing with the <see cref="RenderEffects.Fog"/> switch off, and
     /// nothing under water, which takes over the sky and the fade with distance.
     /// </summary>
-    public static Vector4 Pack(in FogSettings settings, RenderEffects off, bool capturingProbe, bool underwater) =>
-        capturingProbe || underwater || off.HasFlag(RenderEffects.Fog) ? Vector4.Zero : Pack(settings);
+    public static Vector4 Pack(in FogSettings settings, RenderEffects off, bool underwater) =>
+        underwater || off.HasFlag(RenderEffects.Fog) ? Vector4.Zero : Pack(settings);
 
     /// <summary>
     /// The share of light leaving <paramref name="to"/> that reaches <paramref name="from"/>, for fog

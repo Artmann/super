@@ -216,6 +216,15 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>Whether the light probes near the camera are all up to date. See <see cref="Renderer.ProbesSettled"/>.</summary>
     public bool ProbesSettled => _renderer.ProbesSettled;
 
+    /// <summary>How many reflection probes the renderer holds. See <see cref="Renderer.ReflectionProbeCount"/>.</summary>
+    public int ReflectionProbeCount => _renderer.ReflectionProbeCount;
+
+    /// <summary>How many reflection probe captures have been drawn. See <see cref="Renderer.ReflectionCapturesDrawn"/>.</summary>
+    public int ReflectionCapturesDrawn => _renderer.ReflectionCapturesDrawn;
+
+    /// <summary>How many times the renderer has stopped until the GPU was idle. See <see cref="Renderer.GpuIdleWaits"/>.</summary>
+    public int GpuIdleWaits => _renderer.GpuIdleWaits;
+
     /// <summary>The effects left out of every frame from now on.</summary>
     public RenderEffects Off { get; set; }
 
@@ -246,7 +255,7 @@ internal sealed class SceneRenderer : IDisposable
         int count = PrepareDraws(view, content);
         PrepareDecals(view, content);
         var frame = CreateFrame(view, width, height, time);
-        CaptureReflectionProbes(view, frame, _draws.AsSpan(0, count));
+        UpdateReflectionProbes(view, frame);
         _renderer.Render(frame, _draws.AsSpan(0, count));
         SayWhyNotBaking(view);
     }
@@ -257,7 +266,7 @@ internal sealed class SceneRenderer : IDisposable
         int count = PrepareDraws(view, content);
         PrepareDecals(view, content);
         var frame = CreateFrame(view, width, height, time);
-        CaptureReflectionProbes(view, frame, _draws.AsSpan(0, count));
+        UpdateReflectionProbes(view, frame);
         return _renderer.Capture(frame, _draws.AsSpan(0, count), out capturedWidth, out capturedHeight);
     }
 
@@ -369,11 +378,11 @@ internal sealed class SceneRenderer : IDisposable
         off.HasFlag(RenderEffects.Reflections) ? [] : view.ReflectionProbes;
 
     /// <summary>
-    /// Photographs each of the view's reflection probes the first frame it's placed, and again when
-    /// it moves or the lighting changes. Moving the camera isn't a lighting change. A probe that's gone is
-    /// removed alone, and the others keep their pictures.
+    /// Puts each of the view's reflection probes in the renderer's line for a picture the first frame it's placed,
+    /// again when it moves, and otherwise as its <see cref="ReflectionProbeRequest.Update"/> says. Moving the camera
+    /// isn't a lighting change. A probe that's gone is removed alone, and the others keep their pictures.
     /// </summary>
-    private void CaptureReflectionProbes(View view, in FrameView frame, ReadOnlySpan<DrawItem> draws)
+    private void UpdateReflectionProbes(View view, in FrameView frame)
     {
         var wanted = WantedReflectionProbes(view, Off);
         foreach (int slot in _reflectionProbes.Forget(wanted))
@@ -389,26 +398,25 @@ internal sealed class SceneRenderer : IDisposable
         int lighting = _renderer.ReflectionLightingHash(frame);
         foreach (var request in wanted)
         {
-            if (!_reflectionProbes.ShouldCapture(request, lighting))
+            int slot = _reflectionProbes.SlotOf(request.Key);
+            int hash = HashCode.Combine(lighting, Renderer.ReflectionLightsHash(frame.LocalLights, request.Min, request.Max));
+            bool waiting = slot >= 0 && _renderer.ReflectionProbeWaiting(new ReflectionProbeHandle(slot));
+            if (!_reflectionProbes.ShouldCapture(request, hash, waiting))
             {
                 continue;
             }
 
-            var probe = request.ToProbe();
-
-            // The probe stands in the open, so it sees every draw, and every draw casts its shadow.
-            // The schedule hears of the capture only once it worked, so a throw leaves the two in step.
-            int slot = _reflectionProbes.SlotOf(request.Key);
+            // The schedule hears of the request only once the renderer took it, so a throw leaves the two in step.
             if (slot >= 0)
             {
-                _renderer.RecaptureReflectionProbe(new ReflectionProbeHandle(slot), probe, frame, draws, draws);
+                _renderer.UpdateReflectionProbe(new ReflectionProbeHandle(slot), request.ToProbe());
             }
             else
             {
-                slot = _renderer.CaptureReflectionProbe(probe, frame, draws, draws).Index;
+                slot = _renderer.AddReflectionProbe(request.ToProbe()).Index;
             }
 
-            _reflectionProbes.Captured(request, lighting, slot);
+            _reflectionProbes.Asked(request, hash, slot);
         }
     }
 

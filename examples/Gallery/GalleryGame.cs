@@ -33,6 +33,9 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
     private static readonly Color Muted = new(0.8f, 0.82f, 0.86f);
     private static readonly Color Panel = new(0.06f, 0.07f, 0.09f, 0.72f);
 
+    /// <summary>Key presses for profiling the reflection probes catching up. See <see cref="LiveChanges.Scripts"/>.</summary>
+    public IReadOnlyDictionary<string, InputScript> Scripts => LiveChanges.Scripts;
+
     /// <summary>Where the sun is: high in the north-east, so it rakes through the colonnade.</summary>
     public static readonly Vector3 SunDirection = Vector3.Normalize(new Vector3(0.8f, 0.9f, -0.35f));
 
@@ -94,6 +97,7 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
     private float _seconds;
     private long _tick;
     private Lighting _lighting = Lighting.Baked;
+    private readonly LiveChanges _changes = new();
 
     private bool _flying;
     private Vector3 _position;
@@ -182,6 +186,8 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
             UseLighting(Lighting.Direct);
         }
 
+        _changes.Update(input);
+
         if (input.Pressed(Key.F))
         {
             _flying = !_flying;
@@ -240,7 +246,7 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
             Zenith = new Vector3(0.2f, 0.38f, 0.8f),
             Horizon = new Vector3(0.75f, 0.8f, 0.85f),
             Ground = new Vector3(0.2f, 0.18f, 0.15f),
-            Brightness = 1f,
+            Brightness = _changes.SkyBrightness,
             Turbidity = 2.5f,
             Fog = new FogSettings(Density: 0.004f, Height: 0f, Falloff: 0.1f, SunScatter: 0.6f),
         });
@@ -302,6 +308,8 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
                 modes.Add(lighting == _lighting ? text.Bold() : text.Foreground(Muted));
             }
 
+            _changes.AddLines(modes, Muted);
+
             return modes
                 .Padding(12f)
                 .Background(Panel)
@@ -347,9 +355,12 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
 
         view.Model(DynamicKey + 30, _wax, Matrix4x4.CreateScale(0.05f, 0.12f, 0.05f) * Matrix4x4.CreateTranslation(0f, -0.405f, 0f) * place);
         var wick = Vector3.Transform(new Vector3(0f, -0.335f, 0f), place);
-        float lanternFlicker = 1f + 0.08f * MathF.Sin(_seconds * 9f) + 0.05f * MathF.Sin(_seconds * 23f);
-        view.PointLight(LanternKey, wick + new Vector3(0f, 0.05f, 0f), new Vector3(1.8f, 1.05f, 0.4f) * lanternFlicker, range: 9f, radius: 0.04f, mode: LightMode.Mixed);
-        DrawFlame(view, FlameKey, wick);
+        if (_changes.LanternLit)
+        {
+            float lanternFlicker = 1f + 0.08f * MathF.Sin(_seconds * 9f) + 0.05f * MathF.Sin(_seconds * 23f);
+            view.PointLight(LanternKey, wick + new Vector3(0f, 0.05f, 0f), new Vector3(1.8f, 1.05f, 0.4f) * lanternFlicker, range: 9f, radius: 0.04f, mode: LightMode.Mixed);
+            DrawFlame(view, FlameKey, wick);
+        }
 
         // A row of candles on the altar, each flickering on its own, with no real-time shadows. They overlap each
         // other, so only the first three find a channel in the bake's shadow mask, which shades the building from them;

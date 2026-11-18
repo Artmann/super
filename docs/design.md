@@ -1376,9 +1376,9 @@ Ghosts are left as they are, since they're already a flat colour.
 
 `RenderEffects.WearAndDirt` skips no pass either. `applyLayers()` returns before reading the
 mask texture, so the surface keeps its own colour and roughness. It is bit 10, after
-`LightProbes` and `MultiscatterSpecular`. It changes the colours a probe photographs, so it
-is in `ReflectionLightingHash` and the light probes' lighting key, and flipping it updates the
-probes again.
+`LightProbes` and `MultiscatterSpecular`. Probe captures and traces draw no wear or dirt, so
+it is in neither `ReflectionLightingHash` nor the light probes' lighting key, and flipping it
+updates no probe.
 
 Bits 19 to 28 skip no pass either; each is read where its effect is made:
 
@@ -1420,9 +1420,10 @@ tests them on the CPU. With `LocalLights` off, `DrawnLocalLights` gives the fram
 the view's. With `Haze` off the fade is sent as 0 to 0. With `Underwater` off, `Underwater()` is false and the water
 uniforms stay zero. With `Particles` off, nothing is uploaded.
 
-`Specular`, `EnvironmentLight`, `Emissive` and `HeightMaps` change what a reflection probe
-photographs, so they are in `ReflectionLightingHash`, and `Emissive` is in the light probes'
-lighting key too. `Underwater` is in both, since the water changes what a probe sees.
+`EnvironmentLight` and `Emissive` change what a reflection probe photographs, so they are in
+`ReflectionLightingHash`, and `Emissive` is in the light probes' lighting key too. `Specular`
+and `HeightMaps` aren't, since captures draw no shine and no height. `Underwater` is in both,
+since the water changes the sunlight a probe sees.
 
 The frame limit lives in Super's window loop, not the renderer (`FrameLimiter`). Each frame
 gets a slot one period after the last, so a long frame is made up by a shorter wait. A frame
@@ -1495,8 +1496,8 @@ adds to it. It has a short smoothstep edge so it doesn't alias. The bake adds it
 mip 0 of the reflection cube. The rough mips, the irradiance cube and `EnvironmentMap.Sky`
 keep the circumsolar glow but not the disc, because the direct light already gives its
 highlight and its diffuse light; a disc there would count it twice and turn into specks in
-the prefiltered mips. Reflection probe captures leave it out for the same reason, through
-a zero `sunDisc` in the frame uniforms. The background draws the sky analytically, disc
+the prefiltered mips. `reflection_sky.comp`, which fills a reflection probe capture's sky,
+leaves it out for the same reason. The background draws the sky analytically, disc
 included, rather than from the cube, so it stays sharp at any resolution; below the
 horizon it reads the cube. What hazy surfaces and particles fade into, `skyBehind()`, is the
 analytic sky without the disc above the horizon, since mip 0's disc would show through a
@@ -1534,9 +1535,9 @@ scene was lit; particles add it before their premultiply. The fog's colour is
 background itself gets none.
 
 The frame uniforms carry `fog` (density, height, falloff, sun scatter). `Fog.Pack` zeroes
-it with `RenderEffects.Fog` off, under water and while a reflection probe is captured, and a density
-of 0 makes every shader skip the fog. Light probe updates never apply fog (`probe_capture.frag`
-has none). Light probes and reflection probes therefore capture clear air: fog belongs to the
+it with `RenderEffects.Fog` off and under water, and a density of 0 makes every shader skip
+the fog. Light probe updates and reflection probe captures never apply fog
+(`probe_capture.frag` and `reflection_capture.frag` have none). Light probes and reflection probes therefore capture clear air: fog belongs to the
 view that looks through it, not to the light in the scene. That is why the fog is in neither
 the light probes' lighting key nor `ReflectionLightingHash`, and changing it recaptures nothing.
 
@@ -1718,29 +1719,57 @@ with the depth buffer's, and a change of `Renderer.ReflectionResolution` rebuild
 targets as a change of render scale does.
 
 `RecordReflections` leaves the pass out when nothing would be traced: with
-`RenderEffects.Reflections` or `Specular` off, or with no last frame to read, as on a
-reflection probe's faces. It still moves the target to a readable layout, since the
+`RenderEffects.Reflections` or `Specular` off, or with no last frame to read. It still moves the target to a readable layout, since the
 lighting binds it, and `traceStrength` is 0 in the same cases, so it is never read.
 
-A probe is a cube map captured from one spot by `Renderer.CaptureReflectionProbe`,
-using the normal scene passes, then blurred per roughness step. It waits for the GPU,
-so it belongs in loading. Each probe has a box for the space it describes, and a
-reflected ray runs on to that box before the lookup, so reflections line up with where
-they really land instead of sliding as the camera moves. The sample leaves the car out of
-its probe, because the probe sits inside the car, and captures only the floor and the
-shadow on it. The lookup lives in `reflection_probes.glsl` (`probeReflection`), shared by
+A probe is a cube map captured from one spot inside a frame, then blurred per roughness
+step. Each probe has a box for the space it describes, and a reflected ray runs on to that
+box before the lookup, so reflections line up with where they really land instead of
+sliding as the camera moves. The sample's probe sits inside the car, and sees out through
+the backs of its one-sided faces, which captures cull. The lookup lives in `reflection_probes.glsl` (`probeReflection`), shared by
 `lighting.frag` and `transparent.frag`, so glass reflects the probes the same way lit
 surfaces do; the glass pass binds the probe cube array at set 2, binding 4. Glass sees no
 screen-space reflection.
 
 The probes live in one cube map array (`ProbeCubes`), RGBA16F with 128 × 128 faces
-and six mips, about 1 MB a probe. `ReflectionProbes` keeps which probe each cube holds and
-blurs the captures into them. The array starts with room for 8 and doubles, up to 64
-(`ReflectionProbeOrder.MaxProbes`), when a probe is added with no cube free. Growing waits
-for the GPU, copies every cube into the bigger array so each probe keeps its place, and
-the renderer points the lighting set and the glass pass at the new view. A probe keeps its cube until
-`RemoveReflectionProbe` frees it for the next one added, so removing one leaves the rest
-as they are, and `ClearReflectionProbes` frees them all.
+and six mips, about 1 MB a probe. `ReflectionProbes` keeps which probe each cube holds, a
+line of probes waiting for a capture, and the blur. `Renderer.AddReflectionProbe` takes a
+cube and puts the probe at the back of the line; `UpdateReflectionProbe` puts it in line
+again with a new placement, keeping its place if it's already waiting. The array starts with
+room for 8 and doubles, up to 64 (`ReflectionProbeOrder.MaxProbes`), when a probe is added
+with no cube free. Growing waits for the GPU, copies every cube into the bigger array so
+each probe keeps its place, and the renderer points the lighting set and the glass pass at
+the new view. A probe keeps its cube until `RemoveReflectionProbe` frees it for the next one
+added, so removing one leaves the rest as they are, and `ClearReflectionProbes` frees them all.
+
+Each frame captures at most one probe, the one at the front of the line, and nothing waits
+for the GPU. `PlanReflectionCapture` takes it before the uniforms are written and has
+`ReflectionCapturePass.Plan` keep the draws within 100 m (`ReflectionCapturePass.Reach`) that
+`ProbeCapturePass.Captures` allows, and plan a sun shadow map of its own: a 1024² `ProbeSunShadow`
+centred on the probe's box, reaching twice its half-diagonal, whose matrix goes to
+`FrameUniforms.ReflectionSunMatrix`. `RecordReflectionCapture` runs after the light probes'
+update, inside the frame's command buffer. It draws the map, then the scene round the probe
+into the six faces of a 128² capture cube at once, as the light probes' capture does:
+`probe_capture.vert` with multiview, the shared `ProbeCapturePass.BeginFaces` and `DrawKept`,
+but culled one-sided pipelines and `reflection_capture.frag`. That shader lights each surface
+with `probeDirectLight` from `probe_light.glsl` (the suns through the capture's map, every local
+light through `localShadowInAir`) over pi, plus `softLight` from `soft_light.glsl`, which the
+lighting pass uses too: the bake's probes, the live light probes, then the sky. A metal takes
+its colour times the soft light. Texels nothing covered keep alpha 0, and
+`reflection_sky.comp` fills them with the sky behind them, as the lighting pass draws it
+without the sun's disc. Blits then halve the capture into a full chain of eight mips.
+`ReflectionProbes.RecordFilter` blurs it into the probe's six mips with `reflection_probe.comp`:
+64 GGX samples a texel, each read from the capture's mip whose texels cover about as much of
+the sphere as the sample stands for (filtered importance sampling, Křivánek and Colbert,
+2008), so the rough levels are smooth without hundreds of reads. Each frame in flight has one
+descriptor set per mip, written as it records, since its last use has finished by then. The
+barriers wait for earlier frames' fragment reads of the cube before the blur writes it, and the
+frame's own lighting waits for the blur, so the frame shows the new picture. The probe's
+placement is stored then, so a probe shows from the frame of its first capture. A frame that
+throws between planning and recording puts the probe back at the front (`PutBack`).
+`ReflectionCapturesDrawn` and `VulkanContext.WaitIdleCount` let tests and `--profile` check
+that captures happen without stopping, and the GPU timer shows the capture and blur as the
+"Reflection probes" pass, after "Light probes".
 
 Each frame `ReflectionProbeOrder` picks the probes whose box the view can see and sorts
 them: higher `ReflectionProbe.Priority` first, then the smaller box, then the lower cube,
@@ -1754,36 +1783,31 @@ pixel's cluster's bits from the lowest, which is the probe trusted most, and ble
 most four (`BLENDED_PROBES`): each takes what the ones before it left, fading out over its
 `blend` towards its box's sides, and the studio fills what's left.
 
-`RecaptureReflectionProbe` draws a probe again into its own cube.
-`Renderer.ReflectionLightingHash` hashes the suns' directions and colours, the environment (a
-version bumped by `SetEnvironment`), its intensity, the clear sky, the background, the sun
-shadow's softness and cascades, the light probe box, the occlusion settings, the underwater switch, and whether the
-light probes are in use and have settled at least once since their storage was made, so a probe
-captured while they fill in is redone once they first settle; a probe can be captured two or
-three times at the start. The live `ProbesSettled` isn't used, because it turns false whenever
-the camera crosses a cell of the two finest cascades or a light changes, and recapturing then
-would wait for the GPU every few steps. It also takes the
-`SunShadows`, `Materials`, `MultiscatterSpecular`, `WearAndDirt` and `AmbientOcclusion` switches,
-since each changes what a probe photographs, and the bakes drawn and whether one is still fading
-in (see "Each frame's bakes"). Point and spot lights and the
-`ContactShadows` and `LightShadows` switches aren't in it, since captures draw neither
-local lights nor contact shadows. Super places probes with `view.ReflectionProbe`:
-`SceneRenderer`, before each frame's `Render`, asks `ReflectionProbeSchedule.ShouldCapture`
-whether each key's request or the lighting hash differs from its last capture, captures new
-keys into the cube the renderer gives them and recaptures changed ones in place, and only then
-tells the schedule with `Captured`, so a capture that throws leaves the two in step. A key
-missing from a frame is removed alone, and the rest keep their pictures. With the `Reflections`
-switch off Super wants no probes, so it removes them and glass falls back to the studio cube.
+`Renderer.ReflectionLightingHash` sums up what lights every probe's picture: the light probes'
+`ProbeLightingKey` (the suns, the environment's version and intensity, the clear sky, whether
+sun shadows are drawn, and the `SunShadows`, `Materials`, `LightShadows`, `Emissive` and
+`Underwater` switches), the `LocalLights` and `EnvironmentLight` switches, the light probe box,
+whether the light probes are in use and have settled at least once since their storage was
+made, and the bakes drawn and whether one is still fading in (see "Each frame's bakes"). A
+probe captured while the light probes fill in is redone once they first settle. The live
+`ProbesSettled` isn't used, because it turns false whenever the camera crosses a cell of the two
+finest cascades or a light changes. `Renderer.ReflectionLightsHash` adds, per probe, the point
+and spot lights that reach its box: their keys, ranges, cones and shadow switches. Their colours
+and positions are left out, so a flickering candle or a swinging lantern, which moved 0.6 m and
+crossed any grid fine enough to matter, doesn't keep probes busy. The camera and the view's
+shadow settings are out of both, since a capture frames the sun on its own box.
 
-A capture frames the sun's shadow maps on what it captures, not on the camera:
-`Renderer.CaptureShadows` centres them on the probe's box with half its diagonal as the
-radius. That is why the view's shadow centre and radius are out of the hash, and moving the
-camera captures nothing. Captures draw into a small G-buffer kept for reflection probes
-(`_reflectionProbeTargets`),
-set the renderer's switches from the view first, since `Render` hasn't applied this frame's
-yet, and put back the switches and the screen's targets after. What each set of targets holds
-(history, a transition's held outgoing shot, the last frame) is kept on that `GBuffer`, so a
-capture leaves the screen's alone.
+Super places probes with `view.ReflectionProbe`. `SceneRenderer.UpdateReflectionProbes`, before
+each frame's `Render`, asks `ReflectionProbeSchedule.ShouldCapture` about each key: a new key, or
+a request that differs from the last one asked for (moved, a new box, version or update mode),
+always asks; then `ProbeUpdate.OnChange` asks when the two hashes combined differ from the last,
+`OnRequest` never, and `Always` whenever the renderer isn't still waiting to draw its last
+capture, so every `Always` probe takes its turn in the line. It adds new keys and updates the
+rest, and only then tells the schedule with `Asked`, so a call that throws leaves the two in
+step. A key missing from a frame is removed alone, and the rest keep their pictures. With the
+`Reflections` switch off Super wants no probes, so it removes them and glass falls back to the
+studio cube. A screenshot renders one more frame per probe after the light probes settle, since
+each waits in line at most once.
 
 ## Light probes
 
@@ -2114,8 +2138,7 @@ CPU, `Next` used to scan every probe each frame whatever the budget, which `--pr
 1 ms a frame at High. Reading only the waiting probes and the oldest captures took the Courtyard's
 CPU time from 1.6 to 0.7 ms a frame, and left `Next` under 1% of the game thread's samples.
 
-`ProbeDebugPass` draws `DebugView.Probes`. Only a frame's `RecordScene` runs it (never a
-reflection probe's capture), after the transparent pass and only while `_lightProbesInUse`, so with
+`ProbeDebugPass` draws `DebugView.Probes`. A frame's `RecordScene` runs it after the transparent pass and only while `_lightProbesInUse`, so with
 the probes off it records nothing and no atlases are made. It needs no buffers: probe_debug.vert
 builds a 12 × 8 UV sphere (576 vertices) from `gl_VertexIndex` and finds its probe from
 `gl_InstanceIndex`. The first instances are cascade 0's cells, placed and slotted with the same
@@ -2783,11 +2806,8 @@ hands over no decals and the renderer packs none, so the copy and the pass are b
 skipped. With `RenderEffects.Materials` off, `decal.frag` discards every pixel, so the
 plain clay stays plain.
 
-Reflection probe captures draw decals too: `CaptureFaces` uploads them after its idle wait, and
-`RecordScene` runs the pass for every face. They are left out of the lighting hash, so moving or
-adding one never photographs a probe again. A probe photographed before a decal appeared shows
-the wall without it until something else changes the hash. Light probe updates don't draw
-decals, so a decal doesn't tint the bounced light.
+Neither reflection probe captures nor light probe updates draw decals, so a decal shows in no
+reflection probe and doesn't tint the bounced light.
 
 What it doesn't do yet:
 
@@ -3060,8 +3080,8 @@ sky, lies more than 6% further from the camera, or has a normal more than about 
 (cosine 0.75). Distances come from each tap's position rebuilt through `inverseViewProjection`,
 so it holds for any projection. Testing only further neighbours keeps the line on the
 outlined surface's side of the silhouette. `Outlines.Pack` turns the view's thickness from the
-picture's pixels to the scene's (`GBuffer.Extent.Width / FrameView.Width`) and sets 0 while a
-reflection probe is captured. The two uniforms, `outline` and `outlineFade`, sit after
+picture's pixels to the scene's (`GBuffer.Extent.Width / FrameView.Width`). Reflection probe
+captures draw no outlines. The two uniforms, `outline` and `outlineFade`, sit after
 `flatReflection` in the frame block.
 
 A cooked model keeps toon settings in a second optional section after the textures
@@ -4984,8 +5004,7 @@ change does too.
 - The clear sky's sun disc takes `LightAngle` as its diameter, but the soft shadows use it as
   the filter's radius (`penumbra = d * lightAngle`), so their penumbrae are twice as wide as
   that disc would cast.
-- Point and spot lights are left out of reflection probe captures, and glass and
-  particles get no shadows from them. A light's cluster list holds 256, so a spot
+- Glass and particles get no shadows from point and spot lights. A light's cluster list holds 256, so a spot
   reached by more drops the rest.
 - Point light shadows are six tiles of the atlas, not a cube map, so a filter near a
   face's edge can't see past it. The tiles are widened by three texels to hide it.
@@ -5000,9 +5019,13 @@ change does too.
   too.
 - Screen-space reflections only know what is on screen, and read last frame's image.
   Glass reflects probes and the studio, not traced rays.
-- Reflection probes are captured again only when they move or the lighting changes, not when
-  things or the camera move, and a frame gets at most 64. They don't see point and spot lights.
-  A pixel blends at most four, and a cluster marks a probe when its box touches the box round
+- Reflection probes are captured one a frame, so a probe added or changed shows a frame or more
+  late, and when every probe changes at once the last waits as many frames as there are probes.
+  `OnChange` follows a light appearing or going, not one moving or dimming, and nothing follows
+  moving things but `Always`. A capture has diffuse light only: no shine, no surface shaders,
+  decals, glass, particles, fog or skinned things, nothing past 100 m, one-sided surfaces from the
+  front only, and the sun's shadow only within twice its box's half-diagonal. A frame gets at most
+  64 probes, and growing the array past 8, 16 or 32 waits for the GPU once. A pixel blends at most four, and a cluster marks a probe when its box touches the box round
   the cluster's piece of the view, so a cluster at a slant can try a probe it misses.
 - Where the GPU traces, light probes update 256, 512 or 1,024 a frame, so the two finest
   cascades settle within a few dozen frames at High and every probe is redone every 64 frames

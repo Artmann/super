@@ -3,8 +3,9 @@ using System.Numerics;
 namespace Rendition.Gpu.Tests;
 
 // A mirror faces the camera at the origin, so it reflects what's behind the camera, which is off the screen and so out of
-// the screen-space trace's reach: only a reflection probe can show it. Behind the camera, a wall that glows red or blue is
-// drawn only into the probes' captures, never into the frame, so the mirror's colour tells which probe it shows.
+// the screen-space trace's reach: only a reflection probe can show it. Behind the camera stands a wall that glows red or
+// blue, and frames draw it while a probe is captured, so the mirror's colour tells which probe it shows and when that
+// probe's picture was taken.
 [Collection(GpuCollection.Name)]
 [Trait("Speed", "Slow")]
 [Trait("Needs", "GPU")]
@@ -12,6 +13,9 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
 {
     // A few frames, for the exposure and the reflections' history to settle.
     private const int FramesBefore = 4;
+
+    // One capture a frame, so a probe waits behind every probe in line before it.
+    private const int MostFramesToCapture = 16;
 
     private static readonly Vector3 ProbePosition = new(0f, 0f, 2f);
     private static readonly Vector3 RoomMin = new(-4f, -4f, -2f);
@@ -24,12 +28,47 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
         using var scene = new Scene(gpu);
         try
         {
-            var bare = Mirror(scene);
-            scene.Capture(Probe(RoomMin, RoomMax), scene.RedWall);
-            var reflected = Mirror(scene);
+            var bare = Mirror(scene, scene.RedWall);
+            Place(scene, Probe(RoomMin, RoomMax), scene.RedWall);
+            var reflected = Mirror(scene, scene.RedWall);
 
             Assert.True(Redness(reflected) > 40f, $"The mirror is {TestPixels.Show(reflected)} with the red probe.");
             Assert.True(Redness(bare) < 10f, $"The mirror is {TestPixels.Show(bare)} with no probe.");
+            Assert.Equal(errors, gpu.ValidationErrors);
+        }
+        finally
+        {
+            gpu.Renderer.ClearReflectionProbes();
+        }
+    }
+
+    [Fact]
+    public void An_updated_probe_shows_the_new_picture_and_no_frame_waits_for_the_GPU()
+    {
+        int errors = gpu.ValidationErrors;
+        using var scene = new Scene(gpu);
+        try
+        {
+            var probe = Place(scene, Probe(RoomMin, RoomMax), scene.RedWall);
+            var before = Mirror(scene, scene.RedWall);
+
+            int idles = gpu.Context.WaitIdleCount;
+            int submits = gpu.Context.SubmitAndWaitCount;
+            int captures = gpu.Renderer.ReflectionCapturesDrawn;
+            gpu.Renderer.UpdateReflectionProbe(probe, Probe(RoomMin, RoomMax));
+            Settle(scene, probe, scene.BlueWall);
+            for (int frame = 0; frame < FramesBefore; frame++)
+            {
+                gpu.Renderer.Render(scene.View(), scene.Draws(scene.BlueWall));
+            }
+
+            Assert.Equal(idles, gpu.Context.WaitIdleCount);
+            Assert.Equal(submits, gpu.Context.SubmitAndWaitCount);
+            Assert.Equal(captures + 1, gpu.Renderer.ReflectionCapturesDrawn);
+
+            var after = Mirror(scene, scene.BlueWall);
+            Assert.True(Redness(before) > 40f, $"The mirror is {TestPixels.Show(before)} before the update.");
+            Assert.True(Redness(after) < -40f, $"The mirror is {TestPixels.Show(after)} after the update.");
             Assert.Equal(errors, gpu.ValidationErrors);
         }
         finally
@@ -45,16 +84,17 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
         using var scene = new Scene(gpu);
         try
         {
-            scene.Capture(Probe(RoomMin, RoomMax), scene.RedWall);
+            Place(scene, Probe(RoomMin, RoomMax), scene.RedWall);
 
-            // Eight more, in small boxes off to the side, so the ninth probe needs a bigger array.
+            // Eight more, in small boxes off to the side, so the ninth probe needs a bigger array. The red probe isn't
+            // captured again, so it keeps its picture only if the array's copy keeps it.
             for (int i = 0; i < 8; i++)
             {
                 var corner = new Vector3(20f + 2f * i, 0f, 0f);
-                scene.Capture(new ReflectionProbe { Position = corner + Vector3.One * 0.5f, BoxMin = corner, BoxMax = corner + Vector3.One }, scene.BlueWall);
+                Place(scene, new ReflectionProbe { Position = corner + Vector3.One * 0.5f, BoxMin = corner, BoxMax = corner + Vector3.One }, scene.BlueWall);
             }
 
-            var reflected = Mirror(scene);
+            var reflected = Mirror(scene, scene.BlueWall);
 
             Assert.Equal(8, Rendition.Vulkan.ProbeCubes.FirstCapacity);
             Assert.Equal(9, gpu.Renderer.ReflectionProbeCount);
@@ -74,11 +114,11 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
         using var scene = new Scene(gpu);
         try
         {
-            scene.Capture(Probe(RoomMin, RoomMax), scene.RedWall);
-            var blue = scene.Capture(Probe(RoomMin, RoomMax) with { Priority = 1f }, scene.BlueWall);
-            var both = Mirror(scene);
+            Place(scene, Probe(RoomMin, RoomMax), scene.RedWall);
+            var blue = Place(scene, Probe(RoomMin, RoomMax) with { Priority = 1f }, scene.BlueWall);
+            var both = Mirror(scene, scene.BlueWall);
             gpu.Renderer.RemoveReflectionProbe(blue);
-            var left = Mirror(scene);
+            var left = Mirror(scene, scene.BlueWall);
 
             Assert.True(Redness(both) < -40f, $"The mirror is {TestPixels.Show(both)} with the blue probe first.");
             Assert.True(Redness(left) > 40f, $"The mirror is {TestPixels.Show(left)} once the blue probe is removed.");
@@ -99,9 +139,9 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
         try
         {
             // The yard's probe comes first, then a room's inside it, which still holds the mirror and the probe.
-            scene.Capture(Probe(RoomMin * 2f, RoomMax * 2f), scene.RedWall);
-            scene.Capture(Probe(RoomMin, RoomMax), scene.BlueWall);
-            var reflected = Mirror(scene);
+            Place(scene, Probe(RoomMin * 2f, RoomMax * 2f), scene.RedWall);
+            Place(scene, Probe(RoomMin, RoomMax), scene.BlueWall);
+            var reflected = Mirror(scene, scene.RedWall);
 
             Assert.True(Redness(reflected) < -40f, $"The mirror is {TestPixels.Show(reflected)} with the room's blue probe inside the yard's red one.");
             Assert.Equal(errors, gpu.ValidationErrors);
@@ -120,16 +160,35 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
         BlendDistance = 0.5f,
     };
 
-    // The middle of the mirror, after a few frames.
-    private Vector3 Mirror(Scene scene)
+    // Adds a probe and draws frames with the wall given until its picture is taken.
+    private ReflectionProbeHandle Place(Scene scene, in ReflectionProbe probe, DrawItem[] wall)
     {
-        var view = scene.View();
-        for (int frame = 0; frame < FramesBefore; frame++)
+        var handle = gpu.Renderer.AddReflectionProbe(probe);
+        Settle(scene, handle, wall);
+        return handle;
+    }
+
+    private void Settle(Scene scene, ReflectionProbeHandle handle, DrawItem[] wall)
+    {
+        for (int frame = 0; frame < MostFramesToCapture && gpu.Renderer.ReflectionProbeWaiting(handle); frame++)
         {
-            gpu.Renderer.Render(view, scene.Frame);
+            gpu.Renderer.Render(scene.View(), scene.Draws(wall));
         }
 
-        byte[] pixels = gpu.Renderer.Capture(view, scene.Frame, out _, out _);
+        Assert.False(gpu.Renderer.ReflectionProbeWaiting(handle), $"Probe {handle.Index} was still waiting for its picture.");
+    }
+
+    // The middle of the mirror, after a few frames with the wall given behind the camera.
+    private Vector3 Mirror(Scene scene, DrawItem[] wall)
+    {
+        var view = scene.View();
+        var draws = scene.Draws(wall);
+        for (int frame = 0; frame < FramesBefore; frame++)
+        {
+            gpu.Renderer.Render(view, draws);
+        }
+
+        byte[] pixels = gpu.Renderer.Capture(view, draws, out _, out _);
         return TestPixels.Mean(pixels, 256, 128, 128, 16);
     }
 
@@ -143,6 +202,7 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
         private readonly MaterialHandle _red;
         private readonly MaterialHandle _blue;
         private readonly MaterialHandle _mirror;
+        private readonly DrawItem _mirrorDraw;
 
         public Scene(GpuFixture gpu)
         {
@@ -154,7 +214,7 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
             _mirror = gpu.CreateMirror();
 
             var quad = new DrawItem { Mesh = _mesh, IndexCount = (uint)indices.Length, Transform = Matrix4x4.Identity };
-            Frame = [quad with { Material = _mirror, Transform = Matrix4x4.CreateScale(2f) }];
+            _mirrorDraw = quad with { Material = _mirror, Transform = Matrix4x4.CreateScale(2f) };
 
             // Behind the camera, turned to face it and the mirror.
             var wall = quad with
@@ -165,11 +225,11 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
             BlueWall = [wall with { Material = _blue }];
         }
 
-        /// <summary>What every frame draws: the mirror alone.</summary>
-        public DrawItem[] Frame { get; }
-
         public DrawItem[] RedWall { get; }
         public DrawItem[] BlueWall { get; }
+
+        /// <summary>What a frame draws: the mirror, and behind the camera the wall given.</summary>
+        public DrawItem[] Draws(DrawItem[] wall) => [_mirrorDraw, .. wall];
 
         public FrameView View()
         {
@@ -178,9 +238,6 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
             view.EnvironmentIntensity = 1f;
             return view;
         }
-
-        public ReflectionProbeHandle Capture(in ReflectionProbe probe, DrawItem[] wall) =>
-            _gpu.Renderer.CaptureReflectionProbe(probe, View(), wall, wall);
 
         private MaterialHandle Glow(Vector3 emissive) => _gpu.Renderer.CreateMaterial(new Material
         {

@@ -23,9 +23,13 @@ internal sealed unsafe class RenderTarget : IDisposable
 
     public readonly ImageAspectFlags Aspect;
 
+    /// <summary>
+    /// Makes the image and its views. With <paramref name="flags"/> such as
+    /// <see cref="ImageCreateFlags.CreateCubeCompatibleBit"/>, the caller can make views of other kinds of it too.
+    /// </summary>
     public RenderTarget(
         VulkanContext context, Format format, Extent2D extent, ImageUsageFlags usage, ImageAspectFlags aspect, uint layers = 1, uint mips = 1,
-        SampleCountFlags samples = SampleCountFlags.Count1Bit)
+        SampleCountFlags samples = SampleCountFlags.Count1Bit, ImageCreateFlags flags = ImageCreateFlags.None)
     {
         _context = context;
         Format = format;
@@ -36,6 +40,7 @@ internal sealed unsafe class RenderTarget : IDisposable
         var imageInfo = new ImageCreateInfo
         {
             SType = StructureType.ImageCreateInfo,
+            Flags = flags,
             ImageType = ImageType.Type2D,
             Format = format,
             Extent = new Extent3D(extent.Width, extent.Height, 1),

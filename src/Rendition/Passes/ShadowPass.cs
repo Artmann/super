@@ -96,10 +96,10 @@ internal sealed unsafe class ShadowPass : IDisposable
 
     /// <summary>
     /// How far contact shadows look along the sun this frame, in metres: the settings' length, or 0
-    /// when they're left out or a reflection probe is being captured, whose faces are too coarse to show them.
+    /// when they're left out.
     /// </summary>
-    public static float ContactLength(in ShadowSettings shadows, RenderEffects off, bool capturingProbe) =>
-        capturingProbe || off.HasFlag(RenderEffects.ContactShadows) ? 0f : MathF.Max(shadows.ContactLength, 0f);
+    public static float ContactLength(in ShadowSettings shadows, RenderEffects off) =>
+        off.HasFlag(RenderEffects.ContactShadows) ? 0f : MathF.Max(shadows.ContactLength, 0f);
 
     /// <summary>
     /// Replaces the cascades' maps with ones <paramref name="resolution"/> texels across. The caller

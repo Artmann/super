@@ -225,7 +225,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
             return false;
         }
 
-        _context.Api.DeviceWaitIdle(_context.Device).Check();
+        _context.WaitIdle();
         DestroyStorage();
         CreateStorage(quality);
         return true;
@@ -243,7 +243,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
             return false;
         }
 
-        _context.Api.DeviceWaitIdle(_context.Device).Check();
+        _context.WaitIdle();
         DestroyStorage();
         CreatePlaceholder();
         return true;

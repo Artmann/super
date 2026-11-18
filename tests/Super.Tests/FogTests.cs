@@ -90,7 +90,7 @@ public class FogTests
     [Fact]
     public void With_the_fog_switch_off_the_frame_gets_no_density()
     {
-        var packed = Fog.Pack(new FogSettings(0.004f, 1.5f, 0.15f, 0.6f), RenderEffects.Fog, capturingProbe: false, underwater: false);
+        var packed = Fog.Pack(new FogSettings(0.004f, 1.5f, 0.15f, 0.6f), RenderEffects.Fog, underwater: false);
 
         Assert.Equal(Vector4.Zero, packed);
     }
@@ -98,23 +98,15 @@ public class FogTests
     [Fact]
     public void Other_switches_leave_the_fog_alone()
     {
-        var packed = Fog.Pack(new FogSettings(0.004f, 1.5f, 0.15f, 0.6f), RenderEffects.All & ~RenderEffects.Fog, capturingProbe: false, underwater: false);
+        var packed = Fog.Pack(new FogSettings(0.004f, 1.5f, 0.15f, 0.6f), RenderEffects.All & ~RenderEffects.Fog, underwater: false);
 
         Assert.Equal(0.004f, packed.X);
     }
 
     [Fact]
-    public void Probe_captures_see_no_fog()
-    {
-        var packed = Fog.Pack(new FogSettings(0.004f, 1.5f, 0.15f, 0.6f), RenderEffects.None, capturingProbe: true, underwater: false);
-
-        Assert.Equal(Vector4.Zero, packed);
-    }
-
-    [Fact]
     public void Under_water_there_is_no_fog()
     {
-        var packed = Fog.Pack(new FogSettings(0.004f, 1.5f, 0.15f, 0.6f), RenderEffects.None, capturingProbe: false, underwater: true);
+        var packed = Fog.Pack(new FogSettings(0.004f, 1.5f, 0.15f, 0.6f), RenderEffects.None, underwater: true);
 
         Assert.Equal(Vector4.Zero, packed);
     }
@@ -122,7 +114,7 @@ public class FogTests
     [Fact]
     public void A_view_in_the_open_air_gets_the_fog_it_asks_for()
     {
-        var packed = Fog.Pack(new FogSettings(0.004f, 1.5f, 0.15f, 0.6f), RenderEffects.None, capturingProbe: false, underwater: false);
+        var packed = Fog.Pack(new FogSettings(0.004f, 1.5f, 0.15f, 0.6f), RenderEffects.None, underwater: false);
 
         Assert.Equal(new Vector4(0.004f, 1.5f, 0.15f, 0.6f), packed);
     }

@@ -1,12 +1,18 @@
 #version 460
+#extension GL_GOOGLE_include_directive : require
+#include "cube_faces.glsl"
 
-// Blurs a captured view of the scene into one level of a reflection probe. Each level
-// shows how a surface of a given roughness would see the scene, as environment.comp
-// does for the studio.
+// Blurs a captured view of the scene into one level of a reflection probe. Each level shows how a surface of a given
+// roughness would see the scene, as environment.comp does for the studio. It takes few samples and reads each from the
+// capture's mip whose texels cover about as much of the sphere as the sample stands for, so 64 samples blur as smoothly
+// as hundreds read from the sharpest level: filtered importance sampling, from Křivánek and Colbert, "Real-time Shading
+// with Filtered Importance Sampling" (2008).
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
+// The capture, with a full chain of mips.
 layout(set = 0, binding = 0) uniform samplerCube source;
+// One level of the probe's cube, as six layers.
 layout(rgba16f, set = 0, binding = 1) uniform writeonly image2DArray target;
 
 // Must match FilterConstants in Vulkan/ReflectionProbes.cs.
@@ -15,18 +21,7 @@ layout(push_constant) uniform Filter {
 } filterSettings;
 
 const float PI = 3.14159265359;
-const uint SAMPLES = 512;
-
-vec3 cubeDirection(uint face, vec2 uv) {
-    switch (face) {
-        case 0: return vec3(1.0, -uv.y, -uv.x);
-        case 1: return vec3(-1.0, -uv.y, uv.x);
-        case 2: return vec3(uv.x, 1.0, uv.y);
-        case 3: return vec3(uv.x, -1.0, -uv.y);
-        case 4: return vec3(uv.x, -uv.y, 1.0);
-        default: return vec3(-uv.x, -uv.y, -1.0);
-    }
-}
+const uint SAMPLES = 64;
 
 vec2 hammersley(uint i) {
     uint bits = bitfieldReverse(i);
@@ -41,7 +36,7 @@ void main() {
     }
 
     vec2 uv = (vec2(texel.xy) + 0.5) / vec2(size.xy) * 2.0 - 1.0;
-    vec3 n = normalize(cubeDirection(uint(texel.z), uv));
+    vec3 n = normalize(cubeDirection(texel.z, uv));
 
     if (filterSettings.roughness == 0.0) {
         imageStore(target, texel, vec4(textureLod(source, n, 0.0).rgb, 1.0));
@@ -51,19 +46,30 @@ void main() {
     vec3 tangent = normalize(cross(abs(n.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), n));
     vec3 bitangent = cross(n, tangent);
     float alpha = filterSettings.roughness * filterSettings.roughness;
+    float alpha2 = alpha * alpha;
+
+    // How much of the sphere one texel of the capture's sharpest level covers.
+    float sourceSize = float(textureSize(source, 0).x);
+    float texelAngle = 4.0 * PI / (6.0 * sourceSize * sourceSize);
 
     vec3 sum = vec3(0.0);
     float totalWeight = 0.0;
     for (uint i = 0; i < SAMPLES; i++) {
         vec2 xi = hammersley(i);
         float phi = 2.0 * PI * xi.x;
-        float cosTheta = sqrt((1.0 - xi.y) / (1.0 + (alpha * alpha - 1.0) * xi.y));
+        float cosTheta = sqrt((1.0 - xi.y) / (1.0 + (alpha2 - 1.0) * xi.y));
         float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
         vec3 h = vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
         vec3 direction = reflect(-n, tangent * h.x + bitangent * h.y + n * h.z);
         float weight = max(dot(n, direction), 0.0);
         if (weight > 0.0) {
-            sum += textureLod(source, direction, 0.0).rgb * weight;
+            // The view is taken along n, so the half vector's chance of being picked, D times cos theta, turns into the
+            // reflected direction's by dividing by 4 cos theta: D / 4.
+            float d = (cosTheta * alpha2 - cosTheta) * cosTheta + 1.0;
+            float density = alpha2 / (PI * d * d) * 0.25;
+            float sampleAngle = 1.0 / (float(SAMPLES) * density + 1e-4);
+            float lod = max(0.5 * log2(sampleAngle / texelAngle) + 1.0, 0.0);
+            sum += textureLod(source, direction, lod).rgb * weight;
             totalWeight += weight;
         }
     }

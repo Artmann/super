@@ -250,7 +250,7 @@ public class ShadowCascadeTests
     {
         var shadows = new ShadowSettings { ContactLength = 0.4f };
 
-        Assert.Equal(0.4f, ShadowPass.ContactLength(shadows, RenderEffects.Bloom, capturingProbe: false));
+        Assert.Equal(0.4f, ShadowPass.ContactLength(shadows, RenderEffects.Bloom));
     }
 
     [Fact]
@@ -259,15 +259,7 @@ public class ShadowCascadeTests
         var graphics = new Graphics { ContactShadows = false };
         var shadows = new ShadowSettings { ContactLength = 0.4f };
 
-        Assert.Equal(0f, ShadowPass.ContactLength(shadows, graphics.Off, capturingProbe: false));
-    }
-
-    [Fact]
-    public void Reflection_probes_are_captured_without_contact_shadows()
-    {
-        var shadows = new ShadowSettings { ContactLength = 0.4f };
-
-        Assert.Equal(0f, ShadowPass.ContactLength(shadows, RenderEffects.None, capturingProbe: true));
+        Assert.Equal(0f, ShadowPass.ContactLength(shadows, graphics.Off));
     }
 
     [Theory]

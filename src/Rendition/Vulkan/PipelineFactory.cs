@@ -215,7 +215,7 @@ internal static unsafe class PipelineFactory
         {
             if (old.Count > 0)
             {
-                context.Api.DeviceWaitIdle(context.Device).Check();
+                context.WaitIdle();
                 foreach (var pipeline in old)
                 {
                     context.Api.DestroyPipeline(context.Device, pipeline, null);

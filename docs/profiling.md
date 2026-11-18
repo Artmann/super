@@ -76,3 +76,33 @@ profile again: its pass drops to nothing in the GPU list. Light clusters, Subsur
 "Light probes" in the GPU list is the time spent updating the
 [bounced light](rendering.md#bounced-light)'s probes: traced on a GPU that can, drawn otherwise.
 Lower `Graphics.ProbeQuality` to update fewer a frame, or turn `Graphics.LightProbes` off.
+"Reflection probes" is the time spent photographing [reflection probes](rendering.md#reflections),
+one a frame at most, and blurring the photograph.
+
+## Hitches
+
+An average hides a single slow frame, so the report also lists the slowest frames:
+
+```
+Stopped until the GPU was idle 0 times in 120 frames. Reflection probe captures: 7.
+Slowest frames:
+  frame  105     30.8 ms  GPU   23.5 ms  0 idle waits  0 reflection captures
+  frame   81     27.9 ms  GPU   22.2 ms  0 idle waits  0 reflection captures
+```
+
+An idle wait is the renderer stopping until the GPU has finished everything, as it must to
+swap out something a frame in flight still reads, such as making the light probes' storage,
+baking a new sky or growing the reflection probes' array. A frame with one is a hitch the
+player feels. The GPU times arrive a frame or two late, as the GPU finishes after the CPU.
+
+Every measured frame also goes to a `.csv` file next to the report, one line each, with the
+frame's time and its parts, the GPU time, its idle waits and its reflection probe captures,
+ready for a spreadsheet or a graph. A [script](command-line.md#scripted-input) can press a key
+during the measured frames, so a profile can catch what a change costs as it happens:
+
+```
+dotnet run -c Release --project examples/Gallery -- --seed 1 --script dim --ticks 1065 --frames 120 --profile dim.txt
+```
+
+The measured frames start after 120 frames of warm-up, which is 60 ticks at the Gallery's 30
+ticks a second.

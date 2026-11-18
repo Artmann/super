@@ -5,10 +5,12 @@ using Silk.NET.Vulkan;
 namespace Rendition.Vulkan;
 
 /// <summary>
-/// Captured views of the scene, held in <see cref="ProbeCubes"/>, one cube per probe with one mip per
-/// roughness step. The renderer draws each face and this class blurs them into the mips. Each probe
-/// keeps its cube until it's removed, and a removed probe's cube goes to the next one added. When no
-/// cube is free the array grows. Each frame <see cref="Prepare"/> picks and orders the probes the view sees.
+/// The reflection probes, each with its cube in <see cref="ProbeCubes"/> and one mip per roughness step. A probe added or
+/// updated waits in line for its capture, and the renderer takes one a frame from the front with <see cref="TakeNext"/>,
+/// captures it with <see cref="ReflectionCapturePass"/> and blurs the capture into the probe's cube with
+/// <see cref="RecordFilter"/>, all inside the frame. A probe shows from the frame of its first capture, and until a new one
+/// lands it keeps its last. A removed probe's cube goes to the next one added, and when none is free the array grows.
+/// Each frame <see cref="Prepare"/> picks and orders the captured probes the view sees.
 /// </summary>
 internal sealed unsafe class ReflectionProbes : IDisposable
 {
@@ -23,13 +25,20 @@ internal sealed unsafe class ReflectionProbes : IDisposable
 
     private readonly VulkanContext _context;
     private readonly Sampler _sampler;
-    private readonly CaptureCube _source;
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
-    private readonly DescriptorSet _set;
+
+    // One set per mip for each frame in flight, each written as its frame records, when its last use is done.
+    private readonly DescriptorSet[] _sets;
     private readonly PipelineLayout _pipelineLayout;
     private readonly LivePipeline _pipeline;
+
+    // What each captured probe showed at its last capture, or null for a cube nobody has captured into yet.
     private readonly ReflectionProbe?[] _slots = new ReflectionProbe?[MaxProbes];
+
+    // Which cubes belong to a probe, captured or still waiting.
+    private readonly bool[] _held = new bool[MaxProbes];
+    private readonly List<(int Slot, ReflectionProbe Probe)> _waiting = [];
 
     /// <summary>The array every probe's cube is in.</summary>
     public ProbeCubes Cubes { get; }
@@ -37,25 +46,27 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     /// <summary>The probes the last <see cref="Prepare"/> found in view, in the order they blend.</summary>
     public ReflectionProbeOrder Order { get; } = new();
 
+    /// <summary>How many probes there are, captured or waiting for their first capture.</summary>
     public int Count { get; private set; }
 
-    public ReflectionProbes(VulkanContext context, Sampler sampler)
+    public ReflectionProbes(VulkanContext context, Sampler sampler, int framesInFlight)
     {
         _context = context;
         _sampler = sampler;
         Cubes = new ProbeCubes(context);
-        _source = new CaptureCube(context, ProbeCubes.FaceSize);
 
         _setLayout = context.CreateSetLayout(
         [
             new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
             new(1, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
         ]);
+        uint sets = (uint)(framesInFlight * Mips);
         _pool = context.CreateDescriptorPool(
-            1,
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 1),
-            new DescriptorPoolSize(DescriptorType.StorageImage, 1));
-        _set = context.AllocateSet(_pool, _setLayout);
+            sets,
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, sets),
+            new DescriptorPoolSize(DescriptorType.StorageImage, sets));
+        _sets = new DescriptorSet[sets];
+        context.AllocateSets(_pool, _setLayout, _sets);
 
         _pipelineLayout = context.CreatePipelineLayout(
             [_setLayout],
@@ -63,12 +74,9 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         _pipeline = PipelineFactory.CreateCompute(context, "reflection_probe.comp", _pipelineLayout);
     }
 
-    /// <summary>The cube the renderer copies each finished face into.</summary>
-    public CaptureCube Capture => _source;
-
     /// <summary>
-    /// Writes the probes the view sees to <paramref name="gpu"/> in the order they blend, and says how
-    /// many. <see cref="Order"/> keeps the depths their boxes span.
+    /// Writes the captured probes the view sees to <paramref name="gpu"/> in the order they blend, and says how many.
+    /// <see cref="Order"/> keeps the depths their boxes span.
     /// </summary>
     public int Prepare(in Matrix4x4 view, in Matrix4x4 projection, Span<GpuReflectionProbe> gpu)
     {
@@ -77,8 +85,8 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     }
 
     /// <summary>
-    /// Blurs the six captured faces into a new probe, in the first free cube. When none is free
-    /// the array grows first, which waits for the GPU.
+    /// Takes a cube for a new probe, the first free one, and puts the probe at the back of the line for a capture. When
+    /// none is free the array grows first, which waits for the GPU.
     /// </summary>
     public ReflectionProbeHandle Add(in ReflectionProbe probe)
     {
@@ -87,30 +95,87 @@ internal sealed unsafe class ReflectionProbes : IDisposable
             throw new InvalidOperationException($"Only {MaxProbes} reflection probes are supported.");
         }
 
-        int slot = Array.IndexOf(_slots, null, 0, Cubes.Capacity);
+        int slot = Array.IndexOf(_held, false, 0, Cubes.Capacity);
         if (slot < 0)
         {
             slot = Cubes.Capacity;
             Cubes.Grow();
         }
 
-        Store(slot, probe);
+        _held[slot] = true;
         Count++;
+        _waiting.Add((slot, probe));
         return new ReflectionProbeHandle(slot);
     }
 
-    /// <summary>Blurs the six captured faces into an existing probe, in place of what it held.</summary>
-    public void Replace(ReflectionProbeHandle handle, in ReflectionProbe probe)
+    /// <summary>
+    /// Asks for a new capture of a probe, placed as <paramref name="probe"/> says. A probe already waiting keeps its
+    /// place in line and takes the new placement; any other goes to the back.
+    /// </summary>
+    public void Update(ReflectionProbeHandle handle, in ReflectionProbe probe)
     {
         CheckHeld(handle);
-        Store(handle.Index, probe);
+        int at = WaitingAt(handle.Index);
+        if (at >= 0)
+        {
+            _waiting[at] = (handle.Index, probe);
+        }
+        else
+        {
+            _waiting.Add((handle.Index, probe));
+        }
+    }
+
+    /// <summary>Whether a probe is in line for a capture that hasn't been drawn yet.</summary>
+    public bool Waiting(ReflectionProbeHandle handle)
+    {
+        CheckHeld(handle);
+        return WaitingAt(handle.Index) >= 0;
+    }
+
+    /// <summary>
+    /// Takes the probe at the front of the line, for this frame's capture, or returns false when none waits. Call
+    /// <see cref="RecordFilter"/> for it in the same frame.
+    /// </summary>
+    public bool TakeNext(out int slot, out ReflectionProbe probe)
+    {
+        if (_waiting.Count == 0)
+        {
+            slot = -1;
+            probe = default;
+            return false;
+        }
+
+        (slot, probe) = _waiting[0];
+        _waiting.RemoveAt(0);
+        return true;
+    }
+
+    /// <summary>
+    /// Puts a probe <see cref="TakeNext"/> gave back at the front of the line, for a frame that never drew its capture.
+    /// A probe since removed, or put in line again, is left as it is.
+    /// </summary>
+    public void PutBack(ReflectionProbeHandle handle, in ReflectionProbe probe)
+    {
+        if (Holds(handle) && WaitingAt(handle.Index) < 0)
+        {
+            _waiting.Insert(0, (handle.Index, probe));
+        }
     }
 
     /// <summary>Forgets one probe, whose cube goes to the next probe added. The rest keep theirs.</summary>
     public void Remove(ReflectionProbeHandle handle)
     {
         CheckHeld(handle);
-        _slots[handle.Index] = null;
+        int slot = handle.Index;
+        _held[slot] = false;
+        _slots[slot] = null;
+        int at = WaitingAt(slot);
+        if (at >= 0)
+        {
+            _waiting.RemoveAt(at);
+        }
+
         Count--;
     }
 
@@ -118,11 +183,13 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     public void Clear()
     {
         Array.Clear(_slots);
+        Array.Clear(_held);
+        _waiting.Clear();
         Count = 0;
     }
 
     /// <summary>Whether a handle names a probe that was added and not removed since.</summary>
-    public bool Holds(ReflectionProbeHandle handle) => (uint)handle.Index < (uint)Cubes.Capacity && _slots[handle.Index] is not null;
+    public bool Holds(ReflectionProbeHandle handle) => (uint)handle.Index < (uint)Cubes.Capacity && _held[handle.Index];
 
     private void CheckHeld(ReflectionProbeHandle handle)
     {
@@ -132,186 +199,61 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         }
     }
 
-    private void Store(int index, in ReflectionProbe probe)
-    {
-        for (int mip = 0; mip < Mips; mip++)
-        {
-            FilterLevel(index, mip);
-        }
-
-        _slots[index] = probe;
-    }
-
-    public void Dispose()
-    {
-        var api = _context.Api;
-        _pipeline.Destroy();
-        api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
-        api.DestroyDescriptorPool(_context.Device, _pool, null);
-        api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
-        Cubes.Dispose();
-        _source.Dispose();
-    }
-
-    private void FilterLevel(int probe, int mip)
-    {
-        var api = _context.Api;
-
-        var sourceInfo = new DescriptorImageInfo(_sampler, _source.CubeView, ImageLayout.ShaderReadOnlyOptimal);
-        var targetInfo = new DescriptorImageInfo(default, Cubes.Level(probe, mip), ImageLayout.General);
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = _set,
-                DstBinding = 0,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                PImageInfo = &sourceInfo,
-            },
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = _set,
-                DstBinding = 1,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.StorageImage,
-                PImageInfo = &targetInfo,
-            },
-        };
-        api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
-
-        var image = Cubes.Image;
-        var set = _set;
-        var layout = _pipelineLayout;
-        var pipeline = _pipeline;
-        uint baseLayer = (uint)probe * 6;
-        uint size = ProbeCubes.FaceSize >> mip;
-        var constants = new FilterConstants { Roughness = mip / (float)(Mips - 1) };
-
-        // Each level runs separately to keep GPU work short.
-        _context.SubmitAndWait(cmd =>
-        {
-            api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.General,
-                PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-                baseMip: (uint)mip, baseLayer: baseLayer, layerCount: 6);
-
-            var boundSet = set;
-            var push = constants;
-            api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, pipeline);
-            api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, layout, 0, 1, &boundSet, 0, null);
-            api.CmdPushConstants(cmd, layout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(FilterConstants), &push);
-            uint groups = (size + 7) / 8;
-            api.CmdDispatch(cmd, groups, groups, 6);
-
-            api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-                ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-                PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-                baseMip: (uint)mip, baseLayer: baseLayer, layerCount: 6);
-        });
-    }
-
-}
-
-/// <summary>
-/// The six faces of one capture, copied out of the image the scene was drawn to. Reflection
-/// probes blur it into their mips.
-/// </summary>
-internal sealed unsafe class CaptureCube : IDisposable
-{
-    private readonly VulkanContext _context;
-    private readonly GpuAllocation _memory;
-
-    public readonly uint FaceSize;
-    public readonly Image Image;
-
-    /// <summary>The faces as a cube, for filtered lookups by direction.</summary>
-    public readonly ImageView CubeView;
-
-    /// <summary>The faces as six layers, for reading single texels.</summary>
-    public readonly ImageView ArrayView;
-
-    public CaptureCube(VulkanContext context, uint faceSize)
-    {
-        _context = context;
-        FaceSize = faceSize;
-        var api = context.Api;
-
-        var imageInfo = new ImageCreateInfo
-        {
-            SType = StructureType.ImageCreateInfo,
-            Flags = ImageCreateFlags.CreateCubeCompatibleBit,
-            ImageType = ImageType.Type2D,
-            Format = GBuffer.HdrFormat,
-            Extent = new Extent3D(faceSize, faceSize, 1),
-            MipLevels = 1,
-            ArrayLayers = 6,
-            Samples = SampleCountFlags.Count1Bit,
-            Tiling = ImageTiling.Optimal,
-            Usage = ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
-            SharingMode = SharingMode.Exclusive,
-            InitialLayout = ImageLayout.Undefined,
-        };
-        api.CreateImage(context.Device, &imageInfo, null, out Image).Check();
-        api.GetImageMemoryRequirements(context.Device, Image, out var requirements);
-        _memory = context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
-        api.BindImageMemory(context.Device, Image, _memory.Memory, _memory.Offset).Check();
-
-        var viewInfo = new ImageViewCreateInfo
-        {
-            SType = StructureType.ImageViewCreateInfo,
-            Image = Image,
-            ViewType = ImageViewType.TypeCube,
-            Format = GBuffer.HdrFormat,
-            SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 6),
-        };
-        api.CreateImageView(context.Device, &viewInfo, null, out CubeView).Check();
-        viewInfo.ViewType = ImageViewType.Type2DArray;
-        api.CreateImageView(context.Device, &viewInfo, null, out ArrayView).Check();
-    }
+    private int WaitingAt(int slot) => _waiting.FindIndex(waiting => waiting.Slot == slot);
 
     /// <summary>
-    /// Copies one finished face out of <paramref name="rendered"/>, which must be <see cref="FaceSize"/>
-    /// across and ready to sample. It's left ready to copy from, and the face ready for compute to read.
+    /// Records the blur of a capture, <paramref name="capture"/> with its mips ready to sample, into each level of
+    /// <paramref name="slot"/>'s cube, and shows <paramref name="probe"/> there from this frame on. Surfaces read the cube
+    /// in their fragment shaders, so the blur waits for the frames before to finish reading it, and the frame's own
+    /// lighting waits for the blur.
     /// </summary>
-    public void RecordFace(CommandBuffer cmd, Image rendered, int face)
+    public void RecordFilter(CommandBuffer cmd, int frameIndex, int slot, in ReflectionProbe probe, ImageView capture)
     {
         var api = _context.Api;
-        api.Transition(cmd, rendered, ImageAspectFlags.ColorBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal,
+        var image = Cubes.Image;
+        uint baseLayer = (uint)slot * 6;
+        api.Transition(cmd, image, ImageAspectFlags.ColorBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.General,
             PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
-        api.Transition(cmd, Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
-            baseLayer: (uint)face);
+            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
+            mipCount: Mips, baseLayer: baseLayer, layerCount: 6);
 
-        var region = new ImageCopy
+        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipeline);
+        for (int mip = 0; mip < Mips; mip++)
         {
-            SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-            DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, (uint)face, 1),
-            Extent = new Extent3D(FaceSize, FaceSize, 1),
-        };
-        api.CmdCopyImage(cmd, rendered, ImageLayout.TransferSrcOptimal, Image, ImageLayout.TransferDstOptimal, 1, &region);
+            var set = _sets[frameIndex * Mips + mip];
+            WriteFilterSet(set, capture, Cubes.Level(slot, mip));
+            var constants = new FilterConstants { Roughness = mip / (float)(Mips - 1) };
+            api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
+            api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(FilterConstants), &constants);
+            uint groups = ((ProbeCubes.FaceSize >> mip) + 7) / 8;
+            api.CmdDispatch(cmd, groups, groups, 6);
+        }
 
-        api.Transition(cmd, Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
-            baseLayer: (uint)face);
+        api.Transition(cmd, image, ImageAspectFlags.ColorBit,
+            ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal,
+            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
+            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
+            mipCount: Mips, baseLayer: baseLayer, layerCount: 6);
+        _slots[slot] = probe;
+    }
+
+    private void WriteFilterSet(DescriptorSet set, ImageView capture, ImageView target)
+    {
+        var sourceInfo = new DescriptorImageInfo(_sampler, capture, ImageLayout.ShaderReadOnlyOptimal);
+        var targetInfo = new DescriptorImageInfo(default, target, ImageLayout.General);
+        var writes = stackalloc WriteDescriptorSet[]
+        {
+            Descriptors.ImageWrite(set, 0, DescriptorType.CombinedImageSampler, &sourceInfo),
+            Descriptors.ImageWrite(set, 1, DescriptorType.StorageImage, &targetInfo),
+        };
+        _context.Api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
     }
 
     public void Dispose()
     {
-        var api = _context.Api;
-        api.DestroyImageView(_context.Device, ArrayView, null);
-        api.DestroyImageView(_context.Device, CubeView, null);
-        api.DestroyImage(_context.Device, Image, null);
-        _context.Memory.Free(_memory);
+        _pipeline.Destroy();
+        _context.DestroyLayouts(_pipelineLayout, _pool, _setLayout);
+        Cubes.Dispose();
     }
 }

@@ -65,6 +65,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     float previousTime;      // Last frame's time, for motion vectors; the same as time when there's no last frame.
     Light lights[8];
     mat4 probeSunMatrix;         // World to the light probes' own sun shadow map, over the largest cascade.
+    mat4 reflectionSunMatrix;    // World to the sun shadow map round this frame's reflection probe capture, or zero.
 } frame;
 
 // Bits of frame.off. Must match RenderEffects in Types.cs.

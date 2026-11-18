@@ -339,6 +339,10 @@ internal sealed unsafe class GameWindow : IDisposable
         Settle(host, time, ScreenshotSettleFrames);
         SettleProbes(host, time);
 
+        // Reflection probes are photographed one a frame and each waits in line once at most, so after a frame for every
+        // probe each holds a picture taken in the settled light.
+        Settle(host, time, _scene.ReflectionProbeCount);
+
         host.Capture.Screenshot(path);
         Show(host, time);
         return _scene.ValidationErrors;
@@ -504,6 +508,7 @@ internal sealed unsafe class GameWindow : IDisposable
         _glfw.GetFramebufferSize(_window, out int width, out int height);
         var run = new ProfileRun(title, seed, firstTick, width, height, measured, gpu, stacks, _scene.CountModels(host.View, host.Content), _scene.DrawnTriangles);
         File.WriteAllText(path, ProfileReport.Write(run));
+        File.WriteAllText(Path.ChangeExtension(path, ".csv"), ProfileReport.WriteFrames(measured));
     }
 
     public void Dispose()
@@ -522,6 +527,8 @@ internal sealed unsafe class GameWindow : IDisposable
         float time = (float)host.Time.TotalSeconds;
         for (int frame = 0; frame < frames.Length; frame++)
         {
+            int idleWaits = _scene.GpuIdleWaits;
+            int captures = _scene.ReflectionCapturesDrawn;
             long allocated = GC.GetAllocatedBytesForCurrentThread();
             long start = Stopwatch.GetTimestamp();
             int due = clock.Advance(step);
@@ -536,17 +543,23 @@ internal sealed unsafe class GameWindow : IDisposable
             Show(host, time + (float)(frame * step));
             long shown = Stopwatch.GetTimestamp();
 
+            double gpuTotal = 0.0;
+            foreach (ref readonly var pass in _scene.GpuTimes)
+            {
+                gpu[pass.Name] = gpu.GetValueOrDefault(pass.Name) + pass.Milliseconds;
+                gpuTotal += pass.Milliseconds;
+            }
+
             frames[frame] = new ProfiledFrame(
                 due,
                 Stopwatch.GetElapsedTime(start, ticked).TotalMilliseconds,
                 Stopwatch.GetElapsedTime(ticked, drawn).TotalMilliseconds,
                 Stopwatch.GetElapsedTime(drawn, shown).TotalMilliseconds,
                 _scene.WaitMilliseconds,
-                GC.GetAllocatedBytesForCurrentThread() - allocated);
-            foreach (ref readonly var pass in _scene.GpuTimes)
-            {
-                gpu[pass.Name] = gpu.GetValueOrDefault(pass.Name) + pass.Milliseconds;
-            }
+                GC.GetAllocatedBytesForCurrentThread() - allocated,
+                gpuTotal,
+                _scene.GpuIdleWaits - idleWaits,
+                _scene.ReflectionCapturesDrawn - captures);
         }
     }
 

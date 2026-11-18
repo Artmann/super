@@ -62,8 +62,7 @@ internal sealed unsafe class ProbeCubes : IDisposable
     /// </summary>
     public void Grow()
     {
-        var api = _context.Api;
-        api.DeviceWaitIdle(_context.Device).Check();
+        _context.WaitIdle();
 
         int capacity = Math.Min(Capacity * 2, ReflectionProbeOrder.MaxProbes);
         var (image, memory) = CreateImage(capacity);
