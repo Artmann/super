@@ -166,6 +166,7 @@ public sealed class View
     internal float SunSize { get; private set; }
     internal float ShadowContact { get; private set; } = ShadowSettings.DefaultContactLength;
     internal OcclusionSettings Occlusion { get; private set; } = new();
+    internal BounceSettings Bounce { get; private set; } = new();
     internal OutlineSettings OutlineSettings { get; private set; } = new();
     internal ProbeVolumeSettings? LightProbeVolume { get; private set; }
     internal BakedSpace? BakedSpace { get; private set; }
@@ -584,10 +585,13 @@ public sealed class View
         effect.Emit(key, age, transform, _particles, length);
     }
 
+    // How far a sky image's exposure goes either way, in stops; past it the image's half floats overflow or vanish.
+    private const float MaxSkyExposure = 20f;
+
     /// <summary>
     /// Sets the sky: a gradient from the ground up through the horizon to straight up, and
-    /// haze and fog that set distant things back in it. Without one the world sits in a plain grey
-    /// studio. Water, when set, takes over the sky.
+    /// haze and fog that set distant things back in it, or a physical or photographed sky in its place. Without one
+    /// the world sits in a plain grey studio. Water, when set, takes over the sky.
     /// </summary>
     public void Sky(in SkySettings settings)
     {
@@ -611,6 +615,25 @@ public sealed class View
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"The sky's turbidity must be 0 for the gradient sky, or from {Super.SkySettings.MinTurbidity} to {Super.SkySettings.MaxTurbidity} for a clear one, but it is {turbidity}."));
+        }
+
+        if (!(float.IsFinite(settings.Moon.X) && float.IsFinite(settings.Moon.Y) && float.IsFinite(settings.Moon.Z))
+            || !float.IsFinite(settings.StarRotation))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"The moon's direction and the stars' rotation must be numbers, but they are {settings.Moon} and {settings.StarRotation}."));
+        }
+
+        if (!float.IsFinite(settings.Rotation) || !(settings.Exposure is >= -MaxSkyExposure and <= MaxSkyExposure))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"The sky image's rotation must be a number and its exposure from {-MaxSkyExposure} to {MaxSkyExposure} stops, but they are {settings.Rotation} and {settings.Exposure}."));
         }
 
         RefuseBadFog(settings.Fog, nameof(settings));
@@ -802,6 +825,27 @@ public sealed class View
         }
 
         Occlusion = new OcclusionSettings(radius, strength);
+    }
+
+    /// <summary>
+    /// Sets the light bounced from the surfaces on screen, which lets a sunlit floor tint the wall beside it and a
+    /// glowing sign light the bricks round it. <paramref name="strength"/>, from 0 to 2, scales it, where 1 is the
+    /// true amount and 0 turns it off for this view; <paramref name="radius"/>, from more than 0 up to 8, is how far,
+    /// in metres, a point looks for surfaces that light it. Without a call it is 1 and 2 metres.
+    /// </summary>
+    public void ScreenBounce(float strength = BounceSettings.DefaultStrength, float radius = BounceSettings.DefaultRadius)
+    {
+        if (!(strength is >= 0f and <= BounceSettings.MostStrength))
+        {
+            throw new ArgumentOutOfRangeException(nameof(strength), strength, "The screen bounce strength must be from 0 to 2.");
+        }
+
+        if (!(radius is > 0f and <= BounceSettings.MostRadius))
+        {
+            throw new ArgumentOutOfRangeException(nameof(radius), radius, "The screen bounce radius must be more than 0 and at most 8 metres.");
+        }
+
+        Bounce = new BounceSettings(strength, radius);
     }
 
     /// <summary>
@@ -1181,6 +1225,7 @@ public sealed class View
         SunSize = DefaultSunSize;
         ShadowContact = ShadowSettings.DefaultContactLength;
         Occlusion = new OcclusionSettings();
+        Bounce = new BounceSettings();
         OutlineSettings = new OutlineSettings();
         LightProbeVolume = null;
         BakedSpace = null;

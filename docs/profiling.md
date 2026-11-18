@@ -73,6 +73,11 @@ rate the machine can reach.
 To see what an effect costs, turn it off in [`Graphics`](rendering.md#graphics-settings) and
 profile again: its pass drops to nothing in the GPU list. Light clusters, Subsurface and the particles in Glass and particles have switches too (`LocalLights`, `Subsurface` and `Particles`), though glass stays in that pass.
 
+"Sky" in the GPU list is the time spent rebuilding the sky's lighting, about half a millisecond
+on a frame where the sky, its sun or its colours changed, and about a quarter of a millisecond on
+each of the two frames after one while the rougher reflections catch up. A sky that holds still
+costs nothing.
+
 "Light probes" in the GPU list is the time spent updating the
 [bounced light](rendering.md#bounced-light)'s probes: traced on a GPU that can, drawn otherwise.
 Lower `Graphics.ProbeQuality` to update fewer a frame, or turn `Graphics.LightProbes` off.

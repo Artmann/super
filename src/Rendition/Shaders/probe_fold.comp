@@ -27,8 +27,6 @@ layout(push_constant) uniform Fold {
     int slot;
     float maxDistance;
     float environmentIntensity; // the frame's, as lighting.frag scales the environment by
-    float unused;
-    vec4 skySun;        // the frame's skySun: xyz towards the clear sky's sun, w its turbidity, 0 for the environment's bands
 } fold;
 
 // Must match ProbeVolume.cs and probe_capture.frag's clear.
@@ -55,7 +53,7 @@ vec3 sampleDirection(int index, out float solidAngle) {
 // background there, as that is what lighting.frag lights a surface with where no probe can tell, so
 // a probe in the open reads the same as no probe at all.
 vec3 skyRadianceAlong(vec3 direction) {
-    return skyBehind(sky, direction, fold.skySun) * fold.environmentIntensity;
+    return skyBehind(sky, direction) * fold.environmentIntensity;
 }
 
 void main() {

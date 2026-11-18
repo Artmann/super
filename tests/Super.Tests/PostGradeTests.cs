@@ -115,12 +115,17 @@ public class PostGradeTests
         Assert.Equal(radii + 496, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.FlatReflection)));
         Assert.Equal(radii + 512, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Outline)));
         Assert.Equal(radii + 528, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.OutlineFade)));
-        Assert.Equal(radii + 544, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LightCount)));
-        Assert.Equal(radii + 572, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LocalLightCount)));
-        Assert.Equal(radii + 576, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Off)));
-        Assert.Equal(radii + 584, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ProbeLightCount)));
-        Assert.Equal(radii + 588, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.PreviousTime)));
-        Assert.Equal(radii + 592, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lights)));
+        Assert.Equal(radii + 544, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.AirExtinction)));
+        Assert.Equal(radii + 560, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.AirSun)));
+        Assert.Equal(radii + 576, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Moon)));
+        Assert.Equal(radii + 592, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.MoonRadiance)));
+        Assert.Equal(radii + 608, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Stars)));
+        Assert.Equal(radii + 624, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LightCount)));
+        Assert.Equal(radii + 652, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LocalLightCount)));
+        Assert.Equal(radii + 656, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Off)));
+        Assert.Equal(radii + 664, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ProbeLightCount)));
+        Assert.Equal(radii + 668, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.PreviousTime)));
+        Assert.Equal(radii + 672, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lights)));
     }
 
     [Fact]

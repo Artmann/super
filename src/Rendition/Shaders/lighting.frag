@@ -35,6 +35,11 @@ layout(set = 1, binding = 14) uniform sampler2D shadowMaskTexture;
 // What reflections.frag traced on screen, at the screen's size or half of it. rgb is the colour a ray found and a how
 // far to trust it, or -1 where the surface isn't one that is traced.
 layout(set = 1, binding = 15) uniform sampler2D tracedTexture;
+// The light ao.frag found nearby surfaces bounce onto a point, at the occlusion's size. Black when the bounce is off.
+layout(set = 1, binding = 16) uniform sampler2D bounceTexture;
+// The environment without the sun's disc, at its sharpest: the sky shown where nothing was drawn, and what fog and
+// haze melt into.
+layout(set = 1, binding = 17) uniform samplerCube backgroundTexture;
 
 // How much of the screen's occlusion a lightmapped pixel's soft light still takes. The bake already saw the creases it
 // could resolve, so taking all of it would darken them twice; the screen still adds the contact it is too coarse for.
@@ -450,35 +455,49 @@ const float OCCLUSION_DEPTH_FALLOFF = 40.0;
 // The ambient occlusion for a pixel: xyz the bent normal in view space and w how much of the sky the point sees. At
 // full resolution it is the pixel's own. At half resolution only one pixel of each block of four was worked out this
 // frame, so the pixel blends the four round it, each weighed by how near it is and how close its depth is, which
-// keeps one object's occlusion from spilling over its edge onto what lies behind.
-vec4 screenOcclusionAt(ivec2 pixel, float depth) {
+// keeps one object's occlusion from spilling over its edge onto what lies behind. The bounce found with it is read the
+// same way.
+vec4 screenOcclusionAt(ivec2 pixel, float depth, out vec3 bounce) {
     ivec2 size = textureSize(depthTexture, 0);
     ivec2 cells = textureSize(ambientOcclusionTexture, 0);
     if (cells == size) {
         vec4 own = texelFetch(ambientOcclusionTexture, pixel, 0);
+        bounce = texelFetch(bounceTexture, pixel, 0).rgb;
         return vec4(octahedralDecode(own.xy * 2.0 - 1.0), own.z);
     }
 
-    ivec2 fromFirst = pixel - tracedCorner();
-    ivec2 first = fromFirst >> 1;
-    vec2 between = vec2(fromFirst & 1) * 0.5;
+    // One frame's occlusion belongs to the pixel traced that frame. Averaged over the last frames by ao_temporal.frag
+    // it belongs to all four pixels of its block alike, so to the block's middle: read as if it sat on this frame's
+    // traced pixel, the shading of a crease would shift by a pixel from frame to frame. The texture's alpha counts
+    // the frames averaged, as a share of eight, and four of them have been round the block once.
+    float averaged = clamp((texelFetch(ambientOcclusionTexture, min(pixel >> 1, cells - 1), 0).a * 8.0 - 1.0) / 3.0, 0.0, 1.0);
+    vec2 fromFirst = vec2(pixel) - mix(vec2(tracedCorner()), vec2(0.5), averaged);
+    ivec2 first = ivec2(floor(fromFirst * 0.5));
+    vec2 between = fromFirst * 0.5 - vec2(first);
 
     vec3 bent = vec3(0.0);
     float visibility = 0.0;
     float total = 0.0;
+    bounce = vec3(0.0);
     for (int i = 0; i < 4; i++) {
         ivec2 corner = ivec2(i & 1, i >> 1);
         ivec2 cell = clamp(first + corner, ivec2(0), cells - 1);
         vec4 tap = texelFetch(ambientOcclusionTexture, cell, 0);
-        float fromDepth = texelFetch(depthTexture, tracedPixel(cell, size), 0).r;
+        // An averaged cell is compared by the pixel that sits in its block where this pixel sits in its own, which is
+        // the same every frame. A block across the edge of something in front never gets that far: its history starts
+        // over each time the traced pixel changes surface.
+        ivec2 from = averaged > 0.5 ? min(cell * 2 + (pixel & 1), size - 1) : tracedPixel(cell, size);
+        float fromDepth = texelFetch(depthTexture, from, 0).r;
         vec2 nearness = mix(1.0 - between, between, vec2(corner));
         // A little weight even at no nearness and across an edge, so the pixel always has something to read.
         float weight = (nearness.x * nearness.y + 0.02)
             * (exp(-abs(fromDepth / depth - 1.0) * OCCLUSION_DEPTH_FALLOFF) + 1e-4);
         bent += octahedralDecode(tap.xy * 2.0 - 1.0) * weight;
         visibility += tap.z * weight;
+        bounce += texelFetch(bounceTexture, cell, 0).rgb * weight;
         total += weight;
     }
+    bounce /= total;
 
     // Directions that cancel leave no bent normal. A zero one tells the caller to keep the surface's own.
     return vec4(dot(bent, bent) > 1e-12 ? normalize(bent) : vec3(0.0), visibility / total);
@@ -502,14 +521,25 @@ void main() {
             vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
             vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
 
-            // A clear sky is worked out for each pixel, so the sun's disc is as sharp as the
-            // screen. Below the horizon the baked floor is the same either way.
-            vec3 background;
+            // The sun's disc is drawn for each pixel, so it is as sharp as the screen. The physical sky's sinks
+            // behind the horizon with the sun; a photographed sky's stays where it was photographed. The bands have none.
+            vec3 background = textureLod(backgroundTexture, direction, 0.0).rgb;
+            if (frame.skySun.w == 0.0 || direction.y >= 0.0) {
+                background += sunDiscRadiance(direction, frame.skySun.xyz, frame.sunDisc);
+            }
+
             if (frame.skySun.w > 0.0 && direction.y >= 0.0) {
-                background = preethamRadiance(direction, frame.skySun.xyz, frame.skySun.w)
-                    + sunDiscRadiance(direction, frame.skySun.xyz, frame.sunDisc);
-            } else {
-                background = textureLod(reflectionTexture, direction, 0.0).rgb;
+                // The moon and the stars are drawn the same way, as sharp as the screen; the moon hides the
+                // stars behind it.
+                // The pixel's width in radians, from the direction one pixel across: fwidth is undefined in
+                // this branch, which only some pixels take.
+                vec4 beside = frame.inverseViewProjection * vec4((inUv + vec2(1.0 / frame.screen.x, 0.0)) * 2.0 - 1.0, 1.0, 1.0);
+                float pixel = length(normalize(beside.xyz / beside.w - frame.cameraPosition.xyz) - direction);
+                vec4 moon = frame.moon.w > 0.5
+                    ? moonDisc(direction, frame.moon.xyz, frame.moonRadiance.rgb, frame.skySun.xyz, pixel)
+                    : vec4(0.0);
+                vec3 stars = starLight(direction, frame.stars.x, frame.stars.y, pixel);
+                background += moon.rgb * moon.a + stars * (1.0 - moon.a);
             }
 
             outColor = vec4(fogOverSky(background * frame.backgroundRadiance.a, inUv), 1.0);
@@ -529,7 +559,8 @@ void main() {
     float roughness = clamp(normalRoughnessAo.z, 0.045, 1.0);
     // Left out, the occlusion pass never ran, so its target holds nothing to read.
     bool occlusionOff = isOff(OFF_AMBIENT_OCCLUSION);
-    vec4 screenOcclusion = occlusionOff ? vec4(0.0, 0.0, 0.0, 1.0) : screenOcclusionAt(ivec2(gl_FragCoord.xy), depth);
+    vec3 bounce = vec3(0.0);
+    vec4 screenOcclusion = occlusionOff ? vec4(0.0, 0.0, 0.0, 1.0) : screenOcclusionAt(ivec2(gl_FragCoord.xy), depth, bounce);
     float screenAo = screenOcclusion.w;
     // Puddle water lies open under the sky. The occlusion pass only saw the hollow beneath it.
     bool water = normalRoughnessAo.w > 0.5 * (1.0 + WATER_SIDE);
@@ -656,6 +687,11 @@ void main() {
 
     vec3 diffuseColor = baseColor * (1.0 - metallic) * multiBounceOcclusion(diffuseAo, baseColor);
     vec3 environmentDiffuse = softDiffuse * diffuseColor;
+    // Light bounced off nearby surfaces on screen, which the occlusion took away from the soft light. A lightmap baked
+    // its own bounce, and a toon surface keeps its flat soft light, so neither takes it. Puddle water lies open.
+    if (!toon && !water && frame.occlusion.z > 0.0) {
+        environmentDiffuse += bounce * baseColor * (1.0 - metallic) * (1.0 - bakedWeight);
+    }
     if (translucency > 0.0) {
         environmentDiffuse += softLight(position, -n, v) * diffuseColor * translucency * transmissionTint;
     }
@@ -775,7 +811,7 @@ void main() {
 
     // The fog between the surface and the camera dims it and adds its own light. The light kept
     // apart for the subsurface blur is dimmed alike, and the fog's light goes with the rest.
-    vec4 fog = fogInFront(position, reflectionTexture);
+    vec4 fog = fogInFront(position, backgroundTexture);
     if (fog.a < 1.0) {
         color = color * fog.a + fog.rgb;
         scattered *= fog.a;
@@ -791,12 +827,20 @@ void main() {
         if (frame.hazeColor.a > 0.5) {
             behind = frame.hazeColor.rgb;
         } else if (frame.showEnvironment == 1) {
-            behind = skyBehind(reflectionTexture, normalize(away), frame.skySun) * frame.backgroundRadiance.a;
+            behind = skyBehind(backgroundTexture, normalize(away)) * frame.backgroundRadiance.a;
         }
 
         float fade = smoothstep(fadeStart, fadeEnd, hazeDistance(position));
         color = mix(color, behind, fade);
         scattered *= 1.0 - fade;
+    } else if (frame.airSun.a > 0.5) {
+        // Without a haze of its own, the physical sky's air dims far surfaces and adds its light.
+        vec3 away = position - frame.cameraPosition.xyz;
+        float distance = length(away);
+        vec3 ambient = frame.flatIrradiance.rgb * frame.backgroundRadiance.a;
+        color = throughAir(color, away / max(distance, 1e-4), distance, frame.airExtinction, frame.airSun,
+            frame.skySun.xyz, ambient);
+        scattered *= exp(-frame.airExtinction.rgb * distance);
     }
 
     outColor = vec4(color, 1.0);

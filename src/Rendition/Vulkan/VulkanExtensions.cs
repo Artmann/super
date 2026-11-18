@@ -52,6 +52,30 @@ internal static unsafe class VulkanExtensions
         api.CmdPipelineBarrier2(cmd, &dependency);
     }
 
+    /// <summary>Records a global memory barrier: work at <paramref name="before"/> finishes and its writes are visible to <paramref name="after"/>.</summary>
+    public static void MemoryBarrier(
+        this Vk api,
+        CommandBuffer cmd,
+        (PipelineStageFlags2 Stage, AccessFlags2 Access) before,
+        (PipelineStageFlags2 Stage, AccessFlags2 Access) after)
+    {
+        var barrier = new MemoryBarrier2
+        {
+            SType = StructureType.MemoryBarrier2,
+            SrcStageMask = before.Stage,
+            SrcAccessMask = before.Access,
+            DstStageMask = after.Stage,
+            DstAccessMask = after.Access,
+        };
+        var dependency = new DependencyInfo
+        {
+            SType = StructureType.DependencyInfo,
+            MemoryBarrierCount = 1,
+            PMemoryBarriers = &barrier,
+        };
+        api.CmdPipelineBarrier2(cmd, &dependency);
+    }
+
     /// <summary>
     /// Readies an image for a pass to draw over all of it. Targets are shared between
     /// frames in flight, so this waits for the previous frame's sampling to finish.

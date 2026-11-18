@@ -3,7 +3,8 @@
 A village on a hill, made from the seed, through a day that lasts two minutes. About forty
 buildings (with seed 1, exactly forty) stand at any angle along winding paths: cottages with garden walls, workshops
 with a big open door and a forge, round towers, and wells in small paved yards. The sun
-crosses the sky and the sky's colours follow it. At dusk each building's lamps come on
+crosses a physical sky that glows round it and turns pink at dusk, and at night the moon
+rises opposite it among turning stars. At dusk each building's lamps come on
 and flicker, and its windows glow and throw a little warm light onto the ground. A cart
 rolls round the ring road with a lantern at night.
 

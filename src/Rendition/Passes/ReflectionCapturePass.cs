@@ -7,8 +7,8 @@ namespace Rendition.Passes;
 /// <summary>The renderer's lists a capture draws from, and the pass that draws its sun's shadow map.</summary>
 internal readonly record struct CaptureScene(List<Mesh?> Meshes, List<PartDetail> Details, ShadowPass Shadows);
 
-/// <summary>Where the planned capture is taken from, and the sky behind it.</summary>
-internal readonly record struct PlannedCapture(Vector3 Position, Vector4 SkySun, float EnvironmentIntensity);
+/// <summary>Where the planned capture is taken from, and how bright the sky behind it is.</summary>
+internal readonly record struct PlannedCapture(Vector3 Position, float EnvironmentIntensity);
 
 /// <summary>
 /// Draws the scene round one reflection probe into the six faces of a <see cref="ReflectionCaptureCube"/> in one
@@ -117,8 +117,7 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
     /// </summary>
     public int Plan(ReadOnlySpan<DrawItem> draws, in ReflectionProbe probe, in FrameView view, Vector3? sun, long frame)
     {
-        var sky = SkyModel.Sun(view);
-        _planned = new PlannedCapture(probe.Position, new Vector4(sky.Direction, sky.Turbidity), view.EnvironmentIntensity);
+        _planned = new PlannedCapture(probe.Position, view.EnvironmentIntensity);
         _kept.Clear();
         _faces.Keep(draws, _scene.Details, probe.Position, Reach, _kept);
 
@@ -150,7 +149,7 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
         System.Buffers.ArrayPool<int>.Shared.Return(kept);
         api.CmdEndRendering(cmd);
 
-        Cube.RecordFinish(cmd, _planned.SkySun, _planned.EnvironmentIntensity);
+        Cube.RecordFinish(cmd, _planned.EnvironmentIntensity);
     }
 
     public void Dispose()

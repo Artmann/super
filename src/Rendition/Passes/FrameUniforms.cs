@@ -192,6 +192,21 @@ internal struct FrameUniforms
     /// <summary>x, y: the distances in metres over which outlines fade out.</summary>
     public Vector4 OutlineFade;
 
+    /// <summary>The physical sky's air between the eye and a surface. rgb: how much it dims per metre; w: the aerosol's scattering per metre. See <see cref="Atmosphere.Air"/>.</summary>
+    public Vector4 AirExtinction;
+
+    /// <summary>rgb: the sunlight that reaches the air; w: 1 when the air fades distant surfaces, 0 when it doesn't.</summary>
+    public Vector4 AirSun;
+
+    /// <summary>xyz: towards the moon; w: 1 when the physical sky shows it. See <see cref="SkyModel.Night"/>.</summary>
+    public Vector4 Moon;
+
+    /// <summary>rgb: how bright the moon's lit face is, after the air it comes through.</summary>
+    public Vector4 MoonRadiance;
+
+    /// <summary>x: how bright the stars are, 0 for none; y: how far they have turned about the zenith, in radians.</summary>
+    public Vector4 Stars;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

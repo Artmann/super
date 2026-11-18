@@ -78,17 +78,16 @@ public sealed class ArcherGame(Content content, Director director, Input input) 
     {
         // The director holds the camera while the film plays; this is where it leaves off.
         view.Camera(Film.End(Erika.Position));
-        view.Sun(new Vector3(0.9f, 0.24f, 0.3f), new Vector3(6.6f, 4.0f, 2.0f));
+        // Golden hour: the sun is 14 degrees up, and the air it comes through turns its white light gold.
+        view.Sun(new Vector3(0.9f, 0.24f, 0.3f), new Vector3(12f, 11f, 10f));
         // The live probes see the clearing as it is: the forest ring hides the warm horizon, so
-        // the bounce comes from the blue zenith overhead. A warm fill and a warmer ground keep
-        // the targets in golden-hour light instead of the cool blue the old fill gave them.
+        // the bounce comes from the blue zenith overhead. A warm fill keeps the targets in
+        // golden-hour light instead of the cool blue the old fill gave them.
         view.Sun(new Vector3(-0.6f, 0.6f, -0.4f), new Vector3(0.44f, 0.32f, 0.2f));
         view.Sky(new SkySettings
         {
-            Zenith = new Vector3(0.12f, 0.28f, 0.72f),
-            Horizon = new Vector3(1f, 0.56f, 0.28f),
-            Ground = new Vector3(0.3f, 0.2f, 0.1f),
             Brightness = 0.9f,
+            Turbidity = 3f,
             HazeStart = 45f,
             HazeEnd = 150f,
         });

@@ -800,9 +800,26 @@ vertices whose heaviest weight is that joint, in the joint's own space (the vert
 `InverseBind`). The cooker measures it with `Skeleton.WithBounds` after the vertices are moved
 to rest and normalized, and ragdolls size their shapes from it. A skeleton made in code has none.
 
-The `.rmodel` format is version 14 and the model cook version 24, with the material graphs'
+The `.rmodel` format is version 15 and the model cook version 25, with the material graphs'
 version folded in. Their history is in the comments on `ModelData.Version` and
 `ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
+
+Each clip carries its events after its frames: a name, a from and a to in seconds (equal for a
+moment) and a joint name, empty for none. `ClipEventSettings.Attach` checks the sidecar's `events`
+against the clips and skeleton once the clips are read, and adds them to their clips; a bad event
+fails the cook alongside the material problems. At run time `Rig` keeps a `ClipEventTable` per
+clip, with the cooked events and those from `Rig.Event`, the joint each names, and marks sorted by
+time (an end before a moment before a begin at the same time). Each `Animator` has an
+`EventTracker`. In `Advance`, before anything moves, `SweepStates` sweeps the stretch of clip the
+fading-out state and then the current state move through on the tick, using the heavier clip of
+each and going lap by lap for loops; then `SweepAction` sweeps each playing action from where it
+was. A mark counts when it lies after the start and at or before the end, so a tick ending on it
+counts it once, and an action's first tick counts its start too. Passed marks go to `TickEvents`
+with their fraction of the tick and the number of the sweep that found them, and `Finish` sorts
+them by fraction, then sweep, then arrival. Windows are open per source: `Finish` ends any whose
+source stopped counting or playing and begins any a source came to count inside, so begins and
+ends stay paired. Joints are read from the finished pose, and the events go into a reused array,
+so reading them doesn't allocate.
 
 A material rule's `shader`, `shaderParameters` and `shaderTextures` are written after the
 materials as `ModelData.MaterialShaders`, empty or one entry (or none) per material, by name: the
@@ -1005,8 +1022,10 @@ volumetric_integrate.comp compute -> the same summed front to back along each co
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, motion, baked light, shadow mask, depth
 DecalPass     decal boxes      -> colour, normal and roughness laid over the G-buffer, reading a copy of its normals
 GBufferPass   no-decal draws   -> the same targets, loaded: skinned draws and NoDecals materials, only when decals and they are both in the frame
-AoPass        fullscreen       -> GTAO from depth and normals: bent normal (view space, octahedral) and visibility, RGBA8
-AoBlurPass    fullscreen x 2   -> the same with the grain averaged away, across and then down
+AoPass        fullscreen       -> GTAO from depth and normals: bent normal (view space, octahedral) and visibility, RGBA8;
+                                  and the screen bounce from last frame's history, B10G11R11
+AoSteadyPass  fullscreen       -> both averaged with their own history of the last frames, then copied to that history
+AoBlurPass    fullscreen x 2   -> both with what grain is left blurred away along the surface, across and then down
 LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes), subsurface diffuse apart
 SssBlurPass   fullscreen x 2   -> subsurface diffuse spread across, then down and added to HDR colour
 TransparentPass  glass and particles -> blended over HDR colour together, back to front;
@@ -1393,8 +1412,10 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
 - `EnvironmentLight` (bit 21, `OFF_ENVIRONMENT_LIGHT`): every read of the sky's irradiance and
   reflection cubes outside the probes goes through `skyIrradiance` and `skyReflection` in
   `common.glsl`, which return `frame.flatIrradiance` and `frame.flatReflection`. Those are the
-  mean of each cube's six face centres at its coarsest mip, which `CubeCentres` reads back
-  once per bake, so the switch costs no lookups at all. Working it out per pixel took six and
+  mean of each cube's six face centres at its coarsest mip, which `CubeCentres` copies into a
+  host-visible buffer at the end of each update, in the same command buffer, so reading them
+  waits for nothing and the switch costs no lookups at all. After an update recorded in a
+  frame, they are the last finished update's. Working it out per pixel took six and
   made the lighting pass slower with the switch off than on. `probe_trace.comp` and
   `probe_fold.comp` still see the real sky, so the bounce keeps its colour.
 - `Emissive` (bit 22, `OFF_EMISSIVE`): `writeSurface()` zeroes `surface.emissive` after the surface
@@ -1452,11 +1473,55 @@ Super's `Graphics.MultiscatterSpecular`.
 ## Environment lighting
 
 `Renderer.SetEnvironment` describes the surroundings as colour bands plus up to
-eight glowing panels, and a compute shader bakes that into two cube maps. One holds
+eight glowing panels, and `EnvironmentMap` turns that into two cube maps. One holds
 a blurred reflection per roughness step and the other the soft light on matte
 surfaces. Lighting then needs a single lookup per pixel. It's generated rather than
 loaded from a photo, so a game can describe its own space and the softboxes can
-line up with the lights. Baking waits for the GPU, so it belongs in loading.
+line up with the lights.
+
+`EnvironmentMap.Record` writes the whole update into a command buffer, with barriers on
+both sides, so it can go in a frame without waiting for the GPU. `EnvironmentPrefilter`
+records the draws and filters, each through a `CubeShader`. `environment.comp` draws
+three levels analytically: a private 256² source cube (bands or clear sky, with panels,
+without the sun's disc), mip 0 of the reflection cube (with the disc), and the 64² `Sky`
+cube (no panels, no disc). The source and sky cubes get their mips by linear blits.
+`environment_filter.comp` then filters the rest from those mip chains by filtered
+importance sampling (Colbert and Křivánek): each sample reads its source at
+`lod = max(0.5 · log2(Ωs / Ωp), 0)`, where `Ωs = 1 / (N · pdf)` is the sample's share of the
+sphere and `Ωp = 4π / (6 · size²)` a source texel's, so a few samples read pre-blurred
+texels instead of many reading sharp ones. The paper adds 1 to the lod; here that blurred the
+rough mips past a 4096-sample reference and pulled the floor up into the lobe, so the bias
+is 0. Reflection mips 1 to 5 use GGX with V = N at roughness `mip / 5`, `pdf = D / 4`, from
+32 samples at mip 1 doubling each level to 512 at mip 5, since the rougher lobes cover more
+of the sphere and the smaller mips cost the same in all. The irradiance cube takes 256
+cosine-weighted samples of the sky cube, `pdf = cos θ / π`. In Hamlet's frame on High, on an RTX
+4060 Ti, the whole update takes about 1 ms of GPU time: the source, sharp and sky cubes with the
+irradiance about 0.25 ms, mip 1 0.31 ms, mips 2 to 4 0.26 ms together and mip 5 0.21 ms.
+
+That is twice the half millisecond a frame can spare, so a frame doesn't redraw it all.
+`RecordFrame` after a change draws the sharp part, everything but the rough reflections, and
+the first of three slices of them, mip 1, then mips 2 to 4, then mip 5, which even out the
+cost (`RoughSlices` keeps the turn); each later `RecordFrame` draws the next slice from the
+source cube the change drew. A sky that
+changes every frame keeps the slices turning, so each rough mip is at most three frames
+old, and a frame costs about 0.5 ms. In Hamlet's sunset the lag doesn't show: the scene below
+the sky changes by under one level of brightness from one frame to the next.
+
+`Bake` is `SetDescription` plus `Record`, every level at once, in a submit that waits, for
+tests. The renderer keeps the description and the clear sky, marks the environment pending
+when either changes, and records `RecordFrame` in the next frame's command buffer, right
+after the GPU timer starts, as the "Sky" pass. While the sky then holds still, each frame
+records the next slice until all three are done. A change still pending at the very first frame
+records every level at once instead, so a sky a game sets before it, and a screenshot of it, never show the default
+studio in the rough reflections. The bake slice and chunk copies recorded
+before it in that frame still read the previous sky, a frame behind. The paths that draw
+outside a frame (a blocking bake, the constructor) call
+`FlushEnvironment`, which records the whole update in its own submit and waits when
+anything is pending or slices are left. `Flat` follows a frame or two behind, since it
+reads what the GPU last finished, and its reflection half reads mip 5, so it can trail the
+last slice. `Sky` is a view of the sky cube's first mip only, so the light probes, reflection
+probe captures and `SkySh` see one level as before. A reflection probe capture is recorded
+after the frame's sky update, so it sees the new sky.
 
 Panels appear only in reflections. The direct lights already provide their diffuse
 light, and baking it too would count that light twice and overexpose the scene. A third,
@@ -1473,21 +1538,53 @@ from the camera, so a tall tree fades no sooner than the ground it stands on.
 The direction used to look up the cube is still taken from the camera.
 
 Super keeps one set of bands, from water first, then the sky, then the plain studio, and
-bakes them again only when they change, so a steady sky costs nothing per frame but a
-sky animated every frame would rebake every frame.
+sets them again only when they change, so a steady sky costs nothing per frame and a sky
+animated every frame costs the update's half millisecond each frame, with no wait.
 
 ### The clear sky
 
-`FrameView.Sky.Turbidity` above zero swaps the bands above the horizon for the Preetham,
-Shirley and Smits (1999) clear sky, in `Shaders/sky.glsl`. Its zenith luminance and
-chromaticity and the Perez distribution give luminance Y and chromaticity x and y in each
-direction, which turn into linear sRGB through XYZ. The paper's luminance is in kcd/m²;
-`SKY_UNITS_PER_KILOCANDELA` (0.08) puts it in the renderer's units, where a sun of about 8
-is the real 100 klux, so a turbidity of 2.5 with the sun 30° up gives about 0.35 straight
-up, close to the gradient skies the examples used. `Passes/SkyModel.cs` holds the same
-formulas in C#, so tests can check them against hand-worked values, and picks the sun:
-the shadow-casting light, else the first. Below the horizon the bake fades from the sky
-at the horizon into the floor band, so `Ground` still shows there.
+`FrameView.Sky.Turbidity` above zero swaps the bands above the horizon for a physical sky
+after Hillaire, "A Scalable and Production Ready Sky and Atmosphere Rendering Technique"
+(2020), in `Shaders/atmosphere.glsl`. Distances are kilometres: a planet of 6360 km with
+100 km of air, Rayleigh scattering falling off over 8 km, ozone in a tent 15 km either
+side of 25 km, and an aerosol falling off over 1.2 km. The aerosol comes from the
+turbidity: Ångström's β = 0.04608T − 0.04586, as Preetham relates them, its optical depth
+at 550 nm τ = β·0.55^-1.3, spread so straight up it has that depth, nine tenths
+scattering. `Vulkan/SkyAtmosphere.cs` draws three rgba16f tables, each with its own
+compute shader: the transmittance (256 × 64) and the light scattered many times
+(32 × 32), redrawn only when the turbidity changes, and the sky seen from 50 m up
+(192 × 108, Hillaire's sky-view table with its horizon packed tight), redrawn on every
+sky change. `environment.comp` reads the sky-view through binding 2 of the cube shaders'
+layout, present for every cube, and adds `NIGHT_GLOW`, a faint blue that keeps night from
+going black. `SOLAR_STRENGTH` (13) is the sun at the top of the air in the renderer's
+units, where a sun light of about 8 is the real 100 klux; it gives a turbidity-3 sky with
+the sun 60° up the average brightness the Preetham sky it replaced had, so the examples'
+exposures held. `Passes/Atmosphere.cs` holds the transmittance and the aerosol in C#, so
+tests can check them against hand-worked values, and `Passes/SkyModel.cs` picks the sun:
+the shadow-casting light among the frame's first `MaxLights`, else the first, skipping a
+light aimed at `AnalyticSky.Moon` (a dot product above 0.99999, under a quarter of a
+degree off) and falling back to the first light when every light is, so a game's moonlight casting the night's shadows doesn't move the sky.
+
+`SkyModel.Tinted` multiplies that sun's radiance by `Atmosphere.SunTint`, its
+transmittance through the air divided by the transmittance at 60° up, faded out over the
+disc's own radius as it sets. The renderer's public `Render`, `Bake` and `BakeChunk` pass
+the tinted view on, so the lighting, the shadows, the probes, the bakes and the disc all
+see one sun; the copy lives in a buffer the renderer keeps, so it allocates nothing per
+frame. The lighting hashes need nothing new, since the tint follows from the turbidity,
+the light and `LightAngle` they already cover. Below the horizon the bake fades from the
+sky at the horizon into the floor band, which `EnvironmentUniforms.Floor.W` scales by
+`Atmosphere.GroundLight`: the tinted sun on a level floor plus a quarter as much from the
+sky, 1 at 60° up and never under 0.002, so `Ground` darkens through dusk.
+
+Far surfaces fade into the air through `throughAir()` in `sky.glsl`, in closed form for
+air of one density, the ground's, all the way: the surface times exp(−σd), plus the sun's
+light and the sky's average, `flatIrradiance` times the environment intensity, scattered
+towards the eye times (1 − exp(−σd))/σ. The frame uniforms carry it as `airExtinction`
+(per metre, and the aerosol's scattering) and `airSun` (the sunlight reaching the air
+from `Atmosphere.Air`, and w = 1 when the fade is on). `SkyModel.AirShows` turns it
+off under a view's own haze, which takes precedence even while `RenderEffects.Haze` hides
+it, and with `RenderEffects.AerialPerspective` off; the gradient sky has no air.
+Reflection probe captures leave it out, as they leave out the haze. The lighting pass, glass and particles apply it, after the height fog.
 
 The disc is `LightAngle` across, which is a diameter, and as bright as the light's
 radiance spread over its solid angle, 4π sin²(r/2) for radius r, held at
@@ -1497,22 +1594,68 @@ mip 0 of the reflection cube. The rough mips, the irradiance cube and `Environme
 keep the circumsolar glow but not the disc, because the direct light already gives its
 highlight and its diffuse light; a disc there would count it twice and turn into specks in
 the prefiltered mips. `reflection_sky.comp`, which fills a reflection probe capture's sky,
-leaves it out for the same reason. The background draws the sky analytically, disc
-included, rather than from the cube, so it stays sharp at any resolution; below the
-horizon it reads the cube. What hazy surfaces and particles fade into, `skyBehind()`, is the
-analytic sky without the disc above the horizon, since mip 0's disc would show through a
-distant hill as a hot spot for bloom to spread. `SkyModel.Sun` holds a turbidity above zero
-to 1.7 to 10, as below about 1.2 the luminance's B turns positive and its exponential
-overflows at the horizon, and a sun straight below the horizon takes a level direction.
+leaves it out for the same reason. The background reads `EnvironmentMap.Background`,
+the prefilter's source cube, which holds the sky without the disc, and adds the disc per
+pixel from `sunDisc`, so the disc stays sharp at any resolution and sinks behind the
+horizon with the sun. What hazy surfaces, fog and particles fade into, `skyBehind()`, is
+that same cube, since mip 0's disc would show through a distant hill as a hot spot for
+bloom to spread. `SkyModel.Sun` holds a turbidity above zero to 1.7 to 10, the range
+`SkySettings` takes.
 
 The frame uniforms carry `skySun` (towards the sun, and the turbidity) and `sunDisc`
 (its radiance, and the cosine of its radius). The renderer compares `SkyModel.Sun` with
-what it last baked each frame and, on a change, waits for the GPU and runs
-`EnvironmentMap.Rebake` with the same bands, so moving the sun under a clear sky rebakes
-every frame. That doesn't bump the environment version: the lighting hashes that decide
+what it last baked each frame and, on a change, marks the environment pending so the
+frame records the update with the same bands, so moving the sun under a clear sky
+updates it every frame without waiting. That doesn't bump the environment version: the lighting hashes that decide
 when probes recapture already cover the turbidity, the lights and `LightAngle`. The uniforms
 take `skySun` and `sunDisc` from that baked `SkySun`, not from the view being drawn, so a
 frame drawn again without a baked sun keeps the sky's sun (see "Each frame's bakes").
+
+The moon and the stars are drawn only in the background, per pixel in `lighting.frag`'s
+nothing-drawn branch next to the disc, and never baked into the environment's cubes, so
+they cost nothing in reflections or probes and changing them rebuilds nothing.
+`SkyModel.Night` fills three frame uniforms after `airSun`: `moon` (towards it, and w = 1
+when there is one), `moonRadiance` (`SkyModel.MoonRadiance` times `Atmosphere.SunTint` for
+the moon's direction, so it reddens low and goes out below the horizon like the sun) and
+`stars` (x the brightest star's peak, `SkyModel.StarBrightness` faded in by a smoothstep
+on the sun's elevation from −`StarsAppear` to −`StarsFull`, and y the rotation). All
+three are zero under a gradient sky, and reflection probe captures draw none of them; `HideStars` and
+`RenderEffects.Stars` zero only x. `moonDisc()` in `sky.glsl` treats the moon as a ball
+of radius `MOON_RADIUS`, which must match `SkyModel.MoonAngularRadius`, lit by `skySun`
+with a little earthshine and three soft dark seas fixed to its face. `starLight()` turns
+the direction about y, cuts the sky into a 120-per-unit grid of cells, and a hashed 4% of
+cells hold one star kept off the cell's edges; each is a Gaussian at least 0.7 pixels
+wide whose peak drops as it widens, so its total light, and so its look, holds as the
+view zooms or moves. The pixel's width comes from the direction one pixel over, since
+`fwidth` is undefined in a branch only some pixels take.
+
+### Photographed skies
+
+`Super.Cook/Cookers/SkyCooker.cs` turns an equirectangular `.hdr` into `SkyImageData`, a
+data part: six rgba16f faces 256 texels across with every mip, laid out like
+`cubeDirection` in `environment.comp` (`SkyImageData.FaceDirection`), with the picture's
+middle towards −Z. Each face texel averages a 4 × 4 grid of bilinear reads of the picture.
+Before that it finds the sun: the brightest texel, kept only if it is over 20 times the
+picture's mean, and every texel within 5° of it that is over 10 times the mean. The
+patch's light above the mean of the ring out to 7° becomes a disc as wide as the patch,
+spread evenly over it (clamped to 65504 for half floats); its direction is the centre of
+that light, and the patch is cut down to the ring's level. `SkyImageData.ReadSunDirection` reads only the
+header, so `content.Sky` knows the sun's direction without loading the faces.
+
+The renderer keeps each `CreateSkyImage` cube in `_skyImages` with its sun and an XxHash64
+of its texels, and frees them only when it is disposed. `SkyModel.Photographed` gives a
+`SkySun` with turbidity 0, the sun turned by the rotation, its disc scaled by 2^exposure and
+clamped to 30000, and the image, rotation and scale; `EnvironmentUniforms` writes these to
+the Environment block's `image` (1, cos, sin, scale). The cube sits in binding 3 of every
+cube shader's layout; while no image is set, `EnvironmentPrefilter` binds `_noImage`, a
+one-texel black cube, so the layout never changes. Swapping the image rewrites that
+binding, so `BakeSky` waits for the device to go idle first; turning or brightening it is an
+ordinary sky change. `photographed()` turns the direction, reads the mip whose texels are
+about as wide as the target's, and adds the disc only where `draw.disc` is 1, so the sun
+shows in the sharp level and, through `lighting.frag`'s nothing-drawn branch, behind the
+scene, but the direct light gives everything else. `EnvironmentHash`,
+`ReflectionLightingHash` and `ProbeLightingKey` include the content hash or handle, the
+rotation and the exposure, so the bakes and probes see a new picture.
 
 ### Height fog
 
@@ -3362,28 +3505,87 @@ radius. The visible arc between the horizons is integrated against the cosine of
 projected normal, which gives the share of the soft light that reaches the point. The same
 arcs give the bent normal, the average direction the point still sees the sky in. The
 pass writes both to an RGBA8 target: the bent normal in view space, octahedral, in x and
-y, and the visibility in z. `ao_blur.frag` averages them without crossing depth edges.
-It decodes each tap's bent normal and sums the directions, since averaging the octahedral
-form itself gives a wrong direction where it folds, and averages the visibility as it is.
-The blur runs twice, 7 pixels across into `GBuffer.AoAcross` and then 7 down into
-`AoBlurred`, with the step pushed as a constant. That reads 14 pixels where the square it
-replaced read 49, and took the blur from about 0.4 to 0.12 ms at 1080p. A pixel with
-nothing drawn in it is written as fully visible without reading any taps.
+y, and the visibility in z. Two slices a pixel leave grain, which is taken away in two
+steps: an average over time, and then a narrow blur.
+
+`ao_temporal.frag` (`_aoSteadyPass`) averages the occlusion and the bounce over the last
+frames. It writes `GBuffer.AoSteady` and
+`BounceSteady`, both RGBA16F at `AoExtent`, which are copied to `AoHistory` and
+`BounceHistory` for the next frame to read. The occlusion's alpha counts the frames in
+the average as a share of `MAX_FRAMES`, 8, and the bounce's alpha holds the depth of the
+pixel it was traced for. Each pixel finds where its surface was last frame as `taa.frag`
+does: by the camera's reprojection, or by the motion vector where that differs from the
+camera's own motion, and with the anti-aliasing shift taken out so a still camera reads
+its own texel exactly. It reads the four history texels round that spot and keeps each
+only if the depth stored with it puts it within a tolerance of the surface, measured along
+the view by `gapBehind` in `screen_trace.glsl`, which works for both projections. The
+tolerance is 5% of the occlusion's radius plus twice what the surface's distance changes
+by from one occlusion pixel to the next. That slope is the smaller of the changes to
+either side, so a pixel on an object's edge measures the object and not the drop behind
+it, and it is capped at 2% of the distance, so something a pixel thin doesn't accept the
+wall behind it. A pixel with no texel left starts over with a count of 1. Otherwise the
+new frame goes in with a share of one over the count, which grows to 8 and stays there.
+The remembered visibility is first clamped to what the nine pixels round it traced this
+frame, give or take 0.1, so the floor a figure walked off lets go of its shade. The
+history is never thrown out for disagreeing with the frame, since two rays say too little:
+a first version did that, and it started over on plain grain. The bent normal is averaged
+as a direction and the bounce as it is, with no clamp.
+
+The pass runs for a frame only, with the frame's `MotionHistory`. A probe's faces are
+drawn once each, so theirs go straight to the blur. `GBuffer.OcclusionHistoryReady` is
+false on new targets, after a frame with the occlusion or `RenderEffects.OcclusionHistory`
+(bit 41, read on the CPU alone) off, and after a resize or a change of render scale or
+`OcclusionResolution`, which all rebuild the targets, and the pass is then pushed
+`historyValid` as 0. Last frame's view-projection and the motion vectors are kept up
+while either this history or the picture's is ready, so the average works with
+anti-aliasing off. The motion vectors are drawn with the G-buffer, before the occlusion.
+
+`ao_blur.frag` then blurs along the surface. A tap counts by how near it lies to the plane
+through the pixel, along the pixel's G-buffer normal (`PLANE_TOLERANCE`, 5% of the
+radius, plus `PLANE_SLOPE` for each metre between the two, which forgives a normal map's
+tilt and a curve), and by how alike the two normals are (`NORMAL_POWER`). The depth
+comparison it replaced couldn't tell a stair's tread from its riser once the stair was
+small on screen, which is what smeared the shade across small models. It decodes each
+tap's bent normal and sums the directions, since averaging the octahedral form itself gives
+a wrong direction where it folds, and averages the visibility as it is. The blur runs
+twice, across into `GBuffer.AoAcross` and then down into `AoBlurred`, with the step pushed
+as a constant, and carries the frame count through in alpha. It reaches 3 pixels each way
+while the count is below a quarter of `MAX_FRAMES`, as it does with the history off, 2
+below three quarters and 1 after that. A pixel with nothing drawn in it is written as fully
+visible without reading any taps.
+
+In the Crypt at 1600 by 900 on an RTX 4060 Ti, the average and the blur together take
+0.19 ms at `OcclusionResolution.Half` where the blur alone took 0.11, and about 1.2 ms at
+`Full` where it took 0.32. The four extra targets are RGBA16F at `AoExtent`.
+
+The history is checked by depth alone. After a cut to another scene, surfaces that happen
+to lie where the old ones did keep the old occlusion for up to 8 frames, held near the new
+by the clamp. The bent normal is stored in view space with no previous view to turn it by,
+so it trails by a few frames while the camera turns fast. The bounce has no clamp, so a
+light that goes out leaves its bounce for about 8 frames.
 
 At `OcclusionResolution.Half`, the default, the three occlusion targets are
 `GBuffer.AoExtent`, half the scene's size each way, rounded up, and the pass works the
 way the [traced reflections](#reflections) do at half resolution: each texel works out
 the occlusion of one pixel of a 2 × 2 block, the one `tracedPixel` in `screen_trace.glsl`
 picks from the frame number, with that pixel's own depth and normal. The pass is pushed
-the scale, 1 or 2, and so is the blur, which takes the frame's set to know the frame
-number and compares the depths of the pixels its taps were worked out for. At half
-resolution the blur reads 3 texels across instead of 7, since each is two pixels wide
-and the lighting spreads them once more: 7 there took a fifth of the darkness out of a
-corner. `screenOcclusionAt` in `lighting.frag` reads its own texel at `Full`, which it
+the scale, 1 or 2, and so are the average and the blur, which take the frame's set to
+know the frame number and read the depth and normal of the pixels their texels were
+worked out for. At half resolution the blur always reads 3 texels across, since each is
+two pixels wide and the lighting spreads them once more: 7 there took a fifth of the
+darkness out of a corner. Its two neighbours fall to half weight as the history fills.
+`screenOcclusionAt` in `lighting.frag` reads its own texel at `Full`, which it
 tells by comparing the target's size with the depth buffer's. At `Half` it blends the
 four texels round the pixel by how near each one's worked-out pixel is and how close its
 depth is (`OCCLUSION_DEPTH_FALLOFF`), summing the bent normals as directions as the blur
-does, so occlusion doesn't spill across the edge of something in front. In the Courtyard
+does, so occlusion doesn't spill across the edge of something in front. A texel averaged
+over four frames or more has been worked out for every pixel of its block, so it belongs
+to the block's middle and not to this frame's pixel: `screenOcclusionAt` reads the frame
+count from the texture's alpha and slides where it takes the texels to sit from the one
+to the other. Without that the shade of a crease moved by a pixel every frame. A block
+that lies across the edge of something in front is traced for one surface in one frame
+and the other in the next, and the depth check starts its history over each time, so it
+keeps one frame's grain. In the Courtyard
 at 1080p the occlusion pass went from 1.79 to about 0.5 ms, and at 4K in the Forest from
 5.4 to 1.6 ms. A change of `Renderer.OcclusionResolution` rebuilds the targets as a
 change of render scale does.
@@ -3414,6 +3616,52 @@ multi-bounce fit from their GTAO paper (2016). It uses the surface's base colour
 white crease darkens less and a red one takes on a red tint, while a dark crease keeps
 the plain result. It applies to environment light only; the direct lights that use
 occlusion in place of a shadow map keep the plain value.
+
+The fit only guesses at the walls' light from the point's own colour. The screen bounce
+reads it. It is screen-space indirect lighting with visibility bitmasks (Therrien et al.,
+"Screen Space Indirect Lighting with Visibility Bitmask", 2023), found by `gatherBounce`
+in `ao.frag` from the same slices as the occlusion. Each slice's half circle above the
+point is cut into 32 sectors of a `uint`, spaced by `sin(angle) * 0.5 + 0.5` so each holds
+the same share of the cosine. A surface the walk finds covers the sectors from its front
+to a back guessed 0.4 m behind it (`BOUNCE_THICKNESS`), since the depth buffer holds only
+fronts. The sectors it covers that nothing nearer covered already are the ones it lights
+the point through: its light is the history texel it reprojects to with
+`previousViewProjection`, clamped to 16 so one glint can't flash, times the share of
+sectors, times how much it faces the point. The walk goes near to far, so a near surface
+hides the one behind it, which the horizon search can't tell. Slices are weighted by
+their projected length as the occlusion's are.
+
+The occlusion's 8 steps cover its own radius; when the bounce's radius looks wider on
+screen, 4 more steps go on from one to the other, and they only gather light. Surfaces
+fade out over the last 40% of the bounce's radius. The pass writes the light, already
+times the strength, to a second target, `GBuffer.Bounce`, B10G11R11 at `AoExtent`. The
+average and the blur take it through the same steps with the occlusion's weights, into
+`BounceSteady`, `BounceAcross` and `BounceBlurred`, and `screenOcclusionAt` blends it with the
+occlusion's weights. Lighting adds `bounce * baseColor * (1 - metallic)` to the soft
+light, scaled down by the bake weight, since a lightmap holds its own bounce, and not on
+toon or water pixels.
+
+`frame.occlusion` packs the occlusion's radius and strength in x and y and the bounce's
+strength and radius in z and w. `Occlusion.Pack` sets z to 0 when `ScreenBounce` or
+`AmbientOcclusion` is off, when there is no last frame to read and when a probe is being
+photographed, and both shaders skip the bounce on 0. The frame flags had no bit left, so
+the switch travels this way. History is the lit picture: the anti-aliased frame when
+anti-aliasing is on, otherwise a copy of the HDR target, which is kept while reflections
+or the bounce want it. The bounce reads the frame before glass and particles were
+blended, except where anti-aliasing has blended them in, and it reads specular light as
+if it were diffuse, which can carry a bright reflection onto a neighbour.
+
+Its limits are those of the screen. A surface off screen or behind another gives
+nothing, so the bounce changes at the screen's edges and behind a thin pole that moves
+across. The thickness is a guess: a thin pole is taken as 0.4 m deep and hides more
+than it should. Light travels one hop a frame, so two facing walls build up the bounce
+between them over a few frames rather than at once, and nothing stops it growing
+past what one bounce would give, apart from the walls' colour, which is below 1.
+At 1920 by 1080 on an RTX 4060 Ti, with `OcclusionResolution.Half`, the bounce took the
+occlusion pass in the Courtyard from 0.60 to 1.05 ms and the lighting from 2.38 to
+2.54 ms, and the occlusion pass in the Shapes example from 0.72 to 1.22 ms. The blur
+stayed at 0.04 ms. The extra reads of the history and the sample normals, and the four
+steps past the occlusion's radius, are most of it.
 
 Bloom has no brightness threshold. Every pixel gives away a small share of its
 light, so only really bright things show a visible glow. That's physically closer
@@ -3692,8 +3940,9 @@ Uploads ride the next frame. `CreateMesh`, `CreateDrawItem`, `CreateTexture` and
 `UploadQueue`. The next `Render` records every queued copy, with its layout
 transitions, at the start of its command buffer, so a resource made before a
 `Render` is drawable in that same frame. The staging buffer is retired through the
-destroy queue below. `CreateSurfaceShader`, `SetEnvironment`, `SetOverlayAtlas` and
-probe capture still wait, and say so: they're for loading screens.
+destroy queue below. `SetEnvironment` rides the next frame too (see "Environment
+lighting"), and so do reflection probe captures. `CreateSurfaceShader` and `SetOverlayAtlas`
+still wait, and say so: they're for loading screens.
 
 Destroying returns at once. The resource is added to the destroy slot of the frame
 most recently submitted, and released when a later `Render` has waited on that
@@ -4634,8 +4883,9 @@ direction page, which it used to refuse.
 
 L1 keeps only the sky's broad shape. It is exact for an even sky, but a sky much brighter at the horizon than
 overhead is smeared over the zenith, so an open floor reads too bright. Under a clear `AnalyticSky` at turbidity 3, a
-chunk's floor is 8.03 steps of 255 on average from a space baked under the same sky; under an even sky it is about 1.
-`ChunkRelightGpuTests.Chunk_stays_near_a_space_bake` holds it to 9. Turning is checked apart, against a chunk baked
+chunk's floor is 18.97 steps of 255 on average from a space baked under the same sky, whose hazy horizon is bright
+against its zenith; under an even sky it is about 1.
+`ChunkRelightGpuTests.Chunk_stays_near_a_space_bake` holds it to 21. Turning is checked apart, against a chunk baked
 with its wall where the turn puts it, which is L1 too: 2.5 to 2.7 steps, held to 6.
 
 `glow.frag` and any other custom surface shader includes `surface.glsl`, and a static model's identity hashes its

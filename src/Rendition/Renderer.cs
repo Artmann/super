@@ -211,7 +211,6 @@ public sealed unsafe class Renderer : IDisposable
 
     // What this frame's folds fill the sky with, where a probe saw nothing.
     private float _probeEnvironmentIntensity;
-    private Vector4 _probeSkySun;
 
     // The frame whose uniforms Render wrote last, so SampleProbeIrradiance reads what that frame did.
     private int _uniformFrame;
@@ -230,16 +229,27 @@ public sealed unsafe class Renderer : IDisposable
     // decides it through the view, so baking it again leaves the version alone.
     private SkySun _bakedSky;
 
+    // The photographed skies made with CreateSkyImage, by handle, each with its sun and a hash of what it holds.
+    private readonly List<(GpuTexture Cube, SkyImageSun Sun, ulong Content)> _skyImages = [];
+
+    // The view's lights with the sun coloured by the physical sky's air; see SkyModel.Tinted.
+    private DirectionalLight[] _tintedLights = [];
+
+    /// <summary>The sky or the environment's description changed and its cubes aren't redrawn yet.</summary>
+    private bool _environmentPending;
+
     private readonly DescriptorPool _descriptorPool;
     private readonly DescriptorPool _lightingPool;
     private readonly DescriptorSetLayout _frameSetLayout;
     private readonly DescriptorSetLayout _lightingSetLayout;
-    private readonly DescriptorSetLayout _threeTextureSetLayout;
+    private readonly DescriptorSetLayout _sixTextureSetLayout;
     private readonly DescriptorSetLayout _fourTextureSetLayout;
     private readonly DescriptorSetLayout _twoTextureSetLayout;
     private readonly DescriptorSetLayout _oneTextureSetLayout;
     private readonly DescriptorSet _aoSet;
     private readonly DescriptorSet _aoAcrossSet;
+    private readonly DescriptorSet _aoSteadySet;
+    private readonly DescriptorSet _aoSteadyAcrossSet;
     private readonly DescriptorSet _aoDownSet;
     private readonly DescriptorSet _scatterAcrossSet;
     private readonly DescriptorSet _scatterDownSet;
@@ -261,6 +271,7 @@ public sealed unsafe class Renderer : IDisposable
 
     private DetailView? DepthFirstView => _off.HasFlag(RenderEffects.DepthFirst) ? null : _cameraView;
     private readonly FullscreenPass _aoPass;
+    private readonly FullscreenPass _aoSteadyPass;
     private readonly FullscreenPass _aoBlurPass;
     private readonly FullscreenPass _reflectionPass;
     private readonly FullscreenPass _lightingPass;
@@ -659,19 +670,19 @@ public sealed unsafe class Renderer : IDisposable
 
         _frameSetLayout = CreateFrameSetLayout();
         // With the frame set's three, the lighting pass samples 19 textures, more than MoltenVK allows in ordinary sets.
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 16, ShaderStageFlags.FragmentBit, updateAfterBind: true);
-        _threeTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 18, ShaderStageFlags.FragmentBit, updateAfterBind: true);
+        _sixTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 6, ShaderStageFlags.FragmentBit);
         _fourTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 4, ShaderStageFlags.FragmentBit);
         _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
         _oneTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
 
         _descriptorPool = _context.CreateDescriptorPool(
-            FramesInFlight + 10,
+            FramesInFlight + 12,
             new DescriptorPoolSize(DescriptorType.UniformBuffer, FramesInFlight),
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 10 * FramesInFlight),
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 25 + 3 * FramesInFlight));
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 40 + 3 * FramesInFlight));
         _lightingPool = _context.CreateDescriptorPool(
-            DescriptorPoolCreateFlags.UpdateAfterBindBit, 1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 16));
+            DescriptorPoolCreateFlags.UpdateAfterBindBit, 1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 18));
 
         for (int i = 0; i < FramesInFlight; i++)
         {
@@ -707,6 +718,7 @@ public sealed unsafe class Renderer : IDisposable
             Horizon = new Vector3(0.4f),
             Floor = new Vector3(0.2f),
         });
+        FlushEnvironment();
         _skySh = new SkySh(_context, _environment.Sky, _environment.Sampler);
         foreach (ref var frame in _frames.AsSpan())
         {
@@ -728,9 +740,11 @@ public sealed unsafe class Renderer : IDisposable
 
         _volumetricFog = new VolumetricFogVolume(_context, _frameSetLayout, _linearSampler);
 
-        _aoSet = AllocateSet(_threeTextureSetLayout);
-        _aoAcrossSet = AllocateSet(_twoTextureSetLayout);
-        _aoDownSet = AllocateSet(_twoTextureSetLayout);
+        _aoSet = AllocateSet(_fourTextureSetLayout);
+        _aoAcrossSet = AllocateSet(_fourTextureSetLayout);
+        _aoSteadySet = AllocateSet(_sixTextureSetLayout);
+        _aoSteadyAcrossSet = AllocateSet(_fourTextureSetLayout);
+        _aoDownSet = AllocateSet(_fourTextureSetLayout);
         _scatterAcrossSet = AllocateSet(_twoTextureSetLayout);
         _scatterDownSet = AllocateSet(_twoTextureSetLayout);
         _lightingSet = _context.AllocateSet(_lightingPool, _lightingSetLayout);
@@ -751,9 +765,12 @@ public sealed unsafe class Renderer : IDisposable
         WriteTargetDescriptors();
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
-        _aoPass = new FullscreenPass(_context, "ao.frag", GBuffer.AoFormat, [_frameSetLayout, _threeTextureSetLayout], sizeof(int));
+        _aoPass = new FullscreenPass(
+            _context, "ao.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [_frameSetLayout, _fourTextureSetLayout], sizeof(int));
         _aoBlurPass = new FullscreenPass(
-            _context, "ao_blur.frag", GBuffer.AoFormat, [_frameSetLayout, _twoTextureSetLayout], 3 * sizeof(int));
+            _context, "ao_blur.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [_frameSetLayout, _fourTextureSetLayout], 3 * sizeof(int));
+        _aoSteadyPass = new FullscreenPass(
+            _context, "ao_temporal.frag", [GBuffer.AoSteadyFormat, GBuffer.AoSteadyFormat], [_frameSetLayout, _sixTextureSetLayout], 2 * sizeof(int));
         _reflectionPass = new FullscreenPass(_context, "reflections.frag", GBuffer.HdrFormat, [_frameSetLayout, _fourTextureSetLayout], sizeof(int));
         _lightingPass = new FullscreenPass(_context, "lighting.frag", [GBuffer.HdrFormat, GBuffer.HdrFormat],
             [_frameSetLayout, _lightingSetLayout, _resources.Layout]);
@@ -1260,13 +1277,46 @@ public sealed unsafe class Renderer : IDisposable
         return CreateDetailedMesh(vertices, indices, parts, [material], simplify)[0];
     }
 
-    /// <summary>Replaces what surfaces reflect. Waits for the GPU, so call this while loading.</summary>
+    /// <summary>
+    /// Replaces what surfaces reflect. Nothing waits: the next frame redraws the environment before anything reads it,
+    /// so it can change every frame.
+    /// </summary>
     public void SetEnvironment(in EnvironmentDescription environment)
     {
-        _context.WaitIdle();
-        _environment.Bake(environment, _bakedSky);
+        _environment.SetDescription(environment);
+        _environmentPending = true;
         _environmentVersion++;
         _environmentContent = HashEnvironment(environment);
+    }
+
+    /// <summary>
+    /// Records the frame's share of the environment's redraw: after a change of sky or description, its sharp levels
+    /// and a slice of the rough reflections, and after that, while the sky holds still, the slices left. A change
+    /// pending at the first frame draws every level, so a sky a game sets before it, and a screenshot of it, show no
+    /// default.
+    /// </summary>
+    private void RecordEnvironment(CommandBuffer cmd)
+    {
+        if (_environmentPending && _framesSubmitted == 0)
+        {
+            _environment.Record(cmd, _bakedSky);
+        }
+        else
+        {
+            _environment.RecordFrame(cmd, _bakedSky, _environmentPending);
+        }
+
+        _environmentPending = false;
+    }
+
+    /// <summary>Redraws the whole of a changed environment now and waits, for the paths that draw outside a frame.</summary>
+    private void FlushEnvironment()
+    {
+        if (_environmentPending || _environment.Unfinished)
+        {
+            _context.SubmitAndWait(cmd => _environment.Record(cmd, _bakedSky));
+            _environmentPending = false;
+        }
     }
 
     /// <summary>
@@ -1278,6 +1328,9 @@ public sealed unsafe class Renderer : IDisposable
     public ulong EnvironmentHash => BakeInputHash.Hasher()
         .Add(_environmentContent)
         .Add(_bakedSky.Turbidity)
+        .Add(_bakedSky.Image is { } image ? _skyImages[image.Index].Content : 0UL)
+        .Add(_bakedSky.Rotation)
+        .Add(_bakedSky.Scale)
         .Add(_environmentIntensity)
         .Finish();
 
@@ -2090,7 +2143,10 @@ public sealed unsafe class Renderer : IDisposable
     /// <paramref name="settings"/> asks for another texel density than the space's
     /// <see cref="BakedSpace.TexelsPerMetre"/>, so no frame would find the bake fresh.
     /// </exception>
-    public byte[] Bake(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
+    public byte[] Bake(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings) =>
+        BakeTinted(SkyModel.Tinted(view, ref _tintedLights), draws, settings);
+
+    private byte[] BakeTinted(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
     {
         var (space, probeSettings) = CheckSpace(view, settings);
         long started = Stopwatch.GetTimestamp();
@@ -2100,6 +2156,7 @@ public sealed unsafe class Renderer : IDisposable
         DropBackgroundBakes();
         _uploads.Flush();
         BakeSky(view);
+        FlushEnvironment();
         PrepareBaking();
         using var job = SpaceJob(view, draws, settings, space, probeSettings, started);
         return RunJob(job);
@@ -2792,7 +2849,10 @@ public sealed unsafe class Renderer : IDisposable
     /// <exception cref="InvalidOperationException">
     /// The chunk owns no static draws, some of its draws don't fit in its one page, or the GPU can't trace rays.
     /// </exception>
-    public byte[] BakeChunk(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings)
+    public byte[] BakeChunk(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings) =>
+        BakeChunkTinted(SkyModel.Tinted(view, ref _tintedLights), draws, chunk, settings);
+
+    private byte[] BakeChunkTinted(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings)
     {
         CheckChunk(view, chunk, settings);
         long started = Stopwatch.GetTimestamp();
@@ -2803,6 +2863,7 @@ public sealed unsafe class Renderer : IDisposable
         DropBackgroundBakes();
         _uploads.Flush();
         BakeSky(view);
+        FlushEnvironment();
         PrepareBaking(probes: false);
         using var job = ChunkJob(view, draws, chunk, settings, resolved, started);
         return RunJob(job);
@@ -2975,22 +3036,76 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Bakes the environment again with the view's clear sky when it or its sun has changed. A
-    /// gradient sky gives the same empty <see cref="SkySun"/> whatever the sun does, so that never bakes.
+    /// Marks the environment for a redraw with the view's clear sky when it or its sun has changed. The next frame
+    /// records it, or <see cref="FlushEnvironment"/> draws it now. A gradient sky gives the same empty
+    /// <see cref="SkySun"/> whatever the sun does, so that never redraws.
     /// </summary>
     private void BakeSky(in FrameView view)
     {
         _environmentIntensity = view.EnvironmentIntensity;
-        var sky = SkyModel.Sun(view);
+        var sky = view.Sky.Image is { } image
+            ? SkyModel.Photographed(image, SkyImage(image).Sun, view.Sky.Rotation, view.Sky.Exposure)
+            : SkyModel.Sun(view);
         if (sky == _bakedSky)
         {
             return;
         }
 
-        _context.WaitIdle();
-        _environment.Rebake(sky);
+        if (sky.Image != _bakedSky.Image)
+        {
+            // The redraws read the image through descriptor sets that recorded frames may still use.
+            _context.WaitIdle();
+            _environment.SetImage(sky.Image is { } next ? _skyImages[next.Index].Cube : null);
+        }
+
         _bakedSky = sky;
+        _environmentPending = true;
         SkyRebakes++;
+    }
+
+    private (GpuTexture Cube, SkyImageSun Sun, ulong Content) SkyImage(SkyImageHandle image)
+    {
+        if (image.Index < 0 || image.Index >= _skyImages.Count)
+        {
+            throw new ArgumentException($"Sky image {image.Index} was not made by this renderer.", nameof(image));
+        }
+
+        return _skyImages[image.Index];
+    }
+
+    /// <summary>
+    /// Uploads a photographed sky, cooked from an equirectangular .hdr, for <see cref="AnalyticSky.Image"/>. It waits
+    /// for the upload and stays until the renderer is disposed. See "A photographed sky" in docs/rendering.md.
+    /// </summary>
+    public SkyImageHandle CreateSkyImage(SkyImageData data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (data.Faces.Length != 6)
+        {
+            throw new ArgumentException($"A sky image needs 6 faces, not {data.Faces.Length}.", nameof(data));
+        }
+
+        var first = data.Faces[0];
+        var content = new System.IO.Hashing.XxHash64();
+        foreach (var face in data.Faces)
+        {
+            if (face.Width != first.Width || face.Height != first.Width || face.Format != TextureFormat.Rgba16f
+                || face.Mips.Length != first.Mips.Length)
+            {
+                throw new ArgumentException(
+                    $"Every face of a sky image must be square Rgba16f, {first.Width} wide with {first.Mips.Length} mips.",
+                    nameof(data));
+            }
+
+            foreach (var mip in face.Mips)
+            {
+                content.Append(mip);
+            }
+        }
+
+        var sun = new SkyImageSun(data.SunDirection, data.SunRadiance, data.SunCosine);
+        _skyImages.Add((GpuTexture.Cube(_context, data.Faces), sun, content.GetCurrentHashAsUInt64()));
+        return new SkyImageHandle(_skyImages.Count - 1);
     }
 
     /// <summary>How many times <see cref="BakeSky"/> has baked the environment again, for tests.</summary>
@@ -2999,8 +3114,8 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>Projects the sky cube to L1 now and reads it back, coefficient by coefficient, for tests.</summary>
     internal Vector4[] ProjectSky() => _skySh.Project();
 
-    /// <summary>The sun's disc the last frame drawn from the camera wrote, leaving out probe faces, for tests.</summary>
-    internal Vector4 LastSunDisc { get; private set; }
+    /// <summary>What the last frame's uniforms gave, for tests.</summary>
+    internal LastFrame Last { get; } = new();
 
     /// <summary>
     /// Hands a texture's bytes to the next frame's command buffer rather than waiting for
@@ -3208,6 +3323,9 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(environmentVersion);
         hash.Add(view.EnvironmentIntensity);
         hash.Add(view.Sky.Turbidity);
+        hash.Add(view.Sky.Image);
+        hash.Add(view.Sky.Rotation);
+        hash.Add(view.Sky.Exposure);
         hash.Add(view.Shadows.Radius > 0f);
         // Under water the probes see the sun through it, so switching the water off lights them again.
         hash.Add(off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.LightShadows | RenderEffects.Emissive
@@ -3378,9 +3496,7 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        var sky = SkyModel.Sun(view);
         _probeEnvironmentIntensity = view.EnvironmentIntensity;
-        _probeSkySun = new Vector4(sky.Direction, sky.Turbidity);
 
         // Traced probes find the sun with shadow rays, through the frame's top-level structure, and draw nothing.
         if (traced)
@@ -3496,7 +3612,7 @@ public sealed unsafe class Renderer : IDisposable
             _lightProbes.BeginFolds(cmd);
             tracePass.Record(cmd, batch, scene, _tracing!, _frameIndex, frameSet,
                 CollectionsMarshal.AsSpan(_probeBatchPositions), CollectionsMarshal.AsSpan(_probeBatchSpacings),
-                (uint)scheduler.Frame, _probeEnvironmentIntensity, _probeSkySun);
+                (uint)scheduler.Frame, _probeEnvironmentIntensity);
             _lightProbes.RecordBlend(cmd, batch, TracedBlend, TracedSnap);
             scheduler.Updated(batch);
             _probesSettledOnce |= scheduler.Settled;
@@ -3508,7 +3624,7 @@ public sealed unsafe class Renderer : IDisposable
         _lightProbes.BeginFolds(cmd);
         for (int i = 0; i < batch.Count; i++)
         {
-            _lightProbes.RecordFold(cmd, i, _probeBatchSpacings[i], _probeEnvironmentIntensity, _probeSkySun);
+            _lightProbes.RecordFold(cmd, i, _probeBatchSpacings[i], _probeEnvironmentIntensity);
         }
 
         _lightProbes.RecordBlend(cmd, batch, RasterBlend);
@@ -3807,7 +3923,10 @@ public sealed unsafe class Renderer : IDisposable
         return new BakeSphere(part.Center, part.Radius);
     }
 
-    public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws)
+    public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws) =>
+        RenderTinted(SkyModel.Tinted(view, ref _tintedLights), draws);
+
+    private void RenderTinted(in FrameView view, ReadOnlySpan<DrawItem> draws)
     {
         if (view.Width <= 0 || view.Height <= 0)
         {
@@ -3894,11 +4013,11 @@ public sealed unsafe class Renderer : IDisposable
             UpdateBackgroundBake(view, draws);
             if (relit)
             {
-                // A fresh bake has taken some lights over, so the frame is drawn without them.
+                // A fresh bake has taken some lights over, so the frame is drawn without them, its sun tinted already.
                 _drawingWithoutBakedLights = true;
                 try
                 {
-                    Render(withoutBakedLights, draws);
+                    RenderTinted(withoutBakedLights, draws);
                 }
                 finally
                 {
@@ -3956,7 +4075,9 @@ public sealed unsafe class Renderer : IDisposable
         int jitterPhases = _upscaling ? Upscale.JitterPhaseCount((float)_gBuffer.Extent.Width / _gBuffer.Display.Width) : JitterSteps;
         var jitter = Upscale.Jitter(_frameNumber, jitterPhases);
         var shift = antiAliased ? jitter * 2f / scenePixels : Vector2.Zero;
-        var previous = _gBuffer.HistoryReady ? _previousViewProjection : viewProjection;
+        // The occlusion keeps a history of its own, which follows the camera and the draws while the picture has none.
+        bool lastFrameKnown = _gBuffer.HistoryReady || _gBuffer.OcclusionHistoryReady;
+        var previous = lastFrameKnown ? _previousViewProjection : viewProjection;
         if (_upscaling)
         {
             float milliseconds = (view.Time - _previousTime) * 1000f;
@@ -3981,7 +4102,7 @@ public sealed unsafe class Renderer : IDisposable
             frame, view, previous, shift, _frameNumber, _gBuffer.HistoryReady, _casterBounds.AsSpan(0, casters));
         _uniformFrame = _frameIndex;
         WriteBones(frame, view.Bones);
-        _motion.Begin(draws, view.Bones, _gBuffer.HistoryReady,
+        _motion.Begin(draws, view.Bones, lastFrameKnown,
             new Span<Matrix4x4>((Matrix4x4*)frame.Bones.Mapped + view.Bones.Length, 2 * MaxBones - view.Bones.Length));
         _previousViewProjection = viewProjection;
         _previousTime = view.Time;
@@ -4030,6 +4151,11 @@ public sealed unsafe class Renderer : IDisposable
         {
             _gpuTimer.Begin(cmd, _frameIndex);
         }
+
+        // A changed sky, redrawn before the frame's passes read it. It waits on the GPU for earlier reads itself, so the
+        // bake slice above traces last frame's sky, a frame behind, which the timer leaves out of the "Sky" pass.
+        RecordEnvironment(cmd);
+        _gpuTimer.Mark(cmd);
 
         // Worked out here, just before the frame is recorded, so a frame that is never drawn doesn't move the clock.
         _exposureStep = _exposureClock.Next(
@@ -4322,6 +4448,7 @@ public sealed unsafe class Renderer : IDisposable
         _scatterAcrossPass.Dispose();
         _scatterDownPass.Dispose();
         _aoBlurPass.Dispose();
+        _aoSteadyPass.Dispose();
         _aoPass.Dispose();
         _gBufferPass.Dispose();
         _shadowPass.Dispose();
@@ -4336,6 +4463,11 @@ public sealed unsafe class Renderer : IDisposable
         _reflectionCapture.Dispose();
         _skySh.Dispose();
         _environment.Dispose();
+        foreach (var image in _skyImages)
+        {
+            image.Cube.Dispose();
+        }
+
         _resources.Dispose();
 
         foreach (var mesh in _meshes)
@@ -4352,7 +4484,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.DestroyDescriptorPool(_context.Device, _lightingPool, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _oneTextureSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _twoTextureSetLayout, null);
-        _api.DestroyDescriptorSetLayout(_context.Device, _threeTextureSetLayout, null);
+        _api.DestroyDescriptorSetLayout(_context.Device, _sixTextureSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _fourTextureSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _lightingSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _frameSetLayout, null);
@@ -4389,8 +4521,8 @@ public sealed unsafe class Renderer : IDisposable
         RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount, _motion, traced, sceneDraws, updateProbes: true,
             probeView: _probeView, relightChunks: _relightChunks, depthFirst: DepthFirstView);
 
-        // Anti-aliasing blends in the last frame, and reflections read it, so it's kept for
-        // the next while either wants it. Without anti-aliasing the lit image is the frame.
+        // Anti-aliasing blends in the last frame, and reflections and the screen bounce read it, so it's kept for
+        // the next while any wants it. Without anti-aliasing the lit image is the frame.
         // FSR keeps its own history, at the window's size, so reflections get the lit image. It's kept every frame,
         // so the last frame's camera and motion stay known to FSR whether reflections are on or not.
         if (_upscaling)
@@ -4405,7 +4537,8 @@ public sealed unsafe class Renderer : IDisposable
             _taaPass.Record(cmd, targets.Resolved.View, targets.Extent, taaSets);
             RecordHistoryCopy(cmd, targets.Resolved.Image, drawnJustNow: true);
         }
-        else if (!_off.HasFlag(RenderEffects.Reflections))
+        else if (!_off.HasFlag(RenderEffects.Reflections)
+            || (_off & (RenderEffects.AmbientOcclusion | RenderEffects.ScreenBounce)) == 0)
         {
             RecordHistoryCopy(cmd, targets.Hdr.Image, drawnJustNow: false);
         }
@@ -4531,7 +4664,17 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void RecordHistoryCopy(CommandBuffer cmd, Image frame, bool drawnJustNow)
     {
-        var targets = _gBuffer;
+        RecordCopy(cmd, frame, _gBuffer.History.Image, _gBuffer.Extent, drawnJustNow);
+        _gBuffer.HistoryReady = true;
+    }
+
+    /// <summary>
+    /// Copies <paramref name="frame"/> into <paramref name="history"/>, an image of the same size and format that is
+    /// only ever sampled, and leaves both ready to sample. The frame is still a target when it was
+    /// <paramref name="drawnJustNow"/>, and already ready to sample when not.
+    /// </summary>
+    private void RecordCopy(CommandBuffer cmd, Image frame, Image history, Extent2D extent, bool drawnJustNow)
+    {
         if (drawnJustNow)
         {
             _api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
@@ -4545,7 +4688,7 @@ public sealed unsafe class Renderer : IDisposable
                 PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
         }
 
-        _api.Transition(cmd, targets.History.Image, ImageAspectFlags.ColorBit,
+        _api.Transition(cmd, history, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, SampledAccess,
             PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit);
 
@@ -4553,18 +4696,17 @@ public sealed unsafe class Renderer : IDisposable
         {
             SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
             DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-            Extent = new Extent3D(targets.Extent.Width, targets.Extent.Height, 1),
+            Extent = new Extent3D(extent.Width, extent.Height, 1),
         };
         _api.CmdCopyImage(cmd, frame, ImageLayout.TransferSrcOptimal,
-            targets.History.Image, ImageLayout.TransferDstOptimal, 1, &region);
+            history, ImageLayout.TransferDstOptimal, 1, &region);
 
-        _api.Transition(cmd, targets.History.Image, ImageAspectFlags.ColorBit,
+        _api.Transition(cmd, history, ImageAspectFlags.ColorBit,
             ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit, SampledStage, SampledAccess);
         _api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
             ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit, SampledStage, SampledAccess);
-        _gBuffer.HistoryReady = true;
     }
 
     /// <summary>
@@ -4746,7 +4888,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _gpuTimer.Mark(cmd);
 
-        RecordAmbientOcclusion(cmd, targets, frameSet);
+        RecordAmbientOcclusion(cmd, targets, frameSet, keepHistory: motion is not null);
 
         if (_traceView && traced is { } scene)
         {
@@ -4825,14 +4967,20 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Works out the ambient occlusion from the G-buffer just drawn and blurs its grain away, as two timed
-    /// passes. Left out, the lighting pass reads no occlusion, but it still binds the target.
+    /// Works out the ambient occlusion and the light bounced from the screen, from the G-buffer just drawn and last
+    /// frame's picture, and takes their grain away, as two timed passes: the trace, and then the average over the last
+    /// frames and the blur. Left out, the lighting pass reads neither, but it still binds the targets. Only a frame
+    /// asks to <paramref name="keepHistory"/>: a probe's faces are drawn once each, so theirs is one frame's occlusion,
+    /// blurred wide.
     /// </summary>
-    private void RecordAmbientOcclusion(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet)
+    private void RecordAmbientOcclusion(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, bool keepHistory)
     {
         if (_off.HasFlag(RenderEffects.AmbientOcclusion))
         {
+            targets.OcclusionHistoryReady = false;
             _api.Transition(cmd, targets.AoBlurred.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+            _api.Transition(cmd, targets.BounceBlurred.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
             _gpuTimer.Mark(cmd);
             _gpuTimer.Mark(cmd);
@@ -4843,19 +4991,61 @@ public sealed unsafe class Renderer : IDisposable
         int scale = targets.Occlusion == OcclusionResolution.Full ? 1 : 2;
         ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
         _api.BeginColorTarget(cmd, targets.Ao.Image);
-        _aoPass.Record(cmd, targets.Ao.View, extent, aoSets, new ReadOnlySpan<byte>(&scale, sizeof(int)));
+        _api.BeginColorTarget(cmd, targets.Bounce.Image);
+        _aoPass.Record(cmd, [targets.Ao.View, targets.Bounce.View], extent, aoSets, new ReadOnlySpan<byte>(&scale, sizeof(int)));
         _api.EndColorTarget(cmd, targets.Ao.Image);
+        _api.EndColorTarget(cmd, targets.Bounce.Image);
         _gpuTimer.Mark(cmd);
 
-        // Blurred across into a second image, then down into the one the lighting reads.
-        RecordAoBlur(cmd, targets.AoAcross, [frameSet, _aoAcrossSet], new AoBlurStep(1, 0, scale), extent);
-        RecordAoBlur(cmd, targets.AoBlurred, [frameSet, _aoDownSet], new AoBlurStep(0, 1, scale), extent);
+        // Averaged with the frames before, where there are any to keep, and that average kept for the next frame.
+        bool averaged = keepHistory && !_off.HasFlag(RenderEffects.OcclusionHistory);
+        if (averaged)
+        {
+            RecordOcclusionAverage(cmd, targets, frameSet, scale);
+        }
+
+        targets.OcclusionHistoryReady = averaged;
+
+        // Blurred across into a second pair of images, then down into the pair the lighting reads.
+        var across = averaged ? _aoSteadyAcrossSet : _aoAcrossSet;
+        RecordAoBlur(cmd, [targets.AoAcross, targets.BounceAcross], [frameSet, across], new AoBlurStep(1, 0, scale), extent);
+        RecordAoBlur(cmd, [targets.AoBlurred, targets.BounceBlurred], [frameSet, _aoDownSet], new AoBlurStep(0, 1, scale), extent);
         _gpuTimer.Mark(cmd);
+    }
+
+    /// <summary>
+    /// Averages this frame's occlusion and bounce with the frames before, where the history still shows the same
+    /// surface, and copies the average to the history for the next frame. <paramref name="scale"/> is screen pixels
+    /// per pixel of occlusion.
+    /// </summary>
+    private void RecordOcclusionAverage(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, int scale)
+    {
+        if (!targets.OcclusionHistoryReady)
+        {
+            // The pass binds the history even before there is any.
+            _api.Transition(cmd, targets.AoHistory.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+            _api.Transition(cmd, targets.BounceHistory.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+        }
+
+        var extent = targets.AoExtent;
+        var steady = new AoSteadyConstants(scale, targets.OcclusionHistoryReady ? 1 : 0);
+        _api.BeginColorTarget(cmd, targets.AoSteady.Image);
+        _api.BeginColorTarget(cmd, targets.BounceSteady.Image);
+        _aoSteadyPass.Record(cmd, [targets.AoSteady.View, targets.BounceSteady.View], extent, [frameSet, _aoSteadySet],
+            new ReadOnlySpan<byte>(&steady, sizeof(AoSteadyConstants)));
+        RecordCopy(cmd, targets.AoSteady.Image, targets.AoHistory.Image, extent, drawnJustNow: true);
+        RecordCopy(cmd, targets.BounceSteady.Image, targets.BounceHistory.Image, extent, drawnJustNow: true);
     }
 
     /// <summary>ao_blur.frag's constants: one pixel along the way a pass blurs, and screen pixels per pixel of occlusion.</summary>
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct AoBlurStep(int X, int Y, int Scale);
+
+    /// <summary>ao_temporal.frag's constants: screen pixels per pixel of occlusion, and 1 when there is a history to read.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly record struct AoSteadyConstants(int Scale, int HistoryValid);
 
     /// <summary>
     /// Traces the screen-space reflections from the G-buffer just drawn and last frame's picture, for the lighting to
@@ -4882,15 +5072,19 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// One direction of the occlusion blur: <paramref name="step"/> is one pixel along it, and
-    /// <paramref name="sets"/> the frame's set and then the one with the occlusion to blur.
+    /// One direction of the occlusion and bounce blur: <paramref name="step"/> is one pixel along it, and
+    /// <paramref name="sets"/> the frame's set and then the one with the occlusion and bounce to blur.
     /// </summary>
     private void RecordAoBlur(
-        CommandBuffer cmd, RenderTarget target, ReadOnlySpan<DescriptorSet> sets, AoBlurStep step, Extent2D extent)
+        CommandBuffer cmd, ReadOnlySpan<RenderTarget> occlusionAndBounce, ReadOnlySpan<DescriptorSet> sets, AoBlurStep step,
+        Extent2D extent)
     {
-        _api.BeginColorTarget(cmd, target.Image);
-        _aoBlurPass.Record(cmd, target.View, extent, sets, new ReadOnlySpan<byte>(&step, sizeof(AoBlurStep)));
-        _api.EndColorTarget(cmd, target.Image);
+        var (occlusion, bounce) = (occlusionAndBounce[0], occlusionAndBounce[1]);
+        _api.BeginColorTarget(cmd, occlusion.Image);
+        _api.BeginColorTarget(cmd, bounce.Image);
+        _aoBlurPass.Record(cmd, [occlusion.View, bounce.View], extent, sets, new ReadOnlySpan<byte>(&step, sizeof(AoBlurStep)));
+        _api.EndColorTarget(cmd, occlusion.Image);
+        _api.EndColorTarget(cmd, bounce.Image);
     }
 
     /// <summary>
@@ -5048,7 +5242,7 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->WhiteBalance = PostGrade.WhiteBalance(post.Temperature, post.Tint);
         uniforms->Curve = PostGrade.Curve(post);
         (uniforms->HazeOrigin, uniforms->HazeColor) = Haze.Pack(view.CameraPosition, view.BackgroundFadeOrigin, view.BackgroundFadeColor);
-        uniforms->Occlusion = Occlusion.Pack(view.Occlusion);
+        uniforms->Occlusion = Occlusion.Pack(view.Occlusion, view.Bounce, _off, historyValid);
         (uniforms->Outline, uniforms->OutlineFade) = Outlines.Pack(view.Outlines, _gBuffer.Extent.Width / (float)Math.Max(view.Width, 1));
         uniforms->Fog = Fog.Pack(view.Fog, _off, underwater: Underwater(view));
         WriteVolumetric(uniforms, view, historyValid);
@@ -5107,8 +5301,10 @@ public sealed unsafe class Renderer : IDisposable
 
         uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
         uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);
-        uniforms->FlatIrradiance = new Vector4(_environment.Flat.Irradiance, 0f);
-        uniforms->FlatReflection = new Vector4(_environment.Flat.Reflection, 0f);
+        var flat = _environment.Flat;
+        uniforms->FlatIrradiance = new Vector4(flat.Irradiance, 0f);
+        uniforms->FlatReflection = new Vector4(flat.Reflection, 0f);
+        Last.Flat = flat;
 
         // Probes leave the sun's disc out: their rough levels would scatter it into specks, and
         // the sun's own light already gives surfaces its highlight. The sky is the one BakeSky worked out from the
@@ -5117,7 +5313,12 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->SkySun = new Vector4(sky.Direction, sky.Turbidity);
         var disc = new Vector4(sky.DiscRadiance, sky.DiscCosine);
         uniforms->SunDisc = disc;
-        LastSunDisc = disc;
+        Last.FromCamera(disc, view.Lights);
+
+        // The physical sky's air between the eye and far surfaces; see SkyModel.AirShows for where it shows.
+        (uniforms->AirExtinction, uniforms->AirSun) = Atmosphere.Air(
+            sky.Turbidity, sky.Direction, view.EnvironmentIntensity, SkyModel.AirShows(view, _off));
+        (uniforms->Moon, uniforms->MoonRadiance, uniforms->Stars) = SkyModel.Night(view, sky.Direction, _off);
 
         // Moving points two texels of the first cascade off their surface stops them
         // shadowing themselves. The lighting pass works this out per cascade itself.
@@ -5666,16 +5867,36 @@ public sealed unsafe class Renderer : IDisposable
 
         var shadowDepth = new DescriptorImageInfo(_sampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal);
 
-        WriteImages(_aoSet, [depth, normal, shadowDepth]);
+        WriteImages(_aoSet, [depth, normal, shadowDepth, new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal)]);
         WriteImages(_aoAcrossSet,
         [
             new(_sampler, _gBuffer.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
+            normal,
+        ]);
+        WriteImages(_aoSteadySet,
+        [
+            new(_sampler, _gBuffer.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.AoHistory.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.BounceHistory.View, ImageLayout.ShaderReadOnlyOptimal),
+            depth,
+            new(_sampler, _gBuffer.Motion.View, ImageLayout.ShaderReadOnlyOptimal),
+        ]);
+        WriteImages(_aoSteadyAcrossSet,
+        [
+            new(_sampler, _gBuffer.AoSteady.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.BounceSteady.View, ImageLayout.ShaderReadOnlyOptimal),
+            depth,
+            normal,
         ]);
         WriteImages(_aoDownSet,
         [
             new(_sampler, _gBuffer.AoAcross.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.BounceAcross.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
+            normal,
         ]);
         WriteImages(_lightingSet,
         [
@@ -5695,6 +5916,8 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, _gBuffer.Baked.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.Mask.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.Traced.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.BounceBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         _reflectionCapture.WriteSet(
             new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
@@ -5727,7 +5950,8 @@ public sealed unsafe class Renderer : IDisposable
             testedDepth,
             new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal));
+            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal));
 
         // Glass has just used depth for testing, and it stays in that layout.
         WriteImages(_taaSet,
@@ -5751,7 +5975,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _volumetricFog.SetSources(
             new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
             new(_linearSampler, _lightProbes.DepthView, ImageLayout.General));
         foreach (ref var frame in _frames.AsSpan())

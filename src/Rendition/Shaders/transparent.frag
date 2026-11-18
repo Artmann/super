@@ -19,6 +19,8 @@ layout(set = 2, binding = 1) uniform samplerCube irradianceTexture;
 layout(set = 2, binding = 2) uniform sampler2D sceneColor; // The picture behind, with blurrier mips.
 layout(set = 2, binding = 3) uniform sampler2D sceneDepth;
 layout(set = 2, binding = 4) uniform samplerCubeArray probeTexture;
+// The environment without the sun's disc, what fog melts into.
+layout(set = 2, binding = 5) uniform samplerCube backgroundTexture;
 
 layout(location = 0) out vec4 outColor;
 
@@ -176,9 +178,19 @@ void main() {
 
     // The fog in front dims the glass's own light and adds its own over the part the glass
     // covers. What shows through already has the fog all the way to it.
-    vec4 fog = fogInFront(inPosition, reflectionTexture);
+    vec4 fog = fogInFront(inPosition, backgroundTexture);
     if (fog.a < 1.0) {
         own = own * fog.a + fog.rgb * coverage;
+    }
+
+    // Without a haze of its own, the physical sky's air dims the glass alike and adds its light over the part the
+    // glass covers.
+    if (frame.parameters.y <= frame.parameters.x && frame.airSun.a > 0.5) {
+        vec3 away = inPosition - frame.cameraPosition.xyz;
+        float distance = length(away);
+        vec3 air = throughAir(vec3(0.0), away / max(distance, 1e-4), distance, frame.airExtinction, frame.airSun,
+            frame.skySun.xyz, frame.flatIrradiance.rgb * frame.backgroundRadiance.a);
+        own = own * exp(-frame.airExtinction.rgb * distance) + air * coverage;
     }
 
     vec2 here = gl_FragCoord.xy / vec2(textureSize(sceneDepth, 0));

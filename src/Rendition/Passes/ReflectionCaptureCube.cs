@@ -24,7 +24,6 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
     [StructLayout(LayoutKind.Sequential)]
     private struct SkyConstants
     {
-        public Vector4 SkySun;
         public float EnvironmentIntensity;
     }
 
@@ -96,11 +95,10 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
     }
 
     /// <summary>
-    /// After the faces are drawn, fills the texels nothing covered with the sky, <paramref name="skySun"/> being the
-    /// frame's (xyz towards the clear sky's sun, w its turbidity), then makes the mips and leaves them all ready for
-    /// compute shaders to sample.
+    /// After the faces are drawn, fills the texels nothing covered with the sky, at the view's environment intensity,
+    /// then makes the mips and leaves them all ready for compute shaders to sample.
     /// </summary>
-    public void RecordFinish(CommandBuffer cmd, Vector4 skySun, float environmentIntensity)
+    public void RecordFinish(CommandBuffer cmd, float environmentIntensity)
     {
         var api = _context.Api;
         api.Transition(cmd, _color.Image, ImageAspectFlags.ColorBit,
@@ -108,7 +106,7 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
             ComputeStage, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit, layerCount: 6);
 
         var set = _set;
-        var constants = new SkyConstants { SkySun = skySun, EnvironmentIntensity = environmentIntensity };
+        var constants = new SkyConstants { EnvironmentIntensity = environmentIntensity };
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipeline);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _layout, 0, 1, &set, 0, null);
         api.CmdPushConstants(cmd, _layout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(SkyConstants), &constants);

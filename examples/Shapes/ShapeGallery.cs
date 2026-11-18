@@ -5,9 +5,10 @@ namespace ShapesExample;
 
 /// <summary>
 /// Every built-in shape in the back row and shapes made with <see cref="Shapes"/> in the
-/// front, turning slowly on a chequered floor whose texture tiles in metres.
+/// front, turning slowly on a chequered floor whose texture tiles in metres. B switches the light the shapes and the
+/// floor bounce onto each other.
 /// </summary>
-public sealed class ShapeGallery(Content content) : IGame
+public sealed class ShapeGallery(Content content, Input input, Graphics graphics) : IGame
 {
     private const float TurnsPerSecond = 0.05f;
     private const float Spacing = 1.6f;
@@ -52,6 +53,10 @@ public sealed class ShapeGallery(Content content) : IGame
     {
         _previousAngle = _angle;
         _angle += MathF.Tau * TurnsPerSecond * time.TickSeconds;
+        if (input.Pressed(Key.B))
+        {
+            graphics.ScreenBounce = !graphics.ScreenBounce;
+        }
     }
 
     public void Draw(View view)

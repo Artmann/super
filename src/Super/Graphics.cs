@@ -11,7 +11,7 @@ namespace Super;
 /// it as the game runs, and the next frame follows. Every effect starts on, as the engine
 /// looks best, and vsync starts off, so frames come as fast as they are drawn. Each effect turned off skips its work on the GPU, not only its look.
 /// </summary>
-public sealed class Graphics
+public sealed partial class Graphics
 {
     /// <summary>
     /// Waits for the display before showing each frame, so the picture never tears and the frame rate
@@ -179,6 +179,22 @@ public sealed class Graphics
     public bool AmbientOcclusion { get; set; } = true;
 
     /// <summary>
+    /// Light bounced from the surfaces on screen near each point, so a sunlit floor tints the wall beside it and a
+    /// glowing sign lights the bricks round it. Off, the soft light comes from the light probes and the sky alone. It
+    /// is found with the ambient occlusion, so it needs <see cref="AmbientOcclusion"/>. <c>View.ScreenBounce</c> sets
+    /// its strength and reach.
+    /// </summary>
+    public bool ScreenBounce { get; set; } = true;
+
+    /// <summary>
+    /// Averages the ambient occlusion and the screen bounce over the last frames, which smooths their grain without
+    /// blurring them, so the shading keeps to the creases of small things such as steps and mouldings. Off, each
+    /// frame's occlusion is blurred wide instead, which is softer and a little faster. It needs
+    /// <see cref="AmbientOcclusion"/>.
+    /// </summary>
+    public bool OcclusionHistory { get; set; } = true;
+
+    /// <summary>
     /// Rough surfaces keeping the light that bounces between their tiny facets before it leaves. Off,
     /// rough metals such as worn iron and brushed steel come out darker than they should. It costs
     /// almost nothing.
@@ -205,6 +221,20 @@ public sealed class Graphics
     /// <see cref="SkySettings.HazeEnd"/>. Off, they keep their colours however far they are. The sky's own colour stays.
     /// </summary>
     public bool Haze { get; set; } = true;
+
+    /// <summary>
+    /// The physical sky's air between the eye and far surfaces, from <see cref="SkySettings.Turbidity"/>: far hills
+    /// turn blue and pale, and glow warm towards a low sun. Off, they keep their colours however far they are. A scene
+    /// that sets its own haze gets that instead. It costs almost nothing.
+    /// </summary>
+    public bool AerialPerspective { get; set; } = true;
+
+    /// <summary>
+    /// The stars in a physical sky at night (<see cref="SkySettings.Turbidity"/>), fading in as the sky darkens after
+    /// sunset. Off, the night sky is its plain glow and the moon. They are drawn per pixel of the sky only, which
+    /// costs almost nothing.
+    /// </summary>
+    public bool Stars { get; set; } = true;
 
     /// <summary>
     /// The water set with <c>view.Water</c>. Off, the view is drawn as if the camera weren't under water: no absorption,
@@ -481,6 +511,7 @@ public sealed class Graphics
         LightProbes = false,
         ProbeQuality = ProbeQuality.Low,
         AmbientOcclusion = false,
+        ScreenBounce = false,
         Reflections = false,
         AutoExposure = false,
         DepthOfField = false,
@@ -541,32 +572,49 @@ public sealed class Graphics
     /// <summary>Takes the on and off of every effect from <paramref name="profile"/>.</summary>
     private void ApplySwitches(Graphics profile)
     {
+        ApplyLightSwitches(profile);
+        ApplyPictureSwitches(profile);
+    }
+
+    /// <summary>Takes the switches for light, shadows and the air from <paramref name="profile"/>.</summary>
+    private void ApplyLightSwitches(Graphics profile)
+    {
         ContactShadows = profile.ContactShadows;
         LightProbes = profile.LightProbes;
         LightShadows = profile.LightShadows;
         LocalLights = profile.LocalLights;
         AmbientOcclusion = profile.AmbientOcclusion;
+        ScreenBounce = profile.ScreenBounce;
+        OcclusionHistory = profile.OcclusionHistory;
         MultiscatterSpecular = profile.MultiscatterSpecular;
         Reflections = profile.Reflections;
-        AntiAliasing = profile.AntiAliasing;
-        Bloom = profile.Bloom;
+        EnvironmentLight = profile.EnvironmentLight;
+        BakedLighting = profile.BakedLighting;
         Fog = profile.Fog;
         Haze = profile.Haze;
+        AerialPerspective = profile.AerialPerspective;
+        Stars = profile.Stars;
         Underwater = profile.Underwater;
         FogVolumes = profile.FogVolumes;
+        VolumetricFog = profile.VolumetricFog;
+    }
+
+    /// <summary>Takes the switches for surfaces, drawing and the finished picture from <paramref name="profile"/>.</summary>
+    private void ApplyPictureSwitches(Graphics profile)
+    {
+        AntiAliasing = profile.AntiAliasing;
+        Bloom = profile.Bloom;
         AutoExposure = profile.AutoExposure;
         DepthOfField = profile.DepthOfField;
         Decals = profile.Decals;
         Particles = profile.Particles;
         Subsurface = profile.Subsurface;
-        VolumetricFog = profile.VolumetricFog;
         Materials = profile.Materials;
         WearAndDirt = profile.WearAndDirt;
         Puddles = profile.Puddles;
         Wind = profile.Wind;
         HeightMaps = profile.HeightMaps;
         Specular = profile.Specular;
-        EnvironmentLight = profile.EnvironmentLight;
         Emissive = profile.Emissive;
         Vignette = profile.Vignette;
         Grain = profile.Grain;
@@ -576,7 +624,6 @@ public sealed class Graphics
         SimplerModels = profile.SimplerModels;
         DepthFirst = profile.DepthFirst;
         Fades = profile.Fades;
-        BakedLighting = profile.BakedLighting;
     }
 
     /// <summary>
@@ -622,6 +669,8 @@ public sealed class Graphics
         ProbeQuality = ProbeQuality.Low,
         LightShadows = false,
         AmbientOcclusion = false,
+        ScreenBounce = false,
+        OcclusionHistory = false,
         MultiscatterSpecular = false,
         Reflections = false,
         AntiAliasing = false,
@@ -641,64 +690,4 @@ public sealed class Graphics
         Subsurface = false,
         FogVolumes = false,
     };
-
-    /// <summary>The effects the renderer leaves out.</summary>
-    internal RenderEffects Off
-    {
-        get
-        {
-            var off = RenderEffects.None;
-            foreach (var (on, effect) in Switches)
-            {
-                if (!on(this))
-                {
-                    off |= effect;
-                }
-            }
-
-            return off;
-        }
-    }
-
-    /// <summary>Each switch, with the effect the renderer leaves out while it's off.</summary>
-    private static readonly (Func<Graphics, bool> On, RenderEffects Effect)[] Switches =
-    [
-        (graphics => graphics.SunShadows, RenderEffects.SunShadows),
-        (graphics => graphics.ContactShadows, RenderEffects.ContactShadows),
-        (graphics => graphics.LightProbes, RenderEffects.LightProbes),
-        (graphics => graphics.LightShadows, RenderEffects.LightShadows),
-        (graphics => graphics.AmbientOcclusion, RenderEffects.AmbientOcclusion),
-        (graphics => graphics.MultiscatterSpecular, RenderEffects.MultiscatterSpecular),
-        (graphics => graphics.Reflections, RenderEffects.Reflections),
-        (graphics => graphics.AntiAliasing, RenderEffects.AntiAliasing),
-        (graphics => graphics.Bloom, RenderEffects.Bloom),
-        (graphics => graphics.Fog, RenderEffects.Fog),
-        (graphics => graphics.AutoExposure, RenderEffects.AutoExposure),
-        (graphics => graphics.DepthOfField, RenderEffects.DepthOfField),
-        (graphics => graphics.Decals, RenderEffects.Decals),
-        (graphics => graphics.VolumetricFog, RenderEffects.VolumetricFog),
-        (graphics => graphics.Puddles, RenderEffects.Puddles),
-        (graphics => graphics.Wind, RenderEffects.Wind),
-        (graphics => graphics.BakedLighting, RenderEffects.BakedLighting),
-        (graphics => graphics.Materials, RenderEffects.Materials),
-        (graphics => graphics.WearAndDirt, RenderEffects.WearAndDirt),
-        (graphics => graphics.HeightMaps, RenderEffects.HeightMaps),
-        (graphics => graphics.Specular, RenderEffects.Specular),
-        (graphics => graphics.EnvironmentLight, RenderEffects.EnvironmentLight),
-        (graphics => graphics.Emissive, RenderEffects.Emissive),
-        (graphics => graphics.Vignette, RenderEffects.Vignette),
-        (graphics => graphics.Grain, RenderEffects.Grain),
-        (graphics => graphics.Sharpening, RenderEffects.Sharpening),
-        (graphics => graphics.ColorGrading, RenderEffects.ColorGrading),
-        (graphics => graphics.Culling, RenderEffects.Culling),
-        (graphics => graphics.SimplerModels, RenderEffects.SimplerModels),
-        (graphics => graphics.DepthFirst, RenderEffects.DepthFirst),
-        (graphics => graphics.Fades, RenderEffects.Fades),
-        (graphics => graphics.Subsurface, RenderEffects.Subsurface),
-        (graphics => graphics.Particles, RenderEffects.Particles),
-        (graphics => graphics.LocalLights, RenderEffects.LocalLights),
-        (graphics => graphics.Haze, RenderEffects.Haze),
-        (graphics => graphics.Underwater, RenderEffects.Underwater),
-        (graphics => graphics.FogVolumes, RenderEffects.FogVolumes),
-    ];
 }

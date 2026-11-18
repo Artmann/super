@@ -5,7 +5,8 @@ namespace Courtyard;
 
 /// <summary>
 /// The lineup: a row for each material graph, with a sphere, a cube and a flat tile 1 m
-/// across, all at the graph's own width, under a low sun from the side so the bumps read.
+/// across, all at the graph's own width, under a photographed meadow sky turned so its low sun
+/// comes from the side and the bumps read.
 /// </summary>
 public sealed class LineupGame(Content content) : IGame
 {
@@ -25,9 +26,16 @@ public sealed class LineupGame(Content content) : IGame
 
     private readonly List<(ModelRef Model, Vector3 Position)> _exhibits = [];
     private ModelRef _floor;
+    private SkyImage? _sky;
+    private float _skyRotation;
 
     public void Load()
     {
+        // Meadow 2 by Sergej Majboroda, CC0, from Poly Haven. Turned so its sun stands where the old one did, to the
+        // right and a little towards the camera.
+        _sky = content.Sky("skies/meadow_2.hdr");
+        _skyRotation = Azimuth(new Vector3(1f, 0f, 0.25f)) - Azimuth(_sky.SunDirection);
+
         _floor = content.Mesh(Shapes.Plane(new Vector2(30f, 30f), surface: new Surface { Color = new Vector3(0.45f), Roughness = 0.9f }));
 
         for (int i = 0; i < Materials.Length; i++)
@@ -51,15 +59,9 @@ public sealed class LineupGame(Content content) : IGame
     {
         view.Camera(position: new Vector3(0f, 6f, 8.2f), lookAt: new Vector3(0f, 0.15f, 0f), fieldOfView: 0.6f);
 
-        // A low sun about 20 degrees up, from the right, so the normals read, and sky light to fill.
-        view.Sun(direction: new Vector3(1f, 0.38f, 0.25f), color: new Vector3(4f));
-        view.Sky(new SkySettings
-        {
-            Zenith = new Vector3(0.35f, 0.45f, 0.65f),
-            Horizon = new Vector3(0.7f, 0.72f, 0.75f),
-            Ground = new Vector3(0.2f, 0.19f, 0.17f),
-            Brightness = 1f,
-        });
+        // The photographed sun, from the right, so the normals read, and the meadow's sky light to fill.
+        view.Sun(direction: _sky!.SunDirectionAt(_skyRotation), color: new Vector3(4f));
+        view.Sky(new SkySettings { Image = _sky, Rotation = _skyRotation, Brightness = 1f });
         view.Shadows(10f, 2);
         view.Model(0, _floor, Matrix4x4.Identity);
 
@@ -68,4 +70,8 @@ public sealed class LineupGame(Content content) : IGame
             view.Model(i + 1, _exhibits[i].Model, Matrix4x4.CreateTranslation(_exhibits[i].Position));
         }
     }
+
+    // The angle round the up axis, counterclockwise seen from above, from +X; a sky turned by the difference of two
+    // of these carries the one direction to the other.
+    private static float Azimuth(Vector3 direction) => MathF.Atan2(-direction.Z, direction.X);
 }

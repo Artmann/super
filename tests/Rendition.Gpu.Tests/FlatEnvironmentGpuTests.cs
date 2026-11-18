@@ -21,7 +21,7 @@ public sealed class FlatEnvironmentGpuTests(GpuFixture gpu)
 
         // The same colour every way, so every face's middle, at any blur, is that colour. A panel overhead shows only in
         // the reflections: the irradiance leaves panels to the direct lights.
-        environment.Bake(new EnvironmentDescription
+        environment.Bake(gpu.Context, new EnvironmentDescription
         {
             Ceiling = colour,
             Horizon = colour,
@@ -46,9 +46,9 @@ public sealed class FlatEnvironmentGpuTests(GpuFixture gpu)
         var second = new Vector3(0.125f, 0.375f, 1f);
         using var environment = new EnvironmentMap(gpu.Context);
 
-        environment.Bake(new EnvironmentDescription { Ceiling = first, Horizon = first, Floor = first }, Bands);
+        environment.Bake(gpu.Context, new EnvironmentDescription { Ceiling = first, Horizon = first, Floor = first }, Bands);
         var (firstIrradiance, firstReflection) = environment.Flat;
-        environment.Bake(new EnvironmentDescription { Ceiling = second, Horizon = second, Floor = second }, Bands);
+        environment.Bake(gpu.Context, new EnvironmentDescription { Ceiling = second, Horizon = second, Floor = second }, Bands);
         var (secondIrradiance, secondReflection) = environment.Flat;
 
         AssertClose(first, firstIrradiance);

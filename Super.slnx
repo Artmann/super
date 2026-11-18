@@ -39,6 +39,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Cannonball.Tests/Cannonball.Tests.csproj" />
+    <Project Path="tests/Fox.Tests/Fox.Tests.csproj" />
     <Project Path="tests/Courtyard.Tests/Courtyard.Tests.csproj" />
     <Project Path="tests/Crafting.Tests/Crafting.Tests.csproj" />
     <Project Path="tests/Crypt.Tests/Crypt.Tests.csproj" />

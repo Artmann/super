@@ -14,6 +14,17 @@ layout(location = 0) out vec4 outColor;
 
 const float HISTORY_WEIGHT = 0.92;
 
+// How wide, in pixels, the filter each frame's sample is weighed by as it lands. Every frame the pixel is sampled
+// somewhere else within it, and taken evenly the samples average the whole pixel's square, a box filter that softens
+// fine detail such as mortar lines and mouldings. Weighed by how near the pixel's middle each fell, a narrow Gaussian,
+// the picture gathers mostly what lies at the middle and keeps more of that detail, its edges still smoothed by the
+// samples further out.
+const float SAMPLE_SPREAD = 0.3;
+
+// The Gaussian's average over the pixel's square, which the jitter covers evenly: dividing by it keeps the blend's
+// weight on the current frame the same on average, so the picture settles no slower.
+const float SAMPLE_MEAN = 0.4625;
+
 // How far history may stray from this frame's nearby pixels, in standard deviations.
 const float HISTORY_TOLERANCE = 1.25;
 
@@ -101,5 +112,9 @@ void main() {
     vec3 spread = sqrt(max(meanSquared - mean * mean, vec3(0.0))) * HISTORY_TOLERANCE;
     vec3 history = clamp(squeeze(sampleHistory(historyUv)), mean - spread, mean + spread);
 
-    outColor = vec4(unsqueeze(mix(squeeze(current), history, HISTORY_WEIGHT)), 1.0);
+    // This frame's sample sits the jitter away from the pixel's middle, in pixels.
+    vec2 offset = frame.finish.zw * 0.5 * frame.screen.xy;
+    float near = exp(-dot(offset, offset) / (2.0 * SAMPLE_SPREAD * SAMPLE_SPREAD)) / SAMPLE_MEAN;
+    float weight = clamp((1.0 - HISTORY_WEIGHT) * near, 0.0, 1.0);
+    outColor = vec4(unsqueeze(mix(history, squeeze(current), weight)), 1.0);
 }

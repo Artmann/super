@@ -70,6 +70,9 @@ public readonly record struct TextureHandle(int Index);
 /// <summary>A stack of same-sized images that shaders index by layer.</summary>
 public readonly record struct TextureArrayHandle(int Index);
 
+/// <summary>A photographed sky made by <see cref="Renderer.CreateSkyImage"/>.</summary>
+public readonly record struct SkyImageHandle(int Index);
+
 public readonly record struct MaterialHandle(int Index);
 
 public readonly record struct SurfaceShaderHandle(int Index);
@@ -638,20 +641,51 @@ public ref struct EnvironmentDescription
 }
 
 /// <summary>
-/// A real clear sky, worked out from the sun (Preetham, Shirley and Smits 1999), in place of the
-/// environment's ceiling and horizon. Its sun is the light that casts the shadows, or else the
-/// first, and it shows that light as a disc <see cref="ShadowSettings.LightAngle"/> across. The
-/// environment's floor still shows below the horizon. Changing it, or that sun, while it is on
-/// bakes the environment again, which waits for the GPU. See "Sky" in docs/rendering.md.
+/// A physical clear sky, the light of the sun scattered by the air (after Hillaire 2020), in place
+/// of the environment's ceiling and horizon. Its sun is the light that casts the shadows, or else
+/// the first, and it shows that light as a disc <see cref="ShadowSettings.LightAngle"/> across. The
+/// sky follows the sun all day: blue at noon, orange and red at sunset, deep blue after dusk. The
+/// sun's light itself turns warm and dim as it sinks, and far surfaces fade into the air (see
+/// <see cref="RenderEffects.AerialPerspective"/>). The environment's floor still shows below the
+/// horizon, lit by the sun and sky. Changing it, or that sun, while it is on redraws the
+/// environment's lighting in the next frame, without waiting, so it can change every frame. See
+/// "The sky" in docs/rendering.md.
 /// </summary>
 public struct AnalyticSky
 {
     /// <summary>
     /// How hazy the air is, from 1.7 (very clear) to 10 (milky). 0 keeps the environment's bands. Rendition
-    /// doesn't refuse other values, but draws anything above 0 held to 1.7 to 10: below about 1.2 the
-    /// model breaks down at the horizon. Super's SkySettings refuses them.
+    /// doesn't refuse other values, but draws anything above 0 held to 1.7 to 10. Super's SkySettings
+    /// refuses them.
     /// </summary>
     public float Turbidity;
+
+    /// <summary>
+    /// Towards the moon, which the sky shows as a disc, lit on the side facing the sun; zero for no moon. Its light is
+    /// a light of the game's own, aimed this way: the sky never follows that light as its sun, even when it casts the
+    /// shadows. See "Night" in docs/rendering.md.
+    /// </summary>
+    public Vector3 Moon;
+
+    /// <summary>Leaves the stars out of the night sky, as for an overcast night.</summary>
+    public bool HideStars;
+
+    /// <summary>How far the stars have turned about the zenith, in radians, for a night sky that turns with time.</summary>
+    public float StarRotation;
+
+    /// <summary>
+    /// A photographed sky, from <see cref="Renderer.CreateSkyImage"/>, in place of the bands and the physical sky. It
+    /// shows behind the scene, lights it and shows in reflections, with the sun the cooker took out of it drawn back
+    /// as a disc. It wins over <see cref="Turbidity"/>, <see cref="Moon"/> and the stars, which it leaves out. Its sun
+    /// is not a light: aim the game's own at it. See "A photographed sky" in docs/rendering.md.
+    /// </summary>
+    public SkyImageHandle? Image;
+
+    /// <summary>How far <see cref="Image"/> is turned about the up axis, in radians, counterclockwise seen from above.</summary>
+    public float Rotation;
+
+    /// <summary>How much brighter <see cref="Image"/> is drawn, in stops: 1 doubles it, -1 halves it.</summary>
+    public float Exposure;
 }
 
 /// <summary>
@@ -981,6 +1015,23 @@ public readonly record struct OcclusionSettings(float Radius = OcclusionSettings
 }
 
 /// <summary>
+/// Light bounced from the surfaces on screen near a point. <see cref="Strength"/>, from 0 to 2, scales it, and 1 is
+/// the true amount; <see cref="Radius"/> is how far, in metres, a point looks for surfaces that light it.
+/// </summary>
+public readonly record struct BounceSettings(float Strength = BounceSettings.DefaultStrength, float Radius = BounceSettings.DefaultRadius)
+{
+    public const float DefaultStrength = 1f;
+    public const float DefaultRadius = 2f;
+    public const float MostStrength = 2f;
+    public const float MostRadius = 8f;
+
+    /// <summary>The defaults: the true amount, from surfaces up to two metres away.</summary>
+    public BounceSettings() : this(DefaultStrength, DefaultRadius)
+    {
+    }
+}
+
+/// <summary>
 /// The ink lines drawn round materials with <see cref="MaterialFlags.Outline"/>: their linear colour, how many pixels of
 /// the picture wide they are, and the distances in metres over which they fade out, so far-off things don't turn into
 /// smudges of ink.
@@ -1136,6 +1187,9 @@ public ref struct FrameView
 
     /// <summary>How nearby surfaces darken the soft light. See docs/rendering.md.</summary>
     public OcclusionSettings Occlusion = new();
+
+    /// <summary>Light bounced from the surfaces on screen. See docs/rendering.md.</summary>
+    public BounceSettings Bounce = new();
 
     /// <summary>The ink lines round materials with <see cref="MaterialFlags.Outline"/>. A thickness of 0 draws none.</summary>
     public OutlineSettings Outlines = new();
@@ -1449,10 +1503,38 @@ public enum RenderEffects : long
     /// </summary>
     FogVolumes = 1L << 37,
 
+    /// <summary>
+    /// Light bounced from what's on screen, from <see cref="FrameView.Bounce"/>: a sunlit floor tints the wall beside
+    /// it and a glowing sign lights the bricks round it. Without it the soft light comes from the light probes and the
+    /// sky alone. It's found with the ambient occlusion, so it needs <see cref="AmbientOcclusion"/>.
+    /// </summary>
+    ScreenBounce = 1L << 38,
+
+    /// <summary>
+    /// The physical sky's air between the eye and what it sees, from <see cref="AnalyticSky.Turbidity"/>: far hills turn
+    /// blue and pale, and towards a low sun they glow warm. Without it they keep their colours however far they are.
+    /// A view that sets its own haze, with <see cref="FrameView.BackgroundFadeEnd"/>, gets that haze instead.
+    /// </summary>
+    AerialPerspective = 1L << 39,
+
+    /// <summary>
+    /// The stars in the physical sky at night, from <see cref="AnalyticSky.HideStars"/>. They show in the background
+    /// only, fading in as the sky darkens after sunset. Without them the night sky is its plain glow and the moon.
+    /// </summary>
+    Stars = 1L << 40,
+
+    /// <summary>
+    /// The average of the ambient occlusion and the screen bounce over the last frames, which smooths their grain
+    /// without blurring them. Without it each frame's occlusion is blurred wide instead. It needs
+    /// <see cref="AmbientOcclusion"/>.
+    /// </summary>
+    OcclusionHistory = 1L << 41,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
-        | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes,
+        | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
+        | ScreenBounce | AerialPerspective | Stars | OcclusionHistory,
 }
 
 /// <summary>

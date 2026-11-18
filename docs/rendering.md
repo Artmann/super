@@ -75,7 +75,9 @@ next frame follows, so it can back an options menu.
 | `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Shadows`' `contact` only changes [how far they look](#shadows) |
 | `LightShadows` | Point and spot lights shine through walls |
 | `LocalLights` | Point and spot lights give no light: none is clustered, shadowed or lit onto the [light probes](#bounced-light), so the sun and the sky light the scene alone. Light a bake already holds stays, and no bake is redone. `BakedLighting` drops it too |
-| `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. A material's [occlusion map](#occlusion-maps) still darkens its own cracks. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
+| `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. A material's [occlusion map](#occlusion-maps) still darkens its own cracks. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion). The [screen bounce](#light-bounced-across-the-screen) goes with it |
+| `ScreenBounce` | Surfaces on screen no longer [light their neighbours](#light-bounced-across-the-screen): the floor under a red ball stays its own colour, and a glowing panel lights nothing round it unless the light probes see it. The light probes still bounce light. It saves about 0.6 ms of GPU time a frame at 1920 by 1080 on an RTX 4060 Ti. `view.ScreenBounce` only changes how far and how much. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
+| `OcclusionHistory` | The [ambient occlusion](#ambient-occlusion) and the [screen bounce](#light-bounced-across-the-screen) are no longer averaged over the last frames. Each frame's grain is blurred away over a wider patch instead, so creases and the shade under things turn softer and small detail, such as the gap round a chest's lid, washes out. It saves about 0.1 ms of GPU time a frame at `OcclusionResolution.Half` and about 0.9 ms at `Full`, at 1600 by 900 on an RTX 4060 Ti, and four small images. `Graphics.Fastest()` turns it off |
 | `MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
 | `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
 | `ProbeQuality` | How many [light probes](#bounced-light) follow the camera and how many are redrawn a frame. `High`, the default and the best look, keeps 32 × 16 × 32 probes in each of the four boxes and redraws 32 a frame, for about 170 MB. `Medium` keeps 24 × 12 × 24 and redraws 16, for about 73 MB. `Low` keeps 16 × 8 × 16 and redraws 8, for about 43 MB, so the boxes reach half as far, the bounce fills in more slowly at the start and is slower to follow lights that move. Anything else is refused. A change starts every probe again on the next frame, which waits for the GPU once. `Graphics.Fastest()` sets `Low`, so turning the probes back on stays cheap |
@@ -86,6 +88,8 @@ next frame follows, so it can back an options menu.
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
 | `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
 | `Haze` | Distant things keep their colours instead of fading into the sky between `SkySettings.HazeStart` and `HazeEnd`. The sky's own colour stays |
+| `AerialPerspective` | Under a [physical sky](#the-sky), far surfaces keep their colours instead of fading into the air with distance. A view with its own haze gets that either way. It costs almost nothing |
+| `Stars` | A [physical sky](#night) at night has no stars. The moon stays. They cost a little per sky pixel, so they stay on even in `Graphics.Fastest()` |
 | `Underwater` | `view.Water` is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
 | `VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps, and under water no shafts of light. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
 | `FogVolumes` | The [fog volumes](views.md#fog-volumes) a view places are left out, and only the scene's own fog fills the volumetric fog. They show only while `VolumetricFog` is on too. `Graphics.Fastest()` turns it off |
@@ -145,7 +149,7 @@ itself, or offers it in an options menu.
 
 | Quality | What changes from `High` |
 |---|---|
-| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, reflections, auto exposure, depth of field, decals, volumetric fog and height maps. Puddles and wind stay on, as they cost next to nothing |
+| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, the screen bounce, reflections, auto exposure, depth of field, decals, volumetric fog and height maps. Puddles and wind stay on, as they cost next to nothing |
 | `Medium` | Render scale 0.85, 3 cascades, `MeshDetail` 0.75, `ProbeQuality.Medium` and a 2 ms bake budget. Off: depth of field and volumetric fog |
 | `Ultra` | 4096 shadow maps, `MeshDetail` 1.5, `ReflectionResolution.Full`, `OcclusionResolution.Full` and 128 volumetric fog slices |
 
@@ -474,6 +478,56 @@ comes from that way rather than straight off the surface. Reflections of the sky
 the same corners, most on rough surfaces, so a gap behind a barrel doesn't shine.
 It only knows what the camera sees, plus what stands over a point in the sun's shadow map.
 
+Each frame looks in only a few directions from every point, which leaves grain. The grain
+is averaged away over the last eight frames, following each surface as it and the camera
+move, and only a narrow blur that stays on the surface it started on comes after. That
+keeps the shade crisp: it stops at the edge of a step instead of spreading onto the next
+one, and a small model keeps its creases. It works the same with anti-aliasing off. The
+cost is that the shade takes about eight frames to catch up when something moves, so the
+floor a figure just left stays dark for a moment, and a surface that has just come into
+view is softer for its first few frames. Turn `Graphics.OcclusionHistory` off to blur each
+frame by itself instead, which is softer everywhere.
+
+![The Crypt's statue in plain clay three times: before the change, with OcclusionHistory off, and with it on](media/occlusion-history.webp)
+
+The statue in the Crypt, in plain clay with anti-aliasing off and enlarged. On the left is
+the older blur, which followed depth alone and washed the folds of the robe out. The other
+two keep them, with and without the average over frames.
+
+## Light bounced across the screen
+
+```csharp
+view.ScreenBounce(strength: 1.5f, radius: 3f);
+```
+
+Light that lands on a surface the camera sees also lights the surfaces next to it: a red
+ball tints the floor under it red, a sunlit floor lights the underside of a table, and a
+glowing panel or a candle lights the wall beside it. The same pass as the
+[ambient occlusion](#ambient-occlusion) finds the surfaces round each point and takes the
+light they had in the last frame, so it follows lights, glows and moving things at once,
+with nothing to bake. `radius` is how far, in metres, a point looks for surfaces that
+light it, more than 0 and at most 8. `strength`, from 0 to 2, scales the light they give:
+1, the default, is what they really pass on, and 0 turns it off. The default radius of 2
+suits rooms and furniture. A wider one carries light across a hall, but finds fewer of the
+small surfaces near a point.
+
+It adds to the [light probes](#bounced-light), which carry light round corners and from
+off screen, while this finds the close, coloured light the probes are too coarse for.
+It only knows what the camera sees, so a wall that turns out of view stops lighting its
+neighbours. Surfaces whose light is [baked](#baked-lighting) keep the bounce the bake
+gave them, toon surfaces keep their flat shading, and with `AmbientOcclusion` off there
+is no screen bounce either, since the two are found together.
+
+The light probes already give most of the bounce, so the difference is gentle. In the
+Shapes example the floor lights the shapes' lower sides, and the ground round each shape
+takes a little of its colour:
+
+![The Shapes example with the screen bounce off, and on](media/screen-bounce-shapes.webp)
+
+In the Crypt, the lit floor and the candles brighten the front of the chest:
+
+![The Crypt's chest and candles with the screen bounce off, and on](media/screen-bounce-crypt.webp)
+
 ## Bounced light
 
 Sunlight that lands on a brick wall doesn't stop there: some of it bounces off and lights
@@ -751,8 +805,8 @@ open side and the bounce from its own sunlit walls, with no bake per copy and no
 sky changes. The frame after the sky or a sun changes, every copy shows it. Its own `Baked` and
 `Mixed` lights are added on top. The sun's direct light and shadows stay live, while its bounce
 follows every `Mixed` and `Baked` sun, moving ones included. The sky's light is kept to its
-broad shape, so a sky much brighter at the horizon than overhead lights an open floor a little
-too brightly, about 8 steps in 255 against a space baked under that sky. Each copy draws only its
+broad shape, so a sky much brighter at the horizon than overhead lights an open floor
+too brightly, about 19 steps in 255 under a clear sky at turbidity 3, against a space baked under that sky. Each copy draws only its
 own bake, so a pending copy is lit live even while another copy of the same chunk with another
 bake is resident. Reflection captures don't draw chunk bakes: they light a chunk's surfaces live,
 but without the chunk's `Baked` lights, which a fresh chunk takes out of the frame, so a chunk
@@ -1206,10 +1260,10 @@ looking down is the dark ground below the horizon.
 
 ![The Courtyard sky as a gradient, then as a clear sky, then the clear sky round the sun's disc](media/clear-sky.webp)
 
-`Turbidity` swaps the gradient for a clear sky worked out from the sun, after Preetham,
-Shirley and Smits (1999). It is brighter and whiter towards the sun, a deeper blue
-straight up and away from it, and paler at the horizon, and the sun itself shows as a
-disc:
+`Turbidity` swaps the gradient for a physical sky: the light of the sun scattered by the
+air of a planet like Earth, after Hillaire (2020). It is a deeper blue straight up and
+paler at the horizon, it glows round the sun, it turns orange and pink as the sun sets,
+and the sun itself shows as a disc:
 
 ```csharp
 view.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(7.2f, 6.7f, 5.8f));
@@ -1221,25 +1275,140 @@ view.Sky(new SkySettings
 });
 ```
 
-Turbidity is how hazy the air is, from 1.7 to 10; 2 to 3 is a clear day. Zero, the
-default, keeps the gradient, and is the way to turn the clear sky off: there is no
-switch for it in `Graphics`. Any other value throws. The sky follows the sun that casts
-the shadows, or the first sun when none does. Its disc is as wide as `sunSize` in
-`view.Shadows` and as bright as the sun's colour spread over it, so a smaller sun is a
-brighter disc, held under what the screen can store. `Zenith` and `Horizon` are not used;
-`Ground` still colours what is below the horizon, and `Brightness` still scales the
-whole sky, disc included. A sun below the horizon is treated as on it, so this is a
-daytime sky.
+Turbidity is how hazy the air is, from 1.7 to 10; 2 to 3 is a clear day, and a hazier
+sky is whiter and its sunsets redder. Zero, the default, keeps the gradient, and is the
+way to turn the physical sky off: there is no switch for it in `Graphics`. Any other
+value throws. The sky follows the sun that casts the shadows, or the first sun when none
+does. Its disc is as wide as `sunSize` in `view.Shadows` and as bright as the sun's
+colour spread over it, so a smaller sun is a brighter disc, held under what the screen
+can store. `Zenith` and `Horizon` are not used; `Ground` still colours what is below the
+horizon, lit by the sun and the sky, so it darkens at dusk, and `Brightness` still
+scales the whole sky, disc included.
+
+A scene that already set a turbidity gets the physical sky with no change. The
+[Forest example](../examples/Forest)'s sunrise mist now takes the warm glow round the
+low sun, and the hard white glare the old sky put on the grass is softer:
+
+![Forest just after sunrise: before with the Preetham sky, after with the physical sky](media/physical-sky-forest.webp)
+
+The sun's light comes through the air too. Set its colour as it looks with the sun 60°
+up: higher, it is a little brighter; lower, it is warmer and dimmer, orange near the
+horizon, and once it has set it gives no light at all. Only the sun the sky follows is
+tinted; other lights keep their colour. After sunset the sky fades to a faint deep blue
+glow, eight stops or so under noon, and never to black.
+
+![Courtyard with the sun just above the horizon: before, the old sky turns white round it; after, the physical sky glows orange and the sunlight is warm](media/physical-sky-sunset.webp)
+
+Far surfaces fade into the air, bluer and paler with distance, as they would on a clear
+day: about a sixth of the way by a kilometre at turbidity 3. A view with its own haze,
+`HazeStart` and `HazeEnd`, gets that instead, and with `Graphics.Haze` off it gets neither.
+Reflections leave the fade out, as they leave out haze. `Graphics.AerialPerspective` turns the fade
+off for every view; it costs almost nothing, so it stays on even in `Graphics.Fastest()`.
 
 The disc shows in the background and in sharp reflections from the sky, but not in the
 soft light, in rough reflections or in what [probes](#bounced-light) capture: the sun's
 own light already gives those their highlight and their warmth. Moving the sun or
 changing the turbidity rebuilds the sky's lighting, the same as changing its colours.
 
-Changing the colours rebuilds the sky's lighting, which takes a moment, so keep them
-steady rather than animating them every frame. [Water](#water), when set, takes over the
-sky. The [Archer example](../examples/Archer) uses a golden-hour sky, and the
-[Courtyard example](../examples/Courtyard) a clear one.
+The sky's lighting is rebuilt on the GPU within the frame, in about half a millisecond, so the
+colours, the turbidity and the sun can change every frame, for a sunset or a turning day.
+Nothing waits for it. The roughest reflections catch up over the next two frames, too blurred
+for the lag to show. Hamlet's day used to change its sky every half second; now it follows the
+sun every frame. The plot shows the brightness of the top of the screen over eight seconds
+of its sunset:
+
+![Hamlet's sky brightness over a sunset: before, a sawtooth that jumps every half second; after, a smooth curve](media/sky-fast-updates.webp)
+
+[Water](#water), when set, takes over the
+sky. The [Archer example](../examples/Archer) has its sun 14 degrees up for golden hour,
+with a white sun the air turns gold, and the [Courtyard example](../examples/Courtyard)
+a clear one. Moving Archer from its gradient sky kept its brightness and lost
+the blue cast the gradient's zenith gave the shade:
+
+![Archer at the end of its film: before with the gradient sky, after with the physical sky](media/physical-sky-archer.webp)
+
+### Night
+
+Once the sun is down, a physical sky shows stars. They fade in as the sun goes from 2° to
+12° below the horizon and thin out low down, where the light comes through more air.
+`StarRotation` turns them about the straight-up point, in radians, so a day cycle can turn
+them once a day. `HideStars` leaves them out, for a cloudy night, and `Graphics.Stars` turns
+them off for every view.
+
+`Moon` puts the moon in the sky, as a direction from the ground towards it. It is lit by
+the sun, so it is full opposite the sun and a crescent beside it, and like the sun it turns
+warmer and dimmer low down and is gone below the horizon. It is drawn twice the real moon's
+size so it reads on screen. The sky draws the moon but gives no light for it: add a dim,
+bluish `view.Sun` aimed the same way for moonlight and shadows. The sky still follows the
+real sun, whichever light casts the shadows, and skips a light aimed at the moon; with only
+the moon's light, it follows that.
+
+```csharp
+var moon = -sun;   // opposite the sun, so always full
+view.Sun(sun, new Vector3(5.2f, 4.9f, 4.4f), shadows: sun.Y > 0f);
+if (sun.Y <= 0f)
+{
+    view.Sun(moon, new Vector3(0.16f, 0.21f, 0.36f), shadows: true);
+}
+
+view.Sky(new SkySettings
+{
+    Turbidity = 2.5f,
+    Moon = moon,
+    StarRotation = MathF.Tau * timeOfDay,   // 0 to 1 over a day
+});
+```
+
+A moon or rotation that is not a number throws. The moon and the stars show only in the
+background, not in reflections or in what [probes](#bounced-light) capture, and not under a
+gradient sky. The night sky itself is near black, so open the exposure up a few stops at
+night. The [Hamlet example](../examples/Hamlet) does that, and has moved from its gradient
+to the physical sky. At twilight the old gradient was a flat blue; the physical sky glows
+pink above the sunset:
+
+![Hamlet at twilight: before with the gradient sky, after with the physical sky](media/hamlet-twilight.webp)
+
+Looking up from Hamlet at night, at the moon and the stars:
+
+![The moon and stars over Hamlet](media/night-sky.webp)
+
+### A photographed sky
+
+A photographed sky, an HDRI, puts a real place round the scene. Put an equirectangular
+Radiance `.hdr` in the content folder, load it once with `content.Sky`, and set it as the
+sky's `Image`. It shows behind the scene and lights it like any other sky: its soft light
+fills the shadows, the reflections show it, and the probes and bakes see it.
+
+```csharp
+SkyImage meadow = content.Sky("skies/meadow.hdr");   // in Load
+
+view.Sun(meadow.SunDirectionAt(0.6f), new Vector3(4f));
+view.Sky(new SkySettings { Image = meadow, Rotation = 0.6f, Exposure = -0.5f });
+```
+
+`Rotation` turns the picture about the straight-up point, in radians, counterclockwise seen
+from above. The middle of the picture faces -Z before it is turned. `Exposure` brightens or
+darkens it in stops, from -20 to 20, on top of `Brightness`; a rotation that is not a
+number, or an exposure outside that range, throws.
+
+The cooker finds the sun in the picture: the brightest spot, if it is much brighter than the
+rest of the sky. It takes the sun out of the picture and keeps its light as a small disc of
+the same brightness, which shows behind the scene and in the sharpest reflections. The sky
+gives no light for it, just as for the physical sky's sun: aim a `view.Sun` at
+`SunDirection`, or at `SunDirectionAt(rotation)` once the picture is turned, so its shadows
+fall the way the picture's do. `HasSun` is false for an overcast picture with no sun in it.
+
+The picture takes the place of the gradient and of the physical sky: with an `Image` set,
+`Turbidity`, the moon and the stars are not used. Each face of the cooked cube is 256 pixels
+across, so a 2k picture is plenty. Changing to another picture waits for the GPU to finish,
+so load and set them up front rather than every frame; changing `Rotation` or `Exposure` is
+as cheap as changing the sun.
+
+The lineup in the [Courtyard example](../examples/Courtyard#the-lineup) stands under Poly
+Haven's Meadow 2, turned so its sun comes from the right. The metal now shows the blue sky
+above and the green meadow below:
+
+![The rusty metal in the lineup: before under the gradient sky, after under the Meadow 2 HDRI](media/hdri-sky-lineup.webp)
 
 ### Fog
 
@@ -2011,7 +2180,8 @@ material bark: transparent materials can't use a surface shader yet.
 
 A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
 from other files of the same rig, such as Mixamo's:
-`"animations": [{ "file": "walk.fbx", "name": "Walk" }]`. See [Animation](animation.md).
+`"animations": [{ "file": "walk.fbx", "name": "Walk" }]`, and `events` marks moments in them,
+such as `"events": [{ "clip": "Walk", "time": 0.3, "name": "step" }]`. See [Animation](animation.md#events).
 
 A colour passed when drawing a model tints it and keeps its textures, so one tree model
 can be drawn in many autumn shades at no extra cost.

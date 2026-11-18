@@ -1,0 +1,72 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "atmosphere.glsl"
+
+// The sky-view table: the sky seen from just above the ground, every way round from the sun,
+// already scaled into the renderer's units. Redrawn each time the sun moves.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba16f, set = 0, binding = 0) uniform writeonly image2D target;
+layout(set = 0, binding = 1) uniform sampler2D transmittance;
+layout(set = 0, binding = 2) uniform sampler2D multiscatter;
+
+// Must match AirConstants in Vulkan/SkyAtmosphere.cs.
+layout(push_constant) uniform Air {
+    vec4 sun;
+    vec4 aerosol;
+} air;
+
+const int STEPS = 32;
+
+void main() {
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    if (texel.x >= SKY_VIEW_SIZE.x || texel.y >= SKY_VIEW_SIZE.y) {
+        return;
+    }
+
+    float viewCosine;
+    float sunAcross;
+    skyViewAngles(vec2(texel), VIEW_RADIUS, viewCosine, sunAcross);
+
+    float sunCosine = clamp(normalize(air.sun.xyz).y, -1.0, 1.0);
+    vec3 sun = vec3(sqrt(max(1.0 - sunCosine * sunCosine, 0.0)), sunCosine, 0.0);
+    float viewSine = sqrt(max(1.0 - viewCosine * viewCosine, 0.0));
+    vec3 direction = vec3(viewSine * sunAcross, viewCosine, viewSine * sqrt(max(1.0 - sunAcross * sunAcross, 0.0)));
+
+    float r = VIEW_RADIUS;
+    float distance = hitsGround(r, viewCosine)
+        ? distanceToSphere(r, viewCosine, PLANET_RADIUS)
+        : distanceToSphere(r, viewCosine, ATMOSPHERE_RADIUS);
+    distance = max(distance, 0.0);
+
+    Aerosol aerosol = Aerosol(air.aerosol.x, air.aerosol.y);
+    vec3 origin = vec3(0.0, r, 0.0);
+    float cosine = dot(direction, sun);
+    float rayleigh = rayleighPhase(cosine);
+    float mie = miePhase(cosine);
+
+    // Steps grow with distance, so the thick air near the eye gets the most.
+    vec3 throughput = vec3(1.0);
+    vec3 light = vec3(0.0);
+    for (int i = 0; i < STEPS; i++) {
+        float t0 = distance * pow(float(i) / float(STEPS), 2.0);
+        float t1 = distance * pow(float(i + 1) / float(STEPS), 2.0);
+        float step = t1 - t0;
+        vec3 position = origin + direction * (t0 + 0.3 * step);
+        float height = length(position);
+        vec3 up = position / height;
+        float sunHere = dot(sun, up);
+
+        Medium medium = mediumAt(height, aerosol);
+        vec3 toSun = transmittanceTo(transmittance, height, sunHere);
+        vec3 many = multipleScattering(multiscatter, height, sunHere);
+        vec3 scattered = toSun * (medium.rayleigh * rayleigh + medium.mie * mie) + many * medium.scattering;
+
+        vec3 through = exp(-medium.extinction * step);
+        light += throughput * (scattered - scattered * through) / max(medium.extinction, vec3(1e-9));
+        throughput *= through;
+    }
+
+    imageStore(target, texel, vec4(light * SOLAR_STRENGTH, 1.0));
+}

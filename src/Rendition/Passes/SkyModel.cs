@@ -7,11 +7,19 @@ namespace Rendition.Passes;
 /// <param name="Direction">Towards the sun.</param>
 /// <param name="DiscRadiance">How bright the sun's disc is, so that over the disc it adds up to the light's colour.</param>
 /// <param name="DiscCosine">The cosine of the disc's angular radius.</param>
-internal readonly record struct SkySun(float Turbidity, Vector3 Direction, Vector3 DiscRadiance, float DiscCosine);
+/// <param name="Image">The photographed sky drawn in place of the others, or none.</param>
+/// <param name="Rotation">How far <paramref name="Image"/> is turned about the up axis, in radians.</param>
+/// <param name="Scale">What <paramref name="Image"/> is multiplied by: two to the power of its exposure.</param>
+internal readonly record struct SkySun(
+    float Turbidity, Vector3 Direction, Vector3 DiscRadiance, float DiscCosine,
+    SkyImageHandle? Image = null, float Rotation = 0f, float Scale = 0f);
+
+/// <summary>The sun a cooked sky image holds, as it was photographed; see <see cref="SkyImageData"/>.</summary>
+internal readonly record struct SkyImageSun(Vector3 Direction, Vector3 Radiance, float Cosine);
 
 /// <summary>
-/// The Preetham, Shirley and Smits (1999) clear sky, as Shaders/sky.glsl works it out. Each
-/// <see cref="Vector3"/> holds luminance Y, then chromaticity x and y.
+/// The view's physical sky and its sun. The sky itself is drawn on the GPU from the tables in
+/// <see cref="Vulkan.SkyAtmosphere"/>; this picks the sun and works out its disc and the colour the air gives it.
 /// </summary>
 internal static class SkyModel
 {
@@ -22,46 +30,28 @@ internal static class SkyModel
     public const float MaxDiscRadiance = 30000f;
 
     /// <summary>
-    /// The clearest air the model is drawn with. Below about 1.2 the luminance's B turns positive,
-    /// and its exponential overflows at the horizon.
+    /// How bright the moon's lit face is, in the sky's units, a third of a noon sky's zenith: a pale disc by day and,
+    /// with the camera opened up for the night, a bright one.
     /// </summary>
+    public static readonly Vector3 MoonRadiance = new(0.2f, 0.2f, 0.19f);
+
+    /// <summary>The moon's angular radius in radians, twice the real moon's so it reads on screen. Must match MOON_RADIUS in sky.glsl.</summary>
+    public const float MoonAngularRadius = 0.009f;
+
+    /// <summary>How bright the brightest stars are, in the sky's units, when the sky is fully dark.</summary>
+    public const float StarBrightness = 0.4f;
+
+    /// <summary>How far below the horizon the sun is, in radians, when the first stars show: two degrees.</summary>
+    public const float StarsAppear = 0.035f;
+
+    /// <summary>How far below the horizon the sun is when every star shows: twelve degrees, the end of nautical twilight.</summary>
+    public const float StarsFull = 0.21f;
+
+    /// <summary>The clearest air the sky is drawn with, as the scene's settings allow it.</summary>
     public const float MinTurbidity = 1.7f;
 
-    /// <summary>The haziest air the model is drawn with, the end of the paper's range.</summary>
+    /// <summary>The haziest air the sky is drawn with.</summary>
     public const float MaxTurbidity = 10f;
-
-    /// <summary>The Perez distribution's five coefficients for luminance and the two chromaticities.</summary>
-    public static (Vector3 A, Vector3 B, Vector3 C, Vector3 D, Vector3 E) Perez(float turbidity)
-    {
-        float t = turbidity;
-        return (
-            new Vector3(0.1787f * t - 1.4630f, -0.0193f * t - 0.2592f, -0.0167f * t - 0.2608f),
-            new Vector3(-0.3554f * t + 0.4275f, -0.0665f * t + 0.0008f, -0.0950f * t + 0.0092f),
-            new Vector3(-0.0227f * t + 5.3251f, -0.0004f * t + 0.2125f, -0.0079f * t + 0.2102f),
-            new Vector3(0.1206f * t - 2.5771f, -0.0641f * t - 0.8989f, -0.0441f * t - 1.6537f),
-            new Vector3(-0.0670f * t + 0.3703f, -0.0033f * t + 0.0452f, -0.0109f * t + 0.0529f));
-    }
-
-    /// <summary>
-    /// The sky straight up: luminance in thousands of candela per square metre, and its
-    /// chromaticity, for a sun <paramref name="sunZenithAngle"/> radians from straight up.
-    /// </summary>
-    public static Vector3 Zenith(float turbidity, float sunZenithAngle)
-    {
-        float t = turbidity;
-        float theta = sunZenithAngle;
-        float chi = (4f / 9f - t / 120f) * (MathF.PI - 2f * theta);
-        float luminance = (4.0453f * t - 4.9710f) * MathF.Tan(chi) - 0.2155f * t + 2.4192f;
-
-        var angles = new Vector4(theta * theta * theta, theta * theta, theta, 1f);
-        float x = t * t * Vector4.Dot(new Vector4(0.00166f, -0.00375f, 0.00209f, 0f), angles)
-            + t * Vector4.Dot(new Vector4(-0.02903f, 0.06377f, -0.03202f, 0.00394f), angles)
-            + Vector4.Dot(new Vector4(0.11693f, -0.21196f, 0.06052f, 0.25886f), angles);
-        float y = t * t * Vector4.Dot(new Vector4(0.00275f, -0.00610f, 0.00317f, 0f), angles)
-            + t * Vector4.Dot(new Vector4(-0.04214f, 0.08970f, -0.04153f, 0.00516f), angles)
-            + Vector4.Dot(new Vector4(0.15346f, -0.26756f, 0.06670f, 0.26688f), angles);
-        return new Vector3(luminance, x, y);
-    }
 
     /// <summary>
     /// The view's clear sky and its sun: the light that casts the shadows, or else the first. The
@@ -71,28 +61,18 @@ internal static class SkyModel
     /// </summary>
     public static SkySun Sun(in FrameView view)
     {
-        if (!(view.Sky.Turbidity > 0f))
+        if (!Physical(view))
         {
             return default;
         }
 
-        float turbidity = Math.Clamp(view.Sky.Turbidity, MinTurbidity, MaxTurbidity);
+        float turbidity = Turbidity(view);
         if (view.Lights.IsEmpty)
         {
             return new SkySun(turbidity, Vector3.UnitY, Vector3.Zero, 1f);
         }
 
-        int index = 0;
-        for (int i = 0; i < Math.Min(view.Lights.Length, FrameUniforms.MaxLights); i++)
-        {
-            if (view.Lights[i].CastsShadow)
-            {
-                index = i;
-                break;
-            }
-        }
-
-        ref readonly var light = ref view.Lights[index];
+        ref readonly var light = ref view.Lights[SunIndex(view.Lights, view.Sky.Moon)];
         float radius = view.Shadows.LightAngle * 0.5f;
         // 2 pi (1 - cos r), written with the half-angle sine so a small sun keeps its precision.
         float halfSine = MathF.Sin(radius * 0.5f);
@@ -101,5 +81,121 @@ internal static class SkyModel
             ? Vector3.Min(light.Radiance / solidAngle, new Vector3(MaxDiscRadiance))
             : Vector3.Zero;
         return new SkySun(turbidity, Vector3.Normalize(light.Direction), radiance, MathF.Cos(radius));
+    }
+
+    /// <summary>
+    /// The view with its sun coloured by the air it comes through, after <see cref="Atmosphere.SunTint"/>: as set
+    /// with the sun 60 degrees up, warmer and dimmer near the horizon, and gone once it has set. Every reader of the
+    /// lights, the disc included, sees the tinted sun. A gradient sky, or a view without lights, comes back as it is;
+    /// otherwise the lights are copied into <paramref name="buffer"/>, grown as needed, which the returned view reads.
+    /// </summary>
+    public static FrameView Tinted(in FrameView view, ref DirectionalLight[] buffer)
+    {
+        if (!Physical(view) || view.Lights.IsEmpty)
+        {
+            return view;
+        }
+
+        if (buffer.Length < view.Lights.Length)
+        {
+            buffer = new DirectionalLight[view.Lights.Length];
+        }
+
+        var lights = buffer.AsSpan(0, view.Lights.Length);
+        view.Lights.CopyTo(lights);
+        ref var sun = ref lights[SunIndex(lights, view.Sky.Moon)];
+        var direction = Vector3.Normalize(sun.Direction);
+        sun.Radiance *= Atmosphere.SunTint(direction, Turbidity(view), view.Shadows.LightAngle * 0.5f);
+        return view with { Lights = lights };
+    }
+
+    /// <summary>
+    /// Whether the physical sky's air fades far surfaces: not with Graphics.AerialPerspective off, and not in a view with a
+    /// haze of its own, which takes over even while Graphics.Haze hides it. Reflection probe captures never draw it.
+    /// </summary>
+    public static bool AirShows(in FrameView view, RenderEffects off) =>
+        !off.HasFlag(RenderEffects.AerialPerspective) && !(view.BackgroundFadeEnd > view.BackgroundFadeStart);
+
+    private static float Turbidity(in FrameView view) => Math.Clamp(view.Sky.Turbidity, MinTurbidity, MaxTurbidity);
+
+    /// <summary>Whether the view draws the physical sky: a turbidity is set and no photographed sky takes over.</summary>
+    private static bool Physical(in FrameView view) => view.Sky.Turbidity > 0f && view.Sky.Image is null;
+
+    /// <summary>
+    /// A photographed sky and its sun, turned by <paramref name="rotation"/> about the up axis and brightened by
+    /// <paramref name="exposure"/> stops. A sky without a sun has no disc. The disc is held to
+    /// <see cref="MaxDiscRadiance"/>, as a physical sky's is.
+    /// </summary>
+    public static SkySun Photographed(SkyImageHandle image, in SkyImageSun sun, float rotation, float exposure)
+    {
+        float scale = MathF.Pow(2f, exposure);
+        var direction = Vector3.Transform(sun.Direction, Quaternion.CreateFromAxisAngle(Vector3.UnitY, rotation));
+        var radiance = Vector3.Min(sun.Radiance * scale, new Vector3(MaxDiscRadiance));
+        return new SkySun(0f, direction, radiance, sun.Cosine, image, rotation, scale);
+    }
+
+    /// <summary>
+    /// The light that casts the shadows, among those the frame takes, or else the first, leaving out the moon's: a light
+    /// aimed at <paramref name="moon"/>. With only the moon's light the sky follows that, having nothing else.
+    /// </summary>
+    private static int SunIndex(ReadOnlySpan<DirectionalLight> lights, Vector3 moon)
+    {
+        int count = Math.Min(lights.Length, FrameUniforms.MaxLights);
+        int first = -1;
+        for (int i = 0; i < count; i++)
+        {
+            if (IsMoon(lights[i].Direction, moon))
+            {
+                continue;
+            }
+
+            if (lights[i].CastsShadow)
+            {
+                return i;
+            }
+
+            if (first < 0)
+            {
+                first = i;
+            }
+        }
+
+        return Math.Max(first, 0);
+    }
+
+    // The moon's light points where the moon is, give or take what normalising loses.
+    private static bool IsMoon(Vector3 direction, Vector3 moon) =>
+        moon != Vector3.Zero && direction != Vector3.Zero
+        && Vector3.Dot(Vector3.Normalize(direction), Vector3.Normalize(moon)) > 0.99999f;
+
+    /// <summary>
+    /// The moon and the stars for the frame's uniforms: the moon's direction, w 1 when it shows; its lit face's
+    /// radiance, dimmed by the air as the sun is, so it reddens low and sinks behind the horizon; and the stars, x how
+    /// bright and y how far they have turned. A gradient sky has neither. The stars fade in as the sun goes from
+    /// <see cref="StarsAppear"/> to <see cref="StarsFull"/> below the horizon, and are left out with
+    /// <see cref="RenderEffects.Stars"/> off and with <see cref="AnalyticSky.HideStars"/>. Reflection probe captures fill
+    /// their sky without the discs or the stars.
+    /// </summary>
+    public static (Vector4 Moon, Vector4 MoonRadiance, Vector4 Stars) Night(in FrameView view, Vector3 sun, RenderEffects off)
+    {
+        if (!Physical(view))
+        {
+            return default;
+        }
+
+        float turbidity = Turbidity(view);
+        var moon = Vector4.Zero;
+        var moonRadiance = Vector4.Zero;
+        if (view.Sky.Moon != Vector3.Zero)
+        {
+            var towards = Vector3.Normalize(view.Sky.Moon);
+            moon = new Vector4(towards, 1f);
+            moonRadiance = new Vector4(MoonRadiance * Atmosphere.SunTint(towards, turbidity, MoonAngularRadius), 0f);
+        }
+
+        float dark = 1f - Atmosphere.SmoothStep(-StarsFull, -StarsAppear, MathF.Asin(Math.Clamp(sun.Y, -1f, 1f)));
+        bool stars = !view.Sky.HideStars && !off.HasFlag(RenderEffects.Stars);
+        var starry = new Vector4(stars ? StarBrightness * dark : 0f, view.Sky.StarRotation, 0f, 0f);
+        return (moon, moonRadiance, starry);
     }
 }

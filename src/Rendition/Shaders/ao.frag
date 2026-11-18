@@ -8,6 +8,8 @@
 layout(set = 1, binding = 0) uniform sampler2D depthTexture;
 layout(set = 1, binding = 1) uniform sampler2D normalRoughnessAoTexture;
 layout(set = 1, binding = 2) uniform sampler2DArray shadowDepthTexture;
+// Last frame's lit picture, which the bounce reads the light of nearby surfaces from.
+layout(set = 1, binding = 3) uniform sampler2D historyTexture;
 
 layout(push_constant) uniform Occlusion {
     int scale; // Screen pixels per pixel of the target, along each axis: 1 or 2.
@@ -15,9 +17,20 @@ layout(push_constant) uniform Occlusion {
 
 // xy: the bent normal in view space, octahedral and moved into 0 to 1; z: visibility.
 layout(location = 0) out vec4 outOcclusion;
+// rgb: the light nearby surfaces bounce onto the point, as the average over its hemisphere, cosine weighted.
+layout(location = 1) out vec4 outBounce;
 
 const int SLICES = 2;
 const int STEPS = 8; // Each way along a slice.
+
+// Steps each way past the occlusion's radius, out to the bounce's.
+const int BOUNCE_STEPS = 4;
+// How deep every surface is taken to be, in metres. The depth buffer only holds its front.
+const float BOUNCE_THICKNESS = 0.4;
+// Surfaces fade out of the bounce over the last part of its radius.
+const float BOUNCE_FALLOFF = 0.4;
+// The brightest light a surface bounces, so the sun's glint off one pixel doesn't flash.
+const float BOUNCE_MAX_RADIANCE = 16.0;
 
 // Surfaces fade out of the search over the last part of the radius, so the occlusion
 // doesn't stop at a hard edge.
@@ -70,6 +83,63 @@ float overheadOcclusion(vec3 position, vec3 n, float rotation) {
     return blocked / float(OVERHEAD_SAMPLES) * max(n.y, 0.0);
 }
 
+// The sectors from a to b, both 0 to 1 across the hemisphere, as bits of a mask of 32. Any sliver gets one.
+uint sectorBits(float a, float b) {
+    uint start = uint(clamp(a * 32.0, 0.0, 31.0));
+    uint count = uint(clamp(ceil((b - a) * 32.0), 0.0, 32.0));
+    if (count == 0u) {
+        return 0u;
+    }
+    uint run = count >= 32u ? 0xFFFFFFFFu : (1u << count) - 1u;
+    return run << start;
+}
+
+// Screen-space indirect light with visibility bitmasks (Therrien et al., "Screen Space Indirect Lighting with
+// Visibility Bitmask", 2023). A slice's half circle above the point is cut into 32 sectors, spaced so each gets the
+// same share of the cosine. A surface found along the slice covers the sectors between its front and its back,
+// BOUNCE_THICKNESS behind, and lights the point through those of them nothing nearer covers already, with the light
+// it had last frame. Steps go from near to far, so a near surface hides one behind it.
+void gatherBounce(
+    vec2 uv, vec3 sampleWorld, vec3 sampleView, vec3 position, vec3 v, float side, float normalAngle,
+    float bounceRadius, inout uint occupied, inout vec3 light) {
+    vec3 delta = sampleView - position;
+    float distance = length(delta);
+    if (distance < 1e-4 || distance > bounceRadius) {
+        return;
+    }
+
+    vec3 back = sampleView * (1.0 + BOUNCE_THICKNESS / max(length(sampleView), 1e-4)) - position;
+    float front = side * acos(clamp(dot(delta / distance, v), -1.0, 1.0)) - normalAngle;
+    float behind = side * acos(clamp(dot(normalize(back), v), -1.0, 1.0)) - normalAngle;
+    vec2 sectors = sin(clamp(vec2(front, behind), -0.5 * PI, 0.5 * PI)) * 0.5 + 0.5;
+    uint bits = sectorBits(min(sectors.x, sectors.y), max(sectors.x, sectors.y)) & ~occupied;
+    occupied |= bits;
+    if (bits == 0u) {
+        return;
+    }
+
+    // A surface lights the point only from its front. One in the same plane as the point is the point's own.
+    vec3 sampleNormal = mat3(frame.view) * octahedralDecode(texture(normalRoughnessAoTexture, uv).xy);
+    float facing = clamp((dot(sampleNormal, -delta / distance) - 0.05) * 4.0, 0.0, 1.0);
+    vec4 previous = frame.previousViewProjection * vec4(sampleWorld, 1.0);
+    vec2 historyUv = previous.xy / previous.w * 0.5 + 0.5;
+    if (facing <= 0.0 || any(lessThan(historyUv, vec2(0.0))) || any(greaterThan(historyUv, vec2(1.0)))) {
+        return;
+    }
+
+    float fade = clamp((bounceRadius - distance) / (BOUNCE_FALLOFF * bounceRadius), 0.0, 1.0);
+    vec3 radiance = min(texture(historyTexture, historyUv).rgb, vec3(BOUNCE_MAX_RADIANCE));
+    light += radiance * (float(bitCount(bits)) / 32.0 * facing * fade);
+}
+
+// How far a distance at a point looks on screen, in pixels, at most a quarter of the screen's height.
+float onScreen(vec3 world, vec2 uv, vec2 size, float distance) {
+    vec3 toCamera = normalize(frame.cameraPosition.xyz - world);
+    vec3 side = normalize(cross(toCamera, vec3(0.01, 1.0, 0.0)));
+    vec4 edge = frame.viewProjection * vec4(world + side * distance, 1.0);
+    return min(length((edge.xy / edge.w * 0.5 + 0.5 - uv) * size), size.y * 0.25);
+}
+
 // Ground-truth ambient occlusion (Jimenez et al., "Practical Real-Time Strategies for
 // Accurate Indirect Occlusion", 2016). The hemisphere above a point is cut into slices
 // that face the camera. Along each, the highest surface within the radius on either side
@@ -79,12 +149,16 @@ float overheadOcclusion(vec3 position, vec3 n, float rotation) {
 //
 // At half resolution each pixel here stands for a block of four on screen and works out the occlusion of one of
 // them, a different one each frame, exactly as it would at full resolution.
+//
+// The same slices find the bounce, with gatherBounce(), from the occlusion's steps and BOUNCE_STEPS more out to the
+// bounce's radius.
 void main() {
     vec2 size = vec2(textureSize(depthTexture, 0));
     ivec2 cell = ivec2(gl_FragCoord.xy);
     ivec2 pixel = occlusion.scale > 1 ? tracedPixel(cell, ivec2(size)) : cell;
     vec2 inUv = (vec2(pixel) + 0.5) / size;
 
+    outBounce = vec4(0.0);
     float depth = texelFetch(depthTexture, pixel, 0).r;
     if (depth == 0.0) {
         outOcclusion = vec4(0.5, 0.5, 1.0, 1.0);
@@ -93,6 +167,9 @@ void main() {
 
     float radius = frame.occlusion.x;
     float strength = frame.occlusion.y;
+    float bounceStrength = frame.occlusion.z;
+    float bounceRadius = frame.occlusion.w;
+    bool bouncing = bounceStrength > 0.0;
 
     vec3 world = worldPosition(inUv, depth);
     vec3 worldNormal = octahedralDecode(texelFetch(normalRoughnessAoTexture, pixel, 0).xy);
@@ -100,11 +177,11 @@ void main() {
     vec3 n = normalize(mat3(frame.view) * worldNormal);
     vec3 v = normalize(-position);
 
-    // How big the radius looks on screen at this distance.
-    vec3 toCamera = normalize(frame.cameraPosition.xyz - world);
-    vec3 side = normalize(cross(toCamera, vec3(0.01, 1.0, 0.0)));
-    vec4 edge = frame.viewProjection * vec4(world + side * radius, 1.0);
-    float screenRadius = min(length((edge.xy / edge.w * 0.5 + 0.5 - inUv) * size), size.y * 0.25);
+    // How big the radii look on screen at this distance.
+    float screenRadius = onScreen(world, inUv, size, radius);
+    float bounceScreenRadius = bouncing ? onScreen(world, inUv, size, bounceRadius) : 0.0;
+    int bounceSteps = bounceScreenRadius > screenRadius ? BOUNCE_STEPS : 0;
+    vec3 bounce = vec3(0.0);
 
     // One number turns the slices, the other shifts the steps along them.
     float noise = frameNoise(gl_FragCoord.xy, frame.frameNumber);
@@ -136,11 +213,20 @@ void main() {
         // horizon lies along the surface.
         vec2 lowest = vec2(cos(normalAngle + 0.5 * PI), cos(normalAngle - 0.5 * PI));
         vec2 horizonCos = lowest;
-        for (int s = 0; s < STEPS; s++) {
+        uint occupied = 0u;
+        vec3 sliceBounce = vec3(0.0);
+        for (int s = 0; s < STEPS + bounceSteps; s++) {
             // Steps bunch up near the point, where small creases matter most, but each
-            // moves at least a pixel further.
-            float t = (float(s) + stepNoise) / float(STEPS);
-            vec2 offset = omega * max(t * t * screenRadius, float(s) + 1.0) / size;
+            // moves at least a pixel further. The bounce's go on from the occlusion's radius to its own.
+            float reach;
+            if (s < STEPS) {
+                float t = (float(s) + stepNoise) / float(STEPS);
+                reach = max(t * t * screenRadius, float(s) + 1.0);
+            } else {
+                float t = (float(s - STEPS) + stepNoise) / float(bounceSteps);
+                reach = mix(screenRadius, bounceScreenRadius, t * t);
+            }
+            vec2 offset = omega * reach / size;
             for (int sideIndex = 0; sideIndex < 2; sideIndex++) {
                 vec2 uv = sideIndex == 0 ? inUv + offset : inUv - offset;
                 if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
@@ -152,13 +238,24 @@ void main() {
                     continue;
                 }
 
-                vec3 delta = viewPosition(uv, sampleDepth) - position;
+                vec3 sampleWorld = worldPosition(uv, sampleDepth);
+                vec3 sampleView = (frame.view * vec4(sampleWorld, 1.0)).xyz;
+                if (bouncing) {
+                    gatherBounce(uv, sampleWorld, sampleView, position, v, sideIndex == 0 ? 1.0 : -1.0, normalAngle,
+                        bounceRadius, occupied, sliceBounce);
+                }
+                if (s >= STEPS) {
+                    continue;
+                }
+
+                vec3 delta = sampleView - position;
                 float distance = length(delta);
                 float sampleCos = dot(delta, v) / max(distance, 1e-5);
                 float weight = clamp((radius - distance) / falloffRange, 0.0, 1.0);
                 horizonCos[sideIndex] = max(horizonCos[sideIndex], mix(lowest[sideIndex], sampleCos, weight));
             }
         }
+        bounce += sliceBounce * projectedLength;
 
         // Neither horizon can be further than a right angle from the normal.
         float h1 = normalAngle + min(acos(horizonCos.x) - normalAngle, 0.5 * PI);
@@ -183,5 +280,8 @@ void main() {
 
     visibility = mix(1.0, visibility, strength);
     visibility *= 1.0 - OVERHEAD_STRENGTH * overheadOcclusion(world, worldNormal, noise * 2.0 * PI);
-    outOcclusion = vec4(octahedralEncode(bentNormal) * 0.5 + 0.5, visibility, 1.0);
+    // Alpha is how settled the occlusion is, which ao_blur.frag reads: nothing yet, until ao_temporal.frag has
+    // gathered frames of it.
+    outOcclusion = vec4(octahedralEncode(bentNormal) * 0.5 + 0.5, visibility, 0.0);
+    outBounce = vec4(bounce / float(SLICES) * bounceStrength, 1.0);
 }

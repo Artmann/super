@@ -5,6 +5,9 @@ reading and writing text, running commands and checking the results. There's no 
 click through and no binary scene to open. A game is C# and JSON, and every result an
 agent needs comes back as text or as a picture it can look at.
 
+To set up a new game with an agent, paste the prompt in
+[Quick Start](../README.md#quick-start) into it.
+
 ## The loop
 
 An agent working on a Super game repeats four steps.

@@ -28,7 +28,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 shadowDepthScales;  // depth units per unit across each cascade's map, below 1 when it reaches further sunward
     vec4 clusters;           // x, y: nearest and furthest depth a local light reaches; z: 1 for even slices
     vec4 screen;             // xy: the render targets' size in pixels
-    vec4 occlusion;          // x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1
+    vec4 occlusion;          // x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1; z: the screen bounce's strength, 0 when off; w: how far it looks, in metres
     vec4 lightProbeMin;      // xyz: the first light probe; w: the probes' spacing in metres
     vec4 lightProbeCounts;   // xyz: probes along each axis; w: 1 when the soft light comes from them
     vec4 probeCascadeOrigin[4]; // Per cascade, finest first. xyz: the cell of its minimum corner; w: its spacing in metres
@@ -51,6 +51,11 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 flatReflection;     // rgb: the reflection cube's average at its roughest level, its reflections with it off
     vec4 outline;            // rgb: the outlines' colour; w: their thickness in scene pixels, 0 for none
     vec4 outlineFade;        // x, y: the distances in metres over which outlines fade out
+    vec4 airExtinction;      // rgb: how much the physical sky's air dims per metre; w: the aerosol's scattering per metre
+    vec4 airSun;             // rgb: the sunlight reaching that air; w: 1 when it fades distant surfaces
+    vec4 moon;               // xyz: towards the moon; w: 1 when the physical sky shows it
+    vec4 moonRadiance;       // rgb: how bright the moon's lit face is, after the air it comes through
+    vec4 stars;              // x: how bright the stars are, 0 for none; y: how far they have turned about the zenith, in radians
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;

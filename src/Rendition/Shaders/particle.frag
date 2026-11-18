@@ -18,6 +18,8 @@ layout(location = 5) flat in vec3 inPuff; // x: width; y: variant; z: glow
 layout(set = 1, binding = 0) uniform sampler2D depthTexture;
 layout(set = 1, binding = 2) uniform samplerCube irradianceTexture;
 layout(set = 1, binding = 3) uniform samplerCube reflectionTexture;
+// The environment without the sun's disc, what fog and haze melt into.
+layout(set = 1, binding = 4) uniform samplerCube backgroundTexture;
 
 // Must match ParticlePass.CameraConstants.
 layout(push_constant) uniform Camera {
@@ -114,7 +116,7 @@ void main() {
         color = color * kept + waterColor(normalize(away)) * (1.0 - kept);
     } else {
         // The same fog and haze as surfaces, so distant dust melts into the air and the sky.
-        vec4 fog = fogInFront(inPosition, reflectionTexture);
+        vec4 fog = fogInFront(inPosition, backgroundTexture);
         if (fog.a < 1.0) {
             color = color * fog.a + fog.rgb;
         }
@@ -126,10 +128,14 @@ void main() {
             if (frame.hazeColor.a > 0.5) {
                 beyond = frame.hazeColor.rgb;
             } else if (frame.showEnvironment == 1) {
-                beyond = skyBehind(reflectionTexture, normalize(away), frame.skySun) * frame.backgroundRadiance.a;
+                beyond = skyBehind(backgroundTexture, normalize(away)) * frame.backgroundRadiance.a;
             }
 
             color = mix(color, beyond, smoothstep(fadeStart, fadeEnd, hazeDistance(inPosition)));
+        } else if (frame.airSun.a > 0.5) {
+            float distance = length(away);
+            color = throughAir(color, away / max(distance, 1e-4), distance, frame.airExtinction, frame.airSun,
+                frame.skySun.xyz, frame.flatIrradiance.rgb * frame.backgroundRadiance.a);
         }
     }
 

@@ -54,13 +54,49 @@ public struct SkySettings
     public FogSettings Fog;
 
     /// <summary>
-    /// How hazy the air is, which turns on a real clear sky worked out from the sun: from 1.7, a
-    /// crisp mountain sky, through 2 to 3 for a clear day, to 10, a milky summer haze. It
-    /// brightens towards the sun, deepens overhead, and shows the sun's disc, as wide as
-    /// <c>View.Shadows</c>' sunSize. Zenith and Horizon are then not used; Ground still colours
-    /// what's below the horizon. Zero, the default, keeps the gradient.
+    /// How hazy the air is, which turns on a physical sky lit by the sun: from 1.7, a crisp
+    /// mountain sky, through 2 to 3 for a clear day, to 10, a milky summer haze. It glows
+    /// round the sun, deepens overhead, reddens at sunset, fades to a faint glow at night, and
+    /// shows the sun's disc, as wide as <c>View.Shadows</c>' sunSize. The sun's own light turns
+    /// warm and dim as it sinks, and far surfaces fade into the air unless the view has a haze
+    /// of its own (<see cref="Graphics.AerialPerspective"/>). Zenith and Horizon are then not
+    /// used; Ground still colours what's below the horizon, lit by the sun and the sky. Zero,
+    /// the default, keeps the gradient.
     /// </summary>
     public float Turbidity;
+
+    /// <summary>
+    /// Towards the moon, which a physical sky shows as a disc lit on the side facing the sun, so it waxes and wanes
+    /// as the two move apart. Zero, the default, is no moon. The moon's light is yours to add with <c>View.Sun</c>,
+    /// aimed the same way; it may cast the shadows, and the sky still follows the sun, not it.
+    /// </summary>
+    public Vector3 Moon;
+
+    /// <summary>
+    /// Leaves the stars out of a physical sky's night, as for an overcast one. They fade in as the sky darkens after
+    /// sunset; <see cref="Graphics.Stars"/> turns them off everywhere.
+    /// </summary>
+    public bool HideStars;
+
+    /// <summary>
+    /// How far the stars have turned about the zenith, in radians. Leave it at zero for a still sky, or move it with
+    /// the time for one that turns through the night.
+    /// </summary>
+    public float StarRotation;
+
+    /// <summary>
+    /// A photographed sky from <see cref="Content.Sky"/>, shown behind the scene and lighting and reflecting in it in
+    /// place of Zenith, Horizon, Ground and <see cref="Turbidity"/>; the moon and stars are left out too. Its sun shows
+    /// as a disc, but its light is yours to add with <c>View.Sun</c>, aimed at <see cref="SkyImage.SunDirectionAt"/>.
+    /// See "A photographed sky" in docs/rendering.md.
+    /// </summary>
+    public SkyImage? Image;
+
+    /// <summary>How far <see cref="Image"/> is turned about the up axis, in radians, counterclockwise seen from above.</summary>
+    public float Rotation;
+
+    /// <summary>Brightens <see cref="Image"/> by this many stops, or dims it below zero. Zero is the image as stored.</summary>
+    public float Exposure;
 
     /// <summary>The clearest and the haziest a clear sky can be.</summary>
     public const float MinTurbidity = 1.7f;

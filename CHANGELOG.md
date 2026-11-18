@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.4.0](https://github.com/Artmann/super/compare/v1.3.1...v1.4.0) (2026-11-17)
+
+
+### Features
+
+* change the sky every frame without waiting for the GPU ([#124](https://github.com/Artmann/super/issues/124)) ([63645b0](https://github.com/Artmann/super/commit/63645b0b3726583870588bbf47a585ff59c4f2f6))
+* moon and stars in the night sky; Hamlet on the physical sky ([#131](https://github.com/Artmann/super/issues/131)) ([73ebade](https://github.com/Artmann/super/commit/73ebadec0fd351550c689a4f493c3fb2816555cc))
+* photographed HDRI skies with rotation and exposure ([#132](https://github.com/Artmann/super/issues/132)) ([f5d7ad2](https://github.com/Artmann/super/commit/f5d7ad29f013aa543dfc63c0b98db148b7f74611))
+* physical sky that follows the sun ([#129](https://github.com/Artmann/super/issues/129)) ([3ea2014](https://github.com/Artmann/super/commit/3ea20145253a785f16b15003fc3decef5e88efc0))
+* steadier, crisper ambient occlusion with a history over frames ([#134](https://github.com/Artmann/super/issues/134)) ([15df740](https://github.com/Artmann/super/commit/15df74028dd48ae02b426b5ec513acf1937f51ec))
+
+
+### Bug Fixes
+
+* don't count zero skin weights as a vertex's joints ([#128](https://github.com/Artmann/super/issues/128)) ([381338d](https://github.com/Artmann/super/commit/381338d87539770d78d1271880b5a3de6fab4b13))
+
+## [1.3.1](https://github.com/Artmann/super/compare/v1.3.0...v1.3.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **taa:** weigh each frame's sample by how near the pixel's middle it fell ([#125](https://github.com/Artmann/super/issues/125)) ([7126cb7](https://github.com/Artmann/super/commit/7126cb7ce15bbaf13fec8d2a9a8f9d83cf299ba7))
+
+## [1.3.0](https://github.com/Artmann/super/compare/v1.2.1...v1.3.0) (2026-11-17)
+
+
+### Features
+
+* fog volumes and probe-lit volumetric fog ([#122](https://github.com/Artmann/super/issues/122)) ([168e622](https://github.com/Artmann/super/commit/168e6227d7240497455560f1d01a3a9f26a6c307))
+* generated meshes with the same surface share one material ([4120c38](https://github.com/Artmann/super/commit/4120c389c50d3c6d0521c0a18bac21af8a129ebe))
+* run on Apple silicon Macs with nothing to set up ([3c7e593](https://github.com/Artmann/super/commit/3c7e59351c2250a5f0ea441564bac6cbc61bb421))
+* screen-space bounce light from the occlusion pass ([#123](https://github.com/Artmann/super/issues/123)) ([ad6c377](https://github.com/Artmann/super/commit/ad6c37779ef603c056e632b6b7c88f5a4e6cb48a))
+
 ## [1.2.1](https://github.com/Artmann/super/compare/v1.2.0...v1.2.1) (2026-11-15)
 
 

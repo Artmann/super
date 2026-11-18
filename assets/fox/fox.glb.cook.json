@@ -1,4 +1,14 @@
 {
   "targetLength": 1.2,
-  "materials": []
+  "materials": [],
+  "events": [
+    { "clip": "Walk", "time": 0.03, "name": "step", "joint": "b_LeftHand_011" },
+    { "clip": "Walk", "time": 0.05, "name": "step", "joint": "b_RightFoot02_022" },
+    { "clip": "Walk", "time": 0.4, "name": "step", "joint": "b_RightHand_08" },
+    { "clip": "Walk", "time": 0.6, "name": "step", "joint": "b_LeftFoot02_018" },
+    { "clip": "Run", "time": 0.02, "name": "step", "joint": "b_LeftFoot02_018" },
+    { "clip": "Run", "time": 0.13, "name": "step", "joint": "b_RightFoot02_022" },
+    { "clip": "Run", "time": 0.45, "name": "step", "joint": "b_RightHand_08" },
+    { "clip": "Run", "time": 0.58, "name": "step", "joint": "b_LeftHand_011" }
+  ]
 }

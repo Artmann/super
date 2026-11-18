@@ -227,7 +227,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.RecordFrame",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 15
+      "metric": 16
     },
     {
       "kind": "high-complexity",
@@ -237,9 +237,9 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Rendition.Renderer.Render",
+      "name": "Rendition.Renderer.RenderTinted",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 40
+      "metric": 41
     },
     {
       "kind": "high-complexity",
@@ -513,12 +513,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Cook.Models.RigImporter.Skin",
-      "file": "src/Super.Cook.Models/RigImporter.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Cook.TextureCompression.Compress/4",
       "file": "src/Super.Cook/Textures/TextureCompression.cs",
       "metric": 12
@@ -705,6 +699,12 @@
     },
     {
       "kind": "high-complexity",
+      "name": "Super.SceneRenderer.PrepareItem",
+      "file": "src/Super/Rendering/SceneRenderer.cs",
+      "metric": 11
+    },
+    {
+      "kind": "high-complexity",
       "name": "Super.Shapes.ShapeBuilder.LayOutLightmap",
       "file": "src/Super/Shapes.cs",
       "metric": 13
@@ -732,6 +732,12 @@
       "name": "Super.View.CheckLight",
       "file": "src/Super/View.cs",
       "metric": 13
+    },
+    {
+      "kind": "high-complexity",
+      "name": "Super.View.Sky",
+      "file": "src/Super/View.cs",
+      "metric": 12
     },
     {
       "kind": "high-complexity",
@@ -911,7 +917,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.RecordFrame",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 17
+      "metric": 18
     },
     {
       "kind": "high-cognitive-complexity",
@@ -921,9 +927,9 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.Render",
+      "name": "Rendition.Renderer.RenderTinted",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 38
+      "metric": 39
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1415,7 +1421,7 @@
       "kind": "long-method",
       "name": "Hamlet.DayCycle.Light",
       "file": "examples/Hamlet/DayCycle.cs",
-      "metric": 46
+      "metric": 41
     },
     {
       "kind": "long-method",
@@ -1691,7 +1697,7 @@
       "kind": "long-method",
       "name": "Rendition.ModelData.WriteTo",
       "file": "src/Rendition/ModelData.cs",
-      "metric": 84
+      "metric": 81
     },
     {
       "kind": "long-method",
@@ -1739,7 +1745,7 @@
       "kind": "long-method",
       "name": "Rendition.Passes.ParticlePass.ParticlePass",
       "file": "src/Rendition/Passes/ParticlePass.cs",
-      "metric": 48
+      "metric": 47
     },
     {
       "kind": "long-method",
@@ -1763,7 +1769,7 @@
       "kind": "long-method",
       "name": "Rendition.Passes.ProbeTracePass.Record",
       "file": "src/Rendition/Passes/ProbeTracePass.cs",
-      "metric": 42
+      "metric": 41
     },
     {
       "kind": "long-method",
@@ -1803,12 +1809,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Passes.TransparentPass.TransparentPass",
-      "file": "src/Rendition/Passes/TransparentPass.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Passes.TransparentPlan.Build",
       "file": "src/Rendition/Passes/TransparentPlan.cs",
       "metric": 47
@@ -1841,7 +1841,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Dispose",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 77
+      "metric": 83
     },
     {
       "kind": "long-method",
@@ -1865,7 +1865,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.PlanProbes",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 124
+      "metric": 122
     },
     {
       "kind": "long-method",
@@ -1877,7 +1877,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.RecordFrame",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 106
+      "metric": 107
     },
     {
       "kind": "long-method",
@@ -1887,15 +1887,15 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Renderer.Render",
+      "name": "Rendition.Renderer.RenderTinted",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 284
+      "metric": 291
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 159
+      "metric": 165
     },
     {
       "kind": "long-method",
@@ -1931,13 +1931,13 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 100
+      "metric": 123
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 154
+      "metric": 161
     },
     {
       "kind": "long-method",
@@ -1971,18 +1971,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Vulkan.EnvironmentMap.CreateCube",
-      "file": "src/Rendition/Vulkan/EnvironmentMap.cs",
-      "metric": 43
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.EnvironmentMap.EnvironmentMap",
-      "file": "src/Rendition/Vulkan/EnvironmentMap.cs",
-      "metric": 44
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Vulkan.ExposureMeter.ExposureMeter",
       "file": "src/Rendition/Vulkan/ExposureMeter.cs",
       "metric": 48
@@ -1990,6 +1978,12 @@
     {
       "kind": "long-method",
       "name": "Rendition.Vulkan.GpuTexture.CreateStaging",
+      "file": "src/Rendition/Vulkan/GpuTexture.cs",
+      "metric": 41
+    },
+    {
+      "kind": "long-method",
+      "name": "Rendition.Vulkan.GpuTexture.GpuTexture/9",
       "file": "src/Rendition/Vulkan/GpuTexture.cs",
       "metric": 41
     },
@@ -2345,7 +2339,7 @@
       "kind": "long-method",
       "name": "Super.Cook.Models.ModelCooker.CookOne",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 328
+      "metric": 330
     },
     {
       "kind": "long-method",
@@ -2393,7 +2387,7 @@
       "kind": "long-method",
       "name": "Super.Cook.Models.RigImporter.Skin",
       "file": "src/Super.Cook.Models/RigImporter.cs",
-      "metric": 66
+      "metric": 55
     },
     {
       "kind": "long-method",
@@ -2657,7 +2651,7 @@
       "kind": "long-method",
       "name": "Super.SceneRenderer.CreateFrame",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 57
+      "metric": 58
     },
     {
       "kind": "long-method",
@@ -2730,6 +2724,12 @@
       "name": "Super.Ui.GlyphAtlas.Wrap",
       "file": "src/Super/Ui/GlyphAtlas.cs",
       "metric": 49
+    },
+    {
+      "kind": "long-method",
+      "name": "Super.View.Sky",
+      "file": "src/Super/View.cs",
+      "metric": 45
     },
     {
       "kind": "long-method",
@@ -2987,7 +2987,7 @@
       "kind": "too-many-parameters",
       "name": "Rendition.Passes.ProbeTracePass.Record",
       "file": "src/Rendition/Passes/ProbeTracePass.cs",
-      "metric": 11
+      "metric": 10
     },
     {
       "kind": "too-many-parameters",
@@ -3099,7 +3099,7 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.Vulkan.GpuTexture.GpuTexture/8",
+      "name": "Rendition.Vulkan.GpuTexture.GpuTexture/9",
       "file": "src/Rendition/Vulkan/GpuTexture.cs",
       "metric": 6
     },
@@ -3389,13 +3389,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5785
+      "metric": 6009
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1791
+      "metric": 1873
     },
     {
       "kind": "large-file",
@@ -3407,7 +3407,7 @@
       "kind": "large-file",
       "name": "src/Super.Cook.Models/ModelCooker.cs",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 1928
+      "metric": 1930
     },
     {
       "kind": "large-file",
@@ -3419,7 +3419,7 @@
       "kind": "large-file",
       "name": "src/Super/Content.cs",
       "file": "src/Super/Content.cs",
-      "metric": 983
+      "metric": 1016
     },
     {
       "kind": "large-file",
@@ -3431,13 +3431,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1224
+      "metric": 1249
     },
     {
       "kind": "large-file",
       "name": "src/Super/View.cs",
       "file": "src/Super/View.cs",
-      "metric": 1199
+      "metric": 1244
     },
     {
       "kind": "large-type",
@@ -3509,7 +3509,7 @@
       "kind": "large-type",
       "name": "Rendition.FrameView",
       "file": "src/Rendition/Types.cs",
-      "metric": 36
+      "metric": 37
     },
     {
       "kind": "large-type",
@@ -3545,13 +3545,13 @@
       "kind": "large-type",
       "name": "Rendition.Passes.FrameUniforms",
       "file": "src/Rendition/Passes/FrameUniforms.cs",
-      "metric": 61
+      "metric": 66
     },
     {
       "kind": "large-type",
       "name": "Rendition.Passes.GBuffer",
       "file": "src/Rendition/Passes/GBuffer.cs",
-      "metric": 33
+      "metric": 41
     },
     {
       "kind": "large-type",
@@ -3581,7 +3581,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 397
+      "metric": 411
     },
     {
       "kind": "large-type",
@@ -3591,15 +3591,15 @@
     },
     {
       "kind": "large-type",
-      "name": "Rendition.Vulkan.EnvironmentMap",
-      "file": "src/Rendition/Vulkan/EnvironmentMap.cs",
-      "metric": 24
-    },
-    {
-      "kind": "large-type",
       "name": "Rendition.Vulkan.Fsr.UpscaleDispatchDescription",
       "file": "src/Rendition/Vulkan/Fsr.cs",
       "metric": 23
+    },
+    {
+      "kind": "large-type",
+      "name": "Rendition.Vulkan.GpuTexture",
+      "file": "src/Rendition/Vulkan/GpuTexture.cs",
+      "metric": 21
     },
     {
       "kind": "large-type",
@@ -3665,7 +3665,7 @@
       "kind": "large-type",
       "name": "Super.Animator",
       "file": "src/Super/Animation/Animator.cs",
-      "metric": 39
+      "metric": 43
     },
     {
       "kind": "large-type",
@@ -3695,7 +3695,7 @@
       "kind": "large-type",
       "name": "Super.Content",
       "file": "src/Super/Content.cs",
-      "metric": 86
+      "metric": 88
     },
     {
       "kind": "large-type",
@@ -3779,7 +3779,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 64
+      "metric": 70
     },
     {
       "kind": "large-type",
@@ -3827,13 +3827,13 @@
       "kind": "large-type",
       "name": "Super.Rig",
       "file": "src/Super/Animation/Rig.cs",
-      "metric": 22
+      "metric": 26
     },
     {
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 114
+      "metric": 116
     },
     {
       "kind": "large-type",
@@ -3905,7 +3905,7 @@
       "kind": "large-type",
       "name": "Super.View",
       "file": "src/Super/View.cs",
-      "metric": 78
+      "metric": 80
     },
     {
       "kind": "large-type",
@@ -3958,6 +3958,7 @@
         "Rendition.FogVolumeBatch",
         "Rendition.FrameView",
         "Rendition.IBakeStore",
+        "Rendition.LastFrame",
         "Rendition.LightBakeFile",
         "Rendition.LightmapLayout",
         "Rendition.Material",
@@ -3981,6 +3982,7 @@
         "Rendition.Passes.GBufferPass",
         "Rendition.Passes.GpuLightArray",
         "Rendition.Passes.Motion",
+        "Rendition.Passes.Occlusion",
         "Rendition.Passes.OverlayPass",
         "Rendition.Passes.ParticlePass",
         "Rendition.Passes.PostGrade",
@@ -4008,9 +4010,16 @@
         "Rendition.RenderEffects",
         "Rendition.Renderer",
         "Rendition.ShL1",
+        "Rendition.SkyImageData",
+        "Rendition.TextureData",
         "Rendition.Vulkan.CubeCentres",
         "Rendition.Vulkan.CubeLevel",
+        "Rendition.Vulkan.CubeShader<TConstants>",
+        "Rendition.Vulkan.EnvironmentCube",
+        "Rendition.Vulkan.EnvironmentFlat",
         "Rendition.Vulkan.EnvironmentMap",
+        "Rendition.Vulkan.EnvironmentPrefilter",
+        "Rendition.Vulkan.EnvironmentUniforms",
         "Rendition.Vulkan.ExposureMeter",
         "Rendition.Vulkan.FogVolumeBuffers",
         "Rendition.Vulkan.Fsr",
@@ -4025,6 +4034,7 @@
         "Rendition.Vulkan.ReflectionProbes",
         "Rendition.Vulkan.RenderTarget",
         "Rendition.Vulkan.ResourceTable",
+        "Rendition.Vulkan.SkyAtmosphere",
         "Rendition.Vulkan.Swapchain",
         "Rendition.Vulkan.TraceScene",
         "Rendition.Vulkan.UploadQueue",
@@ -4128,6 +4138,7 @@
         "Super.ContentSchema",
         "Super.ContentValidator",
         "Super.CookedFolder",
+        "Super.EventTracker",
         "Super.HeldJoints",
         "Super.ICatalog",
         "Super.Keys",
@@ -4140,6 +4151,7 @@
         "Super.Shapes",
         "Super.SkeletonSpace",
         "Super.StateDefinition",
+        "Super.TickEvents",
         "Super.Ui.Button",
         "Super.Ui.ClickModifier",
         "Super.Ui.Container",
