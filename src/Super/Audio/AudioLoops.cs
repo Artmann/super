@@ -62,7 +62,7 @@ internal sealed class AudioLoops
         AudioChecks.CheckPlace(loop.At, loop.Near, loop.Far);
         return StartVoice(new VoiceStart
         {
-            Clip = _content.Clip(loop.Clip),
+            Clip = _content.Sounds.ClipOf(loop.Clip),
             Channel = loop.Channel,
             Volume = loop.Volume,
             Loop = true,
@@ -128,7 +128,7 @@ internal sealed class AudioLoops
             return;
         }
 
-        SoundClip? next = clip is SoundRef named ? _content.Clip(named) : null;
+        SoundClip? next = clip is SoundRef named ? _content.Sounds.ClipOf(named) : null;
         if (_musicVoice != NoId)
         {
             StopVoice(_musicVoice, fadeSeconds);

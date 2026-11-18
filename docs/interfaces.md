@@ -56,7 +56,7 @@ Interface code runs on the CPU only. Layout and text are real in headless runs, 
 | `VStack`, `HStack` | Children top to bottom, or left to right |
 | `ZStack` | Children on top of each other, the last one in front |
 | `Spacer()` | Pushes its neighbors apart along the stack |
-| `Image(content.Image("icon.png"), ImageFit.Contain)` | An image, stretched, fitted (`Contain`) or filling (`Cover`), with an optional tint |
+| `Image(content.UiImages.Image("icon.png"), ImageFit.Contain)` | An image, stretched, fitted (`Contain`) or filling (`Cover`), with an optional tint |
 | `ScrollView()` | Scrolls what's inside it with the wheel or a draggable bar. Give it a height, or it grows to fit |
 | `ListView<T>(items, row, selected, onSelect)` | A scrolling list of rows you can hover and pick |
 | `Grid(columns, columnGap, rowGap)` | Children in equal columns, wrapping onto new rows |

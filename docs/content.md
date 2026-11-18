@@ -176,10 +176,10 @@ allocate.
 
 ## Images
 
-Images for the interface are named like any other asset:
+Images for the interface are named through `content.UiImages`:
 
 ```csharp
-GameImage icon = content.Image("icons/axe.png");
+GameImage icon = content.UiImages.Image("icons/axe.png");
 ```
 
 Its size comes from the cooked texture, so naming it doesn't decode it. A name that isn't
@@ -190,12 +190,12 @@ A game can also paint an image itself and show it like a cooked one:
 ```csharp
 byte[] pixels = new byte[width * height * 4];   // rows from the top: red, green, blue, alpha
 // ... paint ...
-GameImage map = content.Image(width, height, pixels);
+GameImage map = content.UiImages.Image(width, height, pixels);
 ```
 
 The pixels are sRGB with straight alpha, and are kept as they are, so don't change them
 afterwards. Each call makes a new image: when the picture changes, paint a new one and let
-the old one go with `content.Unload(image)`. Showing an image after it's unloaded fails, and
+the old one go with `content.UiImages.Unload(image)`. Showing an image after it's unloaded fails, and
 naming a cooked file again after unloading it makes a new one.
 
 `image.ReadPixels()` gives an image's pixels in the same layout, to paint new images from,
@@ -392,11 +392,11 @@ outliner. When a node has no name, the mesh's own name is used. A static model k
 only when its sidecar sets `"keepMeshes": true`, and is cooked again. These are not the
 `#part` splits above. A split is cut when the file is cooked, and each one is a model of its
 own. A mesh name is a mesh inside one model, which a game can show or hide on each draw.
-`content.Meshes` picks them by name and gives a
+`content.Models.Meshes` picks them by name and gives a
 [`MeshMask`](rendering.md#showing-some-meshes-of-a-model):
 
 ```csharp
-MeshMask mask = content.Meshes(model, "Body_03a", "Head_05b");
+MeshMask mask = content.Models.Meshes(model, "Body_03a", "Head_05b");
 ```
 
 A mesh with several materials is drawn in several pieces, and its name picks all of them.
@@ -407,10 +407,10 @@ Names match exactly, case included. A name the model doesn't have stops here wit
 hero.glb has no mesh called Helmet. It has 3 meshes: Body_03a, Head_05b, w_spear.
 ```
 
-`content.MeshNames(model)` lists them once each, in the order they were cooked. The names
+`content.Models.MeshNames(model)` lists them once each, in the order they were cooked. The names
 are read from the front of the cooked file, so picking them never reads the geometry, and
 `content.Rig` keeps them when it reads the rig, so the file isn't opened again. A static
-model cooked without `keepMeshes` has no names, so `content.Meshes` stops with an
+model cooked without `keepMeshes` has no names, so `content.Models.Meshes` stops with an
 `InvalidOperationException` that says why and what to do:
 
 ```

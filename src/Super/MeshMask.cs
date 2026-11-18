@@ -3,7 +3,7 @@ namespace Super;
 /// <summary>
 /// Which meshes of one model a draw shows, so one file can hold many looks, such as several
 /// bodies, heads and weapons, and each draw shows one of each. Make a mask once, with
-/// <see cref="Content.Meshes"/>, and keep it: a mask never changes and drawing with it allocates
+/// <see cref="ContentModels.Meshes"/>, and keep it: a mask never changes and drawing with it allocates
 /// nothing. It only fits the model it was made for. Underneath it picks the model's parts, the
 /// pieces it is drawn in, which a mesh with several materials has one of for each.
 /// </summary>

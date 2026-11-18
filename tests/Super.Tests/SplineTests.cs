@@ -346,7 +346,7 @@ public class SplineTests
     [Fact]
     public void A_spline_schema_offers_points_as_three_numbers_but_not_its_length()
     {
-        string schema = Content().SchemaText(typeof(Route));
+        string schema = Content().Data.SchemaText(typeof(Route));
 
         Assert.Contains("\"points\"", schema, StringComparison.Ordinal);
         Assert.Contains("\"knots\"", schema, StringComparison.Ordinal);

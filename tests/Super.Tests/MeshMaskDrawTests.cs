@@ -21,7 +21,7 @@ public class MeshMaskDrawTests
         var problem = Assert.Throws<ArgumentException>(() => view.Model(7, Body, Matrix4x4.Identity, new ModelOptions { Meshes = mask }));
 
         Assert.Equal("options", problem.ParamName);
-        Assert.StartsWith("The mesh mask was made for model 5, not model 3. Make it with Content.Meshes for this model.", problem.Message);
+        Assert.StartsWith("The mesh mask was made for model 5, not model 3. Make it with content.Models.Meshes for this model.", problem.Message);
         Assert.Empty(view.Drawn.ToArray());
     }
 

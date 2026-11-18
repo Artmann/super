@@ -90,7 +90,7 @@ public class SurfaceOcclusionTests
         var dark = Grey(content, 40);
         var light = Grey(content, 200);
         ulong Identity(Surface surface) => BakeIdentity.Model(
-            content.Mesh(new GeneratedMesh(Triangle, [0, 1, 2], surface)), content.Items, content.Files, _ => []);
+            content.Mesh(new GeneratedMesh(Triangle, [0, 1, 2], surface)), content.Store.Items, content.Store.Files, _ => []);
 
         ulong plain = Identity(new Surface());
         ulong darkOnFirst = Identity(new Surface { Occlusion = new OcclusionMap(dark) });

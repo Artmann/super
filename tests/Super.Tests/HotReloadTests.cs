@@ -203,7 +203,7 @@ public class HotReloadTests
         host.Tick();
 
         host.Game.BreakUpdate = false;
-        host.Content.ReloadWanted = true;
+        host.Content.Data.Live.ReloadWanted = true;
         host.Tick();
 
         Assert.Null(host.Stopped);

@@ -34,7 +34,7 @@ public class LoadingTests
     /// <summary>A loader whose background work finishes only when a test says so.</summary>
     private sealed class Fake
     {
-        public Content Content { get; } = new(Models()) { Streaming = true };
+        public Content Content { get; } = new(Models()) { Store = { Loading = { Streaming = true } } };
         public List<string> Uploaded { get; } = [];
         public Dictionary<string, TaskCompletionSource> Gates { get; } = [];
 
@@ -122,7 +122,7 @@ public class LoadingTests
     [Fact]
     public void Nothing_named_counts_as_loaded()
     {
-        var content = new Content(Models()) { Streaming = true };
+        var content = new Content(Models()) { Store = { Loading = { Streaming = true } } };
         Assert.True(content.IsLoaded);
         Assert.Equal(1f, content.Progress);
     }
@@ -130,17 +130,17 @@ public class LoadingTests
     [Fact]
     public void Streaming_reports_how_far_it_has_got()
     {
-        var content = new Content(Models()) { Streaming = true };
+        var content = new Content(Models()) { Store = { Loading = { Streaming = true } } };
         content.Model("a");
         content.Model("b");
         Assert.False(content.IsLoaded);
         Assert.Equal(0f, content.Progress);
 
-        content.ItemLoaded(1);
+        content.Store.Loading.ItemLoaded(1);
         Assert.False(content.IsLoaded);
         Assert.Equal(0.5f, content.Progress);
 
-        content.ItemLoaded(2);
+        content.Store.Loading.ItemLoaded(2);
         Assert.True(content.IsLoaded);
         Assert.Equal(1f, content.Progress);
     }
@@ -148,9 +148,9 @@ public class LoadingTests
     [Fact]
     public void A_second_load_starts_again_from_zero()
     {
-        var content = new Content(Models()) { Streaming = true };
+        var content = new Content(Models()) { Store = { Loading = { Streaming = true } } };
         content.Model("a");
-        content.ItemLoaded(1);
+        content.Store.Loading.ItemLoaded(1);
 
         content.Model("b");
         Assert.False(content.IsLoaded);

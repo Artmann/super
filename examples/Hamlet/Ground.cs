@@ -45,7 +45,7 @@ internal sealed class Ground
     {
         foreach (var model in _models)
         {
-            content.Unload(model);
+            content.Models.Unload(model);
         }
 
         _models.Clear();

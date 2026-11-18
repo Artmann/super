@@ -30,7 +30,7 @@ public sealed class View
         set
         {
             field = value;
-            Effects.SurfaceCheck = value is null ? null : value.RequireSurface;
+            Effects.SurfaceCheck = value is null ? null : surface => ItemChecks.RequireSurface(value.Store, surface);
         }
     }
 
@@ -125,7 +125,7 @@ public sealed class View
             throw new ArgumentException($"Model {model.Index} is not a built-in shape. Use ModelRef.Sphere and the others, or a model from Content.", nameof(model));
         }
 
-        if (Content is { } content && content.IsUnloaded(model.Index))
+        if (Content is { } content && content.Store.IsUnloaded(model.Index))
         {
             throw new InvalidOperationException($"Model {model.Index} was unloaded, so it can't be drawn.");
         }

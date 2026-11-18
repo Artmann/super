@@ -99,7 +99,7 @@ Super is early. These are the known gaps, so you can plan around them.
   content roots can be cooked together, but a name that two of them make is a cook error,
   so a mod can't replace anything yet.
 - **Unloading game states.** Entities can be [scoped to a state](ecs.md#entities-that-belong-to-a-state),
-  but models and other content stay loaded unless you call `content.Unload`.
+  but models and other content stay loaded unless you call `content.Models.Unload` or `content.Unload`.
 - **Smaller packages.** Super is one NuGet package, so every game also depends on xUnit and
   the C# compiler, which only the test helpers and material graphs use. The cook tool in it
   runs on Windows and Apple silicon Macs.

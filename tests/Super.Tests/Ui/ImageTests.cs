@@ -72,7 +72,7 @@ public class ImageTests
     private static GameImage Load(byte[] png)
     {
         var files = new MemoryContent().Add("a.png", png);
-        return new Content(files).Image("a.png");
+        return new Content(files).UiImages.Image("a.png");
     }
 
     private static OverlayQuad Draw(UiView view)
@@ -94,14 +94,14 @@ public class ImageTests
     public void Naming_an_image_twice_gives_the_same_one()
     {
         var content = new Content(new MemoryContent().Add("a.png", Wide));
-        Assert.Same(content.Image("a.png"), content.Image("a.png"));
+        Assert.Same(content.UiImages.Image("a.png"), content.UiImages.Image("a.png"));
     }
 
     [Fact]
     public void A_missing_image_says_which_one()
     {
         var content = new Content(new MemoryContent());
-        var error = Assert.Throws<ContentException>(() => content.Image("gone.png"));
+        var error = Assert.Throws<ContentException>(() => content.UiImages.Image("gone.png"));
         Assert.Equal("gone.png isn't in the cooked content. Check the name, including its case and extension.", error.Message);
     }
 
@@ -109,14 +109,14 @@ public class ImageTests
     public void A_file_that_is_no_image_says_so()
     {
         var content = new Content(new MemoryContent().Add("a.png", [1, 2, 3]));
-        var error = Assert.Throws<ContentException>(() => content.Image("a.png"));
+        var error = Assert.Throws<ContentException>(() => content.UiImages.Image("a.png"));
         Assert.Equal("memory:a.png: error SUPER001: a.png is not an image this can read", error.Message);
     }
 
     [Fact]
     public void A_painted_image_has_the_size_it_was_painted_at()
     {
-        var image = new Content(new MemoryContent()).Image(3, 2, new byte[24]);
+        var image = new Content(new MemoryContent()).UiImages.Image(3, 2, new byte[24]);
         Assert.Equal((3, 2), (image.Width, image.Height));
         Assert.Equal(new Vector2(3f, 2f), Draw(new Image(image)).Size);
     }
@@ -125,14 +125,14 @@ public class ImageTests
     public void Each_painting_is_a_new_image()
     {
         var content = new Content(new MemoryContent());
-        Assert.NotSame(content.Image(1, 1, new byte[4]), content.Image(1, 1, new byte[4]));
+        Assert.NotSame(content.UiImages.Image(1, 1, new byte[4]), content.UiImages.Image(1, 1, new byte[4]));
     }
 
     [Fact]
     public void Pixels_must_fill_the_painted_image()
     {
         var content = new Content(new MemoryContent());
-        var error = Assert.Throws<ArgumentException>(() => content.Image(2, 2, new byte[12]));
+        var error = Assert.Throws<ArgumentException>(() => content.UiImages.Image(2, 2, new byte[12]));
         Assert.Contains("16 bytes", error.Message);
     }
 
@@ -180,7 +180,7 @@ public class ImageTests
     {
         var files = new MemoryContent { ["cook.json"] = "{ \"rules\": [{ \"match\": \"*.png\", \"texture\": " + settings + " }] }" };
         files.Add("a.png", png);
-        return new Content(files).Image("a.png");
+        return new Content(files).UiImages.Image("a.png");
     }
 
     [Fact]
@@ -220,16 +220,16 @@ public class ImageTests
     public void A_painted_image_gives_back_its_pixels()
     {
         byte[] painted = [1, 2, 3, 4];
-        Assert.Equal(painted, new Content(new MemoryContent()).Image(1, 1, painted).ReadPixels());
+        Assert.Equal(painted, new Content(new MemoryContent()).UiImages.Image(1, 1, painted).ReadPixels());
     }
 
     [Fact]
     public void An_image_can_be_let_go_once()
     {
         var content = new Content(new MemoryContent());
-        var image = content.Image(1, 1, new byte[4]);
-        content.Unload(image);
-        var error = Assert.Throws<ArgumentException>(() => content.Unload(image));
+        var image = content.UiImages.Image(1, 1, new byte[4]);
+        content.UiImages.Unload(image);
+        var error = Assert.Throws<ArgumentException>(() => content.UiImages.Unload(image));
         Assert.Equal("image names 1, which was unloaded. (Parameter 'image')", error.Message);
     }
 
@@ -237,9 +237,9 @@ public class ImageTests
     public void Naming_an_image_after_letting_it_go_makes_a_new_one()
     {
         var content = new Content(new MemoryContent().Add("a.png", Wide));
-        var first = content.Image("a.png");
-        content.Unload(first);
-        Assert.NotSame(first, content.Image("a.png"));
+        var first = content.UiImages.Image("a.png");
+        content.UiImages.Unload(first);
+        Assert.NotSame(first, content.UiImages.Image("a.png"));
     }
 
     [Fact]

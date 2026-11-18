@@ -1941,12 +1941,12 @@ each draw shows one of each. A rigged model keeps every mesh in its source file,
 node that holds it, the name an artist sees in the outliner. A static model keeps them too,
 but only with `"keepMeshes": true` in its sidecar, since by default its meshes that share a
 material merge into one part with no name. Cook the model again after adding it. Pick the
-meshes by name with `content.Meshes` once, and keep the mask. Each draw then shows only
+meshes by name with `content.Models.Meshes` once, and keep the mask. Each draw then shows only
 those meshes. This is different from the `#part` files above, which are separate models cut
 at cook time:
 
 ```csharp
-MeshMask mask = content.Meshes(model, "Body_03a", "Head_05b");
+MeshMask mask = content.Models.Meshes(model, "Body_03a", "Head_05b");
 view.Model(key, model, transform, new ModelOptions { Meshes = mask });
 ```
 
@@ -2317,7 +2317,7 @@ view.Model(1, ModelRef.Capsule, Matrix4x4.CreateTranslation(player.Position + Ve
 | `ModelRef.Quad` | 1 × 1, standing up and facing along +z. One-sided |
 | `ModelRef.Torus` | 1 across, with a tube 0.25 thick, lying flat |
 
-They can't be unloaded, and `content.IsReady` is always true for them.
+They can't be unloaded, and `content.Models.IsReady` is always true for them.
 
 For other sizes, more or fewer segments, or a surface of their own, `Shapes` builds the
 same shapes and more as a `GeneratedMesh` to hand to `content.Mesh`:
@@ -2428,8 +2428,8 @@ uncompressed. Otherwise the array fails to load with an error that gives the ind
 first layer that differs, such as `Layer 2 is 512x512 Linear Rgba8 with 10 mips, but layer
 0 is 512x512 Linear Bc5 with 10 mips.`
 
-A mesh or texture you're done with is let go with `content.Unload`, which frees it after
-the frames in flight. `content.IsReady(model)` says whether a mesh is on the GPU yet, so a
+A mesh you're done with is let go with `content.Models.Unload`, and a texture with `content.Unload`, which free it after
+the frames in flight. `content.Models.IsReady(model)` says whether a mesh is on the GPU yet, so a
 game can skip one still loading instead of waiting. A texture is freed after every mesh
 that names it; a texture array keeps its own copy of each layer, so the single layers can
 go as soon as the array is made.

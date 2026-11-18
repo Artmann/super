@@ -32,7 +32,7 @@ internal sealed class UploadedItems
     public void Update(Content content)
     {
         // Set before anything new starts preparing, since models are read through it on background threads.
-        _files = content.Files;
+        _files = content.Store.Files;
         _loader.Update(content);
     }
 
@@ -58,6 +58,6 @@ internal sealed class UploadedItems
     {
         0 => "cube",
         < 0 => Shapes.BuiltInNames[-index - 1],
-        _ => content.Items[index - 1] is string path ? path : generated,
+        _ => content.Store.Items[index - 1] is string path ? path : generated,
     };
 }

@@ -221,13 +221,13 @@ view.Model(FoxKey, foxModel, transform, pose, new ModelOptions { Meshes = meshes
 ## Showing some meshes
 
 A model cooked from a file with several meshes can be drawn in part: one body, the
-helmet off, the sword in the other hand. Make a `MeshMask` once with `Content.Meshes`,
+helmet off, the sword in the other hand. Make a `MeshMask` once with `content.Models.Meshes`,
 naming the meshes to show, and keep it. A static model has mesh names only with
 `"keepMeshes": true` in its sidecar, see [Models](rendering.md#showing-some-meshes-of-a-model).
 Each draw then shows only those meshes:
 
 ```csharp
-MeshMask knight = content.Meshes(armoured, "body", "legs");
+MeshMask knight = content.Models.Meshes(armoured, "body", "legs");
 view.Model(KnightKey, armoured, transform, new ModelOptions { Meshes = knight });
 ```
 

@@ -27,7 +27,7 @@ public sealed class AudioRecordingTests : IDisposable
             // Scattered sounds come from the ambience; these add pitch-varied one-shots from audio's own randomness.
             if (time.Tick % 7 == 0)
             {
-                audio.Play(content.Sound("click.wav"), at: new Vector3(time.Tick % 5, 0, -3), pitchVariation: 0.3f);
+                audio.Play(content.Sounds.Sound("click.wav"), at: new Vector3(time.Tick % 5, 0, -3), pitchVariation: 0.3f);
             }
         }
 
@@ -65,7 +65,7 @@ public sealed class AudioRecordingTests : IDisposable
         using var run = Start();
         AudioService audio = run.Game.Audio;
         audio.Device.StartRecording(wav);
-        audio.Ambiences.Start(run.Game.Content.Ambience("wood.ambience.json"), 1);
+        audio.Ambiences.Start(run.Game.Content.Sounds.Ambience("wood.ambience.json"), 1);
         run.Ticks(ticks);
         audio.Device.StopRecording();
         return wav;
@@ -316,7 +316,7 @@ public sealed class AudioInVideoTests : IDisposable
         using var capture = new GameCapture(run.Game.Audio);
 
         capture.StartRecording(video, 30);
-        run.Game.Audio.Play(run.Game.Content.Sound("bed.wav"));
+        run.Game.Audio.Play(run.Game.Content.Sounds.Sound("bed.wav"));
         for (int frame = 0; frame < 30; frame++)
         {
             run.Ticks(1);

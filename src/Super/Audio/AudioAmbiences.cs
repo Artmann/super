@@ -25,7 +25,7 @@ internal sealed class AudioAmbiences
     public int Start(AmbienceRef ambience, float volume)
     {
         AudioChecks.CheckVolume(volume, nameof(volume));
-        AmbienceDefinition definition = _content.AmbienceOf(ambience);
+        AmbienceDefinition definition = _content.Sounds.AmbienceOf(ambience);
         int id = _ids.Take();
         if (id != AudioIdPool.NoId && !_commands.Push(new AudioCommand { Kind = AudioCommandKind.StartAmbience, Id = id, Ambience = definition, Value = volume, FadeSeconds = FadeSeconds }))
         {

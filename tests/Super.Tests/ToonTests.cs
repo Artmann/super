@@ -122,7 +122,7 @@ public class ToonTests
     {
         var content = new Content(new MemoryContent());
         ulong Identity(Surface surface) => BakeIdentity.Model(
-            content.Mesh(new GeneratedMesh(Triangle, [0, 1, 2], surface)), content.Items, content.Files, _ => []);
+            content.Mesh(new GeneratedMesh(Triangle, [0, 1, 2], surface)), content.Store.Items, content.Store.Files, _ => []);
 
         ulong[] ids =
         [

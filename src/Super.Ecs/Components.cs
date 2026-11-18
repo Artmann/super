@@ -6,7 +6,7 @@ namespace Super.Ecs;
 /// <summary>
 /// What an entity looks like. With a <see cref="Transform"/>, <see cref="ViewExtensions.Models"/>
 /// draws it, keyed by the entity's ID. A color tints the model and keeps its textures. A mesh
-/// mask from <see cref="Content.Meshes"/> shows only some of its meshes; null shows them all. A fade
+/// mask from <see cref="ContentModels.Meshes"/> shows only some of its meshes; null shows them all. A fade
 /// fades it out with distance from the camera, winning over its surfaces' own.
 /// </summary>
 public record struct Model(ModelRef Value, Vector3? Color = null, MeshMask? Meshes = null, DistanceFade? Fade = null);

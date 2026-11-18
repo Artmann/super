@@ -76,7 +76,7 @@ public class CookedContentTests
     {
         var content = new Content(new MemoryContent().Add("ui/a.png", ImageTests.Png(3, 2)));
 
-        var image = content.Image("ui/a.png");
+        var image = content.UiImages.Image("ui/a.png");
 
         Assert.Equal(3, image.Width);
         Assert.Equal(2, image.Height);
@@ -89,8 +89,8 @@ public class CookedContentTests
         files.Add("a-normal.png", ImageTests.Png(2, 2)).Add("a.png", ImageTests.Png(2, 2));
         var content = new Content(files);
 
-        var normal = ItemReads.LoadTexture((TextureItem)content.Items[content.Texture("a-normal.png").Index - 1]);
-        var color = ItemReads.LoadTexture((TextureItem)content.Items[content.Texture("a.png").Index - 1]);
+        var normal = ItemReads.LoadTexture((TextureItem)content.Store.Items[content.Texture("a-normal.png").Index - 1]);
+        var color = ItemReads.LoadTexture((TextureItem)content.Store.Items[content.Texture("a.png").Index - 1]);
 
         Assert.Equal(TextureKind.Linear, normal.Kind);
         Assert.Equal(TextureKind.Color, color.Kind);

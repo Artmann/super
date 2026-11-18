@@ -18,7 +18,7 @@ public class SchemaTests
     private static JsonObject Schema()
     {
         var content = new Content(new MemoryContent());
-        return JsonNode.Parse(content.SchemaText(typeof(Item)))!.AsObject();
+        return JsonNode.Parse(content.Data.SchemaText(typeof(Item)))!.AsObject();
     }
 
     private static string[] Required(JsonNode schema) =>
@@ -95,21 +95,21 @@ public class SchemaTests
             content.LoadAll<Plain>("plain");
             content.LoadAll<Crate>("crates");
 
-            content.WriteSchemas(root);
+            content.Data.WriteSchemas(root);
             string plain = Path.Combine(root, ".schemas", "plain.schema.json");
             string crates = Path.Combine(root, ".schemas", "crates.schema.json");
-            Assert.Equal(content.SchemaText(typeof(Plain)), File.ReadAllText(plain));
-            Assert.Equal(content.SchemaText(typeof(Crate)), File.ReadAllText(crates));
+            Assert.Equal(content.Data.SchemaText(typeof(Plain)), File.ReadAllText(plain));
+            Assert.Equal(content.Data.SchemaText(typeof(Crate)), File.ReadAllText(crates));
 
             var before = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(plain, before);
             File.SetLastWriteTimeUtc(crates, before);
             File.WriteAllText(crates, "stale");
             File.SetLastWriteTimeUtc(crates, before);
-            content.WriteSchemas(root);
+            content.Data.WriteSchemas(root);
 
             Assert.Equal(before, File.GetLastWriteTimeUtc(plain));
-            Assert.Equal(content.SchemaText(typeof(Crate)), File.ReadAllText(crates));
+            Assert.Equal(content.Data.SchemaText(typeof(Crate)), File.ReadAllText(crates));
             Assert.NotEqual(before, File.GetLastWriteTimeUtc(crates));
         }
         finally

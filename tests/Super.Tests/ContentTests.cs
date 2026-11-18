@@ -70,7 +70,7 @@ public class ContentTests
         var problem = Assert.Throws<ContentException>(() => content.Texture("textures/Grass.png"));
 
         Assert.Equal("textures/Grass.png isn't in the cooked content. Check the name, including its case and extension.", problem.Message);
-        Assert.Empty(content.Items);
+        Assert.Empty(content.Store.Items);
     }
 
     /// <summary>Content holding a small PNG under each name.</summary>
@@ -216,8 +216,8 @@ public class ContentTests
         var content = new Content(new MemoryContent());
         var model = content.Mesh(Mesh(new Surface()));
 
-        Assert.True(content.IsReady(model));
-        Assert.True(content.IsReady(ModelRef.Cube));
+        Assert.True(content.Models.IsReady(model));
+        Assert.True(content.Models.IsReady(ModelRef.Cube));
     }
 
     [Fact]
@@ -229,12 +229,12 @@ public class ContentTests
         view.Begin(0f);
         view.Model(1, model, Matrix4x4.Identity);
 
-        content.Unload(model);
+        content.Models.Unload(model);
 
         var problem = Assert.Throws<InvalidOperationException>(() => view.Model(1, model, Matrix4x4.Identity));
         Assert.Contains(model.Index.ToString(), problem.Message);
-        Assert.False(content.IsReady(model));
-        Assert.Throws<ArgumentException>(() => content.Unload(model));
+        Assert.False(content.Models.IsReady(model));
+        Assert.Throws<ArgumentException>(() => content.Models.Unload(model));
     }
 
     [Fact]
@@ -301,10 +301,10 @@ public class ContentTests
         var problem = Assert.Throws<InvalidOperationException>(() => content.Unload(texture));
         Assert.Contains(model.Index.ToString(), problem.Message);
 
-        content.Unload(model);
+        content.Models.Unload(model);
         content.Unload(texture);
 
-        Assert.True(content.IsUnloaded(texture.Index));
+        Assert.True(content.Store.IsUnloaded(texture.Index));
     }
 
     [Fact]
@@ -314,11 +314,11 @@ public class ContentTests
         var texture = content.Texture("textures/splat.png");
         var model = content.Mesh(Mesh(new Surface { ColorTexture = texture }));
 
-        content.Unload(model);
+        content.Models.Unload(model);
         content.Unload(texture);
 
-        Assert.IsType<UnloadedItem>(content.Items[model.Index - 1]);
-        Assert.IsType<UnloadedItem>(content.Items[texture.Index - 1]);
+        Assert.IsType<UnloadedItem>(content.Store.Items[model.Index - 1]);
+        Assert.IsType<UnloadedItem>(content.Store.Items[texture.Index - 1]);
         Assert.Throws<ArgumentException>(() => content.Unload(texture));
     }
 
@@ -350,7 +350,7 @@ public class ContentTests
         var content = new Content(files);
         var texture = content.Texture("textures/tiny.png");
 
-        return ItemReads.LoadTexture((TextureItem)content.Items[texture.Index - 1]);
+        return ItemReads.LoadTexture((TextureItem)content.Store.Items[texture.Index - 1]);
     }
 
     [Fact]
@@ -392,7 +392,7 @@ public class ContentTests
         Assert.Equal(Vector3.One, mesh.Surface.Color);
         Assert.Same(texture, mesh.OwnedTexture);
         Assert.True(mesh.Simplify);
-        Assert.True(content.IsReady(model));
+        Assert.True(content.Models.IsReady(model));
     }
 
     /// <summary>A two-metre square of two triangles, made by hand so its second UVs are all zero, unlike the shapes'.</summary>
@@ -407,7 +407,7 @@ public class ContentTests
         new Surface());
 
     /// <summary>The vertices the window would upload for a model: those of the item the content keeps for it.</summary>
-    private static Vertex[] Uploaded(Content content, ModelRef model) => ((GeneratedMesh)content.Items[model.Index - 1]).Vertices;
+    private static Vertex[] Uploaded(Content content, ModelRef model) => ((GeneratedMesh)content.Store.Items[model.Index - 1]).Vertices;
 
     /// <summary>Gives the view's last draw its bake ids as the next render would, with one half-metre part.</summary>
     private static void DressLastDraw(View view, Content content)
@@ -483,7 +483,7 @@ public class ContentTests
         var dynamic = content.Mesh(mesh);
         var made = content.Mesh(mesh, isStatic: true);
 
-        Assert.NotEqual(content.IdentityOf(dynamic), content.IdentityOf(made));
+        Assert.NotEqual(content.Store.IdentityOf(dynamic), content.Store.IdentityOf(made));
     }
 
     [Fact]

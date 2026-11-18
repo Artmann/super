@@ -41,7 +41,7 @@ public class RigFieldTests
         var rig = heroes["knight"].Rig;
 
         memory["heroes/knight.json"] = Knight("characters/knight.glb").Replace("hips", "pelvis");
-        Assert.True(content.Reload(TextWriter.Null));
+        Assert.True(content.Data.Reload(TextWriter.Null));
 
         Assert.Equal("pelvis", heroes["knight"].Pelvis);
         Assert.Same(rig, heroes["knight"].Rig);
@@ -65,7 +65,7 @@ public class RigFieldTests
     {
         var content = new Content(new MemoryContent());
 
-        Assert.Contains("\"rig\":{\"type\":\"string\"}", content.SchemaText(typeof(Hero)).Replace(" ", "").Replace("\n", "").Replace("\r", ""));
+        Assert.Contains("\"rig\":{\"type\":\"string\"}", content.Data.SchemaText(typeof(Hero)).Replace(" ", "").Replace("\n", "").Replace("\r", ""));
     }
 
     private static byte[] Model(bool TestRigSkeleton) => new ModelData

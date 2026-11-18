@@ -31,11 +31,11 @@ public class SoundTests
 
         public void Load()
         {
-            Creak = content.Sound("creak.wav");
-            Hum = content.Sound("hum.wav");
-            Shot = content.Sound("shot.wav");
-            Forest = content.Ambience("forest.ambience.json");
-            Cave = content.Ambience("cave.ambience.json");
+            Creak = content.Sounds.Sound("creak.wav");
+            Hum = content.Sounds.Sound("hum.wav");
+            Shot = content.Sounds.Sound("shot.wav");
+            Forest = content.Sounds.Ambience("forest.ambience.json");
+            Cave = content.Sounds.Ambience("cave.ambience.json");
         }
 
         public void Update(GameTime time) => Step?.Invoke();

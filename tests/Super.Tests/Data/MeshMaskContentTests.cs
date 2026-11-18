@@ -36,7 +36,7 @@ public class MeshMaskContentTests
         var content = new Content(new ModelFiles("hero.glb", Model("Body_03a", "Head_05b", "w_spear"), streamOnly: false));
         var hero = content.Model("hero.glb");
 
-        var mask = content.Meshes(hero, "Head_05b", "w_spear");
+        var mask = content.Models.Meshes(hero, "Head_05b", "w_spear");
 
         Assert.Equal(3, mask.Count);
         Assert.Equal(2, mask.Kept);
@@ -49,7 +49,7 @@ public class MeshMaskContentTests
         var content = new Content(new ModelFiles("hero.glb", Model("Hair", "Body", "Hair"), streamOnly: false));
         var hero = content.Model("hero.glb");
 
-        var mask = content.Meshes(hero, "Hair");
+        var mask = content.Models.Meshes(hero, "Hair");
 
         Assert.Equal(2, mask.Kept);
         Assert.Equal([true, false, true], Shown(mask));
@@ -61,7 +61,7 @@ public class MeshMaskContentTests
         var content = new Content(new ModelFiles("hero.glb", Model("Body_03a", "Head_05b", "w_spear"), streamOnly: false));
         var hero = content.Model("hero.glb");
 
-        var problem = Assert.Throws<ArgumentException>(() => content.Meshes(hero, "Head_05b", "Helmet"));
+        var problem = Assert.Throws<ArgumentException>(() => content.Models.Meshes(hero, "Head_05b", "Helmet"));
 
         Assert.Equal(
             "hero.glb has no mesh called Helmet. It has 3 meshes: Body_03a, Head_05b, w_spear. (Parameter 'names')",
@@ -74,7 +74,7 @@ public class MeshMaskContentTests
         var content = new Content(new ModelFiles("hero.glb", Model("Body_03a"), streamOnly: false));
         var hero = content.Model("hero.glb");
 
-        var problem = Assert.Throws<ArgumentException>(() => content.Meshes(hero, "body_03a"));
+        var problem = Assert.Throws<ArgumentException>(() => content.Models.Meshes(hero, "body_03a"));
 
         Assert.StartsWith("hero.glb has no mesh called body_03a.", problem.Message);
     }
@@ -86,7 +86,7 @@ public class MeshMaskContentTests
         var content = new Content(new ModelFiles("crowd.glb", Model(names), streamOnly: false));
         var crowd = content.Model("crowd.glb");
 
-        var problem = Assert.Throws<ArgumentException>(() => content.Meshes(crowd, "Nope"));
+        var problem = Assert.Throws<ArgumentException>(() => content.Models.Meshes(crowd, "Nope"));
 
         Assert.Equal(
             "crowd.glb has no mesh called Nope. It has 25 meshes: P00, P01, P02, P03, P04, P05, P06, P07, P08, P09, " +
@@ -100,7 +100,7 @@ public class MeshMaskContentTests
         var content = new Content(new ModelFiles("hero.glb", Model("Body"), streamOnly: false));
         var hero = content.Model("hero.glb");
 
-        var problem = Assert.Throws<ArgumentException>(() => content.Meshes(hero));
+        var problem = Assert.Throws<ArgumentException>(() => content.Models.Meshes(hero));
 
         Assert.Equal("A mesh mask needs at least one mesh name. (Parameter 'names')", problem.Message);
     }
@@ -110,7 +110,7 @@ public class MeshMaskContentTests
     {
         var content = new Content(new MemoryContent());
 
-        var problem = Assert.Throws<ArgumentException>(() => content.Meshes(ModelRef.Cube, "Body"));
+        var problem = Assert.Throws<ArgumentException>(() => content.Models.Meshes(ModelRef.Cube, "Body"));
 
         Assert.Equal(
             "The built-in shapes, such as the cube, are not cooked, so they have no mesh names. (Parameter 'model')",
@@ -122,7 +122,7 @@ public class MeshMaskContentTests
     {
         var content = new Content(new MemoryContent());
 
-        var problem = Assert.Throws<ArgumentException>(() => content.Meshes(new ModelRef(3), "Body"));
+        var problem = Assert.Throws<ArgumentException>(() => content.Models.Meshes(new ModelRef(3), "Body"));
 
         Assert.Equal("model names 3, which this content never named, so it has no mesh names. (Parameter 'model')", problem.Message);
     }
@@ -141,7 +141,7 @@ public class MeshMaskContentTests
         var content = new Content(new ModelFiles("old.glb", bytes, streamOnly: false));
         var old = content.Model("old.glb");
 
-        var problem = Assert.Throws<InvalidOperationException>(() => content.Meshes(old, "Body"));
+        var problem = Assert.Throws<InvalidOperationException>(() => content.Models.Meshes(old, "Body"));
 
         Assert.Equal(
             "old.glb has no mesh names, because its file was cooked without them. A rigged model always has them. " +
@@ -157,7 +157,7 @@ public class MeshMaskContentTests
         var content = new Content(new ModelFiles("old.glb", bytes, streamOnly: false));
         var old = content.Model("old.glb");
 
-        var problem = Assert.Throws<InvalidDataException>(() => content.Meshes(old, "Body"));
+        var problem = Assert.Throws<InvalidDataException>(() => content.Models.Meshes(old, "Body"));
 
         Assert.Equal("old.glb is not a current model file. Cook it again.", problem.Message);
     }
@@ -168,7 +168,7 @@ public class MeshMaskContentTests
         var content = new Content(new ModelFiles("hero.glb", Model("Body_03a", "Head_05b"), streamOnly: true));
         var hero = content.Model("hero.glb");
 
-        var mask = content.Meshes(hero, "Head_05b");
+        var mask = content.Models.Meshes(hero, "Head_05b");
 
         Assert.Equal([false, true], Shown(mask));
     }
@@ -179,7 +179,7 @@ public class MeshMaskContentTests
         var content = new Content(new ModelFiles("hero.glb", Model("Body_03a", "Head_05b", "Body_03a"), streamOnly: true));
         var hero = content.Model("hero.glb");
 
-        Assert.Equal(new[] { "Body_03a", "Head_05b" }, content.MeshNames(hero));
+        Assert.Equal(new[] { "Body_03a", "Head_05b" }, content.Models.MeshNames(hero));
     }
 
     /// <summary>Counts how often the model file is opened.</summary>
@@ -217,7 +217,7 @@ public class MeshMaskContentTests
         var content = new Content(files);
         var rig = content.Rig("hero.glb");
 
-        var mask = content.Meshes(rig.Model!.Value, "Sword");
+        var mask = content.Models.Meshes(rig.Model!.Value, "Sword");
 
         Assert.Equal(1, files.Opened);
         Assert.Equal([false, true], Shown(mask));

@@ -137,10 +137,10 @@ public sealed class ForestGame(
 
     public void Load()
     {
-        _hammering = content.Sound("sounds/hammering.wav");
-        _accept = content.Sound("sounds/accept.wav");
-        var music = content.Sound("music/clearing.ogg");
-        var forest = content.Ambience("sounds/forest.ambience.json");
+        _hammering = content.Sounds.Sound("sounds/hammering.wav");
+        _accept = content.Sounds.Sound("sounds/accept.wav");
+        var music = content.Sounds.Sound("music/clearing.ogg");
+        var forest = content.Sounds.Ambience("sounds/forest.ambience.json");
 
         place.OnEnter(Place.Forest, () =>
         {

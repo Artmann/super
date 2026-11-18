@@ -74,7 +74,7 @@ internal sealed class DressedDraws(Renderer renderer, UploadedItems items)
         }
 
         var content = context.Content;
-        if (!content.MadeStatic(draw.Model))
+        if (!content.Store.Identities.MadeStatic(draw.Model))
         {
             throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
                 $"Model {draw.Model.Index} is a mesh made in code and drawn static, but it wasn't made static, so it has no lightmap UVs. Pass isStatic: true to Content.Mesh."));
@@ -86,7 +86,7 @@ internal sealed class DressedDraws(Renderer renderer, UploadedItems items)
                 $"Model {draw.Model.Index} ({UploadedItems.NameOf(draw.Model.Index, content, "a mesh made in code")}) is drawn static with {partBounds.Length} parts, but a static model can have at most {BakeIds.MaxParts}. Draw it without isStatic, or split it."));
         }
 
-        var identity = new BakeIdDraw(content.IdentityOf(draw.Model), tint, draw.Transform);
+        var identity = new BakeIdDraw(content.Store.IdentityOf(draw.Model), tint, draw.Transform);
         BakeIdentity.Assign(shown, draw.Meshes, partBounds, in identity, context.Areas);
     }
 

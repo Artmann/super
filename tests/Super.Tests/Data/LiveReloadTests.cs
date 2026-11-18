@@ -80,7 +80,7 @@ public class LiveReloadTests
         public void Dispose() => Disposed = true;
     }
 
-    /// <summary>A <see cref="Content.StartCook"/> that records every start instead of running the tool.</summary>
+    /// <summary>A <see cref="ContentLive.StartCook"/> that records every start instead of running the tool.</summary>
     internal sealed class CookStarts
     {
         public List<(DevSettings Dev, string Out, FakeCook Cook)> Calls { get; } = [];
@@ -175,7 +175,7 @@ public class LiveReloadTests
         var items = content.LoadAll<Item>("items");
 
         files["items/axe.json"] = Axe(2);
-        Assert.True(content.Reload(TextWriter.Null));
+        Assert.True(content.Data.Reload(TextWriter.Null));
 
         Assert.Equal(2, items["axe"].Power);
     }
@@ -189,7 +189,7 @@ public class LiveReloadTests
 
         files.Remove("items/saw.json");
         files["items/hoe.json"] = "{ \"id\": \"hoe\", \"power\": 1 }";
-        content.Reload(TextWriter.Null);
+        content.Data.Reload(TextWriter.Null);
 
         Assert.False(items.Contains("saw"));
         Assert.True(items.Contains("hoe"));
@@ -205,7 +205,7 @@ public class LiveReloadTests
         items.OnChange(() => copied = items["axe"].Power);
 
         files["items/axe.json"] = Axe(5);
-        content.Reload(TextWriter.Null);
+        content.Data.Reload(TextWriter.Null);
 
         Assert.Equal(5, copied);
     }
@@ -219,7 +219,7 @@ public class LiveReloadTests
         var log = new StringWriter();
 
         files["items/axe.json"] = "{ \"id\": \"axe\", \"power\": \"lots\" }";
-        Assert.False(content.Reload(log));
+        Assert.False(content.Data.Reload(log));
 
         Assert.Equal(1, items["axe"].Power);
         Assert.Contains("items/axe.json:1: power must be a number", log.ToString());
@@ -238,7 +238,7 @@ public class LiveReloadTests
         content.LoadAll<Recipe>("recipes");
 
         files["items/axe.json"] = "{ \"id\": \"hatchet\", \"power\": 9 }";
-        Assert.False(content.Reload(TextWriter.Null));
+        Assert.False(content.Data.Reload(TextWriter.Null));
 
         Assert.True(items.Contains("axe"));
         Assert.False(items.Contains("hatchet"));
@@ -254,12 +254,12 @@ public class LiveReloadTests
 
         memory["items/axe.json"] = Axe(2);
         files.Locked = true;
-        Assert.False(content.Reload(TextWriter.Null));
-        Assert.True(content.ReloadWanted);
+        Assert.False(content.Data.Reload(TextWriter.Null));
+        Assert.True(content.Data.Live.ReloadWanted);
 
         files.Locked = false;
-        Assert.True(content.Reload(TextWriter.Null));
-        Assert.False(content.ReloadWanted);
+        Assert.True(content.Data.Reload(TextWriter.Null));
+        Assert.False(content.Data.Live.ReloadWanted);
         Assert.Equal(2, items["axe"].Power);
     }
 
@@ -287,7 +287,7 @@ public class LiveReloadTests
 
         game.Save("items/axe.json", Axe(2));
         game.Cook();
-        Assert.True(content.Reload(TextWriter.Null));
+        Assert.True(content.Data.Reload(TextWriter.Null));
 
         Assert.Equal(2, items["axe"].Power);
     }
@@ -297,9 +297,9 @@ public class LiveReloadTests
     {
         using var game = new TempGame(dev: true, "art");
         var starts = new CookStarts();
-        var content = new Content(game.Folder) { StartCook = starts.Start };
+        var content = new Content(game.Folder) { Data = { Live = { StartCook = starts.Start } } };
 
-        content.GoLive();
+        content.Data.Live.GoLive();
         try
         {
             var call = Assert.Single(starts.Calls);
@@ -307,11 +307,11 @@ public class LiveReloadTests
             Assert.Equal(Path.Combine(game.Root, "super-cook.dll"), call.Dev.Tool);
             Assert.Equal("desktop", call.Dev.Target);
             Assert.Equal(Path.GetFullPath(game.Cooked), call.Out);
-            Assert.True(content.IsLive);
+            Assert.True(content.Data.Live.IsLive);
         }
         finally
         {
-            content.StopLive();
+            content.Data.Live.StopLive();
         }
     }
 
@@ -319,14 +319,14 @@ public class LiveReloadTests
     public void GoLive_writes_each_catalogs_schema_into_the_first_root_only()
     {
         using var game = new TempGame(dev: true, "art");
-        var content = new Content(game.Folder) { StartCook = new CookStarts().Start };
+        var content = new Content(game.Folder) { Data = { Live = { StartCook = new CookStarts().Start } } };
         content.LoadAll<Item>("items");
 
-        content.GoLive();
-        content.StopLive();
+        content.Data.Live.GoLive();
+        content.Data.Live.StopLive();
 
         string schema = Path.Combine(game.Sources, ".schemas", "items.schema.json");
-        Assert.Equal(content.SchemaText(typeof(Item)), File.ReadAllText(schema));
+        Assert.Equal(content.Data.SchemaText(typeof(Item)), File.ReadAllText(schema));
         Assert.False(Directory.Exists(Path.Combine(game.Root, "art", ".schemas")));
     }
 
@@ -335,12 +335,12 @@ public class LiveReloadTests
     {
         using var game = new TempGame(dev: false);
         var starts = new CookStarts();
-        var content = new Content(game.Folder) { StartCook = starts.Start };
+        var content = new Content(game.Folder) { Data = { Live = { StartCook = starts.Start } } };
 
-        content.GoLive();
+        content.Data.Live.GoLive();
 
         Assert.Empty(starts.Calls);
-        Assert.False(content.IsLive);
+        Assert.False(content.Data.Live.IsLive);
     }
 
     [Fact]
@@ -348,15 +348,15 @@ public class LiveReloadTests
     {
         using var game = new TempGame(dev: true);
         var starts = new CookStarts();
-        var content = new Content(game.Folder) { StartCook = starts.Start };
-        content.GoLive();
+        var content = new Content(game.Folder) { Data = { Live = { StartCook = starts.Start } } };
+        content.Data.Live.GoLive();
         var cook = Assert.Single(starts.Calls).Cook;
         Assert.False(cook.Disposed);
 
-        content.StopLive();
+        content.Data.Live.StopLive();
 
         Assert.True(cook.Disposed);
-        Assert.False(content.IsLive);
+        Assert.False(content.Data.Live.IsLive);
     }
 
     [Fact]
@@ -364,11 +364,11 @@ public class LiveReloadTests
     {
         using var game = new TempGame(dev: true);
         var starts = new CookStarts();
-        var content = new Content(game.Folder) { StartCook = starts.Start };
+        var content = new Content(game.Folder) { Data = { Live = { StartCook = starts.Start } } };
 
-        content.GoLive();
-        content.GoLive();
-        content.StopLive();
+        content.Data.Live.GoLive();
+        content.Data.Live.GoLive();
+        content.Data.Live.StopLive();
 
         Assert.Single(starts.Calls);
     }
@@ -379,7 +379,7 @@ public class LiveReloadTests
         using var game = new TempGame(dev: true);
         var starts = new CookStarts();
         using var run = HeadlessGame.Create<Armory>(1, services => services.AddContentFiles(game.Folder));
-        run.Game.Content.StartCook = starts.Start;
+        run.Game.Content.Data.Live.StartCook =starts.Start;
 
         game.Save("items/axe.json", Axe(2));
         game.Cook();
@@ -387,7 +387,7 @@ public class LiveReloadTests
 
         // With content.dev.json there, only GoLive stands between this run and a cook and a watcher.
         Assert.Empty(starts.Calls);
-        Assert.False(run.Game.Content.IsLive);
+        Assert.False(run.Game.Content.Data.Live.IsLive);
         Assert.Equal(1, run.Game.Items["axe"].Power);
     }
 
@@ -395,12 +395,12 @@ public class LiveReloadTests
     public void Memory_content_never_goes_live()
     {
         var starts = new CookStarts();
-        var content = new Content(new MemoryContent()) { StartCook = starts.Start };
+        var content = new Content(new MemoryContent()) { Data = { Live = { StartCook = starts.Start } } };
 
-        content.GoLive();
+        content.Data.Live.GoLive();
 
         Assert.Empty(starts.Calls);
-        Assert.False(content.IsLive);
+        Assert.False(content.Data.Live.IsLive);
     }
 
     [Fact]
@@ -490,12 +490,12 @@ public sealed class BesideProgramTests
         try
         {
             var starts = new LiveReloadTests.CookStarts();
-            var content = new Content(new CookedFolder(beside)) { StartCook = starts.Start };
+            var content = new Content(new CookedFolder(beside)) { Data = { Live = { StartCook = starts.Start } } };
 
-            content.GoLive();
+            content.Data.Live.GoLive();
 
             Assert.Empty(starts.Calls);
-            Assert.False(content.IsLive);
+            Assert.False(content.Data.Live.IsLive);
         }
         finally
         {
@@ -518,8 +518,8 @@ public sealed class LiveReloadWatchTests
         using var game = new LiveReloadTests.TempGame(dev: true);
         var starts = new LiveReloadTests.CookStarts();
         using var run = HeadlessGame.Create<LiveReloadTests.Armory>(1, services => services.AddContentFiles(game.Folder));
-        run.Game.Content.StartCook = starts.Start;
-        run.Game.Content.GoLive();
+        run.Game.Content.Data.Live.StartCook =starts.Start;
+        run.Game.Content.Data.Live.GoLive();
         bool changed = false;
         run.Game.Items.OnChange(() => changed = true);
 

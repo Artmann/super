@@ -129,5 +129,5 @@ Assert.True(run.States<Screen>().Is(Screen.House));
 ```
 
 A file that can't be read throws on the main thread, on the frame the problem is found.
-Meshes and textures can be let go with `content.Unload` once a game is done with them;
+Meshes and textures can be let go with `content.Models.Unload` and `content.Unload` once a game is done with them;
 everything else stays for the life of the game.

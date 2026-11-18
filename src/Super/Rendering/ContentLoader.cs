@@ -23,9 +23,10 @@ internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object>
     /// <summary>Starts anything newly named, then uploads what this frame should.</summary>
     public void Update(Content content)
     {
-        while (_loaded.Count <= content.Items.Count)
+        var items = content.Store.Items;
+        while (_loaded.Count <= items.Count)
         {
-            object item = content.Items[_loaded.Count - 1];
+            object item = items[_loaded.Count - 1];
             _loaded.Add(null);
             _preparing.Add(Start(() => prepare(item)));
         }
@@ -42,7 +43,7 @@ internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object>
                 continue;
             }
 
-            if (!content.Streaming)
+            if (!content.Store.Loading.Streaming)
             {
                 Finish(i, content);
             }
@@ -68,7 +69,7 @@ internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object>
         if (loaded is null)
         {
             _preparing[index] = null;
-            content.ItemLoaded(index);
+            content.Store.Loading.ItemLoaded(index);
         }
 
         return loaded;
@@ -81,7 +82,7 @@ internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object>
         var loaded = upload(prepared, content);
         _loaded[index] = loaded;
         _preparing[index] = null;
-        content.ItemLoaded(index);
+        content.Store.Loading.ItemLoaded(index);
         return loaded;
     }
 }
