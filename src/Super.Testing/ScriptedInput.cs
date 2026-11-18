@@ -52,12 +52,12 @@ public sealed class ScriptedInput
         Release(button);
     }
 
-    public void Hold(MouseButton button) => Queue(input => input.MouseButtonDown(button));
+    public void Hold(MouseButton button) => Queue(input => input.Mouse.Feed.MouseButtonDown(button));
 
-    public void Release(MouseButton button) => Queue(input => input.MouseButtonUp(button));
+    public void Release(MouseButton button) => Queue(input => input.Mouse.Feed.MouseButtonUp(button));
 
     /// <summary>Takes the cursor off the window.</summary>
-    public void LeaveWindow() => Queue(input => input.MouseLeftWindow());
+    public void LeaveWindow() => Queue(input => input.Mouse.Feed.MouseLeftWindow());
 
     public void Press(GamepadButton button)
     {
@@ -68,17 +68,17 @@ public sealed class ScriptedInput
     public void Hold(GamepadButton button) => Queue(input =>
     {
         _buttons[(int)button] = true;
-        input.Gamepad(true, _axes, _buttons);
+        input.Gamepad.Polled(true, _axes, _buttons);
     });
 
     public void Release(GamepadButton button) => Queue(input =>
     {
         _buttons[(int)button] = false;
-        input.Gamepad(true, _axes, _buttons);
+        input.Gamepad.Polled(true, _axes, _buttons);
     });
 
     /// <summary>Puts the cursor here, in the pixels the interface lays itself out in.</summary>
-    public void MoveMouse(Vector2 position) => Queue(input => input.MouseMoved(position));
+    public void MoveMouse(Vector2 position) => Queue(input => input.Mouse.Feed.MouseMoved(position));
 
     /// <summary>Clicks a button, after moving the cursor if a position is given.</summary>
     public void Click(MouseButton button, Vector2? at = null)
@@ -97,11 +97,11 @@ public sealed class ScriptedInput
     /// </summary>
     public void Click(object id)
     {
-        Queue((input, ui) => input.MouseMoved(ui.ScreenMiddle(id)));
+        Queue((input, ui) => input.Mouse.Feed.MouseMoved(ui.ScreenMiddle(id)));
         Press(MouseButton.Left);
     }
 
-    public void Scroll(float notches) => Queue(input => input.Scrolled(notches));
+    public void Scroll(float notches) => Queue(input => input.Mouse.Feed.Scrolled(notches));
 
     public void Type(string text) => Queue(input =>
     {
@@ -117,14 +117,14 @@ public sealed class ScriptedInput
         int first = (int)stick * 2;
         _axes[first] = value.X;
         _axes[first + 1] = -value.Y;
-        input.Gamepad(true, _axes, _buttons);
+        input.Gamepad.Polled(true, _axes, _buttons);
     });
 
     /// <summary>Holds a trigger at this pull, from 0 to 1, until set again.</summary>
     public void Trigger(GamepadTrigger trigger, float value) => Queue(input =>
     {
         _axes[4 + (int)trigger] = value * 2f - 1f;
-        input.Gamepad(true, _axes, _buttons);
+        input.Gamepad.Polled(true, _axes, _buttons);
     });
 
     /// <summary>Performs the action for exactly one tick, whatever it's bound to.</summary>

@@ -297,7 +297,7 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
     {
         if (input.Pressed(MouseButton.Left))
         {
-            _walkingTo = input.MouseRay(_camera.Current).Ground();
+            _walkingTo = input.Mouse.Ray(_camera.Current).Ground();
         }
 
         var stick = actions.Vector(Control.Move);

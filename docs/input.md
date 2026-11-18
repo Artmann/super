@@ -13,7 +13,7 @@ public class Dungeon(Actions<Control> actions) : IGame
         actions.Bind(Control.Jump, Key.Space, GamepadButton.South);
         actions.Bind(Control.Interact, Key.E, GamepadButton.West, MouseButton.Left);
         actions.Bind(Control.Move, Keys.WASD, Keys.Arrows, GamepadStick.Left);
-        actions.Bind(Control.Look, Mouse.Delta.Scaled(0.01f), GamepadStick.Right);
+        actions.Bind(Control.Look, Binding.MouseDelta.Scaled(0.01f), GamepadStick.Right);
     }
 
     public void Update(GameTime time)
@@ -54,10 +54,10 @@ registering.
 | --- | --- |
 | `Key.W`, `MouseButton.Left`, `GamepadButton.South` | A button: 0 or 1 |
 | `GamepadTrigger.Right` | A pull from 0 to 1 |
-| `GamepadStick.Left` | A direction, with a radial dead zone of `input.DeadZone` |
+| `GamepadStick.Left` | A direction, with a radial dead zone of `input.Gamepad.DeadZone` |
 | `Binding.Axis(Key.Q, Key.E)` | -1, 0 or 1 from two buttons or triggers |
 | `Binding.Composite(up, down, left, right)`, `Keys.WASD`, `Keys.Arrows` | A direction from four buttons |
-| `Mouse.Delta`, `Mouse.Scroll` | Pixels moved or notches turned this tick, unclamped |
+| `Binding.MouseDelta`, `Binding.MouseScroll` | Pixels moved or notches turned this tick, unclamped |
 
 `Bind` adds to what an action already has. `actions.Unbind(action)` clears it and
 `actions.Bindings(action)` lists it, which is what a settings screen needs to rebind.
@@ -88,17 +88,30 @@ class Console(Input input)
 | Member | What it is |
 | --- | --- |
 | `Down`, `Pressed`, `Released` | For a `Key`, `MouseButton` or `GamepadButton` |
-| `Stick(GamepadStick)`, `Trigger(GamepadTrigger)` | The first gamepad. Sticks give forward as positive y |
-| `MousePosition` | In the same pixels the interface lays out in |
-| `ScreenSize` | The screen's size in those pixels, for placing interface over the world |
-| `MouseDelta`, `Scroll` | Movement and wheel notches this tick |
-| `MouseRay(camera)` | A ray into the world, for [clicking](cameras.md#clicking-on-things) |
-| `MouseOverUi` | True while the cursor is over the [interface](interfaces.md#the-mouse) |
+| `ScreenSize` | The screen's size in the interface's pixels, for placing interface over the world |
 | `Typed` | Text the player entered this tick |
-| `GamepadConnected` | Whether there's a gamepad |
-| `DeadZone` | The stick dead zone, 0.2 by default |
-| `CaptureMouse` | Set to true to hide the cursor and lock it to the window, as a first-person camera needs. While it is on, `MouseDelta` comes from the mouse itself, without the system's pointer acceleration, where the system allows it |
+| `Mouse` | The cursor and the wheel, below |
+| `Gamepad` | The first gamepad's sticks and triggers, below |
+
+The mouse is on `input.Mouse`:
+
+| Member | What it is |
+| --- | --- |
+| `Position` | In the same pixels the interface lays out in |
+| `Delta`, `Scroll` | Movement and wheel notches this tick |
+| `Ray(camera)` | A ray into the world, for [clicking](cameras.md#clicking-on-things) |
+| `OverUi` | True while the cursor is over the [interface](interfaces.md#the-mouse) |
+| `Locked` | Set to true to hide the cursor and lock it to the window, as a first-person camera needs. While it is on, `Delta` comes from the mouse itself, without the system's pointer acceleration, where the system allows it |
 | `HideCursor` | Set to true to hide the system cursor over the window but leave it free, when the game draws its own pointer in the interface |
+| `Cursor` | A `CursorLook` the system draws in place of its arrow, or null for the arrow |
+
+The gamepad is on `input.Gamepad`:
+
+| Member | What it is |
+| --- | --- |
+| `Stick(GamepadStick)`, `Trigger(GamepadTrigger)` | Sticks give forward as positive y; triggers go from 0 to 1 |
+| `Connected` | Whether there's a gamepad |
+| `DeadZone` | The stick dead zone, 0.2 by default |
 
 The engine keeps one key, F3 unless the game picks another, to show and hide the
 [stats panel](interfaces.md#the-stats-key), so `Input` never reports it. Set

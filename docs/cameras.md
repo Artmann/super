@@ -14,9 +14,9 @@ readonly Camera camera = new(new Vector3(0, 12, 12), Vector3.Zero);
 
 public void Update(GameTime time)
 {
-    if (input.Pressed(MouseButton.Left) && !input.MouseOverUi)
+    if (input.Pressed(MouseButton.Left) && !input.Mouse.OverUi)
     {
-        var ray = input.MouseRay(camera);
+        var ray = input.Mouse.Ray(camera);
 
         // A tile: where the line through the cursor meets the ground.
         if (ray.Ground() is { } spot)
@@ -50,7 +50,7 @@ public void Draw(View view) => view.Camera(camera);
 Super doesn't go through your things for you, since only your game knows what can be
 clicked, and it tests these simple shapes, not a model's triangles. With the ECS, give
 entities a `Collider` and [`Super.Physics`](physics.md) finds the nearest for you, by
-layer. `input.MouseOverUi`
+layer. `input.Mouse.OverUi`
 is true while the cursor is over the [interface](interfaces.md#the-mouse), so a game can
 leave those clicks alone.
 
@@ -59,7 +59,7 @@ leave those clicks alone.
 Six helpers cover the usual kinds of game. They all work the same way: keep one in your
 game, step it once a tick in `Update`, and draw `At(view.Blend)` so it moves smoothly at
 any frame rate. `Current` is the camera as of the last tick, which is the one to pass to
-`input.MouseRay`.
+`input.Mouse.Ray`.
 
 | Helper | For |
 | --- | --- |
@@ -91,8 +91,8 @@ readonly FollowCamera follow = new() { Offset = new Vector3(0, 8, 10), Lag = 0.2
 public void Update(GameTime time)
 {
     // Yaw, Pitch, Distance and its limits can also be set directly.
-    orbit.Turn(input.MouseDelta * 0.005f);
-    orbit.Zoom(input.Scroll);
+    orbit.Turn(input.Mouse.Delta * 0.005f);
+    orbit.Zoom(input.Mouse.Scroll);
     orbit.Update(tower.Position);
 
     // Lag is about how many seconds behind the target it stays.
@@ -112,8 +112,8 @@ readonly BoomCamera boom = new() { Length = 6f, Shoulder = 0.5f };
 
 public void Update(GameTime time)
 {
-    boom.Turn(input.MouseDelta * 0.005f);
-    boom.Zoom(input.Scroll);
+    boom.Turn(input.Mouse.Delta * 0.005f);
+    boom.Zoom(input.Mouse.Scroll);
     var walk = boom.Walk(actions.Vector(Control.Move));
 
     var arm = boom.Arm(player.Position);
@@ -137,11 +137,11 @@ into a direction on the ground, so forward goes where the camera faces.
 ```csharp
 readonly FirstPersonCamera eyes = new();
 
-public void Load() => input.CaptureMouse = true;
+public void Load() => input.Mouse.Locked = true;
 
 public void Update(GameTime time)
 {
-    eyes.Turn(input.MouseDelta * 0.003f);
+    eyes.Turn(input.Mouse.Delta * 0.003f);
     var walk = eyes.Walk(actions.Vector(Control.Move));
     eyes.Update(player.Position);
 }
@@ -159,7 +159,7 @@ readonly IsometricCamera iso = new() { Size = 24f };
 
 public void Update(GameTime time)
 {
-    iso.Zoom(input.Scroll);
+    iso.Zoom(input.Mouse.Scroll);
 
     // Pan by a step, or follow something with iso.Update(player.Position, seconds).
     iso.Pan(actions.Vector(Control.Move) * 20f * time.TickSeconds);
@@ -204,7 +204,7 @@ left beside a side panel:
 var beside = camera with { Shift = new Vector2(0.5f, 0f) };
 ```
 
-Clicking works the same with all of them, because `input.MouseRay` asks the camera.
+Clicking works the same with all of them, because `input.Mouse.Ray` asks the camera.
 
 ## Tall screens
 
@@ -227,7 +227,7 @@ widescreen, cut off at the sides. On the right, with WideAs = 16/9 and --ui-scal
  On a screen as wide as `WideAs` or wider, nothing changes.
 It works with orthographic cameras too, where it grows `Size`, and every camera helper has
 the setting. It's zero, and so off, unless you set it. Clicking stays right, because
-`input.MouseRay` uses the same view.
+`input.Mouse.Ray` uses the same view.
 
 ## Limits
 

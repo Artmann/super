@@ -331,7 +331,7 @@ Draw them over the character while tuning a `RagdollBody`; the
 ```csharp
 public void Update(GameTime time)
 {
-    var ray = input.MouseRay(camera);
+    var ray = input.Mouse.Ray(camera);
     if (physics.Queries.Raycast(ray, layers: Enemies) is { } hit)
     {
         Target = hit.Entity;     // hit.Distance and hit.Point say where.

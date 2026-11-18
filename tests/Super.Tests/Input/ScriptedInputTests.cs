@@ -57,7 +57,7 @@ public class ScriptedInputTests
 
         public void Update(GameTime time)
         {
-            Position = input.MousePosition;
+            Position = input.Mouse.Position;
             Clicked = input.Pressed(MouseButton.Left);
         }
 

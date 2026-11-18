@@ -97,7 +97,7 @@ internal sealed class GameHost<TGame> : IDisposable
         _drawHooks = _services.GetServices<IDrawHook>().ToArray();
         _changes = _services.GetRequiredService<StateChanges>();
         _changes.Hooks = _services.GetServices<IStateHook>().ToArray();
-        Input.RoutesMouse = true;
+        Input.Mouse.Feed.RoutesMouse = true;
         _pointer = new UiPointer(Ui, Input, ticksPerSecond);
         ((IGame)Game).Load();
         _changes.Apply();

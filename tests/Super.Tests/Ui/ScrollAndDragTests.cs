@@ -496,7 +496,7 @@ public sealed class ScrollAndDragTests
         using var run = Run(_ => Corner(new Text("panel").Frame(100f, 100f).Background(Solid)));
         run.Game.Watch = input =>
         {
-            over = input.MouseOverUi;
+            over = input.Mouse.OverUi;
             return false;
         };
         MoveTo(run, new Vector2(40f, 40f));
@@ -517,7 +517,7 @@ public sealed class ScrollAndDragTests
             .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.BottomTrailing));
         run.Game.Watch = input =>
         {
-            over = input.MouseOverUi;
+            over = input.Mouse.OverUi;
             return false;
         };
         MoveTo(run, new Vector2(40f, 40f));

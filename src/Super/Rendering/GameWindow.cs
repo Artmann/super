@@ -760,6 +760,103 @@ internal sealed unsafe class GameWindow : IDisposable
             graphics.OcclusionResolution, graphics.VolumetricFogCellSize, graphics.VolumetricFogSlices, debugView);
     }
 
+    /// <summary>Feeds the window's events into the game's input. Only the interactive loop does this.</summary>
+    private void ListenForInput(Input input)
+    {
+        _onKey = (_, key, _, action, _) =>
+        {
+            if (action == InputAction.Repeat || !GlfwInput.TryMapKey((int)key, out var mapped))
+            {
+                return;
+            }
+
+            if (action == InputAction.Press)
+            {
+                input.KeyDown(mapped);
+            }
+            else
+            {
+                input.KeyUp(mapped);
+            }
+        };
+        _onMouseButton = (_, button, action, _) =>
+        {
+            if ((int)button >= Input.MouseButtonCount)
+            {
+                return;
+            }
+
+            if (action == InputAction.Press)
+            {
+                input.Mouse.Feed.MouseButtonDown((MouseButton)button);
+            }
+            else if (action == InputAction.Release)
+            {
+                input.Mouse.Feed.MouseButtonUp((MouseButton)button);
+            }
+        };
+        _onCursorPos = (_, x, y) =>
+        {
+            _glfw.GetWindowSize(_window, out int windowWidth, out int windowHeight);
+            _glfw.GetFramebufferSize(_window, out int framebufferWidth, out int framebufferHeight);
+            input.Mouse.Feed.MouseMoved(GlfwInput.ToFramebuffer(x, y, windowWidth, windowHeight, framebufferWidth, framebufferHeight));
+        };
+        _onCursorEnter = (_, entered) =>
+        {
+            if (!entered)
+            {
+                input.Mouse.Feed.MouseLeftWindow();
+            }
+        };
+        _onScroll = (_, _, offsetY) => input.Mouse.Feed.Scrolled((float)offsetY);
+        _onChar = (_, codepoint) =>
+        {
+            foreach (char character in char.ConvertFromUtf32((int)codepoint))
+            {
+                input.TypedCharacter(character);
+            }
+        };
+
+        _glfw.SetKeyCallback(_window, _onKey);
+        _glfw.SetMouseButtonCallback(_window, _onMouseButton);
+        _glfw.SetCursorPosCallback(_window, _onCursorPos);
+        _glfw.SetCursorEnterCallback(_window, _onCursorEnter);
+        _glfw.SetScrollCallback(_window, _onScroll);
+        _glfw.SetCharCallback(_window, _onChar);
+
+        // The cursor may already be over the window, and a first click shouldn't need a move.
+        _glfw.GetCursorPos(_window, out double cursorX, out double cursorY);
+        _glfw.GetWindowSize(_window, out int width, out int height);
+        if (cursorX >= 0 && cursorY >= 0 && cursorX < width && cursorY < height)
+        {
+            _onCursorPos(_window, cursorX, cursorY);
+        }
+    }
+
+    /// <summary>Reads the first gamepad, if one is plugged in, so a tick sees it as it is now.</summary>
+    private void PollGamepad(Input input)
+    {
+        int slot = GlfwInput.FirstGamepad(_isGamepad);
+        if (slot >= 0 && _glfw.GetGamepadState(slot, out GamepadState state))
+        {
+            for (int i = 0; i < Input.GamepadAxisCount; i++)
+            {
+                _gamepadAxes[i] = state.Axes[i];
+            }
+
+            for (int i = 0; i < Input.GamepadButtonCount; i++)
+            {
+                _gamepadButtons[i] = state.Buttons[i] != 0;
+            }
+
+            input.Gamepad.Polled(true, _gamepadAxes, _gamepadButtons);
+        }
+        else
+        {
+            input.Gamepad.Polled(false, default, default);
+        }
+    }
+
     private ulong CreateSurface(nint instance)
     {
         VkNonDispatchableHandle surface;

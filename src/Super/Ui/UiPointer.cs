@@ -44,13 +44,13 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     {
         Pump();
         _tipAge++;
-        input.PendingMouseOverUi = _uiHeld != 0 || (_gameHeld == 0 && !input.CaptureMouse && Hit() is not null);
+        input.Mouse.Feed.PendingMouseOverUi = _uiHeld != 0 || (_gameHeld == 0 && !input.Mouse.Locked && Hit() is not null);
     }
 
     /// <summary>Handles what the mouse did since the last time this ran.</summary>
     public void Pump()
     {
-        foreach (var mouse in input.MouseEvents)
+        foreach (var mouse in input.Mouse.Feed.MouseEvents)
         {
             switch (mouse.Kind)
             {
@@ -73,7 +73,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
             }
         }
 
-        input.MouseEvents.Clear();
+        input.Mouse.Feed.MouseEvents.Clear();
     }
 
     /// <summary>Runs the callbacks owed, in the order they happened. Update comes right after.</summary>
@@ -94,7 +94,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     public bool Refresh()
     {
         ForgetUnmounted();
-        var hit = (_gameHeld & Left) != 0 || input.CaptureMouse ? null : Hit();
+        var hit = (_gameHeld & Left) != 0 || input.Mouse.Locked ? null : Hit();
         bool changed = RefreshLook(hit);
         changed |= RefreshBar(hit);
         RefreshTooltip(hit);
@@ -186,11 +186,11 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     private void Down(MouseButton button)
     {
         int bit = 1 << (int)button;
-        var hit = input.CaptureMouse ? null : Hit();
+        var hit = input.Mouse.Locked ? null : Hit();
         if (hit is null)
         {
             _gameHeld |= bit;
-            input.ApplyMouseButton(button, true);
+            input.Mouse.Feed.ApplyMouseButton(button, true);
             return;
         }
 
@@ -243,7 +243,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
         if ((_uiHeld & bit) == 0)
         {
             _gameHeld &= ~bit;
-            input.ApplyMouseButton(button, false);
+            input.Mouse.Feed.ApplyMouseButton(button, false);
             return;
         }
 
@@ -281,10 +281,10 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
 
     private void Wheel(float notches)
     {
-        var hit = input.CaptureMouse ? null : Hit();
+        var hit = input.Mouse.Locked ? null : Hit();
         if (hit is null)
         {
-            input.ApplyScroll(notches);
+            input.Mouse.Feed.ApplyScroll(notches);
             return;
         }
 

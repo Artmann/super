@@ -242,7 +242,7 @@ if (actions.Pressed(Control.Harvest))                     // the key, in Update
 ```
 
 A press that moves off a button and lets go there doesn't click. While the mouse is over
-the interface, `Input.MouseOverUi` is true, so a game can leave those clicks alone. To
+the interface, `input.Mouse.OverUi` is true, so a game can leave those clicks alone. To
 have a panel let clicks through to the game, as a stats readout should, use
 `.IgnoresPointer()`.
 
@@ -266,7 +266,7 @@ screen at 2.5 is 432 units wide. Text is drawn at its size in pixels, not stretc
 stays sharp. `FrameOf`, `ShownText` and everything else the interface reports are in
 units. The mouse is turned into units for you, and an `InputScript` or a test that clicks
 a view by its id aims at where it's drawn. `InputScript.MoveMouse(position)` and
-`Input.MousePosition` stay in pixels. A headless test sets the scale with `run.UiScale`.
+`input.Mouse.Position` stay in pixels. A headless test sets the scale with `run.UiScale`.
 
 On a Mac's Retina screen a window has two pixels for each point of its size, so a game in a
 window multiplies the scale by that, and the interface looks the same size as on any other
