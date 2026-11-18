@@ -20,9 +20,10 @@ internal readonly unsafe struct GpuAllocation
 /// <summary>
 /// Sub-allocates all device memory from 64 MB blocks, one set of pools per memory type and
 /// kept apart for buffers and images. Anything larger than a block gets its own allocation.
-/// Host-visible blocks are mapped once for their whole life. See docs/design.md.
+/// Host-visible blocks are mapped once for their whole life. See docs/design.md. With canTrace, every allocation
+/// allows a device address.
 /// </summary>
-internal sealed unsafe class GpuMemory(VulkanContext context) : IDisposable
+internal sealed unsafe class GpuMemory(Vk api, PhysicalDevice physicalDevice, Device device, bool canTrace) : IDisposable
 {
     public const ulong BlockSize = 64 * 1024 * 1024;
 
@@ -89,8 +90,7 @@ internal sealed unsafe class GpuMemory(VulkanContext context) : IDisposable
     {
         if (allocation.Pool < 0)
         {
-            context.Api.FreeMemory(context.Device, allocation.Memory, null);
-            _dedicated -= allocation.Size;
+            api.FreeMemory(device, allocation.Memory, null);
             return;
         }
 
@@ -103,7 +103,7 @@ internal sealed unsafe class GpuMemory(VulkanContext context) : IDisposable
         {
             foreach (var block in pool.Blocks)
             {
-                context.Api.FreeMemory(context.Device, block.Memory, null);
+                api.FreeMemory(device, block.Memory, null);
             }
         }
 
@@ -154,7 +154,7 @@ internal sealed unsafe class GpuMemory(VulkanContext context) : IDisposable
 
     private uint FindMemoryType(uint typeBits, MemoryPropertyFlags required)
     {
-        context.Api.GetPhysicalDeviceMemoryProperties(context.PhysicalDevice, out var memory);
+        api.GetPhysicalDeviceMemoryProperties(physicalDevice, out var memory);
         for (int i = 0; i < memory.MemoryTypeCount; i++)
         {
             if ((typeBits & (1u << i)) != 0 && (memory.MemoryTypes[i].PropertyFlags & required) == required)
@@ -193,17 +193,17 @@ internal sealed unsafe class GpuMemory(VulkanContext context) : IDisposable
         var allocInfo = new MemoryAllocateInfo
         {
             SType = StructureType.MemoryAllocateInfo,
-            PNext = context.CanTrace ? &addressFlags : null,
+            PNext = canTrace ? &addressFlags : null,
             AllocationSize = size,
             MemoryTypeIndex = memoryType,
         };
-        context.Api.AllocateMemory(context.Device, &allocInfo, null, out var memory).Check();
+        api.AllocateMemory(device, &allocInfo, null, out var memory).Check();
 
         mapped = null;
         if (hostVisible)
         {
             void* pointer;
-            context.Api.MapMemory(context.Device, memory, 0, Vk.WholeSize, 0, &pointer).Check();
+            api.MapMemory(device, memory, 0, Vk.WholeSize, 0, &pointer).Check();
             mapped = (byte*)pointer;
         }
 
