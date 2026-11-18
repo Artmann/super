@@ -879,12 +879,6 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.FloodFillNode.Evaluate",
-      "file": "src/Super.Materials/FloodFill.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Super.Materials.GraphRunner.Execute",
       "file": "src/Super.Materials/GraphRunner.cs",
       "metric": 29
@@ -2022,12 +2016,6 @@
       "name": "Super.Materials.DistanceTransform.Squared",
       "file": "src/Super.Materials/Distance.cs",
       "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.FloodFillNode.Evaluate",
-      "file": "src/Super.Materials/FloodFill.cs",
-      "metric": 64
     },
     {
       "kind": "long-method",
