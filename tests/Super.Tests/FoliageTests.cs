@@ -11,7 +11,7 @@ public class FoliageTests
     [InlineData(float.NaN, "foliage translucency NaN must be from 0 to 1.")]
     public void Translucency_outside_0_to_1_has_a_problem_that_says_so(float translucency, string problem)
     {
-        Assert.Equal(problem, Material.TranslucencyProblem(translucency));
+        Assert.Equal(problem, MaterialProblems.Translucency(translucency));
     }
 
     [Theory]
@@ -20,7 +20,7 @@ public class FoliageTests
     [InlineData(1f)]
     public void Translucency_from_0_to_1_has_no_problem(float translucency)
     {
-        Assert.Null(Material.TranslucencyProblem(translucency));
+        Assert.Null(MaterialProblems.Translucency(translucency));
     }
 
     [Theory]
@@ -28,7 +28,7 @@ public class FoliageTests
     [InlineData(float.PositiveInfinity, "wind sway Infinity must be 0 or more.")]
     public void A_negative_or_endless_wind_sway_has_a_problem_that_says_so(float sway, string problem)
     {
-        Assert.Equal(problem, Material.WindProblem(sway));
+        Assert.Equal(problem, MaterialProblems.Wind(sway));
     }
 
     [Fact]
@@ -39,8 +39,8 @@ public class FoliageTests
         {
             System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
 
-            Assert.Equal("foliage translucency 1.5 must be from 0 to 1.", Material.TranslucencyProblem(1.5f));
-            Assert.Equal("wind sway -0.5 must be 0 or more.", Material.WindProblem(-0.5f));
+            Assert.Equal("foliage translucency 1.5 must be from 0 to 1.", MaterialProblems.Translucency(1.5f));
+            Assert.Equal("wind sway -0.5 must be 0 or more.", MaterialProblems.Wind(-0.5f));
         }
         finally
         {
@@ -136,9 +136,9 @@ public class FoliageTests
         Assert.Equal(MaterialFlags.Foliage, material.Flags);
         Assert.Equal(0.45f, material.Translucency);
         Assert.Equal(0.8f, material.Wind);
-        Assert.Equal(new TextureHandle(41), material.BaseColorTexture);
-        Assert.Equal(new TextureHandle(40), material.DetailNormalTexture);
-        Assert.Null(material.NormalTexture);
+        Assert.Equal(new TextureHandle(41), material.Textures.BaseColor);
+        Assert.Equal(new TextureHandle(40), material.Detail.Normal);
+        Assert.Null(material.Textures.Normal);
     }
 
     [Fact]

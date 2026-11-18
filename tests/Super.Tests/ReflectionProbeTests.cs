@@ -138,7 +138,7 @@ public class ReflectionProbeTests
     {
         var sun = new[] { new DirectionalLight { Direction = Vector3.Normalize(new Vector3(0.4f, 0.8f, 0.3f)), Radiance = new Vector3(3f), CastsShadow = true } };
         var turned = new[] { sun[0] with { Direction = Vector3.Normalize(new Vector3(-0.4f, 0.8f, 0.3f)) } };
-        var view = new FrameView { Lights = sun, EnvironmentIntensity = 1f };
+        var view = new FrameView { Lights = sun, Environment = new EnvironmentSettings { Intensity = 1f } };
         view.Shadows.Center = new Vector3(1f, 0f, -5f);
         view.Shadows.Radius = 12f;
         int before = Renderer.ReflectionLightingHash(view, environmentVersion: 1);
@@ -160,16 +160,16 @@ public class ReflectionProbeTests
     public void The_lighting_hash_changes_with_what_a_capture_draws_and_not_with_what_only_the_screen_shows()
     {
         var sun = new[] { new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(3f), CastsShadow = true } };
-        var view = new FrameView { Lights = sun, EnvironmentIntensity = 1f };
+        var view = new FrameView { Lights = sun, Environment = new EnvironmentSettings { Intensity = 1f } };
         view.Shadows.Radius = 12f;
         int before = Renderer.ReflectionLightingHash(view, environmentVersion: 1);
 
         var brighter = view;
         brighter.Lights = new[] { sun[0] with { Radiance = new Vector3(4f) } };
         var dimSky = view;
-        dimSky.EnvironmentIntensity = 0.5f;
+        dimSky.Environment.Intensity = 0.5f;
         var clearSky = view;
-        clearSky.Sky = new AnalyticSky { Turbidity = 2.5f };
+        clearSky.Environment.Sky = new AnalyticSky { Turbidity = 2.5f };
         var noLightShadows = view;
         noLightShadows.Off = RenderEffects.LightShadows;
         var noLocalLights = view;

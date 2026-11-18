@@ -45,7 +45,7 @@ internal static class BakeLights
         {
             lights.LocalIndex[i] = -1;
             if (locals[i].Mode != LightMode.Realtime && !animated.IsAnimated(new LightKey(false, locals[i].Key))
-                && BakeAreas.OwnerOfLight(locals[i].Position, space, view.BakedChunks) == BakeAreas.Space)
+                && BakeAreas.OwnerOfLight(locals[i].Position, space, view.Baked.Chunks) == BakeAreas.Space)
             {
                 lights.LocalIndex[i] = lights.Lights.Count;
                 lights.Lights.Add(GpuBakeLight.Local(locals[i]));
@@ -101,14 +101,14 @@ internal static class BakeLights
     /// </summary>
     public static ChunkBakeLights TakeChunk(in FrameView view, int chunk, AnimatedLights animated)
     {
-        var baked = view.BakedChunks[chunk];
+        var baked = view.Baked.Chunks[chunk];
         var locals = view.LocalLights;
         var lights = new ChunkBakeLights([], new int[locals.Length], locals.ToArray());
         for (int i = 0; i < locals.Length; i++)
         {
             lights.LightOf[i] = -1;
             if (locals[i].Mode != LightMode.Realtime && !animated.IsAnimated(new LightKey(false, locals[i].Key))
-                && BakeAreas.OwnerOfLight(locals[i].Position, view.BakedSpace, view.BakedChunks) == chunk)
+                && BakeAreas.OwnerOfLight(locals[i].Position, view.Baked.Space, view.Baked.Chunks) == chunk)
             {
                 var light = locals[i];
                 var (px, py, pz) = BakeAreas.IntoChunk(baked.Transform, light.Position.X, light.Position.Y, light.Position.Z, 1.0);

@@ -407,7 +407,7 @@ public class BakeIdentityTests
         var settings = new BakeSettings();
 
         var resolved = new BakeResolver(NoBakes.Instance).Resolve(
-            new FrameView { BakedChunks = chunks }, parts, detail => bounds[detail.Index], 0,
+            new FrameView { Baked = new BakedAreas { Chunks = chunks } }, parts, detail => bounds[detail.Index], 0,
             new AnimatedLights(new StringWriter()));
 
         Assert.Equal(2, parts.Length);

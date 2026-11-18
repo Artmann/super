@@ -325,7 +325,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         view.LocalLights = [];
         view.Lights = [];
         g.Renderer.Render(view, room);
-        view.BakedSpace = new BakedSpace("job-room", new Vector3(-6f, -3f, -6f), new Vector3(6f, 7f, 6f), 2f, 4);
+        view.Baked.Space = new BakedSpace("job-room", new Vector3(-6f, -3f, -6f), new Vector3(6f, 7f, 6f), 2f, 4);
         view.LocalLights = new[]
         {
             new LocalLight
@@ -349,7 +349,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
     private static FrameView ChunkView(GpuFixture g)
     {
         var view = g.View(DebugView.None);
-        view.BakedChunks = new[]
+        view.Baked.Chunks = new[]
         {
             new BakedChunk("chunk", Placed, new Vector3(-1.5f, -1f, -1.5f), new Vector3(1.5f, 3f, 1.5f), 8),
         };

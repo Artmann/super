@@ -70,14 +70,14 @@ public sealed class BakeTooManyDrawsGpuTests(GpuFixture gpu)
     private byte[] BakeSpace(BakedSpace space, DrawItem[] draws)
     {
         var view = gpu.View(DebugView.None);
-        view.BakedSpace = space;
+        view.Baked.Space = space;
         return gpu.Renderer.Bake(view, draws, new BakeSettings(Density, BakeQuality.Preview));
     }
 
     private byte[] BakeChunk(BakedChunk chunk, DrawItem[] draws)
     {
         var view = gpu.View(DebugView.None);
-        view.BakedChunks = new[] { chunk };
+        view.Baked.Chunks = new[] { chunk };
         return gpu.Renderer.BakeChunk(view, draws, 0, new BakeSettings(Density, BakeQuality.Preview));
     }
 

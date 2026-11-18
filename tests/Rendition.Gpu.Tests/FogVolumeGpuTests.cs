@@ -110,8 +110,8 @@ public sealed class FogVolumeGpuTests(GpuFixture gpu, ITestOutputHelper output)
         view.Off = off | RenderEffects.AntiAliasing | RenderEffects.Reflections | RenderEffects.LightProbes
             | RenderEffects.SunShadows | RenderEffects.AutoExposure | RenderEffects.Bloom;
         view.Lights = sun;
-        view.Fog = new FogSettings();
-        view.FogVolumes = volumes;
+        view.Weather.Fog = new FogSettings();
+        view.Extras.FogVolumes = volumes;
         return view;
     }
 

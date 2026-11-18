@@ -733,10 +733,10 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             View = Matrix4x4.CreateLookAt(eye, at, Vector3.UnitY),
             Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
             CameraPosition = eye,
-            EnvironmentIntensity = 0f,
+            Environment = new EnvironmentSettings { Intensity = 0f },
             Off = TestEffects.OnlyBaked,
             LocalLights = lamps,
-            BakedChunks = chunks,
+            Baked = new BakedAreas { Chunks = chunks },
         };
     }
 

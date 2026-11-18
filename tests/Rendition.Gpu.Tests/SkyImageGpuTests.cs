@@ -106,7 +106,7 @@ public sealed class SkyImageGpuTests(GpuFixture gpu)
     private Vector4[] Project(AnalyticSky sky)
     {
         var view = gpu.View(DebugView.None);
-        view.Sky = sky;
+        view.Environment.Sky = sky;
         gpu.Renderer.Render(view, []);
         return gpu.Renderer.ProjectSky();
     }
@@ -120,9 +120,7 @@ public sealed class SkyImageGpuTests(GpuFixture gpu)
             View = Matrix4x4.CreateLookAt(Vector3.Zero, new Vector3(0f, 0.3f, -1f), Vector3.UnitY),
             Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
             CameraPosition = Vector3.Zero,
-            EnvironmentIntensity = 1f,
-            ShowEnvironment = true,
-            Sky = new AnalyticSky { Image = image },
+            Environment = new EnvironmentSettings { Intensity = 1f, ShowAsBackground = true, Sky = new AnalyticSky { Image = image } },
             Off = RenderEffects.AntiAliasing | RenderEffects.LightProbes | RenderEffects.Bloom,
         };
         for (int frame = 0; frame < 2; frame++)

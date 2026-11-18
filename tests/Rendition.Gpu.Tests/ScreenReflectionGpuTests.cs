@@ -82,7 +82,7 @@ public sealed class ScreenReflectionGpuTests(GpuFixture gpu)
         // No anti-aliasing, so the frame captured is the frame traced, and no light probes or exposure, which would
         // still be settling.
         view.Off = off | RenderEffects.AntiAliasing | RenderEffects.LightProbes | RenderEffects.AutoExposure;
-        view.EnvironmentIntensity = 1f;
+        view.Environment.Intensity = 1f;
         gpu.Renderer.ReflectionResolution = resolution;
         try
         {

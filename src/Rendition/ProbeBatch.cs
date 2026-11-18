@@ -148,7 +148,7 @@ internal sealed class ProbeBatch
 
         if (_ids.Count > 0)
         {
-            EnvironmentIntensity = view.EnvironmentIntensity;
+            EnvironmentIntensity = view.Environment.Intensity;
         }
 
         // Where each probe of the batch is, and how far apart its layer's probes are.

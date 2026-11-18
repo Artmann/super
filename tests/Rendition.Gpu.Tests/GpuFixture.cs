@@ -84,8 +84,8 @@ public sealed class GpuFixture : IDisposable
     public void RenderOneFrame(BakedSpace? bakedSpace, BakedChunk[] bakedChunks)
     {
         var view = View(DebugView.None);
-        view.BakedSpace = bakedSpace;
-        view.BakedChunks = bakedChunks;
+        view.Baked.Space = bakedSpace;
+        view.Baked.Chunks = bakedChunks;
         Renderer.Render(view, []);
     }
 
@@ -93,8 +93,8 @@ public sealed class GpuFixture : IDisposable
     public void RenderOneFrame(AnalyticSky sky, float environmentIntensity)
     {
         var view = View(DebugView.None);
-        view.Sky = sky;
-        view.EnvironmentIntensity = environmentIntensity;
+        view.Environment.Sky = sky;
+        view.Environment.Intensity = environmentIntensity;
         Renderer.Render(view, []);
     }
 
@@ -112,7 +112,7 @@ public sealed class GpuFixture : IDisposable
             View = Matrix4x4.CreateLookAt(new Vector3(0, 0, 3), Vector3.Zero, Vector3.UnitY),
             Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, _width / (float)_height, 0.1f),
             CameraPosition = new Vector3(0, 0, 3),
-            DebugView = debugView,
+            Picture = new PictureSettings { DebugView = debugView },
         };
     }
 

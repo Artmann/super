@@ -140,7 +140,7 @@ public class SkyModelTests
             new DirectionalLight { Direction = Vector3.UnitX, Radiance = new Vector3(9f) },
             new DirectionalLight { Direction = Vector3.Normalize(new Vector3(0f, 1f, 1f)), Radiance = new Vector3(3f, 2f, 1f), CastsShadow = true },
         };
-        var view = new FrameView { Lights = lights, Sky = new AnalyticSky { Turbidity = 2.5f } };
+        var view = new FrameView { Lights = lights, Environment = new EnvironmentSettings { Sky = new AnalyticSky { Turbidity = 2.5f } } };
         view.Shadows.LightAngle = 0.02f;
 
         var sun = SkyModel.Sun(view);
@@ -162,7 +162,7 @@ public class SkyModelTests
             lamp,
             new DirectionalLight { Direction = new Vector3(MathF.Cos(low), MathF.Sin(low), 0f), Radiance = new Vector3(4f), CastsShadow = true },
         };
-        var view = new FrameView { Lights = lights, Sky = new AnalyticSky { Turbidity = 3f } };
+        var view = new FrameView { Lights = lights, Environment = new EnvironmentSettings { Sky = new AnalyticSky { Turbidity = 3f } } };
         view.Shadows.LightAngle = 0.01f;
         var buffer = Array.Empty<DirectionalLight>();
 
@@ -187,7 +187,7 @@ public class SkyModelTests
         };
         var buffer = Array.Empty<DirectionalLight>();
 
-        var clear = SkyModel.Tinted(new FrameView { Lights = lights, Sky = new AnalyticSky { Turbidity = 3f } }, ref buffer);
+        var clear = SkyModel.Tinted(new FrameView { Lights = lights, Environment = new EnvironmentSettings { Sky = new AnalyticSky { Turbidity = 3f } } }, ref buffer);
         var gradient = SkyModel.Tinted(new FrameView { Lights = lights }, ref buffer);
 
         Assert.True(Vector3.Distance(new Vector3(3f, 2f, 1f), clear.Lights[0].Radiance) < 1e-4f, $"The sun is {clear.Lights[0].Radiance}.");
@@ -203,7 +203,7 @@ public class SkyModelTests
     public void Rendition_draws_a_turbidity_out_of_range_at_the_nearest_end(float turbidity, float drawn)
     {
         var lights = new[] { new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(8f), CastsShadow = true } };
-        var view = new FrameView { Lights = lights, Sky = new AnalyticSky { Turbidity = turbidity } };
+        var view = new FrameView { Lights = lights, Environment = new EnvironmentSettings { Sky = new AnalyticSky { Turbidity = turbidity } } };
 
         Assert.Equal(drawn, SkyModel.Sun(view).Turbidity);
         Assert.Equal(drawn, SkyModel.Sun(view with { Lights = default }).Turbidity);
@@ -213,10 +213,10 @@ public class SkyModelTests
     public void A_sun_too_small_for_half_floats_is_held_at_their_limit_and_a_gradient_sky_has_no_sun()
     {
         var lights = new[] { new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(8f), CastsShadow = true } };
-        var tiny = new FrameView { Lights = lights, Sky = new AnalyticSky { Turbidity = 2.5f } };
+        var tiny = new FrameView { Lights = lights, Environment = new EnvironmentSettings { Sky = new AnalyticSky { Turbidity = 2.5f } } };
         tiny.Shadows.LightAngle = 0.0005f;
         var gradient = tiny;
-        gradient.Sky = default;
+        gradient.Environment.Sky = default;
 
         // 8 over a disc 0.00025 radians in radius is 8 / (pi * 0.00025^2) = 40.7 million, past a half float's 65504.
         Assert.Equal(SkyModel.MaxDiscRadiance, SkyModel.Sun(tiny).DiscRadiance.X);
@@ -232,7 +232,7 @@ public class SkyModelTests
     [InlineData(0f, 0f, RenderEffects.AerialPerspective, false)]
     public void Air_shows_only_without_haze_or_the_switch_off(float fadeStart, float fadeEnd, RenderEffects off, bool shows)
     {
-        var view = new FrameView { BackgroundFadeStart = fadeStart, BackgroundFadeEnd = fadeEnd };
+        var view = new FrameView { Background = new BackgroundSettings { FadeStart = fadeStart, FadeEnd = fadeEnd } };
 
         Assert.Equal(shows, SkyModel.AirShows(view, off));
     }
@@ -244,7 +244,7 @@ public class SkyModelTests
     }
 
     private static FrameView Night(Vector3 moon, bool hideStars = false) =>
-        new() { Sky = new AnalyticSky { Turbidity = 2.5f, Moon = moon, HideStars = hideStars, StarRotation = 1.25f } };
+        new() { Environment = new EnvironmentSettings { Sky = new AnalyticSky { Turbidity = 2.5f, Moon = moon, HideStars = hideStars, StarRotation = 1.25f } } };
 
     [Fact]
     public void Stars_fade_in_as_the_sun_goes_from_2_to_12_degrees_below_the_horizon()
@@ -277,7 +277,7 @@ public class SkyModelTests
     {
         var clear = Night(Elevated(60f));
         var gradient = clear;
-        gradient.Sky.Turbidity = 0f;
+        gradient.Environment.Sky.Turbidity = 0f;
 
         Assert.Equal(default, SkyModel.Night(gradient, Elevated(-40f), RenderEffects.None));
         Assert.NotEqual(default, SkyModel.Night(clear, Elevated(-40f), RenderEffects.None));
@@ -311,7 +311,7 @@ public class SkyModelTests
             new DirectionalLight { Direction = moon * 3f, Radiance = new Vector3(0.2f), CastsShadow = true },
             new DirectionalLight { Direction = sun, Radiance = new Vector3(5f) },
         };
-        var view = new FrameView { Lights = lights, Sky = new AnalyticSky { Turbidity = 2.5f, Moon = moon } };
+        var view = new FrameView { Lights = lights, Environment = new EnvironmentSettings { Sky = new AnalyticSky { Turbidity = 2.5f, Moon = moon } } };
 
         Assert.True(Vector3.Distance(sun, SkyModel.Sun(view).Direction) < 1e-6f, $"The sky's sun points {SkyModel.Sun(view).Direction}.");
 

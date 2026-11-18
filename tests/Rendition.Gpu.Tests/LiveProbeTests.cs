@@ -607,7 +607,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
     {
         var view = View(scene, ProbeViewCamera);
         view.View = Matrix4x4.CreateLookAt(ProbeViewCamera, Vector3.Zero, Vector3.UnitY);
-        view.DebugView = debugView;
+        view.Picture.DebugView = debugView;
         view.Off = off;
         byte[] pixels = gpu.Renderer.Capture(view, scene.Draws, out int width, out int height);
         Assert.Equal((Size, Size), (width, height));
@@ -714,9 +714,9 @@ public sealed class LiveProbeTests(GpuFixture shared)
     {
         var view = View(scene, Vector3.Zero);
         view.Off = off | RenderEffects.AntiAliasing | RenderEffects.AutoExposure | RenderEffects.Bloom;
-        view.Fog = new FogSettings();
+        view.Weather.Fog = new FogSettings();
         float clear = Brightness(Settled(gpu, view, scene));
-        view.FogVolumes = new FogVolumeDraw[]
+        view.Extras.FogVolumes = new FogVolumeDraw[]
         {
             new(FogShape.Box, Matrix4x4.CreateScale(1.6f) * Matrix4x4.CreateTranslation(0f, 0f, -0.2f),
                 new FogVolumeSettings(0.5f) { EdgeFade = 0f }),
@@ -770,9 +770,9 @@ public sealed class LiveProbeTests(GpuFixture shared)
             CameraPosition = camera,
             LocalLights = scene.Lights,
             Lights = scene.Suns ?? [],
-            EnvironmentIntensity = scene.SkyIntensity,
-            BackgroundRadiance = scene.Background,
-            Water = scene.Water,
+            Environment = new EnvironmentSettings { Intensity = scene.SkyIntensity },
+            Background = new BackgroundSettings { Radiance = scene.Background },
+            Weather = new WeatherSettings { Water = scene.Water },
         };
     }
 

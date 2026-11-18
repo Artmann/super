@@ -166,12 +166,12 @@ public sealed class SwitchPictureGpuTests(GpuFixture gpu, ITestOutputHelper outp
         view.Off = off | RenderEffects.AntiAliasing | RenderEffects.Reflections | RenderEffects.LightProbes;
         if (haze)
         {
-            view.BackgroundFadeStart = 5f;
-            view.BackgroundFadeEnd = 10f;
-            view.BackgroundFadeColor = HazeColour;
+            view.Background.FadeStart = 5f;
+            view.Background.FadeEnd = 10f;
+            view.Background.FadeColor = HazeColour;
         }
 
-        view.Water = water;
+        view.Weather.Water = water;
         return view;
     }
 

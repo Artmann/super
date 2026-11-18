@@ -84,7 +84,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
             // A frame that names no area forgets the room was drawn live, so the next frame is the first to name it,
             // as when a level loads with its bake already saved.
             var unnamed = view;
-            unnamed.BakedSpace = null;
+            unnamed.Baked.Space = null;
             gpu.Renderer.Render(unnamed, room);
             store.Bake = bake;
             var first = Floor(view, room, Start);
@@ -180,7 +180,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
 
             // The same room loaded with its bake already saved: the first frame that names it shows the bake whole.
             var unnamed = view;
-            unnamed.BakedSpace = null;
+            unnamed.Baked.Space = null;
             gpu.Renderer.Render(unnamed, room);
             OneFrame(view, room, Start + 3f);
             Assert.Equal(1f, gpu.Renderer.LastBakeFrame!.SpaceFade);
@@ -295,7 +295,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     // so the two ends of a fade are far apart. The store calls any bake fresh, so this one is drawn.
     private LightBakeFile SkyBake(FrameView view, DrawItem[] room)
     {
-        view.EnvironmentIntensity = 1f;
+        view.Environment.Intensity = 1f;
         return Bake(view, room);
     }
 
@@ -317,9 +317,9 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         View = Matrix4x4.CreateLookAt(new Vector3(0f, 2.5f, 4f), Vector3.Zero, Vector3.UnitY),
         Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
         CameraPosition = new Vector3(0f, 2.5f, 4f),
-        EnvironmentIntensity = 0f,
+        Environment = new EnvironmentSettings { Intensity = 0f },
         Off = TestEffects.OnlyBaked,
-        BakedSpace = Space,
+        Baked = new BakedAreas { Space = Space },
         LocalLights = lit
             ? new[]
             {

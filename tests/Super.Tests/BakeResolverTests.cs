@@ -30,7 +30,7 @@ public sealed class BakeResolverTests
         LocalLight[] lights = [Point(1, InCourtyard, LightMode.Baked), Point(2, InRoom, LightMode.Mixed)];
         // A model's parts with another model between them, and one static draw in the courtyard.
         DrawItem[] draws = [Part(1, 0, at), Static(2, InRoom), Part(1, 1, at), Static(3, InCourtyard)];
-        var frame = new FrameView { BakedSpace = Courtyard, BakedChunks = chunks, Lights = suns, LocalLights = lights, Time = 1f };
+        var frame = new FrameView { Baked = new BakedAreas { Space = Courtyard, Chunks = chunks }, Lights = suns, LocalLights = lights, Time = 1f };
         var animated = new AnimatedLights(TextWriter.Null);
         var resolver = new BakeResolver(new EveryBakeFresh());
         Func<DetailHandle, BakeSphere> bounds = TwoParts;
@@ -70,7 +70,7 @@ public sealed class BakeResolverTests
             Point(3, InRoom + new Vector3(20f, 0f, 0f), LightMode.Baked),
         ];
         DrawItem[] draws = [Static(1, InRoom), Static(1, InRoom + new Vector3(10f, 0f, 0f)), Static(2, InRoom + new Vector3(20f, 0f, 0f))];
-        var frame = new FrameView { BakedChunks = chunks, LocalLights = lights, Time = 1f };
+        var frame = new FrameView { Baked = new BakedAreas { Chunks = chunks }, LocalLights = lights, Time = 1f };
         var animated = new AnimatedLights(TextWriter.Null);
         int asked = 0;
         var resolver = new BakeResolver(new EveryBakeFresh())
@@ -120,14 +120,14 @@ public sealed class BakeResolverTests
             Static(1, InRoom), new DrawItem { Transform = Matrix4x4.CreateTranslation(InRoom) },
             Static(2, InCourtyard), Static(3, inFarRoom), Static(4, InRoom),
         ];
-        var frame = new FrameView { BakedSpace = Courtyard, BakedChunks = new[] { Room, FarRoom } };
+        var frame = new FrameView { Baked = new BakedAreas { Space = Courtyard, Chunks = new[] { Room, FarRoom } } };
 
         resolver.Resolve(frame, draws, TwoParts, 42, animated);
 
         Assert.Equal([0, BakeAreas.None, BakeAreas.None, 1, 0], resolver.Owners.ToArray());
 
         // A frame with no chunks owns nothing, though the last one did.
-        resolver.Resolve(new FrameView { BakedSpace = Courtyard }, draws, TwoParts, 42, animated);
+        resolver.Resolve(new FrameView { Baked = new BakedAreas { Space = Courtyard } }, draws, TwoParts, 42, animated);
 
         Assert.Equal(
             [BakeAreas.None, BakeAreas.None, BakeAreas.None, BakeAreas.None, BakeAreas.None], resolver.Owners.ToArray());
@@ -146,7 +146,7 @@ public sealed class BakeResolverTests
                 return false;
             },
         };
-        var frame = new FrameView { BakedChunks = [Room], LocalLights = [Point(1, InRoom, LightMode.Baked)], Time = 1f };
+        var frame = new FrameView { Baked = new BakedAreas { Chunks = [Room] }, LocalLights = [Point(1, InRoom, LightMode.Baked)], Time = 1f };
 
         var resolved = resolver.Resolve(frame, [Static(1, InRoom)], TwoParts, 42, new AnimatedLights(TextWriter.Null));
 
@@ -228,7 +228,7 @@ public sealed class BakeResolverTests
     {
         var resolver = new BakeResolver(new EveryBakeFresh());
         var animated = new AnimatedLights(TextWriter.Null);
-        var busy = new FrameView { BakedSpace = Courtyard, Lights = [Sun(LightMode.Baked)], LocalLights = [Point(1, InCourtyard, LightMode.Baked)] };
+        var busy = new FrameView { Baked = new BakedAreas { Space = Courtyard }, Lights = [Sun(LightMode.Baked)], LocalLights = [Point(1, InCourtyard, LightMode.Baked)] };
 
         var withAreas = resolver.Resolve(busy, [], TwoParts, 42, animated);
         Assert.Equal([0], withAreas.DroppedLocalLights);
@@ -250,9 +250,9 @@ public sealed class BakeResolverTests
         var denseCourtyard = Courtyard with { TexelsPerMetre = 40 };
         var denseRoom = Room with { TexelsPerMetre = 40 };
         BakeInputs Space(BakedSpace space, BakedChunk room) => resolver.Resolve(
-            new FrameView { BakedSpace = space, BakedChunks = new[] { room } }, draws, TwoParts, 42, animated).Space!.Value;
+            new FrameView { Baked = new BakedAreas { Space = space, Chunks = new[] { room } } }, draws, TwoParts, 42, animated).Space!.Value;
         BakeInputs Chunk(BakedSpace space, BakedChunk room) => resolver.Resolve(
-            new FrameView { BakedSpace = space, BakedChunks = new[] { room } }, draws, TwoParts, 42, animated).Chunks[0];
+            new FrameView { Baked = new BakedAreas { Space = space, Chunks = new[] { room } } }, draws, TwoParts, 42, animated).Chunks[0];
 
         var plain = Space(Courtyard, Room);
         var plainRoom = Chunk(Courtyard, Room);
@@ -279,7 +279,7 @@ public sealed class BakeResolverTests
         var animated = new AnimatedLights(TextWriter.Null);
         DrawItem[] draws = [Static(1, InRoom)];
         BakeFrame At(float time) => resolver.Resolve(
-            new FrameView { BakedChunks = [Room], LocalLights = [Point(1, InRoom, LightMode.Baked)], Time = time },
+            new FrameView { Baked = new BakedAreas { Chunks = [Room] }, LocalLights = [Point(1, InRoom, LightMode.Baked)], Time = time },
             draws, TwoParts, 42, animated);
 
         var stale = At(10f);
@@ -360,7 +360,7 @@ public sealed class BakeResolverTests
 
         // Drawn live, then a frame that names only the room, then the courtyard again with its bake saved.
         SpaceAt(resolver, animated, 1f);
-        resolver.Resolve(new FrameView { BakedChunks = [Room], Time = 2f }, [], TwoParts, 42, animated);
+        resolver.Resolve(new FrameView { Baked = new BakedAreas { Chunks = [Room] }, Time = 2f }, [], TwoParts, 42, animated);
         store.Fresh = true;
         var back = SpaceAt(resolver, animated, 3f);
 
@@ -397,8 +397,8 @@ public sealed class BakeResolverTests
     private static BakeFrame SpaceAt(BakeResolver resolver, AnimatedLights animated, float time) => resolver.Resolve(
         new FrameView
         {
-            BakedSpace = Courtyard, Lights = [Sun(LightMode.Baked)], LocalLights = [Point(1, InCourtyard, LightMode.Baked)],
-            Time = time,
+            Baked = new BakedAreas { Space = Courtyard }, Lights = [Sun(LightMode.Baked)],
+            LocalLights = [Point(1, InCourtyard, LightMode.Baked)], Time = time,
         },
         [Static(1, InCourtyard)], TwoParts, 42, animated);
 
@@ -413,7 +413,7 @@ public sealed class BakeResolverTests
     {
         public FrameView Frame => new()
         {
-            BakedSpace = Space, BakedChunks = Chunks, Lights = Suns, LocalLights = Lights, Time = 1f,
+            Baked = new BakedAreas { Space = Space, Chunks = Chunks }, Lights = Suns, LocalLights = Lights, Time = 1f,
         };
     }
 

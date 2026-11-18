@@ -132,7 +132,7 @@ internal sealed unsafe class MaterialTable
         ((GpuMaterial*)_buffer.Mapped)[index] = GpuMaterials.ToGpu(material, _defaults);
         _facts[index] = new MaterialFacts(
             material.Flags,
-            material.Shader?.Index ?? 0,
+            material.Custom.Shader?.Index ?? 0,
             material.AlphaCutoff > 0f,
             GpuMaterials.Sway(material),
             material.Fade,
@@ -140,19 +140,19 @@ internal sealed unsafe class MaterialTable
             material.Subsurface.IsOn);
 
         var owned = _textures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);
-        owned[0] = material.BaseColorTexture?.Index ?? -1;
-        owned[1] = material.NormalTexture?.Index ?? -1;
-        owned[2] = material.SurfaceTexture?.Index ?? -1;
-        owned[3] = material.EmissiveTexture?.Index ?? -1;
-        owned[4] = material.HeightTexture?.Index ?? -1;
-        owned[5] = material.DetailColorTexture?.Index ?? -1;
-        owned[6] = material.DetailNormalTexture?.Index ?? -1;
-        owned[7] = material.MaskTexture?.Index ?? -1;
-        owned[8] = material.OcclusionTexture?.Index ?? -1;
+        owned[0] = material.Textures.BaseColor?.Index ?? -1;
+        owned[1] = material.Textures.Normal?.Index ?? -1;
+        owned[2] = material.Textures.Surface?.Index ?? -1;
+        owned[3] = material.Textures.Emissive?.Index ?? -1;
+        owned[4] = material.Height.Texture?.Index ?? -1;
+        owned[5] = material.Detail.Color?.Index ?? -1;
+        owned[6] = material.Detail.Normal?.Index ?? -1;
+        owned[7] = material.Weathering.Mask?.Index ?? -1;
+        owned[8] = material.Textures.Occlusion?.Index ?? -1;
         owned[9] = material.Toon?.Ramp?.Index ?? -1;
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
-            owned[OwnTextures + i] = material.ShaderTextures[i]?.Index ?? -1;
+            owned[OwnTextures + i] = material.Custom.Textures[i]?.Index ?? -1;
         }
     }
 }

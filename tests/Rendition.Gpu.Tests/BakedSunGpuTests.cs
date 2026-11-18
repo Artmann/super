@@ -29,10 +29,10 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
             },
         ];
         var view = gpu.View(DebugView.None);
-        view.Sky = new AnalyticSky { Turbidity = 3.5f };
+        view.Environment.Sky = new AnalyticSky { Turbidity = 3.5f };
         view.Lights = suns;
         view.Shadows = new ShadowSettings { Radius = 4f, LightAngle = 0.1f };
-        view.BakedSpace = Room;
+        view.Baked.Space = Room;
 
         int rebakes = gpu.Renderer.SkyRebakes;
         gpu.Renderer.Bakes = new EveryBakeFresh();
@@ -70,7 +70,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
         var (vertices, indices) = TestMeshes.Cube();
         var cube = gpu.Renderer.CreateDrawItem(vertices, indices, gpu.Matte) with { BakeId = BakeIds.Of(1, 0) };
         var view = gpu.View(DebugView.None);
-        view.Sky = new AnalyticSky { Turbidity = 3.5f };
+        view.Environment.Sky = new AnalyticSky { Turbidity = 3.5f };
         view.Lights = new DirectionalLight[]
         {
             new()
@@ -89,7 +89,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
             },
         };
         view.Shadows = new ShadowSettings { Radius = 4f, LightAngle = 0.1f };
-        view.BakedSpace = Room;
+        view.Baked.Space = Room;
 
         try
         {
@@ -123,7 +123,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
         var cube = gpu.Renderer.CreateDrawItem(vertices, indices, gpu.Matte) with { BakeId = BakeIds.Of(1, 0) };
         var fill = new Vector3(0.4f, 0.3f, 0.2f);
         var view = gpu.View(DebugView.None);
-        view.Sky = new AnalyticSky { Turbidity = 3.5f };
+        view.Environment.Sky = new AnalyticSky { Turbidity = 3.5f };
         view.Lights = new DirectionalLight[]
         {
             new()
@@ -136,7 +136,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
             new() { Direction = Vector3.Normalize(new Vector3(-0.6f, 0.6f, -0.4f)), Radiance = fill },
         };
         view.Shadows = new ShadowSettings { Radius = 4f, LightAngle = 0.1f };
-        view.BakedSpace = Room;
+        view.Baked.Space = Room;
 
         gpu.Renderer.Bakes = new EveryBakeFresh();
         try

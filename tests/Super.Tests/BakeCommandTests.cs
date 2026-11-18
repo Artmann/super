@@ -83,7 +83,7 @@ public sealed class BakeCommandTests
     public void A_frame_names_each_chunks_file_by_its_combined_hash()
     {
         var room = new BakedChunk("room", Matrix4x4.Identity, new Vector3(-2f, 0f, -2f), new Vector3(2f, 3f, 2f));
-        var frame = new FrameView { BakedChunks = new[] { room }, Time = 1f };
+        var frame = new FrameView { Baked = new BakedAreas { Chunks = new[] { room } }, Time = 1f };
         var resolver = new BakeResolver(NoBakes.Instance);
 
         var animated = new AnimatedLights(TextWriter.Null);

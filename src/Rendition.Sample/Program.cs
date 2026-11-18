@@ -114,9 +114,9 @@ unsafe
             BaseColor = new Vector4(0.9f, 0.55f, 0.2f, 1f),
             Metallic = 0.9f,
             Roughness = 0.35f,
-            Shader = glow ? renderer.CreateSurfaceShader(LoadShader("glow_bands.frag")) : null,
+            Custom = new CustomSurface { Shader = glow ? renderer.CreateSurfaceShader(LoadShader("glow_bands.frag")) : null },
         };
-        glowing.ShaderParameters[0] = new Vector4(4f, 1.2f, 0.3f, 3f);
+        glowing.Custom.Parameters[0] = new Vector4(4f, 1.2f, 0.3f, 3f);
         var material = renderer.CreateMaterial(glowing);
         draws =
         [
@@ -225,7 +225,7 @@ unsafe
             var churnMaterial = renderer.CreateMaterial(new Material
             {
                 BaseColor = Vector4.One,
-                BaseColorTexture = texture,
+                Textures = new MaterialTextures { BaseColor = texture },
                 Roughness = 0.5f,
             });
             var item = renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, churnMaterial, simplify: frame % 2 == 0);
@@ -272,12 +272,13 @@ unsafe
                 Cascades = 2,
                 LightAngle = 0.12f,
             },
-            EnvironmentIntensity = 0.85f,
-            BackgroundRadiance = new Vector3(0.15f, 0.15f, 0.16f),
-            BackgroundFadeStart = 9f,
-            BackgroundFadeEnd = 26f,
-            Post = new PostSettings { Contrast = 0.08f, Saturation = 0.1f, Vignette = 0.3f, Sharpen = 0.4f, Grain = 0.006f },
-            Overlay = overlay,
+            Environment = new EnvironmentSettings { Intensity = 0.85f },
+            Background = new BackgroundSettings { Radiance = new Vector3(0.15f, 0.15f, 0.16f), FadeStart = 9f, FadeEnd = 26f },
+            Picture = new PictureSettings
+            {
+                Post = new PostSettings { Contrast = 0.08f, Saturation = 0.1f, Vignette = 0.3f, Sharpen = 0.4f, Grain = 0.006f },
+            },
+            Extras = new FrameExtras { Overlay = overlay },
             // Light probes round the cube, some of them inside it. Those see only the backs of
             // its faces and must be left out, or they'd pour darkness onto the cube's sides.
             LightProbes = probes && modelPath is null

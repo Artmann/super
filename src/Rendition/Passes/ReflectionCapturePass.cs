@@ -118,7 +118,7 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
     /// </summary>
     public int Plan(ReadOnlySpan<DrawItem> draws, in ReflectionProbe probe, in FrameView view, Vector3? sun, long frame)
     {
-        _planned = new PlannedCapture(probe.Position, view.EnvironmentIntensity);
+        _planned = new PlannedCapture(probe.Position, view.Environment.Intensity);
         _kept.Clear();
         _faces.Keep(draws, _scene.Details, probe.Position, Reach, _kept);
 

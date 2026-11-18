@@ -13,11 +13,10 @@ internal static class SurfaceMaterials
         Roughness = surface.Roughness,
         Metallic = surface.Metallic,
         Flags = FlagsOf(surface),
-        Ior = surface.Ior,
+        Glass = new MaterialGlass { Ior = surface.Ior, SoftEdge = surface.SoftEdge },
         Translucency = (surface.Foliage ?? new Foliage()).Translucency,
         Wind = surface.Wind,
         Fade = surface.FadeDistance,
-        SoftEdge = surface.SoftEdge,
     };
 
     /// <summary>A generated surface's material switches: glass below full opacity, foliage drawn from both sides.</summary>

@@ -195,19 +195,24 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
             LocalLights = point,
             Shadows = new ShadowSettings { Center = Vector3.Zero, Radius = 4f, Cascades = 4 },
             LightProbes = new ProbeVolumeSettings(new Vector3(-2f, -1.5f, -2f), new Vector3(2f, 2f, 2f), 1f),
-            Fog = new FogSettings(Density: 0.1f),
-            Post = new PostSettings
+            Weather = new WeatherSettings
             {
-                Bloom = 0.1f,
-                AutoExposure = true,
-                Aperture = 2.8f,
-                FocalLength = 50f,
-                FocusDistance = 2f,
+                Fog = new FogSettings(Density: 0.1f),
+                Puddles = new PuddleSettings(Level: 0.05f),
+                Wind = new WindSettings(Vector3.UnitX, Strength: 0.5f),
             },
-            Puddles = new PuddleSettings(Level: 0.05f),
-            Wind = new WindSettings(Vector3.UnitX, Strength: 0.5f),
-            Decals = decals,
-            Particles = Dust,
+            Picture = new PictureSettings
+            {
+                Post = new PostSettings
+                {
+                    Bloom = 0.1f,
+                    AutoExposure = true,
+                    Aperture = 2.8f,
+                    FocalLength = 50f,
+                    FocusDistance = 2f,
+                },
+            },
+            Extras = new FrameExtras { Decals = decals, Particles = Dust },
             Off = off,
         };
     }

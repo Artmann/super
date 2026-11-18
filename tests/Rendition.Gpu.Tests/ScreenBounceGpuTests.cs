@@ -84,7 +84,7 @@ public sealed class ScreenBounceGpuTests(GpuFixture gpu, ITestOutputHelper outpu
         view.Off = off | RenderEffects.AntiAliasing | RenderEffects.Reflections | RenderEffects.LightProbes
             | RenderEffects.AutoExposure | RenderEffects.Bloom;
         view.Lights = [];
-        view.EnvironmentIntensity = 0f;
+        view.Environment.Intensity = 0f;
         DrawItem[] draws = [wall, panel];
         for (int frame = 0; frame < SettleFrames; frame++)
         {

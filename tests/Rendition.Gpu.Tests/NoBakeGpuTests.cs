@@ -212,8 +212,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
             Lights = suns,
             LocalLights = withPointLight ? points : [],
             Off = off,
-            BakedSpace = baked && !inChunk ? Room : null,
-            BakedChunks = !baked ? [] : inChunk ? Hut : Shed,
+            Baked = new BakedAreas { Space = baked && !inChunk ? Room : null, Chunks = !baked ? [] : inChunk ? Hut : Shed },
         };
 
         // The dither's noise repeats every 64 frames, so each capture is the 64th frame of its own, and two captures

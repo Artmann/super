@@ -224,7 +224,7 @@ public class GlassTests
 
         Assert.Equal(MaterialFlags.Transparent, material.Flags);
         Assert.Equal(new Vector4(0.2f, 0.4f, 0.6f, 0.3f), material.BaseColor);
-        Assert.Equal(1.5f, material.Ior);
+        Assert.Equal(1.5f, material.Glass.Ior);
     }
 
     [Fact]

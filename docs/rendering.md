@@ -311,7 +311,7 @@ and `--profile`.
 unlit, and sky blue where a ray hits nothing. Use it to check that the ray tracing layer holds the
 scene you expect. Leaves in cut-out materials show holes, wind-swayed parts sit at rest, and skinned
 characters, swimming draws and ghosts are missing, because rays don't see them yet. From code, set
-`FrameView.DebugView` to `DebugView.Trace`; `Renderer.Render` throws on a GPU that can't trace, and
+`FrameView.Picture.DebugView` to `DebugView.Trace`; `Renderer.Render` throws on a GPU that can't trace, and
 `Renderer.NoTraceReason` says why. See [the command line](command-line.md).
 
 ![The Courtyard lit on the left and in the trace view on the right: the same bricks, ivy, barrel, wheel and flagstones as flat base colours, with a sky-blue background where rays hit nothing](media/trace-view-courtyard.webp)
@@ -650,7 +650,7 @@ finest box, so they read clearly from a few metres away while neighbours stay we
 leave the scene visible between them. A probe not drawn yet is a grey wireframe, and a probe
 left out for being inside a wall isn't shown. Where your box covers the finest box, only your
 box's probes are shown, as only they light that space. It works with or without tracing, and
-shows no spheres while `Graphics.Lighting.LightProbes` is off. From code, set `FrameView.DebugView` to
+shows no spheres while `Graphics.Lighting.LightProbes` is off. From code, set `FrameView.Picture.DebugView` to
 `DebugView.Probes`. A game can switch it on while it runs, as the Hamlet does with P, by setting
 `Graphics.DebugView`; see [the debug view from a game](#the-debug-view-from-a-game). See [the
 command line](command-line.md).
@@ -724,7 +724,7 @@ The band is drawn each frame, not baked, so changing it needs no new bake.
 A name is one or more letters, digits, `-` or `_`, since it names a file; a slash, a dot or a
 space throws. Each box must reach further than it starts on every axis, and `probeSpacing`
 must be more than zero. Everything else throws when it's named, with the value and the limit.
-For Rendition alone, `FrameView.BakedSpace` and `FrameView.BakedChunks` carry the same, and
+For Rendition alone, `FrameView.Baked.Space` and `FrameView.Baked.Chunks` carry the same, and
 `Renderer.Render` throws for more than 256 chunks or a chunk transform that isn't only a turn
 and a move. `BakeFiles` has the limits, the file names and the checks.
 
@@ -851,7 +851,7 @@ File.WriteAllBytes("lighting/crypt.lightbake", bake);
 the `.lightbake` file's bytes. It takes the same view and draws as `Render`, waits for the GPU,
 and draws nothing. A view without a space throws "Bake needs a baked space in the frame; call
 view.Indirect.BakedLighting first." A space with more than 4,096 probes, which only a hand-made
-`FrameView.BakedSpace` can have, throws with its name and count. The settings' `TexelsPerMetre`
+`FrameView.Baked.Space` can have, throws with its name and count. The settings' `TexelsPerMetre`
 must be the space's, since no frame would find a bake at another density fresh; one that differs
 throws with both.
 A game doesn't need to call it itself: [`--bake`](command-line.md#baking-lighting) bakes the
@@ -861,7 +861,7 @@ frame's space and each chunk it draws and saves them, and `--bake-check` says wh
 byte[] bake = renderer.BakeChunk(view, draws, chunk: 0, new BakeSettings(texelsPerMetre: 20));
 ```
 
-`Renderer.BakeChunk` bakes one of the frame's `BakedChunks` in its own space, so one bake
+`Renderer.BakeChunk` bakes one of the frame's `Baked.Chunks` in its own space, so one bake
 serves every copy of the chunk wherever it stands and however it is turned. Only the static
 draws the chunk owns are in it, so the rest of the world neither shades nor lights it. Its
 lightmap is one square page, from 64 to 2048 texels a side, as small as holds its draws. It
@@ -898,7 +898,7 @@ on its mode:
 - A `Realtime` light, a light that is [moving](#moving-lights), and a local light in no
   baked area are left out, as is the sun when it is `Realtime` or moving.
 - Emissive surfaces light their surroundings, and the sky lights them at
-  `view.EnvironmentIntensity`. Glass and other see-through surfaces let light through, dimmed
+  `view.Environment.Intensity`. Glass and other see-through surfaces let light through, dimmed
   by their opacity but not tinted.
 
 The bake also holds the space's probes, one every `probeSpacing` metres in its box, laid out
