@@ -303,7 +303,7 @@ public sealed class AnimationClip
         }
     }
 
-    /// <summary>Writes the clip as a cooked model holds it: its name, rate, frames and events, with an empty joint for none.</summary>
+    /// <summary>Writes the clip as a cooked model holds it: its name, rate, frames and events, with an empty joint or sound for none.</summary>
     internal void Write(BinaryWriter writer)
     {
         writer.Write(Name);
@@ -318,6 +318,9 @@ public sealed class AnimationClip
             writer.Write(clipEvent.From);
             writer.Write(clipEvent.To);
             writer.Write(clipEvent.Joint ?? "");
+            writer.Write(clipEvent.Sound?.Path ?? "");
+            writer.Write(clipEvent.Sound?.Volume ?? 1f);
+            writer.Write(clipEvent.Sound?.PitchVariation ?? 0f);
         }
     }
 
@@ -336,7 +339,13 @@ public sealed class AnimationClip
             float from = reader.ReadSingle();
             float to = reader.ReadSingle();
             string joint = reader.ReadString();
-            events[i] = new ClipEvent(eventName, from, to, joint.Length > 0 ? joint : null);
+            string sound = reader.ReadString();
+            float volume = reader.ReadSingle();
+            float pitchVariation = reader.ReadSingle();
+            events[i] = new ClipEvent(eventName, from, to, joint.Length > 0 ? joint : null)
+            {
+                Sound = sound.Length > 0 ? new ClipSound(sound, volume, pitchVariation) : null,
+            };
         }
 
         return new AnimationClip(name, frameRate, jointCount, frames, events);
@@ -358,6 +367,44 @@ public sealed record ClipEvent(string Name, float From, float To, string? Joint 
 
     /// <summary>Whether it's a window with a start and an end, rather than a moment.</summary>
     public bool IsWindow => To > From;
+
+    /// <summary>A sound to play where <see cref="Joint"/> is when the event happens, or at a window's start.</summary>
+    public ClipSound? Sound { get; init; }
+}
+
+/// <summary>
+/// A sound a clip event plays, by content name, such as a footstep. Volume scales it, and
+/// pitch variation, from 0 up to 1, shifts each play's pitch up or down by up to that share.
+/// </summary>
+public sealed record ClipSound
+{
+    public ClipSound(string path, float volume = 1f, float pitchVariation = 0f)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentException("The sound needs a path.", nameof(path));
+        }
+
+        if (!(volume >= 0f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(volume), volume, "The volume can't be negative.");
+        }
+
+        if (!(pitchVariation >= 0f && pitchVariation < 1f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(pitchVariation), pitchVariation, "The pitch variation must be from 0 up to, but not including, 1.");
+        }
+
+        Path = path;
+        Volume = volume;
+        PitchVariation = pitchVariation;
+    }
+
+    public string Path { get; }
+
+    public float Volume { get; }
+
+    public float PitchVariation { get; }
 }
 
 /// <summary>Mixes poses joint by joint.</summary>

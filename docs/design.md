@@ -805,7 +805,8 @@ version folded in. Their history is in the comments on `ModelData.Version` and
 `ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
 
 Each clip carries its events after its frames: a name, a from and a to in seconds (equal for a
-moment) and a joint name, empty for none. `ClipEventSettings.Attach` checks the sidecar's `events`
+moment), a joint name, empty for none, and a sound path, volume and pitch variation, the path
+empty for none. `ClipEventSettings.Attach` checks the sidecar's `events`
 against the clips and skeleton once the clips are read, and adds them to their clips; a bad event
 fails the cook alongside the material problems. At run time `Rig` keeps a `ClipEventTable` per
 clip, with the cooked events and those from `Rig.Event`, the joint each names, and marks sorted by
@@ -820,6 +821,18 @@ them by fraction, then sweep, then arrival. Windows are open per source: `Finish
 source stopped counting or playing and begins any a source came to count inside, so begins and
 ends stay paired. Joints are read from the finished pose, and the events go into a reused array,
 so reading them doesn't allocate.
+
+Clip sounds are named in content when a rig gets its `AnimatorRunner` (from `content.Rig` or
+`Content.Adopt`): the setter calls `ClipEventTable.NameSounds` with the runner's lookup, which is
+`Content.Sound`, so a missing file throws at load, and `Rig.Event` names a new event's sound the
+same way. `GameHost` sets `AnimatorRunner.Play` to a `ClipSoundPlayer` that calls `Audio.Play`
+(a delegate rather than `Audio` itself, since `Audio` holds `Content`, which holds the runner), and
+each animator's `EventTracker.Finish` hands the tick's events to `TickEvents.PlaySounds`, which plays every
+moment and begin that has a sound at the joint times `AnimationPose.Drawn`, scaling the volume by
+the event's weight and letting the controller's `PickSound` swap or drop it. `Drawn` is set by
+`View.Model` whenever a pose is drawn, which covers `Animated` entities, so the place comes from
+the last frame rather than from the game, and an animator never drawn has no place and plays
+nothing. Animators advanced by hand in tests get no `Audio` and play nothing.
 
 A material rule's `shader`, `shaderParameters` and `shaderTextures` are written after the
 materials as `ModelData.MaterialShaders`, empty or one entry (or none) per material, by name: the

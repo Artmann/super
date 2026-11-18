@@ -52,7 +52,7 @@ public sealed class ModelCooker : ICooker
     // 23: materials take an occlusion texture, the glTF file's or a rule's, on either UV set. 24: a rule's toon and
     // outline. 25: clips carry their events. The
     // graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 25);
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 26);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 

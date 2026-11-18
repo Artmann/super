@@ -20,6 +20,7 @@
   <Import Project="..\..\src\Super.Build\Super.targets" />
   <ItemGroup>
     <SuperContent Include="..\..\assets" Only="fox/**" />
+    <SuperContent Include="..\..\examples\Fox\content" />
   </ItemGroup>
 
 </Project>

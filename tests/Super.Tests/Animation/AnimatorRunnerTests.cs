@@ -107,7 +107,7 @@ public class AnimatorRunnerTests
     [Fact]
     public void An_animator_nothing_holds_is_forgotten_once_collected()
     {
-        var runner = new AnimatorRunner();
+        var runner = new AnimatorRunner(name => throw new InvalidOperationException($"No sound {name}."));
         var rig = TestRig.Rig();
         rig.Runner = runner;
         var kept = Start(rig);

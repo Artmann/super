@@ -244,9 +244,10 @@ public sealed class Animator
 
     /// <summary>
     /// Moves everything on by this much game time, scaled by <see cref="Speed"/>. The game
-    /// loop calls it once a tick for animators from content; tests call it by hand.
+    /// loop calls it once a tick for animators from content, with what plays its clips' sounds
+    /// play on; tests call it by hand.
     /// </summary>
-    internal void Advance(float seconds)
+    internal void Advance(float seconds, ClipSoundPlayer? play = null)
     {
         if (!(seconds >= 0f))
         {
@@ -267,7 +268,7 @@ public sealed class Animator
 
         AdvanceActions(seconds);
         Rebuild();
-        _events.Finish(this);
+        _events.Finish(this, play);
     }
 
     private void AdvanceActions(float seconds)

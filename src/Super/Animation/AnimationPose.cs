@@ -42,6 +42,12 @@ public sealed class AnimationPose
 
     public ReadOnlySpan<PoseLayer> Layers => _layers.AsSpan(0, LayerCount);
 
+    /// <summary>
+    /// Where the model was last drawn with this pose, in the world, so its clips' sounds play
+    /// where it stands. Null until it's drawn.
+    /// </summary>
+    internal Matrix4x4? Drawn { get; set; }
+
     /// <summary>Whether any joint is set by <see cref="SetJoint(int, in JointPose)"/>.</summary>
     public bool HasSetJoints { get; private set; }
 

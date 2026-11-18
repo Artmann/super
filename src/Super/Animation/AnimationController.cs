@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Runtime.CompilerServices;
 
 namespace Super;
@@ -117,6 +118,13 @@ public abstract class AnimationControllerBase
 
     private float _eventThreshold = 0.5f;
 
+    /// <summary>
+    /// Picks the sound a clip event plays, such as a footstep on grass or on stone, from where
+    /// it happens and the sound the clip names. Return null to play nothing. Without one, the
+    /// clip's sound plays as it is.
+    /// </summary>
+    public EventSoundPicker? PickSound { get; set; }
+
     internal Type StateType { get; }
 
     internal Type ActionType { get; }
@@ -145,6 +153,12 @@ public abstract class AnimationControllerBase
         _actions[action] = definition;
     }
 }
+
+/// <summary>
+/// Picks the sound for a clip event that names one, such as a footstep, given where in the
+/// world it happens. Return the clip's own sound to keep it, another to swap it, or null for none.
+/// </summary>
+public delegate SoundRef? EventSoundPicker(Vector3 at, AnimationEvent animationEvent, SoundRef sound);
 
 internal sealed record StateDefinition(Motion Motion, float Speed)
 {

@@ -25,7 +25,7 @@ internal static class ClipEventSettings
         {
             if (Problem(source, clips, skeleton) is { } problem)
             {
-                return [$"Event \"{source.Name}\" {problem}"];
+                return [$"Event \"{NameOf(source)}\" {problem}"];
             }
         }
 
@@ -42,10 +42,18 @@ internal static class ClipEventSettings
         return [];
     }
 
-    private static ClipEvent ToClipEvent(AnimationEventSource source) =>
-        source.Time is { } at
-            ? new ClipEvent(source.Name, at, source.Joint)
-            : new ClipEvent(source.Name, source.From!.Value, source.To!.Value, source.Joint);
+    private static ClipEvent ToClipEvent(AnimationEventSource source)
+    {
+        string name = NameOf(source);
+        var clipEvent = source.Time is { } at
+            ? new ClipEvent(name, at, source.Joint)
+            : new ClipEvent(name, source.From!.Value, source.To!.Value, source.Joint);
+        return clipEvent with { Sound = source.Sound is { } sound ? new ClipSound(sound, source.Volume, source.PitchVariation) : null };
+    }
+
+    /// <summary>The event's name, or its sound's when it has no name of its own.</summary>
+    private static string NameOf(AnimationEventSource source) =>
+        string.IsNullOrEmpty(source.Name) ? source.Sound ?? "" : source.Name;
 
     private static string? Problem(AnimationEventSource source, List<AnimationClip> clips, Skeleton skeleton)
     {
@@ -54,9 +62,9 @@ internal static class ClipEventSettings
             return $"names the clip \"{source.Clip}\", but the model has none called that. It has: {string.Join(", ", clips.Select(c => c.Name))}.";
         }
 
-        if (string.IsNullOrEmpty(source.Name))
+        if (NameOrSoundProblem(source) is { } nameOrSound)
         {
-            return "has no name.";
+            return nameOrSound;
         }
 
         bool window = source.From is not null || source.To is not null;
@@ -75,6 +83,38 @@ internal static class ClipEventSettings
         if (source.Joint is { } joint && skeleton.IndexOf(joint) < 0)
         {
             return $"names the joint \"{joint}\", but the model has none called that. It has: {string.Join(", ", skeleton.Names)}.";
+        }
+
+        return null;
+    }
+
+    private static string? NameOrSoundProblem(AnimationEventSource source)
+    {
+        if (string.IsNullOrEmpty(NameOf(source)))
+        {
+            return "has no name, and no sound to be named after.";
+        }
+
+        if (source.Sound is null)
+        {
+            return source.Volume != 1f || source.PitchVariation != 0f
+                ? "gives a volume or pitch variation, but no sound to play."
+                : null;
+        }
+
+        if (string.IsNullOrWhiteSpace(source.Sound))
+        {
+            return "has an empty sound. Name a sound, such as sounds/step.wav, or leave it out.";
+        }
+
+        if (!(source.Volume >= 0f))
+        {
+            return $"has a volume of {source.Volume}, but it can't be negative.";
+        }
+
+        if (!(source.PitchVariation >= 0f && source.PitchVariation < 1f))
+        {
+            return $"has a pitch variation of {source.PitchVariation}, but it must be from 0 up to, but not including, 1.";
         }
 
         return null;

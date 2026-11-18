@@ -6,7 +6,7 @@ shooting, looking), and an `Animator` blends between them. The GPU skins the mod
 its shadow bends with it.
 
 `examples/Fox` is a working character: a walk-to-run blend driven by speed, dust kicked up
-by each paw from the clips' events, an idle when it stops, and a head turn played over
+by each paw and a footstep it sounds from the clips' events, an idle when it stops, and a head turn played over
 either. Put the Khronos
 [Fox.glb](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox) in
 the shared assets folder as `assets/fox/fox.glb` (see [assets/README.md](../assets/README.md)),
@@ -110,6 +110,7 @@ var controller = new AnimationController<FoxState, FoxAction>(rig) { CrossFadeSe
 | `Action(action, clip, mask, fadeSeconds, speed)` | A one-shot clip played over the state. Without a mask it covers the whole body |
 | `CrossFadeSeconds` | How long a change of state blends, 0.2 by default |
 | `EventThreshold` | The share a fading state needs for its clip events to count, a half by default. See [Events](#events) |
+| `PickSound` | Picks the sound each clip event plays, such as by the ground underfoot, or null to play none. See [Sounds from events](#sounds-from-events) |
 | `Start(state)` | An `Animator` for one character, in this state |
 
 Share one controller between every character of a kind, and give each its own animator.
@@ -271,6 +272,61 @@ The Fox kicks up a puff of dust from each landing paw, from the `step` events in
 
 ![The Fox trotting, before and after step events: on the right, dust settles where each paw landed](media/fox-step-dust.webp)
 
+### Sounds from events
+
+An event can play a sound by itself, such as a footstep or the whoosh of a swing. Give it a
+`sound` by its content name, and the game loop plays it at the event's joint on the tick the
+clip passes it, with no code in `Update`:
+
+```json
+// fox/fox.glb.cook.json
+{ "clip": "Walk", "time": 0.6, "name": "step", "joint": "b_LeftFoot02_018",
+  "sound": "sounds/step.wav", "volume": 0.6, "pitchVariation": 0.08 }
+```
+
+`volume` is from 0, 1 by default, and `pitchVariation` moves each play's pitch up or down by up
+to that much, from 0 up to but not including 1, so 0.08 is ±8% and a run of steps doesn't
+sound like one sample repeated. An event with a sound needs no name; it's named after its
+sound. The cook fails on a negative volume, a pitch variation of 1 or more, an empty sound,
+or a volume or pitch variation with no sound. From code, pass a `ClipSound`:
+
+```csharp
+rig.Event(rig.Clip("Slash"), "whoosh", at: 0.2f, joint: "RightHand", sound: new ClipSound("sounds/whoosh.wav", volume: 0.8f));
+```
+
+The sound plays like an [`audio.Play`](audio.md#playing-sounds) with a place: on the Effects
+channel, full volume within 2 metres and silent from 50, following
+[`GameTime.Scale`](audio.md#time-scale-and-pausing), with its pitch from the audio's own random
+stream so a seed replays the same. It plays where the joint is in the world: at the joint
+times the transform the model was last drawn with, whether you draw it with `view.Model` or
+it's an [`Animated` entity](#with-the-ecs). An animator that hasn't been drawn plays nothing,
+since it isn't anywhere yet. An event without a joint plays at the model's origin.
+
+A window plays its sound as it begins, not as it ends. The same rules choose which events
+play as which are reported: a blended state plays its heavier clip's, a clip fading in or out
+plays while its share is at or above `EventThreshold`, and an action plays in full. The volume
+is scaled by the clip's `Weight`, so a step from a clip at 0.6 of a cross-fade plays at 0.6 of
+its volume.
+
+Every sound is named in content when the rig is read with `content.Rig`, or when
+`rig.Event` adds one, so a missing file stops the game at load with a `ContentException`
+naming it, not on the first step.
+
+To pick the sound by what the character stands on, set `PickSound` on the controller. It
+gets where the sound would play, the event and the sound from the clip, and returns the
+sound to play, or null to play nothing:
+
+```csharp
+controller.PickSound = (at, e, sound) => Ground.At(at) switch
+{
+    Surface.Stone => _stoneStep,
+    Surface.Water => _splash,
+    _ => sound,
+};
+```
+
+The Fox plays a soft paw thud with each step: [the recording, with sound](media/fox-footsteps.mp4).
+
 ## Root motion
 
 Mixamo's dodges, rolls and dives move the body across the ground. Played as they are,
@@ -408,4 +464,6 @@ a tint, or to draw a different model with the same rig.
   file already follows its hand, and a [mesh mask](views.md#showing-some-meshes) picks
   which of several to show.
 - Events don't sync clips. Blends keep their clips in step by phase, not by markers such
-  as a left foot down, and events don't play sounds by themselves.
+  as a left foot down.
+- An event's sound plays once, where the joint was on that tick. It doesn't follow the
+  joint while it plays, and it can't be held for as long as a window is open.
