@@ -483,12 +483,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Materials.GraphRunner.Execute",
-      "file": "src/Super.Materials/GraphRunner.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Materials.ShapeNode.Value",
       "file": "src/Super.Materials/Shapes.cs",
       "metric": 11
@@ -870,12 +864,6 @@
       "name": "Super.Materials.DistanceTransform.Squared",
       "file": "src/Super.Materials/Distance.cs",
       "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.GraphRunner.Execute",
-      "file": "src/Super.Materials/GraphRunner.cs",
-      "metric": 29
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2004,12 +1992,6 @@
       "name": "Super.Materials.DistanceTransform.Squared",
       "file": "src/Super.Materials/Distance.cs",
       "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.GraphRunner.Execute",
-      "file": "src/Super.Materials/GraphRunner.cs",
-      "metric": 86
     },
     {
       "kind": "long-method",

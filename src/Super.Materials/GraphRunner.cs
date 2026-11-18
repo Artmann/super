@@ -116,7 +116,42 @@ public static class GraphRunner
     /// <summary>Works out every root, sharing the nodes between them. The roots' buffers are never reused.</summary>
     static float[][] Execute(Node[] roots, int size, int maxThreads)
     {
-        // Post-order walk, so every node comes after its inputs, and each is listed once.
+        var order = PostOrder(roots);
+        var isRoot = new HashSet<Node>(roots, ReferenceEqualityComparer.Instance);
+        var remaining = ReadCounts(order);
+        var context = new EvaluationContext(size, maxThreads);
+        var buffers = new Dictionary<Node, float[]>(ReferenceEqualityComparer.Instance);
+        var pool = new Dictionary<int, Stack<float[]>>();
+
+        foreach (var node in order)
+        {
+            var output = Rent(pool, size * size * node.Channels);
+            var inputs = new float[node.Inputs.Length][];
+
+            for (var i = 0; i < inputs.Length; i++)
+            {
+                inputs[i] = buffers[node.Inputs[i]];
+            }
+
+            node.Evaluate(context, inputs, output);
+            buffers[node] = output;
+
+            // A node that reads one input twice counts it twice, so the buffer is returned once, at the last read.
+            foreach (var input in node.Inputs)
+            {
+                if (--remaining[input] == 0 && !isRoot.Contains(input))
+                {
+                    Return(pool, buffers, input);
+                }
+            }
+        }
+
+        return roots.Select(root => buffers[root]).ToArray();
+    }
+
+    /// <summary>Every node the roots reach, each once, after all of its inputs.</summary>
+    static List<Node> PostOrder(Node[] roots)
+    {
         var order = new List<Node>();
         var seen = new HashSet<Node>(ReferenceEqualityComparer.Instance);
         var stack = new Stack<(Node Node, int Next)>();
@@ -150,56 +185,38 @@ public static class GraphRunner
             }
         }
 
-        var isRoot = new HashSet<Node>(roots, ReferenceEqualityComparer.Instance);
+        return order;
+    }
 
-        // How many input slots still wait for each node's buffer.
-        var remaining = new Dictionary<Node, int>(ReferenceEqualityComparer.Instance);
+    /// <summary>How many input slots read each node's buffer.</summary>
+    static Dictionary<Node, int> ReadCounts(List<Node> order)
+    {
+        var counts = new Dictionary<Node, int>(ReferenceEqualityComparer.Instance);
 
         foreach (var node in order)
         {
             foreach (var input in node.Inputs)
             {
-                remaining[input] = remaining.GetValueOrDefault(input) + 1;
+                counts[input] = counts.GetValueOrDefault(input) + 1;
             }
         }
 
-        var context = new EvaluationContext(size, maxThreads);
-        var buffers = new Dictionary<Node, float[]>(ReferenceEqualityComparer.Instance);
-        var pool = new Dictionary<int, Stack<float[]>>();
+        return counts;
+    }
 
-        foreach (var node in order)
+    /// <summary>Puts a node's buffer back in the pool once nothing reads it any more.</summary>
+    static void Return(Dictionary<int, Stack<float[]>> pool, Dictionary<Node, float[]> buffers, Node node)
+    {
+        var buffer = buffers[node];
+
+        buffers.Remove(node);
+
+        if (!pool.TryGetValue(buffer.Length, out var free))
         {
-            var output = Rent(pool, size * size * node.Channels);
-            var inputs = new float[node.Inputs.Length][];
-
-            for (var i = 0; i < inputs.Length; i++)
-            {
-                inputs[i] = buffers[node.Inputs[i]];
-            }
-
-            node.Evaluate(context, inputs, output);
-            buffers[node] = output;
-
-            // A node that reads one input twice counts it twice, so the buffer is returned once, at the last read.
-            foreach (var input in node.Inputs)
-            {
-                if (--remaining[input] == 0 && !isRoot.Contains(input))
-                {
-                    var buffer = buffers[input];
-
-                    buffers.Remove(input);
-
-                    if (!pool.TryGetValue(buffer.Length, out var free))
-                    {
-                        free = pool[buffer.Length] = new Stack<float[]>();
-                    }
-
-                    free.Push(buffer);
-                }
-            }
+            free = pool[buffer.Length] = new Stack<float[]>();
         }
 
-        return roots.Select(root => buffers[root]).ToArray();
+        free.Push(buffer);
     }
 
     static float[] Rent(Dictionary<int, Stack<float[]>> pool, int length)
