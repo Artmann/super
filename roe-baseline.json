@@ -663,18 +663,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Physics.Physics.Sync/1",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Physics.Physics.Update",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Physics.Physics.Walking",
       "file": "src/Super.Physics/Physics.Characters.cs",
       "metric": 12
@@ -1211,18 +1199,6 @@
       "kind": "high-cognitive-complexity",
       "name": "Super.Mixer.Mix",
       "file": "src/Super/Audio/Mixer.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Physics.Physics.Sync/1",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 30
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Physics.Physics.Update",
-      "file": "src/Super.Physics/Physics.cs",
       "metric": 16
     },
     {
@@ -2595,18 +2571,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Physics.Physics.Sync/1",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 87
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Physics.Physics.Update",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 57
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Physics.Physics.Walking",
       "file": "src/Super.Physics/Physics.Characters.cs",
       "metric": 55
@@ -3255,18 +3219,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Super.Physics.Physics.Create",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 9
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Physics.Physics.Update",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Super.SceneRenderer.Bake",
       "file": "src/Super/Rendering/SceneRenderer.cs",
       "metric": 6
@@ -3779,7 +3731,7 @@
       "kind": "large-type",
       "name": "Super.Physics.Physics",
       "file": "src/Super.Physics/Physics.Bodies.cs",
-      "metric": 88
+      "metric": 93
     },
     {
       "kind": "large-type",
