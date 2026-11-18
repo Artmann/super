@@ -24,7 +24,7 @@ public class GlassTests
     private static List<TransparentStep> Plan(GlassItem[] glass, params Particle[] particles)
     {
         var steps = new List<TransparentStep>();
-        TransparentPlan.Build(glass, particles, Eye, Forward, ViewProjection, steps);
+        TransparentPlan.Build(glass, particles, new TransparentView(Eye, Forward, ViewProjection), steps);
         return steps;
     }
 

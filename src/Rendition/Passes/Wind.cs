@@ -30,22 +30,21 @@ internal static class Wind
 
     /// <summary>
     /// How far a vertex moves, in metres. <paramref name="position"/> is where it stands at rest, in the world,
-    /// <paramref name="heightAboveBase"/> how far it is above its part's lowest point, <paramref name="direction"/> the
-    /// way the wind blows, <paramref name="strength"/> how far it leans grass 1 m tall, <paramref name="gustiness"/>
-    /// from 0 for a steady wind to 1 for one that comes and goes, <paramref name="time"/> the frame's time in seconds,
-    /// and <paramref name="sway"/> the material's share of the lean.
+    /// <paramref name="heightAboveBase"/> how far it is above its part's lowest point, <paramref name="wind"/> the way
+    /// the wind blows, how far it leans grass 1 m tall and how gusty it is, <paramref name="time"/> the frame's time in
+    /// seconds, and <paramref name="sway"/> the material's share of the lean.
     /// </summary>
-    public static Vector3 Sway(
-        Vector3 position, float heightAboveBase, Vector3 direction, float strength, float gustiness, float time, float sway = 1f)
+    public static Vector3 Sway(Vector3 position, float heightAboveBase, in WindSettings wind, float time, float sway = 1f)
     {
-        if (strength <= 0f || sway <= 0f || heightAboveBase <= 0f || direction == Vector3.Zero)
+        float strength = wind.Strength;
+        if (strength <= 0f || sway <= 0f || heightAboveBase <= 0f || wind.Direction == Vector3.Zero)
         {
             return Vector3.Zero;
         }
 
-        var downwind = Vector3.Normalize(direction);
+        var downwind = Vector3.Normalize(wind.Direction);
         float h = MathF.Min(heightAboveBase, FullHeight);
-        float lean = strength * sway * h * h * GustFactor(position, downwind, gustiness, time);
+        float lean = strength * sway * h * h * GustFactor(position, downwind, wind.Gustiness, time);
         float flutter = Flutter * h * MathF.Min(strength / FlutterStrength, 1f)
             * MathF.Sin(2f * MathF.PI * FlutterHz * time + FlutterPhase(position));
         return downwind * lean + Vector3.Normalize(downwind + Vector3.UnitY) * flutter;

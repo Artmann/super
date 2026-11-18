@@ -38,17 +38,17 @@ internal static class Motion
     /// placed by <paramref name="model"/>, then swayed by <paramref name="wind"/>, packed as the frame block has it, as
     /// windSwayPlaced in wind.glsl does.
     /// </summary>
-    public static Vector3 Place(Vector3 posed, Matrix4x4 model, Vector4 wind, float windBase, float sway, float time)
+    public static Vector3 Place(Vector3 posed, Matrix4x4 model, Vector4 wind, PartSway part, float time)
     {
         var world = Vector3.Transform(posed, model);
         var blowing = new Vector3(wind.X, wind.Y, wind.Z);
-        if (sway <= 0f || blowing == Vector3.Zero)
+        if (part.Share <= 0f || blowing == Vector3.Zero)
         {
             return world;
         }
 
-        float foot = Vector3.Transform(new Vector3(posed.X, windBase, posed.Z), model).Y;
-        return world + Wind.Sway(world, world.Y - foot, blowing, blowing.Length(), wind.W, time, sway);
+        float foot = Vector3.Transform(new Vector3(posed.X, part.Base, posed.Z), model).Y;
+        return world + Wind.Sway(world, world.Y - foot, new WindSettings(blowing, blowing.Length(), wind.W), time, part.Share);
     }
 
     /// <summary>
@@ -57,15 +57,21 @@ internal static class Motion
     /// camera alone.
     /// </summary>
     public static Vector2 OfVertex(
-        Vector3 position, Matrix4x4 model, in PreviousInstance previous, in MotionFrame frame, float windBase, float sway)
+        Vector3 position, Matrix4x4 model, in PreviousInstance previous, in MotionFrame frame, PartSway part)
     {
-        var now = Place(position, model, frame.Wind, windBase, sway, frame.Time);
+        var now = Place(position, model, frame.Wind, part, frame.Time);
         var before = previous.HasHistory != 0
-            ? Place(position, previous.Model, frame.Wind, windBase, sway, frame.PreviousTime)
+            ? Place(position, previous.Model, frame.Wind, part, frame.PreviousTime)
             : now;
         return Pack(Ndc(now, frame.ViewProjection), Ndc(before, frame.PreviousViewProjection), frame.Scene);
     }
 }
+
+/// <summary>
+/// How a part of a draw sways in the wind: <paramref name="Base"/> is the height of its lowest point in its model's
+/// space, from which it sways, and <paramref name="Share"/> the material's share of the wind's lean, 0 for none.
+/// </summary>
+internal readonly record struct PartSway(float Base, float Share);
 
 /// <summary>
 /// What <see cref="Motion.OfVertex"/> needs of a frame: both frames' cameras without their anti-aliasing shift, the
@@ -153,27 +159,7 @@ internal sealed class MotionHistory
         (_nowBones, _lastBones) = (_lastBones, _nowBones);
         _lastBoneCount = _nowBoneCount;
         _now.Clear();
-
-        foreach (ref readonly var draw in draws)
-        {
-            if (draw.Key is not { } key)
-            {
-                continue;
-            }
-
-            if (_now.TryGetValue(key, out var seen))
-            {
-                if (!seen.Shared && !SamePlacing(seen, draw))
-                {
-                    seen.Shared = true;
-                    _now[key] = seen;
-                }
-
-                continue;
-            }
-
-            _now[key] = new Placing { Mesh = draw.Mesh, Transform = draw.Transform, Swim = draw.Swim, Bones = draw.Bones };
-        }
+        PlaceKeys(draws);
 
         if (_nowBones.Length < bones.Length)
         {
@@ -214,6 +200,31 @@ internal sealed class MotionHistory
             FirstBone = last.Bones.Count > 0 ? _boneOffset + last.Bones.First : -1,
             HasHistory = 1,
         };
+    }
+
+    // Notes where each keyed draw stands this frame, and marks a key whose draws stand in more than one place as shared.
+    private void PlaceKeys(ReadOnlySpan<DrawItem> draws)
+    {
+        foreach (ref readonly var draw in draws)
+        {
+            if (draw.Key is not { } key)
+            {
+                continue;
+            }
+
+            if (_now.TryGetValue(key, out var seen))
+            {
+                if (!seen.Shared && !SamePlacing(seen, draw))
+                {
+                    seen.Shared = true;
+                    _now[key] = seen;
+                }
+
+                continue;
+            }
+
+            _now[key] = new Placing { Mesh = draw.Mesh, Transform = draw.Transform, Swim = draw.Swim, Bones = draw.Bones };
+        }
     }
 
     private static bool SamePlacing(in Placing placing, in DrawItem draw) =>

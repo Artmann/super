@@ -302,7 +302,7 @@ internal sealed class ProbeScheduler
             {
                 for (int x = cells.First.X; x <= cells.Last.X; x++)
                 {
-                    MarkIfInRange(group, ProbeCascades.Wrap(new Int3(x, y, z), layout), center, range);
+                    MarkIfInRange(group, layout.Wrap(new Int3(x, y, z)), center, range);
                 }
             }
         }

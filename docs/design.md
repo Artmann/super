@@ -2206,7 +2206,7 @@ the probe than the mean distance it saw that way, the probe probably can't see i
 weight falls as the variance allows (cubed, to cut it harder). The point is first moved
 0.2 spacings off the surface, three-quarters along the normal and a quarter towards the
 viewer, so a probe's view of the surface itself doesn't shadow it. `ProbeGrid.Weight` does
-the same sums in C# for the tests. A probe that saw more than half back faces sits inside
+the same sums in C# for the tests, with what the probe saw towards the point in a `ProbeSight`. A probe that saw more than half back faces sits inside
 something; the fold writes -1 into its depth tile's first border texel and the lookup
 skips it.
 

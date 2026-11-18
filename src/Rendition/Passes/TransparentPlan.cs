@@ -73,13 +73,7 @@ internal static class TransparentPlan
     /// Writes the steps into <paramref name="steps"/>. <paramref name="glass"/> is sorted in
     /// place, furthest first. <paramref name="particles"/> must already be furthest first.
     /// </summary>
-    public static void Build(
-        Span<GlassItem> glass,
-        ReadOnlySpan<Particle> particles,
-        Vector3 eye,
-        Vector3 forward,
-        in Matrix4x4 viewProjection,
-        List<TransparentStep> steps)
+    public static void Build(Span<GlassItem> glass, ReadOnlySpan<Particle> particles, in TransparentView view, List<TransparentStep> steps)
     {
         steps.Clear();
         glass.Sort(FurthestFirst);
@@ -90,7 +84,7 @@ internal static class TransparentPlan
         foreach (var item in glass)
         {
             int first = drawnParticles;
-            while (drawnParticles < particles.Length && Depth(particles[drawnParticles], eye, forward) > item.Depth)
+            while (drawnParticles < particles.Length && Depth(particles[drawnParticles], view.Eye, view.Forward) > item.Depth)
             {
                 drawnParticles++;
             }
@@ -98,26 +92,10 @@ internal static class TransparentPlan
             if (drawnParticles > first)
             {
                 steps.Add(new TransparentStep(TransparentStepKind.Particles, first, drawnParticles - first));
-                sinceCopy = sinceCopy.Union(Bounds(particles[first..drawnParticles], viewProjection));
+                sinceCopy = sinceCopy.Union(Bounds(particles[first..drawnParticles], view.ViewProjection));
             }
 
-            bool refracts = false;
-            if (item.CanRefract)
-            {
-                if (copies == 0 || (sinceCopy.Overlaps(item.Rect) && copies < MaxCopies))
-                {
-                    steps.Add(new TransparentStep(TransparentStepKind.Copy, 0));
-                    copies++;
-                    sinceCopy = ScreenRect.Empty;
-                    refracts = true;
-                }
-                else
-                {
-                    // The copy is still right here, unless something drawn since covers this pane.
-                    refracts = !sinceCopy.Overlaps(item.Rect);
-                }
-            }
-
+            bool refracts = Refracts(item, steps, ref copies, ref sinceCopy);
             steps.Add(new TransparentStep(TransparentStepKind.Glass, item.Draw, Refracts: refracts));
             sinceCopy = sinceCopy.Union(item.Rect);
         }
@@ -126,6 +104,27 @@ internal static class TransparentPlan
         {
             steps.Add(new TransparentStep(TransparentStepKind.Particles, drawnParticles, particles.Length - drawnParticles));
         }
+    }
+
+    // Whether a pane bends what's behind it, adding a copy of the picture before it when one is due and the frame has
+    // copies left: the first pane that can bend, and any whose part of the screen something drawn since overlaps.
+    private static bool Refracts(in GlassItem item, List<TransparentStep> steps, ref int copies, ref ScreenRect sinceCopy)
+    {
+        if (!item.CanRefract)
+        {
+            return false;
+        }
+
+        if (copies == 0 || (sinceCopy.Overlaps(item.Rect) && copies < MaxCopies))
+        {
+            steps.Add(new TransparentStep(TransparentStepKind.Copy, 0));
+            copies++;
+            sinceCopy = ScreenRect.Empty;
+            return true;
+        }
+
+        // The copy is still right here, unless something drawn since covers this pane.
+        return !sinceCopy.Overlaps(item.Rect);
     }
 
     /// <summary>How far a point is from the eye along the view, as particles are sorted.</summary>

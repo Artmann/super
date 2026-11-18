@@ -9,6 +9,12 @@ namespace Rendition;
 /// </summary>
 public readonly record struct ProbeVolumeSettings(Vector3 Min, Vector3 Max, float Spacing);
 
+/// <summary>
+/// What a probe saw towards a point, for <see cref="ProbeGrid.Weight"/>: the mean and the mean of the squares of the
+/// distances it saw that way, and how far the point is from it.
+/// </summary>
+public readonly record struct ProbeSight(float Mean, float MeanSquares, float Distance);
+
 /// <summary>The layout of a <see cref="ProbeVolumeSettings"/>'s probes and how much each one counts at a point.</summary>
 public static class ProbeGrid
 {
@@ -50,8 +56,11 @@ public static class ProbeGrid
     /// that is probably behind a wall from it, and counts for little. Captured: a probe that has not
     /// been captured yet (its irradiance alpha is still 0) counts for nothing.
     /// </summary>
-    public static float Weight(Vector3 point, Vector3 normal, Vector3 probe, float meanDepth, float meanSquares, float distance, float spacing = 1f, bool captured = true)
+    public static float Weight(Vector3 point, Vector3 normal, Vector3 probe, in ProbeSight seen, float spacing = 1f, bool captured = true)
     {
+        float meanDepth = seen.Mean;
+        float meanSquares = seen.MeanSquares;
+        float distance = seen.Distance;
         var offset = Vector3.Abs(point - probe) / spacing;
         float trilinear = MathF.Max(1f - offset.X, 0f) * MathF.Max(1f - offset.Y, 0f) * MathF.Max(1f - offset.Z, 0f);
 

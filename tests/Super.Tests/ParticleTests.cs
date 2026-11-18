@@ -483,7 +483,7 @@ public class ParticleTests
         Particle[] particles = [At(-1f), At(-5f), At(-3f)];
         var sorted = new Particle[3];
 
-        ParticlePass.SortBackToFront(particles, Vector3.Zero, -Vector3.UnitZ, new float[3], new int[3], sorted);
+        ParticlePass.SortBackToFront(particles, (Vector3.Zero, -Vector3.UnitZ), new float[3], new int[3], sorted);
 
         Assert.Equal([-5f, -3f, -1f], sorted.Select(p => p.Position.Z));
     }

@@ -9,6 +9,49 @@ internal readonly record struct Int3(int X, int Y, int Z);
 internal readonly record struct ProbeCascadeLayout(float Spacing, int CountX, int CountY, int CountZ)
 {
     public int Total => CountX * CountY * CountZ;
+
+    /// <summary>
+    /// The slot a cell's probe lives in: each axis wraps as ((cell mod count) + count) mod count, and
+    /// the slot is x + countX * (y + countY * z), so x runs fastest.
+    /// </summary>
+    public int Wrap(Int3 cell)
+    {
+        int x = (cell.X % CountX + CountX) % CountX;
+        int y = (cell.Y % CountY + CountY) % CountY;
+        int z = (cell.Z % CountZ + CountZ) % CountZ;
+        return x + CountX * (y + CountY * z);
+    }
+
+    /// <summary>The box's minimum corner that puts the camera's cell at index count / 2 on each axis.</summary>
+    public Int3 SnappedOrigin(Vector3 camera) => new(
+        (int)MathF.Floor(camera.X / Spacing) - CountX / 2,
+        (int)MathF.Floor(camera.Y / Spacing) - CountY / 2,
+        (int)MathF.Floor(camera.Z / Spacing) - CountZ / 2);
+
+    /// <summary>The world position of the probe in a slot of the box at <paramref name="origin"/>.</summary>
+    public Vector3 Position(Int3 origin, int slot)
+    {
+        int sx = slot % CountX;
+        int sy = slot / CountX % CountY;
+        int sz = slot / (CountX * CountY);
+        return new Vector3(
+            CellInBox(origin.X, sx, CountX),
+            CellInBox(origin.Y, sy, CountY),
+            CellInBox(origin.Z, sz, CountZ)) * Spacing;
+    }
+
+    /// <summary>Whether a box at <paramref name="origin"/> holds the point one cell inside its edge; see <see cref="ProbeCascades.Finest"/>.</summary>
+    public bool HoldsInside(Int3 origin, Vector3 point) =>
+        point.X >= (origin.X + 1) * Spacing && point.X < (origin.X + CountX - 1) * Spacing &&
+        point.Y >= (origin.Y + 1) * Spacing && point.Y < (origin.Y + CountY - 1) * Spacing &&
+        point.Z >= (origin.Z + 1) * Spacing && point.Z < (origin.Z + CountZ - 1) * Spacing;
+
+    // The one cell in [origin, origin + count) whose index wraps to the slot along this axis.
+    private static int CellInBox(int origin, int slot, int count)
+    {
+        int offset = ((slot - origin) % count + count) % count;
+        return origin + offset;
+    }
 }
 
 /// <summary>
@@ -66,7 +109,7 @@ internal readonly record struct ScrollResult
                     var cell = new Int3(origin.X + i, origin.Y + j, origin.Z + k);
                     if (IsNew(cascade, cell))
                     {
-                        slots.Add(ProbeCascades.Wrap(cell, layout));
+                        slots.Add(layout.Wrap(cell));
                     }
                 }
             }
@@ -86,6 +129,28 @@ internal readonly record struct ScrollResult
     internal readonly record struct Slab(int Start, int Count)
     {
         public bool Contains(int cell) => cell >= Start && cell < Start + Count;
+
+        /// <summary>
+        /// The cells along one axis that are in the new box and weren't in the old one, and whether the box moved
+        /// its whole width or more.
+        /// </summary>
+        public static (Slab slab, bool teleported) Entered(int oldOrigin, int newOrigin, int count)
+        {
+            int delta = newOrigin - oldOrigin;
+            if (delta == 0)
+            {
+                return (new Slab(newOrigin, 0), false);
+            }
+
+            if (Math.Abs(delta) >= count)
+            {
+                return (new Slab(newOrigin, count), true);
+            }
+
+            return delta > 0
+                ? (new Slab(oldOrigin + count, delta), false)
+                : (new Slab(newOrigin, -delta), false);
+        }
     }
 }
 
@@ -121,7 +186,7 @@ internal sealed class ProbeCascades
         _layouts = Layouts(quality);
         for (int c = 0; c < Count; c++)
         {
-            _origins[c] = SnappedOrigin(_layouts[c], Vector3.Zero);
+            _origins[c] = _layouts[c].SnappedOrigin(Vector3.Zero);
             _newSlots[c] = [];
         }
     }
@@ -175,11 +240,11 @@ internal sealed class ProbeCascades
         {
             var layout = _layouts[c];
             var old = _origins[c];
-            var next = SnappedOrigin(layout, camera);
+            var next = layout.SnappedOrigin(camera);
 
-            var (x, tx) = Entered(old.X, next.X, layout.CountX);
-            var (y, ty) = Entered(old.Y, next.Y, layout.CountY);
-            var (z, tz) = Entered(old.Z, next.Z, layout.CountZ);
+            var (x, tx) = ScrollResult.Slab.Entered(old.X, next.X, layout.CountX);
+            var (y, ty) = ScrollResult.Slab.Entered(old.Y, next.Y, layout.CountY);
+            var (z, tz) = ScrollResult.Slab.Entered(old.Z, next.Z, layout.CountZ);
             slabs[c * 3] = x;
             slabs[c * 3 + 1] = y;
             slabs[c * 3 + 2] = z;
@@ -203,22 +268,10 @@ internal sealed class ProbeCascades
     /// The slot a cell's probe lives in: each axis wraps as ((cell mod count) + count) mod count, and
     /// the slot is x + countX * (y + countY * z), so x runs fastest.
     /// </summary>
-    public int Slot(int cascade, Int3 cell) => Wrap(cell, _layouts[cascade]);
+    public int Slot(int cascade, Int3 cell) => _layouts[cascade].Wrap(cell);
 
     /// <summary>The world position of the probe now in a slot: the box's cell that wraps to it, times the spacing.</summary>
-    public Vector3 Position(int cascade, int slot)
-    {
-        var layout = _layouts[cascade];
-        var origin = _origins[cascade];
-        int sx = slot % layout.CountX;
-        int sy = slot / layout.CountX % layout.CountY;
-        int sz = slot / (layout.CountX * layout.CountY);
-
-        return new Vector3(
-            CellInBox(origin.X, sx, layout.CountX),
-            CellInBox(origin.Y, sy, layout.CountY),
-            CellInBox(origin.Z, sz, layout.CountZ)) * layout.Spacing;
-    }
+    public Vector3 Position(int cascade, int slot) => _layouts[cascade].Position(_origins[cascade], slot);
 
     /// <summary>
     /// The finest cascade that holds the point one cell inside its edge, or -1. A cascade holds a
@@ -230,13 +283,7 @@ internal sealed class ProbeCascades
     {
         for (int c = 0; c < Count; c++)
         {
-            var layout = _layouts[c];
-            var origin = _origins[c];
-            float s = layout.Spacing;
-
-            if (point.X >= (origin.X + 1) * s && point.X < (origin.X + layout.CountX - 1) * s &&
-                point.Y >= (origin.Y + 1) * s && point.Y < (origin.Y + layout.CountY - 1) * s &&
-                point.Z >= (origin.Z + 1) * s && point.Z < (origin.Z + layout.CountZ - 1) * s)
+            if (_layouts[c].HoldsInside(_origins[c], point))
             {
                 return c;
             }
@@ -249,54 +296,12 @@ internal sealed class ProbeCascades
     {
         for (int c = 0; c < Count; c++)
         {
-            if (SnappedOrigin(_layouts[c], camera) != _origins[c])
+            if (_layouts[c].SnappedOrigin(camera) != _origins[c])
             {
                 return false;
             }
         }
 
         return true;
-    }
-
-    internal static int Wrap(Int3 cell, ProbeCascadeLayout layout)
-    {
-        int x = (cell.X % layout.CountX + layout.CountX) % layout.CountX;
-        int y = (cell.Y % layout.CountY + layout.CountY) % layout.CountY;
-        int z = (cell.Z % layout.CountZ + layout.CountZ) % layout.CountZ;
-        return x + layout.CountX * (y + layout.CountY * z);
-    }
-
-    private static Int3 SnappedOrigin(ProbeCascadeLayout layout, Vector3 camera)
-    {
-        return new Int3(
-            (int)MathF.Floor(camera.X / layout.Spacing) - layout.CountX / 2,
-            (int)MathF.Floor(camera.Y / layout.Spacing) - layout.CountY / 2,
-            (int)MathF.Floor(camera.Z / layout.Spacing) - layout.CountZ / 2);
-    }
-
-    // The cells along one axis that are in the new box and weren't in the old one.
-    private static (ScrollResult.Slab slab, bool teleported) Entered(int oldOrigin, int newOrigin, int count)
-    {
-        int delta = newOrigin - oldOrigin;
-        if (delta == 0)
-        {
-            return (new ScrollResult.Slab(newOrigin, 0), false);
-        }
-
-        if (Math.Abs(delta) >= count)
-        {
-            return (new ScrollResult.Slab(newOrigin, count), true);
-        }
-
-        return delta > 0
-            ? (new ScrollResult.Slab(oldOrigin + count, delta), false)
-            : (new ScrollResult.Slab(newOrigin, -delta), false);
-    }
-
-    // The one cell in [origin, origin + count) whose index wraps to the slot along this axis.
-    private static int CellInBox(int origin, int slot, int count)
-    {
-        int offset = ((slot - origin) % count + count) % count;
-        return origin + offset;
     }
 }

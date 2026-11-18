@@ -109,7 +109,7 @@ public class ProbeGridTests
     {
         float weight = ProbeGrid.Weight(
             point: Vector3.Zero, normal: Vector3.UnitY, probe: new Vector3(0f, -0.5f, 0f),
-            meanDepth: 10f, meanSquares: 100f, distance: 0.5f);
+            new ProbeSight(Mean: 10f, MeanSquares: 100f, Distance: 0.5f));
 
         Assert.Equal(0f, weight);
     }
@@ -119,7 +119,7 @@ public class ProbeGridTests
     {
         float weight = ProbeGrid.Weight(
             point: Vector3.Zero, normal: Vector3.UnitY, probe: new Vector3(0f, 0.05f, 0f),
-            meanDepth: 10f, meanSquares: 100f, distance: 0.05f);
+            new ProbeSight(Mean: 10f, MeanSquares: 100f, Distance: 0.05f));
 
         // Trilinear 0.95 at 1 metre spacing, facing 1, nothing in the way 1.
         Assert.Equal(0.95f, weight, 3);
@@ -131,7 +131,7 @@ public class ProbeGridTests
         // The same probe as above, which would get 0.95 once captured.
         float weight = ProbeGrid.Weight(
             point: Vector3.Zero, normal: Vector3.UnitY, probe: new Vector3(0f, 0.05f, 0f),
-            meanDepth: 10f, meanSquares: 100f, distance: 0.05f, captured: false);
+            new ProbeSight(Mean: 10f, MeanSquares: 100f, Distance: 0.05f), captured: false);
 
         Assert.Equal(0f, weight);
     }
@@ -141,7 +141,7 @@ public class ProbeGridTests
     {
         float weight = ProbeGrid.Weight(
             point: Vector3.Zero, normal: Vector3.Normalize(Vector3.One), probe: new Vector3(0.5f),
-            meanDepth: 10f, meanSquares: 100f, distance: 0.866f);
+            new ProbeSight(Mean: 10f, MeanSquares: 100f, Distance: 0.866f));
 
         Assert.Equal(0.125f, weight, 3);
     }
@@ -153,8 +153,8 @@ public class ProbeGridTests
         float meanDepth = 0.5f;
         float meanSquares = meanDepth * meanDepth + 0.0004f;
 
-        float throughWall = ProbeGrid.Weight(Vector3.Zero, Vector3.UnitY, probe, meanDepth, meanSquares, distance: 2f);
-        float nearer = ProbeGrid.Weight(Vector3.Zero, Vector3.UnitY, probe, meanDepth, meanSquares, distance: 0.4f);
+        float throughWall = ProbeGrid.Weight(Vector3.Zero, Vector3.UnitY, probe, new ProbeSight(meanDepth, meanSquares, Distance: 2f));
+        float nearer = ProbeGrid.Weight(Vector3.Zero, Vector3.UnitY, probe, new ProbeSight(meanDepth, meanSquares, Distance: 0.4f));
 
         Assert.True(throughWall < 0.1f, $"Through the wall the weight was {throughWall}.");
         Assert.True(nearer > 0.9f, $"In front of the wall the weight was {nearer}.");
