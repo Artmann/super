@@ -15,7 +15,7 @@ dotnet run -c Release --project examples/Archer -- --record out/clearing.mp4 --s
 
 | File | What's in it |
 | --- | --- |
-| `Film.cs` | Every shot and every moment, in seconds from the start |
+| `Film.cs` | Every shot and every moment, in seconds from the start, played on an `IArcherStage`, which `ArcherGame` is |
 | `ArcherGame.cs` | Loading, the sky and light, the grade, and drawing |
 | `Erika.cs` | Where she stands, root motion, leaps and drops |
 | `Targets.cs` | The dummies and the arrows |

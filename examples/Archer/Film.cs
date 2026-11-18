@@ -3,6 +3,21 @@ using Super;
 
 namespace Archer;
 
+/// <summary>What <see cref="Film"/> plays on: Erika, the dummies and the arrows, and a way to shoot.</summary>
+public interface IArcherStage
+{
+    /// <summary>Erika as she is now. The film looks her up each time, as she is made again when it restarts.</summary>
+    Erika Erika { get; }
+
+    Dummy[] Dummies { get; }
+
+    /// <summary>The arrow shot last, which the camera can ride along with.</summary>
+    Arrow? LastArrow { get; }
+
+    /// <summary>Lets an arrow go from her bow at a dummy.</summary>
+    void Shoot(Dummy target);
+}
+
 /// <summary>
 /// The storyboard of "The Clearing", as a cutscene: every shot and every moment, in
 /// seconds from the start. Moments count real seconds, so they keep their place while
@@ -26,15 +41,29 @@ public static class Film
     /// <summary>Where the camera rests once the film is over, around wherever Erika ended up.</summary>
     public static Camera End(Vector3 erika) => At(erika, EndSpot, EndLook, EndFieldOfView);
 
-    public static Cutscene Make(ArcherGame game)
+    /// <summary>The film, played on <paramref name="stage"/>.</summary>
+    public static Cutscene Make(IArcherStage stage)
     {
-        var erika = () => game.Erika;
-        var dummies = game.Dummies;
-        var rockTop = Clearing.Rock + new Vector3(0f, RockHeight, 0f);
+        var cast = new Cast(() => stage.Erika, stage.Dummies, Clearing.Rock + new Vector3(0f, RockHeight, 0f), stage);
+        var film = new Cutscene();
+        FirstDummy(film, cast);
+        ToTheBoulder(film, cast);
+        OnTheBoulder(film, cast);
+        DiveAndDouble(film, cast);
+        Finale(film, cast);
+        return film;
+    }
 
-        return new Cutscene()
+    /// <summary>Who the film needs: Erika as she is now, the dummies, the top of the boulder, and the stage they are on.</summary>
+    private sealed record Cast(Func<Erika> Erika, Dummy[] Dummies, Vector3 RockTop, IArcherStage Stage);
+
+    private static void FirstDummy(Cutscene film, Cast cast)
+    {
+        var erika = cast.Erika;
+        var dummies = cast.Dummies;
+        film
             // 1. Golden hour. The camera swoops down and round to her face as she looks about.
-            .Then(Shot.Custom(2f, time => Swing(erika().Position, new Spot(1.1f, 10f, 2.6f), new Spot(-0.7f, 2.4f, 1.5f), time.Amount, Chest, 0.75f, 0.6f), Easing.InOut))
+            .Then(Shot.Custom(2f, time => Swing(erika().Position, new Framing(new Spot(1.1f, 10f, 2.6f), 0.75f), new Framing(new Spot(-0.7f, 2.4f, 1.5f), 0.6f), time.Amount, Chest), Easing.InOut))
             .At(0.1f, () => erika().Animator.Moves.Play(Move.Look))
 
             // 2. Over her shoulder, pushing in, as she draws on the first dummy.
@@ -44,10 +73,17 @@ public static class Film
             .At(2.1f, () => Draw(erika()))
 
             // 3. She lets go, the world slows, and the camera rides the arrow in.
-            .At(3.35f, () => Shoot(game, dummies[0]))
+            .At(3.35f, () => Shoot(cast.Stage, dummies[0]))
             .Slow(3.2f, 4.75f, 0.3f, ramp: 0.25f)
-            .Then(Shot.Custom(1.5f, _ => FollowArrow(game)))
+            .Then(Shot.Custom(1.5f, _ => FollowArrow(cast.Stage)));
+    }
 
+    private static void ToTheBoulder(Cutscene film, Cast cast)
+    {
+        var erika = cast.Erika;
+        var dummies = cast.Dummies;
+        var rockTop = cast.RockTop;
+        film
             // 4. A dodge to her right, then a sprint for the boulder, tracked from the side.
             .At(5f, () =>
             {
@@ -74,18 +110,31 @@ public static class Film
                     her.Face(dummies[1].Position);
                 });
             })
-            .Then(Shot.Hold(1f, new Camera(Clearing.Rock + new Vector3(2.6f, 0.25f, 2.8f), Clearing.Rock + new Vector3(0.3f, 1.7f, -0.6f), 0.85f)))
+            .Then(Shot.Hold(1f, new Camera(Clearing.Rock + new Vector3(2.6f, 0.25f, 2.8f), Clearing.Rock + new Vector3(0.3f, 1.7f, -0.6f), 0.85f)));
+    }
 
+    private static void OnTheBoulder(Cutscene film, Cast cast)
+    {
+        var erika = cast.Erika;
+        var dummies = cast.Dummies;
+        var rockTop = cast.RockTop;
+        film
             // 6. On the rock, in slow motion, the camera circles her as she shoots the second.
             .At(7.7f, () => Draw(erika()))
             .Slow(8.4f, 10.2f, 0.25f, ramp: 0.3f)
-            .At(8.9f, () => Shoot(game, dummies[1]))
+            .At(8.9f, () => Shoot(cast.Stage, dummies[1]))
             .Then(Shot.Orbit(2.3f, () => erika().Position, new OrbitPath(Radius: 3.4f, Height: 0.3f,
                 FromAngle: Toward(rockTop, dummies[1].Position) + 2.5f,
                 ToAngle: Toward(rockTop, dummies[1].Position) + 0.9f),
                 look: new Vector3(0f, 1.4f, 0f), fieldOfView: 0.6f))
-            .Then(Shot.Hold(0.7f, Beside(dummies[1], rockTop, 2.2f, 1.3f)))
+            .Then(Shot.Hold(0.7f, Beside(dummies[1], rockTop, 2.2f, 1.3f)));
+    }
 
+    private static void DiveAndDouble(Cutscene film, Cast cast)
+    {
+        var erika = cast.Erika;
+        var dummies = cast.Dummies;
+        film
             // 7. A dive off the rock into a roll, seen wide.
             .At(10.7f, () =>
             {
@@ -105,13 +154,19 @@ public static class Film
             .Then(Shot.Track(2.2f, () => erika().Position, new Vector3(4.5f, 2.4f, -1.5f), new Vector3(4.2f, 1.4f, 1.8f), new Vector3(0f, 0.8f, 0f), 0.7f))
 
             // 8. Two quick shots at the third dummy, cut fast.
-            .At(13.1f, () => Shoot(game, dummies[2]))
-            .At(13.8f, () => Shoot(game, dummies[2]))
+            .At(13.1f, () => Shoot(cast.Stage, dummies[2]))
+            .At(13.8f, () => Shoot(cast.Stage, dummies[2]))
             .Then(Shot.Custom(0.3f, _ => OverShoulder(erika(), dummies[2])))
             .Then(Shot.Custom(0.45f, _ => Beside(dummies[2], erika().Position, 1.8f, 1.25f)))
             .Then(Shot.Custom(0.25f, _ => InFront(erika(), dummies[2])))
-            .Then(Shot.Custom(0.6f, _ => Beside(dummies[2], erika().Position, -1.6f, 1f)))
+            .Then(Shot.Custom(0.6f, _ => Beside(dummies[2], erika().Position, -1.6f, 1f)));
+    }
 
+    private static void Finale(Cutscene film, Cast cast)
+    {
+        var erika = cast.Erika;
+        var dummies = cast.Dummies;
+        film
             // 9. Pleased with herself. The camera pulls back and up over the clearing.
             .At(14.7f, () =>
             {
@@ -127,7 +182,7 @@ public static class Film
                 float finish = start.Angle + MathF.IEEERemainder(EndSpot.Angle - start.Angle, MathF.Tau);
 
                 var look = Vector3.Lerp(Chest, EndLook, time.Amount);
-                return Swing(at, start, EndSpot with { Angle = finish }, time.Amount, look, 0.55f, EndFieldOfView);
+                return Swing(at, new Framing(start, 0.55f), new Framing(EndSpot with { Angle = finish }, EndFieldOfView), time.Amount, look);
             }, Easing.InOut));
     }
 
@@ -138,14 +193,17 @@ public static class Film
         erika.Animator.Set(Pose.Aim);
     }
 
-    private static void Shoot(ArcherGame game, Dummy target)
+    private static void Shoot(IArcherStage stage, Dummy target)
     {
-        game.Erika.Animator.Moves.Play(Move.Recoil);
-        game.Shoot(target);
+        stage.Erika.Animator.Moves.Play(Move.Recoil);
+        stage.Shoot(target);
     }
 
     // A place round a point: the angle from +z towards +x, how far out, and how high.
     private readonly record struct Spot(float Angle, float Radius, float Height);
+
+    // A place round a point, and how wide the camera there sees.
+    private readonly record struct Framing(Spot Spot, float FieldOfView);
 
     private static Camera At(Vector3 center, Spot spot, Vector3 look, float fieldOfView)
     {
@@ -155,24 +213,24 @@ public static class Film
 
     // Arcs round a point from one spot to another, closing in or pulling away as it goes,
     // so the camera never cuts straight through whoever stands there.
-    private static Camera Swing(Vector3 center, Spot from, Spot to, float amount, Vector3 look, float fromFieldOfView, float toFieldOfView)
+    private static Camera Swing(Vector3 center, Framing from, Framing to, float amount, Vector3 look)
     {
         var spot = new Spot(
-            float.Lerp(from.Angle, to.Angle, amount),
-            float.Lerp(from.Radius, to.Radius, amount),
-            float.Lerp(from.Height, to.Height, amount));
-        return At(center, spot, look, float.Lerp(fromFieldOfView, toFieldOfView, amount));
+            float.Lerp(from.Spot.Angle, to.Spot.Angle, amount),
+            float.Lerp(from.Spot.Radius, to.Spot.Radius, amount),
+            float.Lerp(from.Spot.Height, to.Spot.Height, amount));
+        return At(center, spot, look, float.Lerp(from.FieldOfView, to.FieldOfView, amount));
     }
 
     // The way from one point to another, as an angle round from +z towards +x.
     private static float Toward(Vector3 from, Vector3 to) => MathF.Atan2(to.X - from.X, to.Z - from.Z);
 
     // Just behind the arrow and a little above it, looking where it's going.
-    private static Camera FollowArrow(ArcherGame game)
+    private static Camera FollowArrow(IArcherStage stage)
     {
-        if (game.LastArrow is not { } arrow)
+        if (stage.LastArrow is not { } arrow)
         {
-            return new Camera(new Vector3(-0.55f, 1.6f, -0.95f), game.Dummies[0].Target, 0.42f);
+            return new Camera(new Vector3(-0.55f, 1.6f, -0.95f), stage.Dummies[0].Target, 0.42f);
         }
 
         var side = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, arrow.Direction));
