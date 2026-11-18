@@ -82,7 +82,7 @@ public sealed class ModelData
     // 10: material shaders. 11: vertices gained Uv2, and materials masks. 12: masks lost their height.
     // 13: materials gained Translucency and Wind. 14: skeletons gained the bounds of the vertices each joint moves.
     // 15: clips carry their events.
-    private const int Version = 15;
+    private const int Version = 16;
 
     // Marks the optional sections after the textures, which a model without them leaves out, so its bytes, and the bake
     // ids made from them, stay as they were before the section existed. The end of the stream ends the file.

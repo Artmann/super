@@ -82,6 +82,18 @@ public sealed class AnimationEventSource
 
     /// <summary>A joint whose place in the model the game is told when the event happens, such as the foot that lands.</summary>
     public string? Joint { get; set; }
+
+    /// <summary>
+    /// A sound to play at the joint when the event happens, or as a window begins, by its content name, such as
+    /// <c>sounds/step.wav</c>. An event with a sound needn't have a name; it's named after the sound.
+    /// </summary>
+    public string? Sound { get; set; }
+
+    /// <summary>How loud the sound plays, from 0. Without it, 1.</summary>
+    public float Volume { get; set; } = 1f;
+
+    /// <summary>How far each play's pitch may move up or down, from 0 up to 1. 0.08 is ±8%.</summary>
+    public float PitchVariation { get; set; }
 }
 
 /// <summary>A file next to the model to take clips from.</summary>

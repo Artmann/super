@@ -13,6 +13,8 @@
   <ItemGroup>
     <!-- The shared folder holds every example's models; this one only uses the fox. -->
     <SuperContent Include="..\..\assets" Only="fox/**" />
+    <!-- The paw sound the fox's steps play. -->
+    <SuperContent Include="content" />
   </ItemGroup>
 
 </Project>

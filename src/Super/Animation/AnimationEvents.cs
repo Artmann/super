@@ -25,21 +25,40 @@ public enum AnimationEventKind
 /// </summary>
 public readonly record struct AnimationEvent(string Name, AnimationEventKind Kind, ClipRef Clip, float Weight, Matrix4x4? Joint);
 
+/// <summary>
+/// Plays a clip event's sound in the world. The game loop passes one that plays it on its
+/// <see cref="Audio"/>, which holds content, so animation doesn't hold the audio itself.
+/// </summary>
+internal delegate void ClipSoundPlayer(SoundRef sound, Vector3 at, float volume, float pitchVariation);
+
 /// <summary>A clip's events, and where each one's moments fall, sorted so a sweep meets them in order.</summary>
 internal sealed class ClipEventTable
 {
     private readonly List<ClipEvent> _events = [];
     private readonly List<int> _joints = [];
+    private readonly List<SoundRef?> _sounds = [];
 
     public IReadOnlyList<ClipEvent> Events => _events;
+
+    /// <summary>The sound an event plays, once content has named it, or null.</summary>
+    public SoundRef? SoundOf(int clipEvent) => _sounds[clipEvent];
+
+    /// <summary>Names every event's sound in content, which throws for one it hasn't got.</summary>
+    public void NameSounds(Func<string, SoundRef> sounds)
+    {
+        for (int i = 0; i < _events.Count; i++)
+        {
+            _sounds[i] = _events[i].Sound is { } sound ? sounds(sound.Path) : null;
+        }
+    }
 
     /// <summary>Every moment, window start and window end, by time. At the same time a window ends before a moment, and a moment comes before a window begins.</summary>
     public EventMark[] Marks { get; private set; } = [];
 
     public int JointOf(int clipEvent) => _joints[clipEvent];
 
-    /// <summary>Adds an event, finding its joint in the skeleton, which must have it.</summary>
-    public void Add(ClipEvent clipEvent, Skeleton skeleton)
+    /// <summary>Adds an event, finding its joint in the skeleton, which must have it, and its sound in content, when there's content.</summary>
+    public void Add(ClipEvent clipEvent, Skeleton skeleton, Func<string, SoundRef>? sounds)
     {
         int joint = clipEvent.Joint is { } name ? skeleton.IndexOf(name) : -1;
         if (clipEvent.Joint is not null && joint < 0)
@@ -48,8 +67,10 @@ internal sealed class ClipEventTable
                 $"Event {clipEvent.Name} names the joint {clipEvent.Joint}, but the rig has no joint called that. It has: {string.Join(", ", skeleton.Names)}.");
         }
 
+        SoundRef? sound = clipEvent.Sound is { } named && sounds is not null ? sounds(named.Path) : null;
         _events.Add(clipEvent);
         _joints.Add(joint);
+        _sounds.Add(sound);
 
         var marks = new List<EventMark>(Marks);
         int index = _events.Count - 1;
@@ -162,10 +183,14 @@ internal sealed class EventTracker(AnimationControllerBase controller)
     /// Closes windows whose clip stopped counting and opens those it came to count inside,
     /// then puts the tick's events in the order they happened.
     /// </summary>
-    public void Finish(Animator animator)
+    public void Finish(Animator animator, ClipSoundPlayer? play)
     {
         Reconcile();
         _tick.Publish(_rig, animator);
+        if (play is not null && animator.Pose.Drawn is { } placement)
+        {
+            _tick.PlaySounds(_rig, play, placement, controller.PickSound);
+        }
     }
 
     /// <summary>
@@ -317,6 +342,7 @@ internal sealed class TickEvents
 {
     private readonly List<Pending> _pending = [];
     private AnimationEvent[] _events = [];
+    private OpenWindow[] _windows = [];
     private int _count;
 
     public ReadOnlySpan<AnimationEvent> Events => _events.AsSpan(0, _count);
@@ -335,6 +361,7 @@ internal sealed class TickEvents
         if (_events.Length < pending.Length)
         {
             Array.Resize(ref _events, Math.Max(pending.Length, _events.Length * 2));
+            Array.Resize(ref _windows, _events.Length);
         }
 
         for (int i = 0; i < pending.Length; i++)
@@ -345,9 +372,42 @@ internal sealed class TickEvents
             _events[i] = new AnimationEvent(
                 table.Events[window.Event].Name, kind, new ClipRef(window.Clip), weight,
                 joint >= 0 ? animator.JointInModel(joint) : null);
+            _windows[i] = window;
         }
 
         _count = pending.Length;
+    }
+
+    /// <summary>
+    /// Plays the sounds of the tick's moments and opening windows, at the event's joint, or the
+    /// model's origin without one, where the model was last drawn. Each is as loud as its clip
+    /// counted, and the picker, if there is one, may swap it or leave it out.
+    /// </summary>
+    public void PlaySounds(Rig rig, ClipSoundPlayer play, Matrix4x4 placement, EventSoundPicker? pick)
+    {
+        for (int i = 0; i < _count; i++)
+        {
+            var animationEvent = _events[i];
+            var table = rig.EventTable(_windows[i].Clip);
+            if (animationEvent.Kind == AnimationEventKind.End || table.SoundOf(_windows[i].Event) is not { } sound)
+            {
+                continue;
+            }
+
+            var at = ((animationEvent.Joint ?? Matrix4x4.Identity) * placement).Translation;
+            if (pick is not null)
+            {
+                if (pick(at, animationEvent, sound) is not { } picked)
+                {
+                    continue;
+                }
+
+                sound = picked;
+            }
+
+            var settings = table.Events[_windows[i].Event].Sound!;
+            play(sound, at, settings.Volume * animationEvent.Weight, settings.PitchVariation);
+        }
     }
 
     /// <summary>Sorts the tick's events by when they happened, then by sweep, then as they came. An insertion sort, as there are few.</summary>

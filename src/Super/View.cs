@@ -486,6 +486,8 @@ public sealed class View
             throw new ArgumentException($"The mesh mask was made for model {mask.Model}, not model {model.Index}. Make it with Content.Meshes for this model.", nameof(meshes));
         }
 
+        // So the animator's clip sounds play where the model stands.
+        pose?.Drawn = transform;
         _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale, null, meshes, isStatic, fade));
     }
 

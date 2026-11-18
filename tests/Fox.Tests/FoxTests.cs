@@ -22,6 +22,21 @@ public sealed class FoxTests
     }
 
     [Fact]
+    public void Every_paw_that_kicks_up_dust_sounds_a_step()
+    {
+        using var run = HeadlessGame.Create<FoxGame>(1);
+
+        int sounded = 0;
+        for (int tick = 0; tick < 90; tick++)
+        {
+            run.Ticks(1);
+            sounded += run.Sounds.Count(sound => sound is { Clip: "sounds/step.wav", Channel: Channel.Effects, Seconds: 0 });
+        }
+
+        Assert.Equal(run.Game.Steps, sounded);
+    }
+
+    [Fact]
     public void The_dust_is_on_the_ground_under_the_fox()
     {
         using var run = HeadlessGame.Create<FoxGame>(1);

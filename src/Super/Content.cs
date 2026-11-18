@@ -81,6 +81,7 @@ public sealed class Content
     {
         _files = files ?? CookedFolder.BesideProgram();
         _reader = new ContentReader(this, _files);
+        Animators = new AnimatorRunner(Sound);
     }
 
     internal IReadOnlyList<object> Items => _items;
@@ -291,7 +292,7 @@ public sealed class Content
     }
 
     /// <summary>The animators the game loop moves on each tick: every one started from a rig this content read.</summary>
-    internal AnimatorRunner Animators { get; } = new();
+    internal AnimatorRunner Animators { get; }
 
     /// <summary>Hands a rig's animators to the game loop, as <see cref="Rig(string)"/> does. Tests use it for rigs built in code.</summary>
     internal void Adopt(Rig rig) => rig.Runner = Animators;

@@ -2471,7 +2471,7 @@
       "kind": "long-method",
       "name": "Super.GameHost.GameHost",
       "file": "src/Super/GameHost.cs",
-      "metric": 51
+      "metric": 52
     },
     {
       "kind": "long-method",
@@ -3419,7 +3419,7 @@
       "kind": "large-file",
       "name": "src/Super/Content.cs",
       "file": "src/Super/Content.cs",
-      "metric": 1016
+      "metric": 1017
     },
     {
       "kind": "large-file",
@@ -3437,7 +3437,7 @@
       "kind": "large-file",
       "name": "src/Super/View.cs",
       "file": "src/Super/View.cs",
-      "metric": 1244
+      "metric": 1246
     },
     {
       "kind": "large-type",
@@ -3659,7 +3659,7 @@
       "kind": "large-type",
       "name": "Super.AnimationPose",
       "file": "src/Super/Animation/AnimationPose.cs",
-      "metric": 27
+      "metric": 28
     },
     {
       "kind": "large-type",
@@ -3937,6 +3937,7 @@
       "members": [
         "Bricks",
         "Rendition.AnimatedLights",
+        "Rendition.AnimationClip",
         "Rendition.AreaJob",
         "Rendition.BakeArrivals",
         "Rendition.BakeEncoding",
@@ -3952,6 +3953,8 @@
         "Rendition.ChunkBakeCheck",
         "Rendition.ChunkBakePool",
         "Rendition.ChunkPageUploader",
+        "Rendition.ClipEvent",
+        "Rendition.ClipSound",
         "Rendition.DrawSelection",
         "Rendition.FadeRules",
         "Rendition.FilterRun",

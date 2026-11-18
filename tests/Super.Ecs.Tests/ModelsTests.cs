@@ -194,6 +194,23 @@ public class ModelsTests
     }
 
     [Fact]
+    public void An_animated_entity_notes_where_it_was_drawn_for_its_clip_sounds()
+    {
+        var rig = StillRig();
+        var animator = new AnimationController<Stance, Stance>(rig).State(Stance.Still, rig.Clip("still")).Start(Stance.Still);
+        var parent = _world.Create();
+        _world.Add(parent, Transform.At(new Vector3(0f, 0f, -5f)));
+        var entity = Spawn(Transform.At(new Vector3(3f, 0f, 0f)));
+        _world.Add(entity, new Parent(parent));
+        _world.Add(entity, new Animated(animator));
+        Assert.Null(animator.Pose.Drawn);
+
+        Draw(0f);
+
+        Assert.Equal(new Vector3(3f, 0f, -5f), animator.Pose.Drawn?.Translation);
+    }
+
+    [Fact]
     public void An_animated_entity_without_a_model_draws_its_rigs_model()
     {
         var rig = StillRig();

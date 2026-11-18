@@ -89,6 +89,7 @@ internal sealed class GameHost<TGame> : IDisposable
         Director = _services.GetRequiredService<Director>();
         Transitions = _services.GetRequiredService<Transitions>();
         Audio = _services.GetRequiredService<Audio>();
+        Content.Animators.Play = (sound, at, volume, pitchVariation) => Audio.Play(sound, at: at, volume: volume, pitchVariation: pitchVariation);
         Graphics = _services.GetRequiredService<Graphics>();
         Gpu = _services.GetRequiredService<Gpu>();
         Game = _services.GetRequiredService<TGame>();

@@ -164,7 +164,7 @@ marked as planned. The examples are the best place to see it running:
 | [Terrain](examples/Terrain) | Endless generated hills with a custom surface shader, a road built along a spline with a cart driving it, and a flyover on F |
 | [Toon](examples/Toon) | A cartoon garden in flat bands of light with ink outlines, under a low sun, a lantern and fog, beside a physically based chrome ball; T and O turn them off |
 | [Reef](examples/Reef) | 6,240 schooling fish with the ECS, water and a stats panel |
-| [Fox](examples/Fox) | A skinned character blending walk into run, with a head turn played over it |
+| [Fox](examples/Fox) | A skinned character blending walk into run, with a head turn played over it and footsteps from its clips |
 | [Glass](examples/Glass) | Clear, frosted and tinted panes and glass balls that bend the room, with dust between them |
 | [Archer](examples/Archer) | A short film: a cutscene with slow motion, root motion, a sky and a forest clearing |
 | [Transitions](examples/Transitions) | Fades, dissolves, wipes, irises and camera blends: a showreel cutscene, then each one on a key |

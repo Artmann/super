@@ -36,7 +36,7 @@ public sealed class Rig
             _events[i] = new ClipEventTable();
             foreach (var clipEvent in clips[i].Events)
             {
-                _events[i].Add(clipEvent, Skeleton);
+                _events[i].Add(clipEvent, Skeleton, sounds: null);
             }
         }
     }
@@ -53,8 +53,25 @@ public sealed class Rig
     /// </summary>
     public ModelRef? Model { get; internal set; }
 
-    /// <summary>Who moves this rig's animators on each tick. Rigs from content have the game loop; others are moved by hand.</summary>
-    internal AnimatorRunner? Runner { get; set; }
+    /// <summary>
+    /// Who moves this rig's animators on each tick. Rigs from content have the game loop; others are moved by hand.
+    /// Setting it names the events' sounds in its content, so a sound content hasn't got stops here.
+    /// </summary>
+    internal AnimatorRunner? Runner
+    {
+        get;
+        set
+        {
+            field = value;
+            if (value is not null)
+            {
+                foreach (var table in _events)
+                {
+                    table.NameSounds(value.Sounds);
+                }
+            }
+        }
+    }
 
     /// <summary>The clip names, for a game that wants to list them.</summary>
     public IEnumerable<string> ClipNames => Clips.Select(clip => clip.Name);
@@ -75,16 +92,17 @@ public sealed class Rig
     /// <summary>
     /// Marks a moment in a clip, in seconds, such as a foot landing. An animator playing the
     /// clip reports it in <see cref="Animator.Events"/> on the tick it passes it, every time
-    /// round a loop. Name a <paramref name="joint"/> to be told where it is then, such as the foot.
+    /// round a loop. Name a <paramref name="joint"/> to be told where it is then, such as the foot,
+    /// and a <paramref name="sound"/> to play there then, such as a footstep.
     /// </summary>
-    public void Event(ClipRef clip, string name, float at, string? joint = null) => Event(clip, name, at, at, joint);
+    public void Event(ClipRef clip, string name, float at, string? joint = null, ClipSound? sound = null) => Event(clip, name, at, at, joint, sound);
 
     /// <summary>
     /// Marks a window in a clip, from one time to another in seconds, such as when a sword's
     /// hitbox is live. An animator reports when it begins and ends, and
-    /// <see cref="Animator.IsActive"/> says whether it's open now.
+    /// <see cref="Animator.IsActive"/> says whether it's open now. A <paramref name="sound"/> plays as it begins.
     /// </summary>
-    public void Event(ClipRef clip, string name, float from, float to, string? joint = null)
+    public void Event(ClipRef clip, string name, float from, float to, string? joint = null, ClipSound? sound = null)
     {
         Check(clip);
         if (string.IsNullOrEmpty(name))
@@ -99,10 +117,10 @@ public sealed class Rig
                 nameof(from), $"Event {name} runs from {from} to {to} seconds, but clip {Clips[clip.Index].Name} lasts {duration}, and the start can't come after the end.");
         }
 
-        _events[clip.Index].Add(new ClipEvent(name, from, to, joint), Skeleton);
+        _events[clip.Index].Add(new ClipEvent(name, from, to, joint) { Sound = sound }, Skeleton, Runner?.Sounds);
     }
 
-    /// <summary>The moments and windows marked in a clip, from its cooked file and from <see cref="Event(ClipRef, string, float, string?)"/>.</summary>
+    /// <summary>The moments and windows marked in a clip, from its cooked file and from <see cref="Event(ClipRef, string, float, string?, ClipSound?)"/>.</summary>
     public IReadOnlyList<ClipEvent> Events(ClipRef clip)
     {
         Check(clip);

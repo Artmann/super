@@ -62,6 +62,46 @@ public sealed class ModelEventTests : TempFolders
     [Fact]
     public void An_event_needs_a_name()
     {
-        Assert.Equal("Event \"\" has no name.", Problem("""{ "clip": "Walk", "time": 0.25 }"""));
+        Assert.Equal("Event \"\" has no name, and no sound to be named after.", Problem("""{ "clip": "Walk", "time": 0.25 }"""));
+    }
+
+    [Fact]
+    public void An_events_sound_is_in_the_cooked_clip_and_names_an_unnamed_event()
+    {
+        var model = WalkingRig.CookModel(Temp(), Sidecar("""
+            { "clip": "Walk", "time": 0.25, "sound": "sounds/step.wav", "joint": "hips", "volume": 0.6, "pitchVariation": 0.08 },
+            { "clip": "Walk", "from": 0.5, "to": 0.75, "name": "swing", "sound": "sounds/whoosh.wav" },
+            { "clip": "Walk", "time": 0.5, "name": "quiet" }
+            """));
+
+        var events = model.Clips.Single(c => c.Name == "Walk").Events;
+        Assert.Equal(3, events.Count);
+        Assert.Equal(("sounds/step.wav", new ClipSound("sounds/step.wav", 0.6f, 0.08f)), (events[0].Name, events[0].Sound));
+        Assert.Equal(("swing", new ClipSound("sounds/whoosh.wav")), (events[1].Name, events[1].Sound));
+        Assert.Null(events[2].Sound);
+    }
+
+    [Fact]
+    public void A_negative_volume_is_an_error()
+    {
+        Assert.Equal(
+            "Event \"step\" has a volume of -1, but it can't be negative.",
+            Problem("""{ "clip": "Walk", "time": 0.25, "name": "step", "sound": "sounds/step.wav", "volume": -1 }"""));
+    }
+
+    [Fact]
+    public void A_pitch_variation_of_one_or_more_is_an_error()
+    {
+        Assert.Equal(
+            "Event \"step\" has a pitch variation of 1, but it must be from 0 up to, but not including, 1.",
+            Problem("""{ "clip": "Walk", "time": 0.25, "name": "step", "sound": "sounds/step.wav", "pitchVariation": 1 }"""));
+    }
+
+    [Fact]
+    public void A_volume_without_a_sound_is_an_error()
+    {
+        Assert.Equal(
+            "Event \"step\" gives a volume or pitch variation, but no sound to play.",
+            Problem("""{ "clip": "Walk", "time": 0.25, "name": "step", "volume": 0.5 }"""));
     }
 }

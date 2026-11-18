@@ -192,6 +192,13 @@ position that isn't finite, throws `ArgumentOutOfRangeException` from the frame,
 entity and the field. The sounds already playing carry on, and once the value is fixed (or the
 component removed) the next frame picks up from there without restarting or doubling anything.
 
+## Sounds from animation
+
+Footsteps, swings and other sounds tied to a moment in a clip don't need code. Name the
+sound on the clip's event, in the model's sidecar or with `rig.Event`, and it plays at the
+event's joint, on the Effects channel, each time the clip passes it, with the volume
+scaled by how much the clip shows. See [Sounds from events](animation.md#sounds-from-events).
+
 ## Music
 
 ```csharp
