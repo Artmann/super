@@ -609,21 +609,9 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Physics.BodySetup.CheckBody",
-      "file": "src/Super.Physics/BodySetup.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Physics.ColliderShapes.Check",
-      "file": "src/Super.Physics/ColliderShapes.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Physics.Physics.Move",
       "file": "src/Super.Physics/Physics.Characters.cs",
-      "metric": 15
+      "metric": 12
     },
     {
       "kind": "high-complexity",

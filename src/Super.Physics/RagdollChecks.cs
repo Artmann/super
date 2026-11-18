@@ -50,7 +50,7 @@ internal static class RagdollChecks
 
     private static void CheckSettings(Entity entity, Ragdoll ragdoll)
     {
-        if (!(ragdoll.BlendSeconds >= 0f) || !float.IsFinite(ragdoll.BlendSeconds) || !float.IsFinite(ragdoll.Strength))
+        if (!Numbers.IsZeroOrMore(ragdoll.BlendSeconds) || !float.IsFinite(ragdoll.Strength))
         {
             throw new ArgumentOutOfRangeException(nameof(ragdoll), ragdoll.BlendSeconds, $"Entity {entity.Id}'s Ragdoll blends over {ragdoll.BlendSeconds} seconds with strength {ragdoll.Strength}; the blend must be 0 or more and both finite.");
         }

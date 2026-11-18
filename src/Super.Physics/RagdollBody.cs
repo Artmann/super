@@ -73,7 +73,7 @@ public sealed class RagdollBody
             throw new ArgumentException("A ragdoll needs at least one part.", nameof(parts));
         }
 
-        if (!(mass > 0f) || !float.IsFinite(mass))
+        if (!Numbers.IsAboveZero(mass))
         {
             throw new ArgumentOutOfRangeException(nameof(mass), mass, "A ragdoll's mass must be above 0.");
         }
@@ -204,7 +204,7 @@ public sealed class RagdollBody
 
     private static void Check(RagdollPart part)
     {
-        if (!(part.Mass > 0f) || !float.IsFinite(part.Mass))
+        if (!Numbers.IsAboveZero(part.Mass))
         {
             throw new ArgumentOutOfRangeException(nameof(part), part.Mass, $"Part {part.Joint} has mass {part.Mass}; it must be above 0.");
         }
@@ -214,7 +214,7 @@ public sealed class RagdollBody
             throw new ArgumentOutOfRangeException(nameof(part), part.Swing, $"Part {part.Joint} swings {part.Swing} and twists {part.Twist} degrees; each must be from 0 to 180.");
         }
 
-        if (!(part.Thickness > 0f) || !float.IsFinite(part.Thickness) || !float.IsFinite(part.Lean))
+        if (!Numbers.IsAboveZero(part.Thickness) || !float.IsFinite(part.Lean))
         {
             throw new ArgumentOutOfRangeException(nameof(part), part.Thickness, $"Part {part.Joint} has thickness {part.Thickness} and lean {part.Lean}; the thickness must be above 0.");
         }

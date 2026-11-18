@@ -8,7 +8,7 @@ internal static class QueryMath
 {
     public static void CheckReach(float reach)
     {
-        if (!(reach > 0f) || !float.IsFinite(reach))
+        if (!Numbers.IsAboveZero(reach))
         {
             throw new ArgumentOutOfRangeException(nameof(reach), reach, "A query's reach must be a finite distance above 0.");
         }
