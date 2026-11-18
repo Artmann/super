@@ -117,30 +117,27 @@ public sealed class Cobweb : MaterialGraph
         }
 
         // The spokes, from the hub out to the frame.
-        var offset = uv - Hub;
         foreach (float angle in spokes)
         {
             var direction = new Vector2(DMath.Cos(angle), DMath.Sin(angle));
             nearest = MathF.Min(nearest, Segment(uv, Hub, Hub + direction * Reach(direction)));
         }
 
-        // The spiral: between two spokes it runs straight from one to the next, a little further out each turn.
+        return MathF.Min(nearest, Spiral(uv, spokes, torn, seed));
+    }
+
+    // How far a point is from the spiral, or infinity where the spiral near it is broken off. Between two spokes it
+    // runs straight from one to the next, a little further out each turn.
+    private static float Spiral(Vector2 uv, float[] spokes, float torn, int seed)
+    {
+        var offset = uv - Hub;
         float turn = DMath.Atan2(offset.Y, offset.X);
         if (turn < spokes[0])
         {
             turn += 2f * MathF.PI;
         }
 
-        int sector = Spokes - 1;
-        for (int i = 0; i < Spokes - 1; i++)
-        {
-            if (turn < spokes[i + 1])
-            {
-                sector = i;
-                break;
-            }
-        }
-
+        int sector = Sector(turn, spokes);
         float start = spokes[sector];
         float end = sector + 1 < Spokes ? spokes[sector + 1] : spokes[0] + 2f * MathF.PI;
         float middle = (start + end) * 0.5f;
@@ -155,10 +152,24 @@ public sealed class Cobweb : MaterialGraph
         bool kept = Unit(seed, 1000 + (int)ring * 31 + sector) < 0.35f + 0.9f * (torn - 0.3f);
         if (ring >= 0f && radius < limit && kept)
         {
-            nearest = MathF.Min(nearest, MathF.Abs(wound - ring) * Gap / chord);
+            return MathF.Abs(wound - ring) * Gap / chord;
         }
 
-        return nearest;
+        return float.PositiveInfinity;
+    }
+
+    // Which gap between two spokes a turn round the hub falls in. The last runs from the last spoke round to the first.
+    private static int Sector(float turn, float[] spokes)
+    {
+        for (int i = 0; i < Spokes - 1; i++)
+        {
+            if (turn < spokes[i + 1])
+            {
+                return i;
+            }
+        }
+
+        return Spokes - 1;
     }
 
     // Above 0 beyond the frame thread, on the side away from the corner.

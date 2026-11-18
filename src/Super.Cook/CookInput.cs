@@ -122,7 +122,7 @@ public sealed class CookInput
     /// <returns>The path relative to the source's folder, or null when there is none.</returns>
     public string? Find(string fileName)
     {
-        string folder = Folder();
+        string folder = SourcePaths.FolderOf(_file.Name);
         string[] candidates = Names()
             .Where(name => name.StartsWith(folder, StringComparison.Ordinal)
                 && name[folder.Length..].Split('/')[^1] == fileName)
@@ -146,7 +146,7 @@ public sealed class CookInput
     /// </summary>
     public string? NameOf(string relative)
     {
-        string? name = ResolveName(_file.Name, relative);
+        string? name = SourcePaths.ResolveName(_file.Name, relative);
         return name is not null && Names().Contains(name) ? name : null;
     }
 
@@ -163,7 +163,7 @@ public sealed class CookInput
     /// </summary>
     public void Track(string relative)
     {
-        string normal = Normalise(_file.Name, relative);
+        string normal = SourcePaths.Normalise(_file.Name, relative);
         lock (_inputs)
         {
             if (!_inputs.Contains(normal, StringComparer.Ordinal))
@@ -184,76 +184,9 @@ public sealed class CookInput
             : new HashSet<string>(_file.Root.Files(), StringComparer.Ordinal);
     }
 
-    private string Folder()
-    {
-        return FolderOf(_file.Name);
-    }
-
-    private static string FolderOf(string sourceName)
-    {
-        int slash = sourceName.LastIndexOf('/');
-        return slash < 0 ? "" : sourceName[..(slash + 1)];
-    }
-
     private string Resolve(string relative)
     {
-        return ResolveName(_file.Name, relative)
+        return SourcePaths.ResolveName(_file.Name, relative)
             ?? throw new FileNotFoundException($"{relative} leaves the source root of {_file.Name}.", relative);
-    }
-
-    /// <summary>The name in the root that <paramref name="relative"/> stands for beside <paramref name="sourceName"/>, or null when it leaves the root.</summary>
-    internal static string? ResolveName(string sourceName, string relative)
-    {
-        var parts = new List<string>(FolderOf(sourceName).Split('/', StringSplitOptions.RemoveEmptyEntries));
-        foreach (string part in relative.Replace('\\', '/').Split('/'))
-        {
-            if (part is "" or ".")
-            {
-                continue;
-            }
-
-            if (part == "..")
-            {
-                if (parts.Count == 0)
-                {
-                    return null;
-                }
-
-                parts.RemoveAt(parts.Count - 1);
-            }
-            else
-            {
-                parts.Add(part);
-            }
-        }
-
-        return string.Join('/', parts);
-    }
-
-    /// <summary>The shortest path from the source's folder to <paramref name="relative"/>, with forward slashes.</summary>
-    private static string Normalise(string sourceName, string relative)
-    {
-        string? name = ResolveName(sourceName, relative);
-        if (name is null)
-        {
-            return relative.Replace('\\', '/');
-        }
-
-        string[] folder = FolderOf(sourceName).Split('/', StringSplitOptions.RemoveEmptyEntries);
-        string[] target = name.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        int common = 0;
-        while (common < folder.Length && common < target.Length - 1 && folder[common] == target[common])
-        {
-            common++;
-        }
-
-        var result = new List<string>();
-        for (int i = common; i < folder.Length; i++)
-        {
-            result.Add("..");
-        }
-
-        result.AddRange(target[common..]);
-        return string.Join('/', result);
     }
 }

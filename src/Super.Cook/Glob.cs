@@ -44,20 +44,7 @@ internal static class Glob
             char c = pattern[p];
             if (c == '*')
             {
-                while (p < pattern.Length && pattern[p] == '*')
-                {
-                    p++;
-                }
-
-                for (int skip = t; skip <= text.Length; skip++)
-                {
-                    if (MatchSegment(pattern, p, text, skip))
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
+                return MatchStar(pattern, p, text, t);
             }
 
             if (t >= text.Length || (c != '?' && c != text[t]))
@@ -70,5 +57,24 @@ internal static class Glob
         }
 
         return t == text.Length;
+    }
+
+    /// <summary>Matches the stars at <paramref name="p"/>, then the rest of the pattern against every tail of the text from <paramref name="t"/>.</summary>
+    private static bool MatchStar(string pattern, int p, string text, int t)
+    {
+        while (p < pattern.Length && pattern[p] == '*')
+        {
+            p++;
+        }
+
+        for (int skip = t; skip <= text.Length; skip++)
+        {
+            if (MatchSegment(pattern, p, text, skip))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

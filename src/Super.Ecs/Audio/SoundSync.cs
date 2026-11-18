@@ -24,6 +24,10 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
         public float Far;
         public bool Placed;
         public Vector3 At;
+
+        /// <summary>Whether this loop still plays <paramref name="sound"/>: the same clip, channel, distances and placing.</summary>
+        public readonly bool Plays(Sound sound, bool placed) =>
+            Clip == sound.Clip && Channel == sound.Channel && Near == sound.Near && Far == sound.Far && Placed == placed;
     }
 
     private struct PlayingAmbience
@@ -58,41 +62,7 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
                 bool placed = world.Has<Transform>(entity);
                 Vector3 at = placed ? ViewExtensions.WorldMatrix(world, entity, blend, depth: 0).Translation : default;
                 Check(entity, sound, placed, at);
-
-                if (!_lastLoops.TryGetValue(entity, out PlayingLoop loop))
-                {
-                    loop = StartLoop(sound, placed, at);
-                }
-                else if (loop.Voice == NoId || loop.Clip != sound.Clip || loop.Channel != sound.Channel
-                    || loop.Near != sound.Near || loop.Far != sound.Far || loop.Placed != placed)
-                {
-                    loop = Restart(entity, loop, sound, placed, at);
-                }
-                else if (audio.WasDropped(loop.Voice))
-                {
-                    // The voice limit dropped it. It comes back once the mixer has a slot free; until then nothing is
-                    // sent for it, so a full mixer isn't asked again every frame.
-                    if (audio.TryClaimVoice())
-                    {
-                        loop = Restart(entity, loop, sound, placed, at);
-                    }
-                }
-                else
-                {
-                    if (placed && loop.At != at)
-                    {
-                        audio.Move(loop.Voice, at);
-                        loop.At = at;
-                    }
-
-                    if (loop.Volume != sound.Volume)
-                    {
-                        audio.ChangeVolume(loop.Voice, sound.Volume);
-                        loop.Volume = sound.Volume;
-                    }
-                }
-
-                _loops[entity] = loop;
+                _loops[entity] = SyncLoop(entity, sound, placed, at);
                 _lastLoops.Remove(entity);
             }
 
@@ -100,22 +70,43 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
         }
         finally
         {
-            // After a throw, what wasn't reached keeps playing as it was, rather than counting as removed.
-            foreach (var (entity, left) in _lastLoops)
-            {
-                if (completed)
-                {
-                    audio.StopLoop(left.Voice);
-                }
-                else
-                {
-                    _loops[entity] = left;
-                }
-            }
-
-            _lastLoops.Clear();
-            (_loops, _lastLoops) = (_lastLoops, _loops);
+            EndSync(ref _loops, ref _lastLoops, completed, audio, static (audio, left) => audio.StopLoop(left.Voice));
         }
+    }
+
+    /// <summary>Starts the entity's loop, restarts it when it changed or was dropped, or moves it and sets its volume.</summary>
+    private PlayingLoop SyncLoop(Entity entity, Sound sound, bool placed, Vector3 at)
+    {
+        if (!_lastLoops.TryGetValue(entity, out PlayingLoop loop))
+        {
+            return StartLoop(sound, placed, at);
+        }
+
+        if (loop.Voice == NoId || !loop.Plays(sound, placed))
+        {
+            return Restart(entity, loop, sound, placed, at);
+        }
+
+        if (audio.WasDropped(loop.Voice))
+        {
+            // The voice limit dropped it. It comes back once the mixer has a slot free; until then nothing is
+            // sent for it, so a full mixer isn't asked again every frame.
+            return audio.TryClaimVoice() ? Restart(entity, loop, sound, placed, at) : loop;
+        }
+
+        if (placed && loop.At != at)
+        {
+            audio.Move(loop.Voice, at);
+            loop.At = at;
+        }
+
+        if (loop.Volume != sound.Volume)
+        {
+            audio.ChangeVolume(loop.Voice, sound.Volume);
+            loop.Volume = sound.Volume;
+        }
+
+        return loop;
     }
 
     private static void Check(Entity entity, Sound sound, bool placed, Vector3 at)
@@ -140,11 +131,13 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
             throw new ArgumentOutOfRangeException(nameof(sound), sound.Far, $"Entity {entity.Id}'s Sound has Far {sound.Far}; it must be finite and further than its Near, {sound.Near}.");
         }
 
-        if (placed && !(float.IsFinite(at.X) && float.IsFinite(at.Y) && float.IsFinite(at.Z)))
+        if (placed && !IsFinite(at))
         {
             throw new ArgumentOutOfRangeException(nameof(sound), at, $"Entity {entity.Id}'s Sound is at {at}, which isn't a finite position. Check its Transform and its parents'.");
         }
     }
+
+    private static bool IsFinite(Vector3 at) => float.IsFinite(at.X) && float.IsFinite(at.Y) && float.IsFinite(at.Z);
 
     private PlayingLoop Restart(Entity entity, PlayingLoop loop, Sound sound, bool placed, Vector3 at)
     {
@@ -177,53 +170,69 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
         {
             foreach (var row in world.Query<Ambience>())
             {
-                Entity entity = row.Entity;
-                Ambience ambience = row.First;
-                if (!(ambience.Volume >= 0) || !float.IsFinite(ambience.Volume))
-                {
-                    throw new ArgumentOutOfRangeException(nameof(ambience), ambience.Volume, $"Entity {entity.Id}'s Ambience has Volume {ambience.Volume}; it must be a number of at least 0.");
-                }
-
-                if (!_lastAmbiences.TryGetValue(entity, out PlayingAmbience playing))
-                {
-                    playing = StartAmbience(ambience);
-                }
-                else if (playing.Id == NoId || playing.Value != ambience.Value)
-                {
-                    audio.StopAmbience(playing.Id);
-                    playing.Id = NoId;
-                    _lastAmbiences[entity] = playing;
-                    playing = StartAmbience(ambience);
-                }
-                else if (playing.Volume != ambience.Volume)
-                {
-                    audio.ChangeAmbienceVolume(playing.Id, ambience.Volume);
-                    playing.Volume = ambience.Volume;
-                }
-
-                _ambiences[entity] = playing;
-                _lastAmbiences.Remove(entity);
+                _ambiences[row.Entity] = SyncAmbience(row.Entity, row.First);
+                _lastAmbiences.Remove(row.Entity);
             }
 
             completed = true;
         }
         finally
         {
-            foreach (var (entity, left) in _lastAmbiences)
-            {
-                if (completed)
-                {
-                    audio.StopAmbience(left.Id);
-                }
-                else
-                {
-                    _ambiences[entity] = left;
-                }
-            }
-
-            _lastAmbiences.Clear();
-            (_ambiences, _lastAmbiences) = (_lastAmbiences, _ambiences);
+            EndSync(ref _ambiences, ref _lastAmbiences, completed, audio, static (audio, left) => audio.StopAmbience(left.Id));
         }
+    }
+
+    /// <summary>Starts the entity's ambience, restarts it when it changed, or sets its volume.</summary>
+    private PlayingAmbience SyncAmbience(Entity entity, Ambience ambience)
+    {
+        if (!(ambience.Volume >= 0) || !float.IsFinite(ambience.Volume))
+        {
+            throw new ArgumentOutOfRangeException(nameof(ambience), ambience.Volume, $"Entity {entity.Id}'s Ambience has Volume {ambience.Volume}; it must be a number of at least 0.");
+        }
+
+        if (!_lastAmbiences.TryGetValue(entity, out PlayingAmbience playing))
+        {
+            return StartAmbience(ambience);
+        }
+
+        if (playing.Id == NoId || playing.Value != ambience.Value)
+        {
+            // Written back first, so a throw below leaves the entity tracked with no ambience, not with a stopped one.
+            audio.StopAmbience(playing.Id);
+            playing.Id = NoId;
+            _lastAmbiences[entity] = playing;
+            return StartAmbience(ambience);
+        }
+
+        if (playing.Volume != ambience.Volume)
+        {
+            audio.ChangeAmbienceVolume(playing.Id, ambience.Volume);
+            playing.Volume = ambience.Volume;
+        }
+
+        return playing;
+    }
+
+    /// <summary>
+    /// Ends a sync: stops what it didn't meet, then makes what it met the ones playing. After a throw, what wasn't
+    /// reached keeps playing as it was, rather than counting as removed.
+    /// </summary>
+    private static void EndSync<T>(ref Dictionary<Entity, T> met, ref Dictionary<Entity, T> last, bool completed, Audio audio, Action<Audio, T> stop)
+    {
+        foreach (var (entity, left) in last)
+        {
+            if (completed)
+            {
+                stop(audio, left);
+            }
+            else
+            {
+                met[entity] = left;
+            }
+        }
+
+        last.Clear();
+        (met, last) = (last, met);
     }
 
     private PlayingAmbience StartAmbience(Ambience ambience)

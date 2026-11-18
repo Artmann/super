@@ -445,14 +445,7 @@ public sealed class TextureData
 
         // The average of the full-size normals under each pixel of each level, left at the
         // length it comes out at: the shorter, the more the normals under it disagree.
-        byte[] top = normal.Mips[0];
-        var average = new Vector3[surface.Width * surface.Height];
-        for (int i = 0; i < average.Length; i++)
-        {
-            var n = new Vector3(top[i * 4], top[i * 4 + 1], top[i * 4 + 2]) / 255f * 2f - Vector3.One;
-            average[i] = n.LengthSquared() > 1e-12f ? Vector3.Normalize(n) : Vector3.UnitZ;
-        }
-
+        var average = UnitNormals(normal.Mips[0], surface.Width * surface.Height);
         var mips = new byte[surface.Mips.Length][];
         mips[0] = surface.Mips[0];
         int width = surface.Width;
@@ -500,6 +493,19 @@ public sealed class TextureData
 
     // Each pixel of the smaller level is the plain average of the ones it covers, which keeps
     // the shortening that tells how much they disagree.
+    // The first pixels of a normal map's level as unit normals, with one straight out of the surface for a pixel that has no direction.
+    private static Vector3[] UnitNormals(byte[] level, int pixels)
+    {
+        var normals = new Vector3[pixels];
+        for (int i = 0; i < normals.Length; i++)
+        {
+            var n = new Vector3(level[i * 4], level[i * 4 + 1], level[i * 4 + 2]) / 255f * 2f - Vector3.One;
+            normals[i] = n.LengthSquared() > 1e-12f ? Vector3.Normalize(n) : Vector3.UnitZ;
+        }
+
+        return normals;
+    }
+
     private static Vector3[] AverageNormals(Vector3[] source, int width, int height, int nextWidth, int nextHeight)
     {
         var result = new Vector3[nextWidth * nextHeight];

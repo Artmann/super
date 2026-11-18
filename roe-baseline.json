@@ -3,303 +3,15 @@
   "findings": [
     {
       "kind": "high-complexity",
-      "name": "Bricks.ToneTable",
-      "file": "examples/Courtyard/content/materials/bricks.material.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Cobweb.Distance",
-      "file": "examples/Courtyard/content/materials/cobweb.material.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Crafting.Inventory.Add",
-      "file": "examples/Crafting/Inventory.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Hamlet.HamletGame.DrawBuilding",
-      "file": "examples/Hamlet/HamletGame.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Hamlet.Village.Place",
-      "file": "examples/Hamlet/Village.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Reef.Boids.Steer",
-      "file": "examples/Reef/Boids.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.BakeFiles.IsRigid",
-      "file": "src/Rendition/Baking/BakeFiles.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.BakeJob.Finish",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.BakeJob.Step",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Baker.ReadTexels/5",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightBakeFile.Read",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightBakeFile.ReadPage",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightBakeFile.ToBytes",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 17
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.LightmapLayout.Single",
       "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
       "metric": 11
     },
     {
       "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.ChartFree",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.DropSteep",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.FarShares",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.FirstOverlap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 17
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.Lay",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 31
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.Problem",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 35
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.SharedArea",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.Unwrap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.MaskSlots.Assign",
-      "file": "src/Rendition/Baking/MaskSlots.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.MeshDetail.Simplify",
-      "file": "src/Rendition/MeshDetail.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.ModelData.WriteTo",
-      "file": "src/Rendition/ModelData.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Passes.DecalBatch.IsFinite",
-      "file": "src/Rendition/Passes/DecalBatch.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Passes.LocalLights.Prepare",
-      "file": "src/Rendition/Passes/LocalLights.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Passes.TransparentPass.Record",
-      "file": "src/Rendition/Passes/TransparentPass.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.ProbeScheduler.LightChanged",
-      "file": "src/Rendition/Passes/ProbeScheduler.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.ProbeScheduler.Next",
-      "file": "src/Rendition/Passes/ProbeScheduler.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.CheckPages",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.ChunkJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.FindMaskSlots",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 23
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.FindRelitChunks",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.LoadSpaceBake",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.PlanProbes",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.RecordBakeSlice",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.RecordFrame",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.RecordScene",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 23
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.RenderTinted",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 41
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.ResolveBakes",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 22
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.SpaceJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.UpdateBackgroundBake",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 22
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.ValidateMaterial",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Renderer.WriteUniforms",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 30
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.ScrollResult.NewSlots",
-      "file": "src/Rendition/Passes/ProbeCascades.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.ShadowMaskChannels.Assign",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.ShadowMaskChannels.AssignChunk",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.SkylinePacker.TryPack",
       "file": "src/Rendition/Lightmaps/SkylinePacker.cs",
       "metric": 18
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Vulkan.PipelineFactory.Build",
-      "file": "src/Rendition/Vulkan/PipelineFactory.cs",
-      "metric": 14
     },
     {
       "kind": "high-complexity",
@@ -315,27 +27,15 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.AmbienceReader.Read",
-      "file": "src/Super/Audio/AmbienceDefinition.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Audio.Apply",
       "file": "src/Super/Audio/Audio.cs",
-      "metric": 14
+      "metric": 11
     },
     {
       "kind": "high-complexity",
       "name": "Super.BakeIdentity.AddMesh",
       "file": "src/Super/Rendering/BakeIdentity.cs",
       "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.ContentManifest.Parse",
-      "file": "src/Super/Data/ContentManifest.cs",
-      "metric": 27
     },
     {
       "kind": "high-complexity",
@@ -360,60 +60,6 @@
       "name": "Super.ContentValidator.Word",
       "file": "src/Super/Data/ContentValidator.cs",
       "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Bc7Encoder.EncodeBlock",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Bc7Encoder.FitAxis",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 22
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Bc7Encoder.TrySeparate",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.CacheFolder.Trim/4",
-      "file": "src/Super.Cook/CacheTrim.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.CookCache.TryRestore",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.CookPipeline.Cook",
-      "file": "src/Super.Cook/CookPipeline.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.CookPipeline.CookOne",
-      "file": "src/Super.Cook/CookPipeline.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.CookReport.Summary",
-      "file": "src/Super.Cook/CookReport.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.CookSettings.LoadRules",
-      "file": "src/Super.Cook/CookSettings.cs",
-      "metric": 15
     },
     {
       "kind": "high-complexity",
@@ -453,93 +99,9 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.BakeMasks",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.CookOne",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 51
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.GraphRuns.RunAhead",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.GraphsWanted",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.ImportMaterial",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 39
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.ImportShader",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.Layer",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.LightmapUv",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 26
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.TrackOwnFiles",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Cook.Models.RigImporter.RigImporter",
       "file": "src/Super.Cook.Models/RigImporter.cs",
       "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.TextureCompression.Compress/4",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.TextureCompression.Compress/5",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.TextureCompression.Coverage",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Tool.Program.Cache",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Tool.Program.CookAll",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 30
     },
     {
       "kind": "high-complexity",
@@ -573,33 +135,9 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Ecs.SoundSync.Check",
-      "file": "src/Super.Ecs/Audio/SoundSync.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Ecs.SoundSync.SyncSounds",
-      "file": "src/Super.Ecs/Audio/SoundSync.cs",
-      "metric": 17
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Ecs.ViewExtensions.Models",
-      "file": "src/Super.Ecs/ViewExtensions.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
       "metric": 27
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.GameArguments.Parse",
-      "file": "src/Super/GameArguments.cs",
-      "metric": 60
     },
     {
       "kind": "high-complexity",
@@ -621,33 +159,9 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Materials.GraphRunner.Execute",
-      "file": "src/Super.Materials/GraphRunner.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Materials.HslNode.Evaluate",
-      "file": "src/Super.Materials/Color.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Materials.ShapeNode.Value",
       "file": "src/Super.Materials/Shapes.cs",
       "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Materials.SplatterNode.Evaluate",
-      "file": "src/Super.Materials/Transform.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Materials.ToGradientNode.Evaluate",
-      "file": "src/Super.Materials/FloodFill.cs",
-      "metric": 15
     },
     {
       "kind": "high-complexity",
@@ -657,33 +171,9 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Physics.BodySetup.CheckBody",
-      "file": "src/Super.Physics/BodySetup.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Physics.ColliderShapes.Check",
-      "file": "src/Super.Physics/ColliderShapes.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Physics.Physics.Move",
       "file": "src/Super.Physics/Physics.Characters.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Physics.Physics.Sync/1",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Physics.Physics.Update",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 15
+      "metric": 12
     },
     {
       "kind": "high-complexity",
@@ -702,12 +192,6 @@
       "name": "Super.SceneRenderer.PrepareItem",
       "file": "src/Super/Rendering/SceneRenderer.cs",
       "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Shapes.ShapeBuilder.LayOutLightmap",
-      "file": "src/Super/Shapes.cs",
-      "metric": 13
     },
     {
       "kind": "high-complexity",
@@ -746,226 +230,10 @@
       "metric": 12
     },
     {
-      "kind": "high-complexity",
-      "name": "Super.Voice.Mix",
-      "file": "src/Super/Audio/Voice.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.WavReader.Parse",
-      "file": "src/Super/Audio/WavReader.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Bricks.ToneTable",
-      "file": "examples/Courtyard/content/materials/bricks.material.cs",
-      "metric": 27
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Crafting.Inventory.Add",
-      "file": "examples/Crafting/Inventory.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Hamlet.Village.Place",
-      "file": "examples/Hamlet/Village.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Reef.Boids.Steer",
-      "file": "examples/Reef/Boids.cs",
-      "metric": 33
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.BakeJob.Finish",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Baker.DrawMultisampled",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightBakeFile.ToBytes",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 16
-    },
-    {
       "kind": "high-cognitive-complexity",
       "name": "Rendition.LightmapLayout.Single",
       "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
       "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.ChartFree",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 32
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.DropSteep",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 30
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.FarShares",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 39
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.FirstOverlap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 34
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.Grow",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 22
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.Lay",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 63
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.Problem",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 69
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.SharedArea",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.Unwrap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 25
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.MaskSlots.Assign",
-      "file": "src/Rendition/Baking/MaskSlots.cs",
-      "metric": 31
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.MeshDetail.Simplify",
-      "file": "src/Rendition/MeshDetail.cs",
-      "metric": 28
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.ModelData.WriteTo",
-      "file": "src/Rendition/ModelData.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Passes.LocalLights.Prepare",
-      "file": "src/Rendition/Passes/LocalLights.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.ProbeScheduler.LightChanged",
-      "file": "src/Rendition/Passes/ProbeScheduler.cs",
-      "metric": 26
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.FindMaskSlots",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 46
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.FindRelitChunks",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.LoadSpaceBake",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.PlanProbes",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 24
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.RecordFrame",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.RecordScene",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 28
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.RenderTinted",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 39
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.ResolveBakes",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.SpaceJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.UpdateBackgroundBake",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 26
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.WriteUniforms",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 36
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.ShadowMaskChannels.Assign",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 24
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.ShadowMaskChannels.AssignChunk",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 23
     },
     {
       "kind": "high-cognitive-complexity",
@@ -975,87 +243,15 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.AmbienceReader.Read",
-      "file": "src/Super/Audio/AmbienceDefinition.cs",
-      "metric": 40
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Super.BakeIdentity.AddMesh",
       "file": "src/Super/Rendering/BakeIdentity.cs",
       "metric": 18
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.ContentManifest.Parse",
-      "file": "src/Super/Data/ContentManifest.cs",
-      "metric": 23
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Super.ContentValidator.Fields",
       "file": "src/Super/Data/ContentValidator.cs",
       "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Bc7Encoder.EncodeBlock",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Bc7Encoder.FitAxis",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 36
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Bc7Encoder.TrySeparate",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 44
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.CacheFolder.Trim/4",
-      "file": "src/Super.Cook/CacheTrim.cs",
-      "metric": 23
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.CookCache.TryRestore",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 28
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.CookPipeline.Cook",
-      "file": "src/Super.Cook/CookPipeline.cs",
-      "metric": 35
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.CookPipeline.CookOne",
-      "file": "src/Super.Cook/CookPipeline.cs",
-      "metric": 33
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.CookSettings.For",
-      "file": "src/Super.Cook/CookSettings.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.CookSettings.LoadRules",
-      "file": "src/Super.Cook/CookSettings.cs",
-      "metric": 24
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Glob.MatchSegment",
-      "file": "src/Super.Cook/Glob.cs",
-      "metric": 18
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1077,87 +273,9 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.ModelCooker.BakeMasks",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 32
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.ModelCooker.CookOne",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 95
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.ModelCooker.ImportMaterial",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 52
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.ModelCooker.ImportShader",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 25
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.ModelCooker.LightmapUv",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 47
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.ModelCooker.TrackOwnFiles",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Super.Cook.Models.RigImporter.RigImporter",
       "file": "src/Super.Cook.Models/RigImporter.cs",
       "metric": 26
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Sources.Gather",
-      "file": "src/Super.Cook/SourceRoot.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.TextureCompression.Compress/5",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 23
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.TextureCompression.Coverage",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Tool.Program.Cache",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 22
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Tool.Program.CookAll",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 26
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Ecs.SoundSync.SyncSounds",
-      "file": "src/Super.Ecs/Audio/SoundSync.cs",
-      "metric": 23
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Ecs.ViewExtensions.Models",
-      "file": "src/Super.Ecs/ViewExtensions.cs",
-      "metric": 28
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1167,93 +285,15 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.GameArguments.Parse",
-      "file": "src/Super/GameArguments.cs",
-      "metric": 51
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Super.GameWindow.ListenForInput",
       "file": "src/Super/Rendering/GameWindow.cs",
       "metric": 17
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.CellsNode.Evaluate",
-      "file": "src/Super.Materials/Noise.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.DistanceTransform.Squared",
-      "file": "src/Super.Materials/Distance.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.FloodFillNode.Evaluate",
-      "file": "src/Super.Materials/FloodFill.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.GraphRunner.Execute",
-      "file": "src/Super.Materials/GraphRunner.cs",
-      "metric": 29
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.HeightToOcclusionNode.Evaluate",
-      "file": "src/Super.Materials/SurfaceNodes.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.HslNode.Evaluate",
-      "file": "src/Super.Materials/Color.cs",
-      "metric": 22
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.SlopeBlurNode.Evaluate",
-      "file": "src/Super.Materials/Warps.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.SplatterNode.Evaluate",
-      "file": "src/Super.Materials/Transform.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.ToGradientNode.Evaluate",
-      "file": "src/Super.Materials/FloodFill.cs",
-      "metric": 40
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Super.Mixer.Mix",
       "file": "src/Super/Audio/Mixer.cs",
       "metric": 16
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Physics.Physics.Sync/1",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 30
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Physics.Physics.Update",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Shapes.ShapeBuilder.LayOutLightmap",
-      "file": "src/Super/Shapes.cs",
-      "metric": 28
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1266,18 +306,6 @@
       "name": "Super.Voice.Begin",
       "file": "src/Super/Audio/Voice.cs",
       "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Voice.Mix",
-      "file": "src/Super/Audio/Voice.cs",
-      "metric": 32
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.WavReader.Parse",
-      "file": "src/Super/Audio/WavReader.cs",
-      "metric": 28
     },
     {
       "kind": "long-method",
@@ -1299,12 +327,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Bricks.ToneTable",
-      "file": "examples/Courtyard/content/materials/bricks.material.cs",
-      "metric": 61
-    },
-    {
-      "kind": "long-method",
       "name": "BricksExample.Masonry.Make",
       "file": "examples/Bricks/Masonry.cs",
       "metric": 51
@@ -1314,12 +336,6 @@
       "name": "Burlap.Build",
       "file": "examples/Courtyard/content/materials/burlap.material.cs",
       "metric": 131
-    },
-    {
-      "kind": "long-method",
-      "name": "Cobweb.Distance",
-      "file": "examples/Courtyard/content/materials/cobweb.material.cs",
-      "metric": 60
     },
     {
       "kind": "long-method",
@@ -1431,20 +447,8 @@
     },
     {
       "kind": "long-method",
-      "name": "Hamlet.HamletGame.DrawBuilding",
-      "file": "examples/Hamlet/HamletGame.cs",
-      "metric": 72
-    },
-    {
-      "kind": "long-method",
       "name": "Hamlet.Tower.Build",
       "file": "examples/Hamlet/Tower.cs",
-      "metric": 66
-    },
-    {
-      "kind": "long-method",
-      "name": "Hamlet.Village.Place",
-      "file": "examples/Hamlet/Village.cs",
       "metric": 66
     },
     {
@@ -1473,12 +477,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Reef.Boids.Steer",
-      "file": "examples/Reef/Boids.cs",
-      "metric": 62
-    },
-    {
-      "kind": "long-method",
       "name": "Reef.Boids.Update",
       "file": "examples/Reef/Boids.cs",
       "metric": 42
@@ -1488,18 +486,6 @@
       "name": "Rendition.BakeJob.BakeJob",
       "file": "src/Rendition/Baking/BakeJob.cs",
       "metric": 57
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.BakeJob.Finish",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 55
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.BakeJob.TraceProbes",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 50
     },
     {
       "kind": "long-method",
@@ -1515,27 +501,15 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Baker.DrawMultisampled",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 82
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Baker.ReadSumsBack",
       "file": "src/Rendition/Baking/Baker.cs",
       "metric": 59
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Baker.ReadTexels/5",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 69
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Baker.RecordTexels",
       "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 79
+      "metric": 67
     },
     {
       "kind": "long-method",
@@ -1557,30 +531,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.FoliageNormals.PointOutOfCrown",
-      "file": "src/Rendition/FoliageNormals.cs",
-      "metric": 42
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightBakeFile.Read",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 101
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightBakeFile.ReadPage",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 63
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightBakeFile.ToBytes",
-      "file": "src/Rendition/Baking/LightBakeFile.cs",
-      "metric": 99
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.LightmapLayout.Build",
       "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
       "metric": 42
@@ -1593,141 +543,9 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.ChartFree",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 77
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Densities",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 51
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.DropSteep",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 82
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Edges",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.FarShares",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 99
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.FirstOverlap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 95
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Grow",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 45
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Lay",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 191
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Problem",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 164
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.SharedArea",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 80
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.SurfacePoint",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 53
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Turn",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 53
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Unwrap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 80
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.UvCharts",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 61
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.MaskSlots.Assign",
-      "file": "src/Rendition/Baking/MaskSlots.cs",
-      "metric": 71
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.MeshDetail.Simplify",
-      "file": "src/Rendition/MeshDetail.cs",
-      "metric": 67
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.ModelData.Read/3",
-      "file": "src/Rendition/ModelData.cs",
-      "metric": 68
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.ModelData.WriteTo",
-      "file": "src/Rendition/ModelData.cs",
-      "metric": 81
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.DecalPass.DecalPass",
-      "file": "src/Rendition/Passes/DecalPass.cs",
-      "metric": 77
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Passes.FsrPass.Record",
       "file": "src/Rendition/Passes/FsrPass.cs",
       "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.FullscreenPass.Record/5",
-      "file": "src/Rendition/Passes/FullscreenPass.cs",
-      "metric": 54
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.LocalLights.PlaceTiles",
-      "file": "src/Rendition/Passes/LocalLights.cs",
-      "metric": 48
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.LocalLights.Prepare",
-      "file": "src/Rendition/Passes/LocalLights.cs",
-      "metric": 76
     },
     {
       "kind": "long-method",
@@ -1749,18 +567,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Passes.ProbeCapturePass.Record",
-      "file": "src/Rendition/Passes/ProbeCapturePass.cs",
-      "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.ProbeDebugPass.Record",
-      "file": "src/Rendition/Passes/ProbeDebugPass.cs",
-      "metric": 54
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Passes.ProbeTracePass.ProbeTracePass",
       "file": "src/Rendition/Passes/ProbeTracePass.cs",
       "metric": 45
@@ -1770,12 +576,6 @@
       "name": "Rendition.Passes.ProbeTracePass.Record",
       "file": "src/Rendition/Passes/ProbeTracePass.cs",
       "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.ProbeTracePass.WriteSceneSet",
-      "file": "src/Rendition/Passes/ProbeTracePass.cs",
-      "metric": 42
     },
     {
       "kind": "long-method",
@@ -1791,165 +591,15 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Passes.TraceDebugPass.WriteSet",
-      "file": "src/Rendition/Passes/TraceDebugPass.cs",
-      "metric": 42
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.TransparentPass.CopyScene",
-      "file": "src/Rendition/Passes/TransparentPass.cs",
-      "metric": 62
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Passes.TransparentPass.Record",
-      "file": "src/Rendition/Passes/TransparentPass.cs",
-      "metric": 66
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Passes.TransparentPlan.Build",
       "file": "src/Rendition/Passes/TransparentPlan.cs",
       "metric": 47
     },
     {
       "kind": "long-method",
-      "name": "Rendition.ProbeScheduler.LightChanged",
-      "file": "src/Rendition/Passes/ProbeScheduler.cs",
-      "metric": 56
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.ProbeScheduler.Next",
-      "file": "src/Rendition/Passes/ProbeScheduler.cs",
-      "metric": 85
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.ChunkJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 88
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.CreateFrame",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 70
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.Dispose",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 83
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.FindMaskSlots",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 96
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.FindRelitChunks",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 80
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.LoadSpaceBake",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 91
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.PlanProbes",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 122
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.RecordBakeSlice",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 61
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.RecordFrame",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 107
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.RecordScene",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 231
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.RenderTinted",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 291
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
       "metric": 165
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.ResolveBakes",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 83
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.SampleProbeIrradiance",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 105
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.SelectDraws",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 61
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.SpaceJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 101
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.UpdateBackgroundBake",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 75
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.WriteTargetDescriptors",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 123
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.WriteUniforms",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 161
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.ShadowMaskChannels.Assign",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 69
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.ShadowMaskChannels.AssignChunk",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 64
     },
     {
       "kind": "long-method",
@@ -1962,18 +612,6 @@
       "name": "Rendition.SkylinePacker.TryPack",
       "file": "src/Rendition/Lightmaps/SkylinePacker.cs",
       "metric": 107
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.TextureData.WidenRoughness",
-      "file": "src/Rendition/TextureData.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.ExposureMeter.ExposureMeter",
-      "file": "src/Rendition/Vulkan/ExposureMeter.cs",
-      "metric": 48
     },
     {
       "kind": "long-method",
@@ -1995,69 +633,15 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Vulkan.MemoryArena.TryAllocate",
-      "file": "src/Rendition/Vulkan/MemoryArena.cs",
-      "metric": 48
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.PipelineFactory.Build",
-      "file": "src/Rendition/Vulkan/PipelineFactory.cs",
-      "metric": 179
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.ProbeVolume.CreateAtlas",
-      "file": "src/Rendition/Vulkan/ProbeVolume.cs",
-      "metric": 70
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Vulkan.ProbeVolume.ProbeVolume",
       "file": "src/Rendition/Vulkan/ProbeVolume.cs",
       "metric": 49
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Vulkan.ProbeVolume.RecordBlend",
-      "file": "src/Rendition/Vulkan/ProbeVolume.cs",
-      "metric": 53
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.RayTracing.Build/3",
-      "file": "src/Rendition/Vulkan/RayTracing.cs",
-      "metric": 74
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.RayTracing.Build/4",
-      "file": "src/Rendition/Vulkan/RayTracing.cs",
-      "metric": 74
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Vulkan.RenderTarget.RenderTarget",
       "file": "src/Rendition/Vulkan/RenderTarget.cs",
       "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.ResourceTable.ResourceTable",
-      "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 88
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.ResourceTable.WriteMaterial",
-      "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 65
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.Swapchain.Swapchain",
-      "file": "src/Rendition/Vulkan/Swapchain.cs",
-      "metric": 65
     },
     {
       "kind": "long-method",
@@ -2109,18 +693,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.AmbienceReader.Read",
-      "file": "src/Super/Audio/AmbienceDefinition.cs",
-      "metric": 91
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Audio.Apply",
-      "file": "src/Super/Audio/Audio.cs",
-      "metric": 66
-    },
-    {
-      "kind": "long-method",
       "name": "Super.BakeCache.Read",
       "file": "src/Super/Rendering/BakeCache.cs",
       "metric": 42
@@ -2151,12 +723,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.ContentManifest.Parse",
-      "file": "src/Super/Data/ContentManifest.cs",
-      "metric": 71
-    },
-    {
-      "kind": "long-method",
       "name": "Super.ContentValidator.Fields",
       "file": "src/Super/Data/ContentValidator.cs",
       "metric": 45
@@ -2166,102 +732,6 @@
       "name": "Super.ContentValidator.Value",
       "file": "src/Super/Data/ContentValidator.cs",
       "metric": 58
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Bc6hEncoder.Encode",
-      "file": "src/Super.Cook/Cookers/LightBakeCooker.cs",
-      "metric": 55
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Bc7Encoder.EncodeBlock",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 65
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Bc7Encoder.FitAxis",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 110
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Bc7Encoder.TrySeparate",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 113
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Bc7Encoder.WriteSeparate",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CacheFolder.Trim/4",
-      "file": "src/Super.Cook/CacheTrim.cs",
-      "metric": 58
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookCache.HashFile",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 43
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookCache.Save",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 47
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookCache.TryRestore",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 109
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookDurations.Save",
-      "file": "src/Super.Cook/CookDurations.cs",
-      "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookPipeline.Cook",
-      "file": "src/Super.Cook/CookPipeline.cs",
-      "metric": 152
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookPipeline.CookOne",
-      "file": "src/Super.Cook/CookPipeline.cs",
-      "metric": 152
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookReport.Summary",
-      "file": "src/Super.Cook/CookReport.cs",
-      "metric": 50
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookSettings.For",
-      "file": "src/Super.Cook/CookSettings.cs",
-      "metric": 43
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookSettings.LoadRules",
-      "file": "src/Super.Cook/CookSettings.cs",
-      "metric": 66
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookWatcher.CookNow",
-      "file": "src/Super.Cook/CookWatcher.cs",
-      "metric": 42
     },
     {
       "kind": "long-method",
@@ -2331,42 +801,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Cook.Models.ModelCooker.BakeMasks",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 120
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.ModelCooker.CookOne",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 330
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.ModelCooker.GraphRuns.RunAhead",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 72
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.ModelCooker.ImportMaterial",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 155
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.ModelCooker.ImportShader",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 81
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.ModelCooker.LightmapUv",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 140
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Cook.Models.ModelTextures.Add",
       "file": "src/Super.Cook.Models/ModelTextures.cs",
       "metric": 42
@@ -2391,81 +825,9 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Cook.Sources.Gather",
-      "file": "src/Super.Cook/SourceRoot.cs",
-      "metric": 48
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.TextureCompression.Compress/5",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 82
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.TextureCompression.Coverage",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 50
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.TextureCompression.KeepCompressedCoverage",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Tool.Program.Cache",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 86
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Tool.Program.CookAll",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 121
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Tool.Program.CookAndReport",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 47
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Tool.Program.CookOne",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 55
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Ecs.SoundSync.SyncAmbiences",
-      "file": "src/Super.Ecs/Audio/SoundSync.cs",
-      "metric": 54
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Ecs.SoundSync.SyncSounds",
-      "file": "src/Super.Ecs/Audio/SoundSync.cs",
-      "metric": 70
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Ecs.ViewExtensions.Models",
-      "file": "src/Super.Ecs/ViewExtensions.cs",
-      "metric": 82
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
       "metric": 150
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.GameArguments.Parse",
-      "file": "src/Super/GameArguments.cs",
-      "metric": 179
     },
     {
       "kind": "long-method",
@@ -2517,81 +879,15 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Materials.CellsNode.Evaluate",
-      "file": "src/Super.Materials/Noise.cs",
-      "metric": 57
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Materials.DMath.LogD",
       "file": "src/Super.Materials/DMath.cs",
       "metric": 49
     },
     {
       "kind": "long-method",
-      "name": "Super.Materials.DistanceTransform.Line.Run",
-      "file": "src/Super.Materials/Distance.cs",
-      "metric": 47
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.DistanceTransform.Squared",
-      "file": "src/Super.Materials/Distance.cs",
-      "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.FloodFillNode.Evaluate",
-      "file": "src/Super.Materials/FloodFill.cs",
-      "metric": 64
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.GraphRunner.Execute",
-      "file": "src/Super.Materials/GraphRunner.cs",
-      "metric": 86
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Materials.GraphRunner.Run",
       "file": "src/Super.Materials/GraphRunner.cs",
       "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.HeightToOcclusionNode.Evaluate",
-      "file": "src/Super.Materials/SurfaceNodes.cs",
-      "metric": 56
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.HslNode.Evaluate",
-      "file": "src/Super.Materials/Color.cs",
-      "metric": 65
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.PerlinNode.Evaluate",
-      "file": "src/Super.Materials/Noise.cs",
-      "metric": 47
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.SlopeBlurNode.Evaluate",
-      "file": "src/Super.Materials/Warps.cs",
-      "metric": 56
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.SplatterNode.Evaluate",
-      "file": "src/Super.Materials/Transform.cs",
-      "metric": 64
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.ToGradientNode.Evaluate",
-      "file": "src/Super.Materials/FloodFill.cs",
-      "metric": 98
     },
     {
       "kind": "long-method",
@@ -2631,18 +927,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Physics.Physics.Sync/1",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 87
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Physics.Physics.Update",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 57
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Physics.Physics.Walking",
       "file": "src/Super.Physics/Physics.Characters.cs",
       "metric": 55
@@ -2673,12 +957,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Shapes.ShapeBuilder.LayOutLightmap",
-      "file": "src/Super/Shapes.cs",
-      "metric": 89
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Shapes.Strips",
       "file": "src/Super/ShapesAlongSplines.cs",
       "metric": 48
@@ -2694,12 +972,6 @@
       "name": "Super.Spline.MinimalUps",
       "file": "src/Super/Spline.cs",
       "metric": 53
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Spline.Nearest",
-      "file": "src/Super/Spline.cs",
-      "metric": 68
     },
     {
       "kind": "long-method",
@@ -2742,18 +1014,6 @@
       "name": "Super.Voice.Fetch",
       "file": "src/Super/Audio/Voice.cs",
       "metric": 45
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Voice.Mix",
-      "file": "src/Super/Audio/Voice.cs",
-      "metric": 81
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.WavReader.Parse",
-      "file": "src/Super/Audio/WavReader.cs",
-      "metric": 61
     },
     {
       "kind": "long-method",
@@ -2835,12 +1095,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.BakeFrame.AddChunk",
-      "file": "src/Rendition/Baking/BakeFreshness.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Rendition.BakeInputHash.Space",
       "file": "src/Rendition/Baking/BakeInputHash.cs",
       "metric": 6
@@ -2910,18 +1164,6 @@
       "name": "Rendition.Baker.WriteTraceSet",
       "file": "src/Rendition/Baking/Baker.cs",
       "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.LightmapUnwrap.Densities",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.LightmapUnwrap.SurfacePoint",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 6
     },
     {
       "kind": "too-many-parameters",
@@ -3051,42 +1293,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.ProbeScheduler.Overlap",
-      "file": "src/Rendition/Passes/ProbeScheduler.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Renderer.ChunkJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Renderer.RecordFrame",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Renderer.RecordScene",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Renderer.SpaceJob",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Renderer.WriteUniforms",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Rendition.ShadowMaskChannels.Assign",
       "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
       "metric": 6
@@ -3153,24 +1359,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Super.Cook.Bc7Encoder.LeastSquares",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Cook.Bc7Encoder.Load",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Cook.CookCache.Save",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Super.Cook.Models.Bvh.Build",
       "file": "src/Super.Cook.Models/Bvh.cs",
       "metric": 7
@@ -3186,18 +1374,6 @@
       "name": "Super.Cook.Models.MaskBaker.Sky",
       "file": "src/Super.Cook.Models/MaskBaker.cs",
       "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Cook.Models.ModelCooker.BakeMasks",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 9
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Cook.Models.ModelCooker.LightmapUv",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 8
     },
     {
       "kind": "too-many-parameters",
@@ -3291,18 +1467,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Super.Physics.Physics.Create",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 9
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Physics.Physics.Update",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Super.SceneRenderer.Bake",
       "file": "src/Super/Rendering/SceneRenderer.cs",
       "metric": 6
@@ -3362,34 +1526,16 @@
       "metric": 7
     },
     {
-      "kind": "too-many-parameters",
-      "name": "Super.WavReader.WavReader",
-      "file": "src/Super/Audio/WavReader.cs",
-      "metric": 6
-    },
-    {
-      "kind": "large-file",
-      "name": "src/Rendition/Baking/BakeJob.cs",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 775
-    },
-    {
       "kind": "large-file",
       "name": "src/Rendition/Baking/Baker.cs",
       "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 1532
-    },
-    {
-      "kind": "large-file",
-      "name": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 1867
+      "metric": 1540
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 6009
+      "metric": 6103
     },
     {
       "kind": "large-file",
@@ -3399,21 +1545,9 @@
     },
     {
       "kind": "large-file",
-      "name": "src/Rendition/Vulkan/RayTracing.cs",
-      "file": "src/Rendition/Vulkan/RayTracing.cs",
-      "metric": 775
-    },
-    {
-      "kind": "large-file",
-      "name": "src/Super.Cook.Models/ModelCooker.cs",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 1930
-    },
-    {
-      "kind": "large-file",
       "name": "src/Super/Audio/Audio.cs",
       "file": "src/Super/Audio/Audio.cs",
-      "metric": 860
+      "metric": 868
     },
     {
       "kind": "large-file",
@@ -3467,19 +1601,19 @@
       "kind": "large-type",
       "name": "Hamlet.HamletGame",
       "file": "examples/Hamlet/HamletGame.cs",
-      "metric": 25
+      "metric": 24
     },
     {
       "kind": "large-type",
       "name": "Hamlet.Village",
       "file": "examples/Hamlet/Village.cs",
-      "metric": 22
+      "metric": 25
     },
     {
       "kind": "large-type",
       "name": "Reef.Boids",
       "file": "examples/Reef/Boids.cs",
-      "metric": 26
+      "metric": 28
     },
     {
       "kind": "large-type",
@@ -3491,13 +1625,13 @@
       "kind": "large-type",
       "name": "Rendition.BakeJob",
       "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 80
+      "metric": 85
     },
     {
       "kind": "large-type",
       "name": "Rendition.Baker",
       "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 76
+      "metric": 80
     },
     {
       "kind": "large-type",
@@ -3513,12 +1647,6 @@
     },
     {
       "kind": "large-type",
-      "name": "Rendition.LightmapUnwrap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 40
-    },
-    {
-      "kind": "large-type",
       "name": "Rendition.Material",
       "file": "src/Rendition/Types.cs",
       "metric": 36
@@ -3527,7 +1655,7 @@
       "kind": "large-type",
       "name": "Rendition.ModelData",
       "file": "src/Rendition/ModelData.cs",
-      "metric": 34
+      "metric": 30
     },
     {
       "kind": "large-type",
@@ -3557,7 +1685,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.LocalLights",
       "file": "src/Rendition/Passes/LocalLights.cs",
-      "metric": 26
+      "metric": 29
     },
     {
       "kind": "large-type",
@@ -3575,19 +1703,19 @@
       "kind": "large-type",
       "name": "Rendition.ProbeScheduler",
       "file": "src/Rendition/Passes/ProbeScheduler.cs",
-      "metric": 35
+      "metric": 39
     },
     {
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 411
+      "metric": 468
     },
     {
       "kind": "large-type",
       "name": "Rendition.TextureData",
       "file": "src/Rendition/TextureData.cs",
-      "metric": 40
+      "metric": 41
     },
     {
       "kind": "large-type",
@@ -3611,13 +1739,13 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.ProbeVolume",
       "file": "src/Rendition/Vulkan/ProbeVolume.cs",
-      "metric": 60
+      "metric": 61
     },
     {
       "kind": "large-type",
       "name": "Rendition.Vulkan.RayTracing",
-      "file": "src/Rendition/Vulkan/RayTracing.cs",
-      "metric": 42
+      "file": "src/Rendition/Vulkan/RayTracing.AccelerationStructures.cs",
+      "metric": 46
     },
     {
       "kind": "large-type",
@@ -3629,7 +1757,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.ResourceTable",
       "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 63
+      "metric": 66
     },
     {
       "kind": "large-type",
@@ -3671,7 +1799,7 @@
       "kind": "large-type",
       "name": "Super.Audio",
       "file": "src/Super/Audio/Audio.cs",
-      "metric": 73
+      "metric": 75
     },
     {
       "kind": "large-type",
@@ -3705,33 +1833,15 @@
     },
     {
       "kind": "large-type",
-      "name": "Super.Cook.Bc7Encoder",
-      "file": "src/Super.Cook/Textures/Bc7Encoder.cs",
-      "metric": 25
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Cook.CookCache",
-      "file": "src/Super.Cook/CookCache.cs",
-      "metric": 23
-    },
-    {
-      "kind": "large-type",
       "name": "Super.Cook.CookInput",
       "file": "src/Super.Cook/CookInput.cs",
-      "metric": 31
+      "metric": 27
     },
     {
       "kind": "large-type",
       "name": "Super.Cook.Models.MaterialRule",
       "file": "src/Super.Cook.Models/ImportSettings.cs",
       "metric": 45
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Cook.Models.ModelCooker",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 56
     },
     {
       "kind": "large-type",
@@ -3744,12 +1854,6 @@
       "name": "Super.Cook.Models.RigImporter",
       "file": "src/Super.Cook.Models/RigImporter.cs",
       "metric": 29
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Cook.TextureCompression",
-      "file": "src/Super.Cook/Textures/TextureCompression.cs",
-      "metric": 24
     },
     {
       "kind": "large-type",
@@ -3815,7 +1919,7 @@
       "kind": "large-type",
       "name": "Super.Physics.Physics",
       "file": "src/Super.Physics/Physics.Bodies.cs",
-      "metric": 88
+      "metric": 93
     },
     {
       "kind": "large-type",
@@ -3845,7 +1949,7 @@
       "kind": "large-type",
       "name": "Super.Spline",
       "file": "src/Super/Spline.cs",
-      "metric": 43
+      "metric": 46
     },
     {
       "kind": "large-type",
@@ -3911,7 +2015,7 @@
       "kind": "large-type",
       "name": "Super.Voice",
       "file": "src/Super/Audio/Voice.cs",
-      "metric": 40
+      "metric": 42
     },
     {
       "kind": "large-type",
@@ -3946,6 +2050,8 @@
         "Rendition.BakeFilter",
         "Rendition.BakeJob",
         "Rendition.BakeLightOwners",
+        "Rendition.BakeLights",
+        "Rendition.BakePages",
         "Rendition.BakeQueue",
         "Rendition.BakeResolver",
         "Rendition.BakedProbeAtlas",
@@ -3959,6 +2065,7 @@
         "Rendition.FadeRules",
         "Rendition.FilterRun",
         "Rendition.FogVolumeBatch",
+        "Rendition.FrameMaskSlots",
         "Rendition.FrameView",
         "Rendition.IBakeStore",
         "Rendition.LastFrame",
@@ -3966,6 +2073,7 @@
         "Rendition.LightmapLayout",
         "Rendition.Material",
         "Rendition.ModelData",
+        "Rendition.ModelFile",
         "Rendition.NoBakes",
         "Rendition.Passes.BloomPass",
         "Rendition.Passes.CaptureScene",
@@ -4004,11 +2112,13 @@
         "Rendition.Passes.TraceDebugPass",
         "Rendition.Passes.TransitionConstants",
         "Rendition.Passes.TransparentPass",
+        "Rendition.Passes.TransparentTargets",
         "Rendition.Passes.Upscale",
         "Rendition.Passes.VolumetricFog",
         "Rendition.Passes.Wind",
         "Rendition.ProbeCandidate",
         "Rendition.ProbeCaptureQueue",
+        "Rendition.ProbeLightTracker",
         "Rendition.ProbeScheduler",
         "Rendition.RenderEffects",
         "Rendition.Renderer",
@@ -4194,13 +2304,6 @@
       "members": [
         "Super.Cook.CacheFolder",
         "Super.Cook.CacheUsage"
-      ]
-    },
-    {
-      "members": [
-        "Super.Cook.CookCache",
-        "Super.Cook.CookInput",
-        "Super.Cook.StepCache"
       ]
     },
     {

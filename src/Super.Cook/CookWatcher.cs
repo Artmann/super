@@ -105,22 +105,7 @@ public sealed class CookWatcher : IDisposable
 
             try
             {
-                var result = _pipeline.Cook(_roots, _store);
-                foreach (var note in result.Notes)
-                {
-                    _log.WriteLine(note.ToString());
-                }
-
-                foreach (var problem in result.Problems)
-                {
-                    _log.WriteLine(problem.ToString());
-                }
-
-                int errors = result.Problems.Count(problem => problem.IsError);
-                string took = CookReport.Seconds(result.Report.Elapsed);
-                _log.WriteLine(errors == 0
-                    ? $"Cooked. {result.Cooked} cooked, {result.FromCache} from cache, in {took}."
-                    : $"Not cooked: {errors} errors. Took {took}.");
+                Log(_pipeline.Cook(_roots, _store));
             }
             catch (Exception exception) when (CookPipeline.InUse(exception))
             {
@@ -136,5 +121,25 @@ public sealed class CookWatcher : IDisposable
                 _log.WriteLine($"Not cooked: {exception.Message}");
             }
         }
+    }
+
+    /// <summary>Writes a cook's notes and problems, then a line that says whether it cooked.</summary>
+    private void Log(CookResult result)
+    {
+        foreach (var note in result.Notes)
+        {
+            _log.WriteLine(note.ToString());
+        }
+
+        foreach (var problem in result.Problems)
+        {
+            _log.WriteLine(problem.ToString());
+        }
+
+        int errors = result.Problems.Count(problem => problem.IsError);
+        string took = CookReport.Seconds(result.Report.Elapsed);
+        _log.WriteLine(errors == 0
+            ? $"Cooked. {result.Cooked} cooked, {result.FromCache} from cache, in {took}."
+            : $"Not cooked: {errors} errors. Took {took}.");
     }
 }

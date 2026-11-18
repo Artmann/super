@@ -60,112 +60,20 @@ public static class Program
 
     private static int CookAll(string[] args)
     {
-        var contents = new List<(string Folder, List<string> Only)>();
-        string? output = null;
-        string target = "desktop";
-        string? cache = null;
-        bool noCache = false;
-        long? cacheLimit = null;
-        string? devFile = null;
-        bool watch = false;
-        int workers = 0;
-        bool timings = false;
-        bool verbose = false;
-        for (int i = 0; i < args.Length; i++)
-        {
-            switch (args[i])
-            {
-                case "--content":
-                    contents.Add((Value(args, ref i), []));
-                    break;
-                case "--only":
-                    // Trimmed, so Only="props/** ; textures/**" in a project works.
-                    string pattern = Value(args, ref i).Trim();
-                    if (contents.Count == 0)
-                    {
-                        throw new UsageException($"--only {pattern} needs a --content before it: it picks files from the folder just before it.");
-                    }
+        var arguments = CookArguments.Parse(args);
+        var roots = arguments.Roots;
+        var pipeline = new CookPipeline(ModelCookers.All, arguments.ToCookOptions());
+        var store = new FolderStore(arguments.Output!);
+        bool succeeded = CookAndReport(pipeline, roots, store, Reporting.FromEnvironment(arguments.Timings, arguments.Verbose));
 
-                    // An empty one comes from a trailing semicolon, as in Only="props/**;".
-                    if (pattern.Length > 0)
-                    {
-                        contents[^1].Only.Add(pattern);
-                    }
-
-                    break;
-                case "--workers":
-                    string count = Value(args, ref i);
-                    if (!int.TryParse(count, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out workers) || workers < 1)
-                    {
-                        throw new UsageException($"--workers needs a whole number above 0, not {count}.");
-                    }
-
-                    break;
-                case "--timings":
-                    timings = true;
-                    break;
-                case "--verbose":
-                    verbose = true;
-                    break;
-                case "--out":
-                    output = Value(args, ref i);
-                    break;
-                case "--target":
-                    target = Value(args, ref i);
-                    break;
-                case "--cache":
-                    cache = Value(args, ref i);
-                    break;
-                case "--no-cache":
-                    noCache = true;
-                    break;
-                case "--cache-limit":
-                    cacheLimit = Limit(Value(args, ref i));
-                    break;
-                case "--dev-file":
-                    devFile = Value(args, ref i);
-                    break;
-                case "--watch":
-                    watch = true;
-                    break;
-                default:
-                    throw new UsageException($"Unknown option {args[i]}.");
-            }
-        }
-
-        if (output is null)
-        {
-            throw new UsageException("--out is needed.");
-        }
-
-        if (cache is not null && noCache)
-        {
-            throw new UsageException("--cache and --no-cache can't be used together.");
-        }
-
-        var roots = Roots(contents);
-        var reporting = Reporting.FromEnvironment(timings, verbose);
-        if (cacheLimit is not null && noCache)
-        {
-            throw new UsageException("--cache-limit and --no-cache can't be used together.");
-        }
-
-        // Without --cache-limit the cook reads SUPER_CACHE_SIZE itself, only when it has a cache, and warns if it isn't a size.
-        var options = new CookOptions(target, noCache ? null : cache ?? CookOptions.DefaultCacheFolder, workers)
-        {
-            CacheLimit = cacheLimit,
-        };
-        var pipeline = new CookPipeline(ModelCookers.All, options);
-        var store = new FolderStore(output);
-        bool succeeded = CookAndReport(pipeline, roots, store, reporting);
-
-        if (devFile is not null)
+        if (arguments.DevFile is not null)
         {
             var only = roots.Where(root => root.Only.Count > 0).ToDictionary(root => root.Label, root => root.Only.ToArray());
-            new DevSettings([.. roots.Select(root => root.Label)], typeof(Program).Assembly.Location, target, only.Count > 0 ? only : null).Write(devFile);
+            new DevSettings([.. roots.Select(root => root.Label)], typeof(Program).Assembly.Location, arguments.Target, only.Count > 0 ? only : null)
+                .Write(arguments.DevFile);
         }
 
-        if (!watch)
+        if (!arguments.Watch)
         {
             return succeeded ? 0 : 1;
         }
@@ -184,38 +92,20 @@ public static class Program
     /// <summary>Cooks the roots and writes the bytes of one asset or part to a file.</summary>
     private static int CookOne(string[] args)
     {
-        var contents = new List<(string Folder, List<string> Only)>();
-        var positional = new List<string>();
-        for (int i = 0; i < args.Length; i++)
-        {
-            if (args[i] == "--content")
-            {
-                contents.Add((Value(args, ref i), []));
-            }
-            else if (args[i].StartsWith("--", StringComparison.Ordinal))
-            {
-                throw new UsageException($"Unknown option {args[i]}.");
-            }
-            else
-            {
-                positional.Add(args[i]);
-            }
-        }
-
-        if (positional.Count != 2)
-        {
-            throw new UsageException("file needs a name and an output path.");
-        }
-
-        string name = positional[0];
-        string output = positional[1];
+        var arguments = FileArguments.Parse(args);
         var store = new MemoryStore();
         var pipeline = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: CookOptions.DefaultCacheFolder));
-        if (!CookAndReport(pipeline, Roots(contents), store, Reporting.FromEnvironment(false, false)))
+        if (!CookAndReport(pipeline, arguments.Roots, store, Reporting.FromEnvironment(false, false)))
         {
             return 1;
         }
 
+        return WriteAsset(store, arguments.Name, arguments.Output);
+    }
+
+    /// <summary>Writes the bytes of one cooked asset or part to a file. Fails when nothing has that name.</summary>
+    private static int WriteAsset(MemoryStore store, string name, string output)
+    {
         if (!store.Manifest.Assets.TryGetValue(name, out var entry))
         {
             var parts = store.Manifest.Assets.Keys
@@ -242,78 +132,56 @@ public static class Program
     /// <summary><c>super-cook cache</c>: shows the cache's folder and size, or clears or trims it.</summary>
     private static int Cache(string[] args)
     {
-        string? folder = null;
-        bool clear = false;
-        bool trim = false;
-        long? limit = null;
-        for (int i = 0; i < args.Length; i++)
+        var arguments = CacheArguments.Parse(args);
+        string folder = Path.GetFullPath(arguments.Folder ?? CookOptions.DefaultCacheFolder);
+        if (arguments.Clear)
         {
-            switch (args[i])
-            {
-                case "--cache":
-                    folder = Value(args, ref i);
-                    break;
-                case "--clear":
-                    clear = true;
-                    break;
-                case "--trim":
-                    trim = true;
-                    break;
-                case "--cache-limit":
-                    limit = Limit(Value(args, ref i));
-                    break;
-                default:
-                    throw new UsageException($"Unknown option {args[i]}.");
-            }
+            return ChangeCache(() => ClearCache(folder));
         }
 
-        if (clear && trim)
+        if (arguments.Trim)
         {
-            throw new UsageException("--clear and --trim can't be used together.");
+            return ChangeCache(() => TrimCache(folder, arguments.Limit));
         }
 
-        if (limit is not null && !trim)
+        ShowCache(folder);
+        return 0;
+    }
+
+    /// <summary>Runs a change to the cache. When it refuses, such as for a folder that isn't a cache, it prints why and fails.</summary>
+    private static int ChangeCache(Action change)
+    {
+        try
         {
-            throw new UsageException("--cache-limit only goes with --trim here.");
+            change();
+            return 0;
         }
-
-        folder = Path.GetFullPath(folder ?? CookOptions.DefaultCacheFolder);
-        if (clear)
+        catch (InvalidOperationException exception)
         {
-            try
-            {
-                var (files, bytes) = CacheFolder.Clear(folder);
-                Console.WriteLine($"Cleared {folder}: deleted {files} {(files == 1 ? "file" : "files")}, {CacheSize.Format(bytes)}.");
-                return 0;
-            }
-            catch (InvalidOperationException exception)
-            {
-                Console.Error.WriteLine(exception.Message);
-                return 1;
-            }
+            Console.Error.WriteLine(exception.Message);
+            return 1;
         }
+    }
 
-        if (trim)
+    private static void ClearCache(string folder)
+    {
+        var (files, bytes) = CacheFolder.Clear(folder);
+        Console.WriteLine($"Cleared {folder}: deleted {files} {(files == 1 ? "file" : "files")}, {CacheSize.Format(bytes)}.");
+    }
+
+    private static void TrimCache(string folder, long? limit)
+    {
+        var result = CacheFolder.Trim(folder, limit ?? EnvironmentLimit());
+        Console.WriteLine(result.Describe());
+        if (result.Limit > 0 && result.Size > result.Limit)
         {
-            try
-            {
-                var result = CacheFolder.Trim(folder, limit ?? EnvironmentLimit());
-                Console.WriteLine(result.Describe());
-                if (result.Limit > 0 && result.Size > result.Limit)
-                {
-                    Console.WriteLine("Files from the last two hours are kept, which covers every file used in the last hour, in case a cook is using them. "
-                        + "--clear deletes all of the cache's files.");
-                }
-
-                return 0;
-            }
-            catch (InvalidOperationException exception)
-            {
-                Console.Error.WriteLine(exception.Message);
-                return 1;
-            }
+            Console.WriteLine("Files from the last two hours are kept, which covers every file used in the last hour, in case a cook is using them. "
+                + "--clear deletes all of the cache's files.");
         }
+    }
 
+    private static void ShowCache(string folder)
+    {
         var parts = CacheFolder.Parts(folder);
         var cacheParts = parts.Where(part => part.Part != CacheFolder.NotTheCaches).ToList();
         long total = cacheParts.Sum(part => part.Size);
@@ -324,14 +192,6 @@ public static class Program
         {
             Console.WriteLine(FormattableString.Invariant($"  {part,-28} {CacheSize.Format(size),9}  {files,6} {(files == 1 ? "file" : "files")}"));
         }
-
-        return 0;
-    }
-
-    /// <summary>A size given to <c>--cache-limit</c>.</summary>
-    private static long Limit(string text)
-    {
-        return CacheSize.TryParse(text, out long bytes, out string? error) ? bytes : throw new UsageException($"--cache-limit: {error}");
     }
 
     /// <summary>
@@ -365,6 +225,12 @@ public static class Program
             return false;
         }
 
+        Report(result, reporting);
+        return result.Succeeded;
+    }
+
+    private static void Report(CookResult result, Reporting reporting)
+    {
         // Notes first, so the warnings and errors sit next to the totals. A note has no "warning" in it, so MSBuild shows it as a message.
         foreach (var note in result.Notes)
         {
@@ -396,37 +262,5 @@ public static class Program
         int errors = result.Problems.Count(problem => problem.IsError);
         Console.WriteLine(FormattableString.Invariant(
             $"Cooked {result.Cooked}, from cache {result.FromCache}, {errors} errors, in {result.Report.Elapsed.TotalSeconds:0.0} s."));
-        return result.Succeeded;
     }
-
-    private static List<FolderRoot> Roots(List<(string Folder, List<string> Only)> contents)
-    {
-        if (contents.Count == 0)
-        {
-            throw new UsageException("--content is needed at least once.");
-        }
-
-        foreach (var (folder, _) in contents)
-        {
-            if (!Directory.Exists(folder))
-            {
-                throw new UsageException($"The content folder {Path.GetFullPath(folder)} doesn't exist.");
-            }
-        }
-
-        return [.. contents.Select(content => new FolderRoot(content.Folder, content.Only))];
-    }
-
-    private static string Value(string[] args, ref int i)
-    {
-        if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
-        {
-            throw new UsageException($"{args[i]} needs a value.");
-        }
-
-        i++;
-        return args[i];
-    }
-
-    private sealed class UsageException(string message) : Exception(message);
 }

@@ -81,6 +81,28 @@ internal sealed unsafe class FullscreenPass : IDisposable
         }
 
         var api = _context.Api;
+        Begin(cmd, targets, extent);
+        api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
+        api.SetFullViewport(cmd, extent);
+        fixed (DescriptorSet* setsPtr = sets)
+        {
+            api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, (uint)sets.Length, setsPtr, 0, null);
+        }
+
+        if (_pushConstantSize > 0)
+        {
+            fixed (byte* data = constants)
+            {
+                api.CmdPushConstants(cmd, _layout, ShaderStageFlags.FragmentBit, 0, _pushConstantSize, data);
+            }
+        }
+
+        api.CmdDraw(cmd, 3, 1, 0, 0);
+        api.CmdEndRendering(cmd);
+    }
+
+    private void Begin(CommandBuffer cmd, ReadOnlySpan<ImageView> targets, Extent2D extent)
+    {
         var attachments = stackalloc RenderingAttachmentInfo[_targetCount];
         for (int i = 0; i < _targetCount; i++)
         {
@@ -104,24 +126,7 @@ internal sealed unsafe class FullscreenPass : IDisposable
             PColorAttachments = attachments,
         };
 
-        api.CmdBeginRendering(cmd, &rendering);
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
-        api.SetFullViewport(cmd, extent);
-        fixed (DescriptorSet* setsPtr = sets)
-        {
-            api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, (uint)sets.Length, setsPtr, 0, null);
-        }
-
-        if (_pushConstantSize > 0)
-        {
-            fixed (byte* data = constants)
-            {
-                api.CmdPushConstants(cmd, _layout, ShaderStageFlags.FragmentBit, 0, _pushConstantSize, data);
-            }
-        }
-
-        api.CmdDraw(cmd, 3, 1, 0, 0);
-        api.CmdEndRendering(cmd);
+        _context.Api.CmdBeginRendering(cmd, &rendering);
     }
 
     public void Dispose()

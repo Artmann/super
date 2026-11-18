@@ -63,6 +63,22 @@ internal sealed unsafe class ProbeDebugPass : IDisposable
             ImageLayout.DepthReadOnlyOptimal, ImageLayout.DepthAttachmentOptimal,
             depthStages | PipelineStageFlags2.FragmentShaderBit, depthRead | AccessFlags2.ShaderSampledReadBit, depthStages, depthAccess);
 
+        Begin(cmd, targets);
+        var sets = stackalloc DescriptorSet[] { frameSet, lightingSet };
+        api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
+        api.CmdDraw(cmd, VerticesPerSphere, spheres, 0, 0);
+        api.CmdEndRendering(cmd);
+
+        api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.DepthAttachmentOptimal, ImageLayout.DepthReadOnlyOptimal,
+            depthStages, AccessFlags2.DepthStencilAttachmentWriteBit,
+            depthStages | PipelineStageFlags2.FragmentShaderBit, depthRead | AccessFlags2.ShaderSampledReadBit);
+    }
+
+    // Begins rendering into Hdr, keeping what is there, with depth attached to test and write.
+    private void Begin(CommandBuffer cmd, GBuffer targets)
+    {
         var colorAttachment = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
@@ -89,18 +105,8 @@ internal sealed unsafe class ProbeDebugPass : IDisposable
             PDepthAttachment = &depthAttachment,
         };
 
-        api.CmdBeginRendering(cmd, &rendering);
-        api.SetFullViewport(cmd, targets.Extent);
-        var sets = stackalloc DescriptorSet[] { frameSet, lightingSet };
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        api.CmdDraw(cmd, VerticesPerSphere, spheres, 0, 0);
-        api.CmdEndRendering(cmd);
-
-        api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthAttachmentOptimal, ImageLayout.DepthReadOnlyOptimal,
-            depthStages, AccessFlags2.DepthStencilAttachmentWriteBit,
-            depthStages | PipelineStageFlags2.FragmentShaderBit, depthRead | AccessFlags2.ShaderSampledReadBit);
+        _context.Api.CmdBeginRendering(cmd, &rendering);
+        _context.Api.SetFullViewport(cmd, targets.Extent);
     }
 
     public void Dispose()

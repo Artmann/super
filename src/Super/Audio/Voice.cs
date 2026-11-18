@@ -329,56 +329,14 @@ internal sealed class Voice
         float rightSlope = (rightGain - _lastRight) / frames;
         for (int frame = 0; frame < frames; frame++)
         {
-            double move = step;
-            if (step > 0)
-            {
-                _lastStep = step;
-                if (_running < HoldRampFrames)
-                {
-                    _running++;
-                }
-            }
-            else if (_running > 0)
-            {
-                _running--;
-                move = _lastStep;
-            }
-
+            double move = Advance(step);
             if (_running > 0 && move > 0)
             {
-                long index = (long)_cursor;
-                Fetch(index);
-                if (Failure is not null)
-                {
-                    return false;
-                }
-
-                if (index >= _bufferStart + _bufferCount)
-                {
-                    return false;
-                }
-
-                float t = (float)(_cursor - index);
-                float left = Interpolate(index, 0, t);
-                float right = _channels == 2 ? Interpolate(index, 1, t) : left;
-                float gain = Volume.Value * Envelope.Value;
-                if (_running < HoldRampFrames)
-                {
-                    gain *= (float)_running / HoldRampFrames;
-                }
-
                 float leftNow = _lastLeft + leftSlope * (frame + 1);
                 float rightNow = _lastRight + rightSlope * (frame + 1);
-                if (Placed)
+                if (!MixFrame(stereo.Slice(frame * 2, 2), leftNow, rightNow))
                 {
-                    float mono = (left + right) * 0.5f * gain;
-                    stereo[frame * 2] += mono * leftNow;
-                    stereo[frame * 2 + 1] += mono * rightNow;
-                }
-                else
-                {
-                    stereo[frame * 2] += left * gain * leftNow;
-                    stereo[frame * 2 + 1] += right * gain * rightNow;
+                    return false;
                 }
 
                 _cursor += move;
@@ -394,6 +352,65 @@ internal sealed class Voice
 
         _lastLeft = leftGain;
         _lastRight = rightGain;
+        return true;
+    }
+
+    /// <summary>
+    /// How far the source moves this frame. While held (a step of 0) the voice keeps moving at its last step until
+    /// its fade-out runs down; while playing, its fade-in runs up.
+    /// </summary>
+    private double Advance(double step)
+    {
+        if (step > 0)
+        {
+            _lastStep = step;
+            _running = Math.Min(_running + 1, HoldRampFrames);
+            return step;
+        }
+
+        if (_running > 0)
+        {
+            _running--;
+            return _lastStep;
+        }
+
+        return step;
+    }
+
+    /// <summary>
+    /// Adds the sample at the cursor into one stereo frame, with the side gains it has reached. Returns false once the
+    /// clip has run out or failed.
+    /// </summary>
+    private bool MixFrame(Span<float> frame, float leftGain, float rightGain)
+    {
+        long index = (long)_cursor;
+        Fetch(index);
+        if (Failure is not null || index >= _bufferStart + _bufferCount)
+        {
+            return false;
+        }
+
+        float t = (float)(_cursor - index);
+        float left = Interpolate(index, 0, t);
+        float right = _channels == 2 ? Interpolate(index, 1, t) : left;
+        float gain = Volume.Value * Envelope.Value;
+        if (_running < HoldRampFrames)
+        {
+            gain *= (float)_running / HoldRampFrames;
+        }
+
+        if (Placed)
+        {
+            float mono = (left + right) * 0.5f * gain;
+            frame[0] += mono * leftGain;
+            frame[1] += mono * rightGain;
+        }
+        else
+        {
+            frame[0] += left * gain * leftGain;
+            frame[1] += right * gain * rightGain;
+        }
+
         return true;
     }
 

@@ -104,6 +104,22 @@ public class DecalTests
     }
 
     [Fact]
+    public void A_matrix_is_finite_only_when_all_sixteen_of_its_numbers_are()
+    {
+        Assert.True(DecalBatch.IsFinite(Matrix4x4.CreateTranslation(1f, 2f, 3f)));
+        for (int row = 0; row < 4; row++)
+        {
+            for (int column = 0; column < 4; column++)
+            {
+                var matrix = Matrix4x4.Identity;
+                matrix[row, column] = float.PositiveInfinity;
+
+                Assert.False(DecalBatch.IsFinite(matrix), $"Infinity at row {row}, column {column} was let through.");
+            }
+        }
+    }
+
+    [Fact]
     public void Decals_pack_the_inverse_box_and_the_weights()
     {
         var box = Matrix4x4.CreateScale(2f, 0.5f, 4f) * Matrix4x4.CreateTranslation(3f, -1f, 7f);

@@ -106,7 +106,7 @@ public sealed partial class Physics : ITickHook, IDisposable
         get => _system.Gravity;
         set
         {
-            if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) || !float.IsFinite(value.Z))
+            if (!Numbers.IsFinite(value))
             {
                 throw new ArgumentOutOfRangeException(nameof(value), value, "Gravity must be finite.");
             }
@@ -135,7 +135,7 @@ public sealed partial class Physics : ITickHook, IDisposable
     public void Step(float seconds)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!(seconds >= 0f) || !float.IsFinite(seconds))
+        if (!Numbers.IsZeroOrMore(seconds))
         {
             throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "A step must be a finite number of seconds, 0 or more.");
         }
@@ -201,7 +201,6 @@ public sealed partial class Physics : ITickHook, IDisposable
     /// <summary>Syncs; with <paramref name="seconds"/> above 0, moved kinematic bodies sweep there over that time.</summary>
     private void Sync(float seconds)
     {
-        var bodies = _system.BodyInterface;
         bool completed = false;
         _dynamics.Clear();
         _triggers.Clear();
@@ -209,69 +208,16 @@ public sealed partial class Physics : ITickHook, IDisposable
         {
             foreach (var row in _world.Query<Collider, Transform>())
             {
-                Entity entity = row.Entity;
-                Collider collider = row.First;
-                var settings = _world.Has<Body>(entity) ? _world.Get<Body>(entity) : Body.Kinematic;
-                bool trigger = _world.Has<Trigger>(entity);
-                bool character = _world.Has<Character>(entity);
-                uint mask = trigger ? 0u : character ? _world.Get<Character>(entity).CollidesWith : settings.CollidesWith;
-                Vector3 scale;
-                Vector3 position;
-                Quaternion rotation;
-                if (settings.Kind == BodyKind.Dynamic)
+                var wanted = Want(row.Entity, row.First, row.Second);
+                _next[wanted.Entity] = SyncBody(wanted, seconds);
+                if (wanted.Settings.Kind == BodyKind.Dynamic)
                 {
-                    CheckDynamic(entity, trigger, character);
-                    var transform = row.Second;
-                    (position, rotation, scale) = (transform.Position, transform.Rotation, transform.Scale);
-                }
-                else
-                {
-                    var matrix = ViewExtensions.WorldMatrix(_world, entity, 1f, depth: 0);
-                    if (!Matrix4x4.Decompose(matrix, out scale, out rotation, out position))
-                    {
-                        throw new InvalidOperationException($"Entity {entity.Id}'s Collider can't be placed: its Transform, or a parent's, is sheared or flattened. Check their scales.");
-                    }
+                    _dynamics.Add(wanted.Entity);
                 }
 
-                if (_bodies.TryGetValue(entity, out var tracked)
-                    && (tracked.Settings != settings
-                        || tracked.Trigger != trigger
-                        || tracked.Character != character
-                        || (settings.Kind == BodyKind.Dynamic && (tracked.Collider != collider || tracked.Scale != scale))))
+                if (wanted.Trigger)
                 {
-                    // A different kind of body, or a dynamic body's new shape, which must keep the mass asked for: build
-                    // it again, keeping a dynamic body's speed.
-                    var velocity = Vector3.Zero;
-                    var spin = Vector3.Zero;
-                    if (tracked.Settings.Kind == BodyKind.Dynamic && settings.Kind == BodyKind.Dynamic)
-                    {
-                        bodies.GetLinearAndAngularVelocity(in tracked.Body, out velocity, out spin);
-                    }
-
-                    Destroy(tracked);
-                    _bodies.Remove(entity);
-                    tracked = Create(entity, collider, settings, trigger, character, mask, scale, position, rotation);
-                    bodies.SetLinearAndAngularVelocity(in tracked.Body, in velocity, in spin);
-                }
-                else if (!_bodies.ContainsKey(entity))
-                {
-                    tracked = Create(entity, collider, settings, trigger, character, mask, scale, position, rotation);
-                }
-                else
-                {
-                    Update(entity, ref tracked, collider, mask, scale, position, rotation, seconds);
-                    _bodies.Remove(entity);
-                }
-
-                _next[entity] = tracked;
-                if (settings.Kind == BodyKind.Dynamic)
-                {
-                    _dynamics.Add(entity);
-                }
-
-                if (trigger)
-                {
-                    _triggers.Add(entity);
+                    _triggers.Add(wanted.Entity);
                 }
             }
 
@@ -310,29 +256,100 @@ public sealed partial class Physics : ITickHook, IDisposable
         (_next, _bodies) = (_bodies, _next);
     }
 
-    private void Update(Entity entity, ref TrackedBody tracked, Collider collider, uint mask, Vector3 scale, Vector3 position, Quaternion rotation, float seconds)
+    /// <summary>
+    /// The body an entity asks for this sync. A dynamic body is placed by its own Transform, since physics moves it in
+    /// the world; any other body is placed where its Transform and its parents' put it.
+    /// </summary>
+    private WantedBody Want(Entity entity, Collider collider, Transform transform)
+    {
+        var settings = _world.Has<Body>(entity) ? _world.Get<Body>(entity) : Body.Kinematic;
+        bool trigger = _world.Has<Trigger>(entity);
+        bool character = _world.Has<Character>(entity);
+        uint mask = trigger ? 0u : character ? _world.Get<Character>(entity).CollidesWith : settings.CollidesWith;
+        if (settings.Kind == BodyKind.Dynamic)
+        {
+            CheckDynamic(entity, trigger, character);
+            return new WantedBody(entity, collider, settings, trigger, character, mask, transform.Scale, transform.Position, transform.Rotation);
+        }
+
+        var matrix = ViewExtensions.WorldMatrix(_world, entity, 1f, depth: 0);
+        if (!Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var position))
+        {
+            throw new InvalidOperationException($"Entity {entity.Id}'s Collider can't be placed: its Transform, or a parent's, is sheared or flattened. Check their scales.");
+        }
+
+        return new WantedBody(entity, collider, settings, trigger, character, mask, scale, position, rotation);
+    }
+
+    /// <summary>Creates, rebuilds or updates the entity's body, and takes it out of the bodies the sync hasn't met yet.</summary>
+    private TrackedBody SyncBody(in WantedBody wanted, float seconds)
+    {
+        if (!_bodies.TryGetValue(wanted.Entity, out var tracked))
+        {
+            return Create(wanted);
+        }
+
+        if (wanted.NeedsRebuild(tracked))
+        {
+            return Rebuild(tracked, wanted);
+        }
+
+        Update(ref tracked, wanted, seconds);
+        _bodies.Remove(wanted.Entity);
+        return tracked;
+    }
+
+    /// <summary>Builds the body again, keeping a dynamic body's speed.</summary>
+    private TrackedBody Rebuild(in TrackedBody old, in WantedBody wanted)
     {
         var bodies = _system.BodyInterface;
-        bool dynamic = tracked.Settings.Kind == BodyKind.Dynamic;
-        if (tracked.Collider != collider || tracked.Scale != scale)
+        var velocity = Vector3.Zero;
+        var spin = Vector3.Zero;
+        if (old.Settings.Kind == BodyKind.Dynamic && wanted.Settings.Kind == BodyKind.Dynamic)
         {
-            ColliderShapes.Check($"Entity {entity.Id}'s Collider", collider);
-            using var shape = ColliderShapes.Make(collider, scale);
+            bodies.GetLinearAndAngularVelocity(in old.Body, out velocity, out spin);
+        }
+
+        Destroy(old);
+        _bodies.Remove(wanted.Entity);
+        var tracked = Create(wanted);
+        bodies.SetLinearAndAngularVelocity(in tracked.Body, in velocity, in spin);
+        return tracked;
+    }
+
+    private void Update(ref TrackedBody tracked, in WantedBody wanted, float seconds)
+    {
+        var bodies = _system.BodyInterface;
+        var collider = wanted.Collider;
+        if (tracked.Collider != collider || tracked.Scale != wanted.Scale)
+        {
+            ColliderShapes.Check($"Entity {wanted.Entity.Id}'s Collider", collider);
+            using var shape = ColliderShapes.Make(collider, wanted.Scale);
             bodies.SetShape(in tracked.Body, shape, false, Activation.DontActivate);
 
             tracked.Collider = collider;
-            tracked.Scale = scale;
+            tracked.Scale = wanted.Scale;
         }
 
-        if (tracked.Collider.Layers != collider.Layers || tracked.Mask != mask)
+        if (tracked.Collider.Layers != collider.Layers || tracked.Mask != wanted.Mask)
         {
-            var layer = Layer(collider.Layers, mask);
+            var layer = Layer(collider.Layers, wanted.Mask);
             bodies.SetObjectLayer(in tracked.Body, in layer);
-            tracked.Mask = mask;
+            tracked.Mask = wanted.Mask;
         }
 
+        Place(ref tracked, wanted.Position, wanted.Rotation, seconds);
+    }
+
+    /// <summary>
+    /// Moves the body to the entity's place. A kinematic body sweeps there over <paramref name="seconds"/> so it
+    /// pushes what's in its way; any other body jumps there.
+    /// </summary>
+    private void Place(ref TrackedBody tracked, Vector3 position, Quaternion rotation, float seconds)
+    {
+        var bodies = _system.BodyInterface;
         bool moved = tracked.Position != position || tracked.Rotation != rotation;
-        if (dynamic)
+        if (tracked.Settings.Kind == BodyKind.Dynamic)
         {
             // Physics wrote this Transform last step; if the game changed it since, the body jumps there.
             if (moved)
@@ -347,37 +364,45 @@ public sealed partial class Physics : ITickHook, IDisposable
                 bodies.MoveKinematic(in tracked.Body, in position, in rotation, seconds);
                 tracked.Moving = true;
             }
-            else if (tracked.Moving)
+            else
             {
-                var still = Vector3.Zero;
-                bodies.SetLinearAndAngularVelocity(in tracked.Body, in still, in still);
-                tracked.Moving = false;
+                Stop(ref tracked);
             }
         }
         else if (moved)
         {
             bodies.SetPositionAndRotation(in tracked.Body, in position, in rotation, Activation.DontActivate);
-            if (tracked.Moving)
-            {
-                var still = Vector3.Zero;
-                bodies.SetLinearAndAngularVelocity(in tracked.Body, in still, in still);
-                tracked.Moving = false;
-            }
+            Stop(ref tracked);
         }
 
         tracked.Position = position;
         tracked.Rotation = rotation;
     }
 
-    private TrackedBody Create(Entity entity, Collider collider, Body body, bool trigger, bool character, uint mask, Vector3 scale, Vector3 position, Quaternion rotation)
+    /// <summary>Stops a kinematic body that was sweeping last sync.</summary>
+    private void Stop(ref TrackedBody tracked)
     {
-        BodySetup.Check(entity, collider, body);
-        using var shape = ColliderShapes.Make(collider, scale);
-        using var settings = new BodyCreationSettings(shape, in position, in rotation, BodySetup.Motion(body.Kind), Layer(collider.Layers, mask))
+        if (!tracked.Moving)
+        {
+            return;
+        }
+
+        var still = Vector3.Zero;
+        _system.BodyInterface.SetLinearAndAngularVelocity(in tracked.Body, in still, in still);
+        tracked.Moving = false;
+    }
+
+    private TrackedBody Create(in WantedBody wanted)
+    {
+        var body = wanted.Settings;
+        BodySetup.Check(wanted.Entity, wanted.Collider, body);
+        using var shape = ColliderShapes.Make(wanted.Collider, wanted.Scale);
+        using var settings = new BodyCreationSettings(
+            shape, wanted.Position, wanted.Rotation, BodySetup.Motion(body.Kind), Layer(wanted.Collider.Layers, wanted.Mask))
         {
             Friction = body.Friction,
             Restitution = body.Bounciness,
-            IsSensor = trigger,
+            IsSensor = wanted.Trigger,
         };
         if (body.Kind == BodyKind.Dynamic)
         {
@@ -387,24 +412,24 @@ public sealed partial class Physics : ITickHook, IDisposable
         var handle = _system.BodyInterface.CreateBody(settings);
         if (handle is null || handle.ID.IsInvalid)
         {
-            throw new InvalidOperationException($"Entity {entity.Id}'s Collider couldn't be added: there are already {_owners.Count} colliders, and {MaxBodies} is the most.");
+            throw new InvalidOperationException($"Entity {wanted.Entity.Id}'s Collider couldn't be added: there are already {_owners.Count} colliders, and {MaxBodies} is the most.");
         }
 
         var id = handle.ID;
         _system.BodyInterface.AddBody(in id, body.Kind == BodyKind.Dynamic ? Activation.Activate : Activation.DontActivate);
-        _owners[id.ID] = entity;
+        _owners[id.ID] = wanted.Entity;
         return new TrackedBody
         {
             Body = id,
             Handle = handle,
-            Collider = collider,
+            Collider = wanted.Collider,
             Settings = body,
-            Trigger = trigger,
-            Character = character,
-            Mask = mask,
-            Scale = scale,
-            Position = position,
-            Rotation = rotation,
+            Trigger = wanted.Trigger,
+            Character = wanted.Character,
+            Mask = wanted.Mask,
+            Scale = wanted.Scale,
+            Position = wanted.Position,
+            Rotation = wanted.Rotation,
         };
     }
 

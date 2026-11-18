@@ -237,15 +237,7 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
         {
             for (int i = 0; i < images.Length; i++)
             {
-                writes[i] = new WriteDescriptorSet
-                {
-                    SType = StructureType.WriteDescriptorSet,
-                    DstSet = set,
-                    DstBinding = (uint)i,
-                    DescriptorCount = 1,
-                    DescriptorType = DescriptorType.CombinedImageSampler,
-                    PImageInfo = &imagesPtr[i],
-                };
+                writes[i] = Descriptors.ImageWrite(set, (uint)i, DescriptorType.CombinedImageSampler, &imagesPtr[i]);
             }
 
             _context.Api.UpdateDescriptorSets(_context.Device, (uint)images.Length, writes, 0, null);

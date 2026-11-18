@@ -44,7 +44,7 @@ internal static class BodySetup
             throw new ArgumentOutOfRangeException(nameof(body), body.CollidesWith, $"Entity {entity.Id}'s Body collides with layers {body.CollidesWith}; layers are bits 0 to 15.");
         }
 
-        if (!(body.Friction >= 0f) || !float.IsFinite(body.Friction))
+        if (!Numbers.IsZeroOrMore(body.Friction))
         {
             throw new ArgumentOutOfRangeException(nameof(body), body.Friction, $"Entity {entity.Id}'s Body has friction {body.Friction}; it must be 0 or more.");
         }
@@ -59,12 +59,12 @@ internal static class BodySetup
             return;
         }
 
-        if (!(body.Mass > 0f) || !float.IsFinite(body.Mass))
+        if (!Numbers.IsAboveZero(body.Mass))
         {
             throw new ArgumentOutOfRangeException(nameof(body), body.Mass, $"Entity {entity.Id}'s Body has mass {body.Mass}; it must be above 0.");
         }
 
-        if (!(body.Drag >= 0f) || !float.IsFinite(body.Drag) || !(body.AngularDrag >= 0f) || !float.IsFinite(body.AngularDrag))
+        if (!Numbers.IsZeroOrMore(body.Drag) || !Numbers.IsZeroOrMore(body.AngularDrag))
         {
             throw new ArgumentOutOfRangeException(nameof(body), body.Drag, $"Entity {entity.Id}'s Body has drag {body.Drag} and angular drag {body.AngularDrag}; both must be 0 or more.");
         }

@@ -74,6 +74,11 @@ internal sealed class CookDurations
             }
         }
 
+        Write();
+    }
+
+    private void Write()
+    {
         // Written beside it and moved over it, so a cook that stops halfway, or another cook reading it, never sees half a file.
         string path = Path.Combine(_folder, FileName);
         string temporary = Path.Combine(_folder, $"{FileName}.{Guid.NewGuid():N}.tmp");

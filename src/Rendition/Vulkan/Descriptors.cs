@@ -124,6 +124,18 @@ internal static unsafe class Descriptors
         PBufferInfo = info,
     };
 
+    /// <summary>A write of one acceleration structure into a set's binding. <paramref name="info"/> names the structure.</summary>
+    public static WriteDescriptorSet StructureWrite(
+        DescriptorSet set, uint binding, WriteDescriptorSetAccelerationStructureKHR* info) => new()
+    {
+        SType = StructureType.WriteDescriptorSet,
+        PNext = info,
+        DstSet = set,
+        DstBinding = binding,
+        DescriptorCount = 1,
+        DescriptorType = DescriptorType.AccelerationStructureKhr,
+    };
+
     /// <summary>Makes a pipeline layout over these set layouts, with a push constant range when one is given.</summary>
     public static PipelineLayout CreatePipelineLayout(
         this VulkanContext context, ReadOnlySpan<DescriptorSetLayout> setLayouts, PushConstantRange? pushRange = null)

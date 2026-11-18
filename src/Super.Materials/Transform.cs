@@ -239,6 +239,22 @@ sealed class SplatterNode : Node
     {
         var size = context.Size;
         var source = inputs[0];
+        var stamps = MakeStamps();
+
+        // Each row goes through the stamps in order, so every pixel combines them in the same order on any thread.
+        context.Rows(y =>
+        {
+            Array.Clear(output, y * size, size);
+
+            foreach (var stamp in stamps)
+            {
+                DrawRow(stamp, source, output, y, size);
+            }
+        });
+    }
+
+    Stamp[] MakeStamps()
+    {
         var stamps = new Stamp[_count];
 
         for (var i = 0; i < _count; i++)
@@ -254,52 +270,56 @@ sealed class SplatterNode : Node
             stamps[i] = new Stamp(Hash.Unit(Seed, i, 0), Hash.Unit(Seed, i, 1), width, cos, sin, reach);
         }
 
-        // Each row goes through the stamps in order, so every pixel combines them in the same order on any thread.
-        context.Rows(y =>
-        {
-            var row = y * size;
-            var v = (y + 0.5f) / size;
-
-            Array.Clear(output, row, size);
-
-            foreach (var stamp in stamps)
-            {
-                var dv = v - stamp.Y;
-
-                dv -= MathF.Round(dv);
-
-                if (MathF.Abs(dv) > stamp.Reach)
-                {
-                    continue;
-                }
-
-                var first = (int)MathF.Floor((stamp.X - stamp.Reach) * size - 0.5f);
-                var last = Math.Min((int)MathF.Ceiling((stamp.X + stamp.Reach) * size - 0.5f), first + size - 1);
-
-                for (var i = first; i <= last; i++)
-                {
-                    var x = Sampling.Wrap(i, size);
-                    var du = (x + 0.5f) / size - stamp.X;
-
-                    du -= MathF.Round(du);
-
-                    // Turned back into the stamp, where 0 to 1 is the whole source image.
-                    var lu = (stamp.Cos * du + stamp.Sin * dv) / stamp.Width + 0.5f;
-                    var lv = (stamp.Cos * dv - stamp.Sin * du) / stamp.Width + 0.5f;
-
-                    if (lu < 0f || lu > 1f || lv < 0f || lv > 1f)
-                    {
-                        continue;
-                    }
-
-                    // Clamped, not wrapped: a stamp's edge must not blend in the far edge of the image.
-                    var value = Sampling.BilinearClamped(source, size, lu, lv);
-
-                    output[row + x] = BlendNode.Combine(_mode, output[row + x], value);
-                }
-            }
-        });
+        return stamps;
     }
 
-    readonly record struct Stamp(float X, float Y, float Width, float Cos, float Sin, float Reach);
+    /// <summary>Blends one stamp into row <paramref name="y"/> of the output, where it covers the row.</summary>
+    void DrawRow(Stamp stamp, float[] source, float[] output, int y, int size)
+    {
+        var row = y * size;
+        var dv = (y + 0.5f) / size - stamp.Y;
+
+        dv -= MathF.Round(dv);
+
+        if (MathF.Abs(dv) > stamp.Reach)
+        {
+            return;
+        }
+
+        var first = (int)MathF.Floor((stamp.X - stamp.Reach) * size - 0.5f);
+        var last = Math.Min((int)MathF.Ceiling((stamp.X + stamp.Reach) * size - 0.5f), first + size - 1);
+
+        for (var i = first; i <= last; i++)
+        {
+            var x = Sampling.Wrap(i, size);
+            var du = (x + 0.5f) / size - stamp.X;
+
+            du -= MathF.Round(du);
+
+            if (stamp.Inside(du, dv) is not var (lu, lv))
+            {
+                continue;
+            }
+
+            // Clamped, not wrapped: a stamp's edge must not blend in the far edge of the image.
+            var value = Sampling.BilinearClamped(source, size, lu, lv);
+
+            output[row + x] = BlendNode.Combine(_mode, output[row + x], value);
+        }
+    }
+
+    readonly record struct Stamp(float X, float Y, float Width, float Cos, float Sin, float Reach)
+    {
+        /// <summary>
+        /// The point at this offset from the stamp's centre, turned back into the stamp, where 0 to 1 is the whole
+        /// source image; null when it's outside the stamp.
+        /// </summary>
+        public (float U, float V)? Inside(float du, float dv)
+        {
+            var lu = (Cos * du + Sin * dv) / Width + 0.5f;
+            var lv = (Cos * dv - Sin * du) / Width + 0.5f;
+
+            return lu < 0f || lu > 1f || lv < 0f || lv > 1f ? null : (lu, lv);
+        }
+    }
 }

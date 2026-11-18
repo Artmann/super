@@ -99,33 +99,9 @@ internal sealed unsafe class TraceDebugPass : IDisposable
         var imageInfo = new DescriptorImageInfo(default, target, ImageLayout.General);
         var writes = stackalloc WriteDescriptorSet[]
         {
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                PNext = &structureInfo,
-                DstSet = set,
-                DstBinding = 0,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.AccelerationStructureKhr,
-            },
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = set,
-                DstBinding = 1,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.StorageBuffer,
-                PBufferInfo = &tableInfo,
-            },
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = set,
-                DstBinding = 2,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.StorageImage,
-                PImageInfo = &imageInfo,
-            },
+            Descriptors.StructureWrite(set, 0, &structureInfo),
+            Descriptors.BufferWrite(set, 1, &tableInfo),
+            Descriptors.ImageWrite(set, 2, DescriptorType.StorageImage, &imageInfo),
         };
         _context.Api.UpdateDescriptorSets(_context.Device, 3, writes, 0, null);
     }

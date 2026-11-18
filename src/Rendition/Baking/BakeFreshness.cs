@@ -202,8 +202,9 @@ public sealed class BakeFrame
         SpaceFade = fresh ? fade : 0f;
     }
 
-    internal void AddChunk(BakeInputs inputs, bool fresh, bool pending, string file, int staticDraws, float fade)
+    internal void AddChunk(BakeInputs inputs, string file, int staticDraws, ChunkBakeState state)
     {
+        var (fresh, pending, fade) = state;
         _chunks.Add(inputs);
         _chunkFresh.Add(fresh);
         _chunkPending.Add(pending);
@@ -322,3 +323,6 @@ public static class BakeFreshness
         return buffer.AsSpan(0, kept);
     }
 }
+
+/// <summary>Where a chunk's bake is this frame: fresh and on the GPU, fresh but still on its way, and how far it has faded in.</summary>
+internal readonly record struct ChunkBakeState(bool Fresh, bool Pending, float Fade);

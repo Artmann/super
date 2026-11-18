@@ -617,88 +617,34 @@ public static partial class Shapes
                 return;
             }
 
-            float longest = 0f;
-            double area = 0.0;
-            foreach (var chart in _charts)
-            {
-                longest = MathF.Max(longest, MathF.Max(chart.Extent.X, chart.Extent.Y));
-                area += (double)chart.Extent.X * chart.Extent.Y;
-            }
-
-            var rectangles = new (int Width, int Height)[_charts.Count];
-            var places = new (int X, int Y)[_charts.Count];
+            var packing = new ChartPacking([.. _charts.Select(chart => chart.Extent)]);
             for (int size = LightmapUnwrap.ReferenceSize; size <= LightmapUnwrap.LargestSize; size *= 2)
             {
-                // A chart's rectangle is its extent in texels rounded up plus one, so the longest
-                // fits the page when it's no more than size - 1 texels long; a little less keeps
-                // rounding from pushing it over.
-                double most = longest > 0f ? (size - 1.5) / longest : 1.0;
-                double fits = most;
-                if (!Fits(most, size))
+                if (packing.BestScale(size) is { } fits)
                 {
-                    double least = most * 1e-6;
-                    if (!Fits(least, size))
-                    {
-                        continue;
-                    }
-
-                    // The largest scale that fits, between one that fits and one that doesn't, to a
-                    // thousandth, far below a texel. Each rectangle is larger than its chart, so at the
-                    // scale where the charts alone would cover the page they can't fit, which starts
-                    // the search close.
-                    double fails = area > 0.0 ? Math.Min(most, Math.Sqrt((double)size * size / area)) : most;
-                    fits = least;
-                    while (fails / fits >= 1.001)
-                    {
-                        double middle = (fits + fails) * 0.5;
-                        if (Fits(middle, size))
-                        {
-                            fits = middle;
-                        }
-                        else
-                        {
-                            fails = middle;
-                        }
-                    }
-
-                    // Packs again at the scale kept, since the last try may have been one that failed,
-                    // so rectangles and places below are this scale's.
-                    Fits(fits, size);
+                    SetLightmapUvs(packing, fits, size);
+                    return;
                 }
-
-                for (int i = 0; i < _charts.Count; i++)
-                {
-                    var chart = _charts[i];
-                    double left = places[i].X + (rectangles[i].Width - chart.Extent.X * fits) * 0.5;
-                    double top = places[i].Y + (rectangles[i].Height - chart.Extent.Y * fits) * 0.5;
-                    for (int k = 0; k < chart.Layout.Length; k++)
-                    {
-                        double u = (left + chart.Layout[k].X * fits) / size;
-                        double v = (top + chart.Layout[k].Y * fits) / size;
-                        _vertices[chart.Start + k] = _vertices[chart.Start + k] with { Uv2 = new Vector2((float)u, (float)v) };
-                    }
-                }
-
-                return;
             }
 
             throw new InvalidOperationException(
                 $"The shape's {_charts.Count} lightmap charts don't fit a {LightmapUnwrap.LargestSize}-texel page with a {LightmapUnwrap.Gutter}-texel gutter, even at their smallest.");
+        }
 
-            // Sizes each chart's rectangle at this many texels per metre, its extent rounded up
-            // plus one, so at least one texel a side, and packs them; whether they all fit.
-            bool Fits(double texelsPerMetre, int size)
+        /// <summary>Sets each chart's vertices' <see cref="Vertex.Uv2"/>, centred in its packed rectangle.</summary>
+        private void SetLightmapUvs(ChartPacking packing, double fits, int size)
+        {
+            for (int i = 0; i < _charts.Count; i++)
             {
-                for (int i = 0; i < _charts.Count; i++)
+                var chart = _charts[i];
+                var (left, top) = packing.Corner(i, fits);
+                for (int k = 0; k < chart.Layout.Length; k++)
                 {
-                    var extent = _charts[i].Extent;
-                    rectangles[i] = (Side(extent.X * texelsPerMetre), Side(extent.Y * texelsPerMetre));
+                    double u = (left + chart.Layout[k].X * fits) / size;
+                    double v = (top + chart.Layout[k].Y * fits) / size;
+                    _vertices[chart.Start + k] = _vertices[chart.Start + k] with { Uv2 = new Vector2((float)u, (float)v) };
                 }
-
-                return SkylinePacker.TryPack(rectangles, size, size, LightmapUnwrap.Gutter, places);
             }
-
-            static int Side(double texels) => (int)Math.Ceiling(texels) + 1;
         }
 
         private static (float Sin, float Cos) Around(int step, int steps) => SinCos(2f * MathF.PI * step / steps);

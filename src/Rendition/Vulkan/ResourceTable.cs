@@ -165,9 +165,32 @@ internal sealed unsafe class ResourceTable : IDisposable
         var properties11 = new PhysicalDeviceVulkan11Properties { SType = StructureType.PhysicalDeviceVulkan11Properties };
         var properties2 = new PhysicalDeviceProperties2 { SType = StructureType.PhysicalDeviceProperties2, PNext = &properties11 };
         api.GetPhysicalDeviceProperties2(context.PhysicalDevice, &properties2);
-        var properties = properties2.Properties;
         MaxTextures = TexturesFor(properties11.MaxPerSetDescriptors);
         _textureDying = new bool[MaxTextures];
+        (_sampler, _edgeSampler) = CreateSamplers(context, properties2.Properties.Limits.MaxSamplerAnisotropy);
+        Layout = CreateLayout(context, MaxTextures);
+        _pool = context.CreateDescriptorPool(
+            DescriptorPoolCreateFlags.UpdateAfterBindBit,
+            1,
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, MaxTextures + MaxTextureArrays),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, 1));
+        Set = context.AllocateSet(_pool, Layout);
+
+        ulong materialsSize = (ulong)(MaxMaterials * sizeof(GpuMaterial));
+        _materials = GpuBuffer.CreateHostVisible(context, materialsSize, BufferUsageFlags.StorageBufferBit);
+        var bufferInfo = new DescriptorBufferInfo(_materials.Handle, 0, materialsSize);
+        var write = Descriptors.BufferWrite(Set, 1, &bufferInfo);
+        api.UpdateDescriptorSets(context.Device, 1, &write, 0, null);
+
+        _white = AddTexture(SolidTexture(255, 255, 255));
+        _flatNormal = AddTexture(SolidTexture(128, 128, 255));
+        _grey = AddTexture(SolidTexture(128, 128, 128));
+        _whiteArray = AddTextureArray(new GpuTexture(context, [SolidTexture(255, 255, 255)]));
+    }
+
+    // Trilinear, anisotropic samplers: one that repeats past the edges, and one that clamps to them.
+    private static (Sampler Repeat, Sampler Clamp) CreateSamplers(VulkanContext context, float maxAnisotropy)
+    {
         var samplerInfo = new SamplerCreateInfo
         {
             SType = StructureType.SamplerCreateInfo,
@@ -178,18 +201,23 @@ internal sealed unsafe class ResourceTable : IDisposable
             AddressModeV = SamplerAddressMode.Repeat,
             AddressModeW = SamplerAddressMode.Repeat,
             AnisotropyEnable = true,
-            MaxAnisotropy = Math.Min(16f, properties.Limits.MaxSamplerAnisotropy),
+            MaxAnisotropy = Math.Min(16f, maxAnisotropy),
             MaxLod = Vk.LodClampNone,
         };
-        api.CreateSampler(context.Device, &samplerInfo, null, out _sampler).Check();
+        context.Api.CreateSampler(context.Device, &samplerInfo, null, out var repeat).Check();
         samplerInfo.AddressModeU = SamplerAddressMode.ClampToEdge;
         samplerInfo.AddressModeV = SamplerAddressMode.ClampToEdge;
         samplerInfo.AddressModeW = SamplerAddressMode.ClampToEdge;
-        api.CreateSampler(context.Device, &samplerInfo, null, out _edgeSampler).Check();
+        context.Api.CreateSampler(context.Device, &samplerInfo, null, out var clamp).Check();
+        return (repeat, clamp);
+    }
 
+    // The table's set layout: the textures, the materials' buffer and the texture arrays.
+    private static DescriptorSetLayout CreateLayout(VulkanContext context, uint maxTextures)
+    {
         var bindings = stackalloc DescriptorSetLayoutBinding[]
         {
-            new(0, DescriptorType.CombinedImageSampler, MaxTextures, Stages),
+            new(0, DescriptorType.CombinedImageSampler, maxTextures, Stages),
             new(1, DescriptorType.StorageBuffer, 1, Stages),
             new(2, DescriptorType.CombinedImageSampler, MaxTextureArrays, Stages),
         };
@@ -216,33 +244,8 @@ internal sealed unsafe class ResourceTable : IDisposable
             BindingCount = 3,
             PBindings = bindings,
         };
-        api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out Layout).Check();
-
-        _pool = context.CreateDescriptorPool(
-            DescriptorPoolCreateFlags.UpdateAfterBindBit,
-            1,
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, MaxTextures + MaxTextureArrays),
-            new DescriptorPoolSize(DescriptorType.StorageBuffer, 1));
-        Set = context.AllocateSet(_pool, Layout);
-
-        ulong materialsSize = (ulong)(MaxMaterials * sizeof(GpuMaterial));
-        _materials = GpuBuffer.CreateHostVisible(context, materialsSize, BufferUsageFlags.StorageBufferBit);
-        var bufferInfo = new DescriptorBufferInfo(_materials.Handle, 0, materialsSize);
-        var write = new WriteDescriptorSet
-        {
-            SType = StructureType.WriteDescriptorSet,
-            DstSet = Set,
-            DstBinding = 1,
-            DescriptorCount = 1,
-            DescriptorType = DescriptorType.StorageBuffer,
-            PBufferInfo = &bufferInfo,
-        };
-        api.UpdateDescriptorSets(context.Device, 1, &write, 0, null);
-
-        _white = AddTexture(SolidTexture(255, 255, 255));
-        _flatNormal = AddTexture(SolidTexture(128, 128, 255));
-        _grey = AddTexture(SolidTexture(128, 128, 128));
-        _whiteArray = AddTextureArray(new GpuTexture(context, [SolidTexture(255, 255, 255)]));
+        context.Api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out var layout).Check();
+        return layout;
     }
 
     public MaterialFlags GetFlags(MaterialHandle material) => _materialFlags[material.Index];
@@ -524,7 +527,43 @@ internal sealed unsafe class ResourceTable : IDisposable
     private void WriteMaterial(int index, in Material material)
     {
         ref var gpu = ref ((GpuMaterial*)_materials.Mapped)[index];
-        gpu = new GpuMaterial
+        gpu = ToGpu(material);
+        for (int i = 0; i < ShaderTextures.Length; i++)
+        {
+            gpu.ShaderTextures[i] = (uint)(material.ShaderTextures[i] ?? _white).Index;
+            gpu.ShaderArrays[i] = (uint)(material.ShaderArrays[i] ?? _whiteArray).Index;
+        }
+
+        _materialFlags[index] = material.Flags;
+        _materialShaders[index] = material.Shader?.Index ?? 0;
+        _materialCutouts[index] = material.AlphaCutoff > 0f;
+        _materialWind[index] = Sway(material);
+        _materialFade[index] = material.Fade;
+        _materialGlows[index] = material.Emissive.X > 0f || material.Emissive.Y > 0f || material.Emissive.Z > 0f;
+        _materialSubsurface[index] = material.Subsurface.IsOn;
+
+        var owned = _materialTextures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);
+        owned[0] = material.BaseColorTexture?.Index ?? -1;
+        owned[1] = material.NormalTexture?.Index ?? -1;
+        owned[2] = material.SurfaceTexture?.Index ?? -1;
+        owned[3] = material.EmissiveTexture?.Index ?? -1;
+        owned[4] = material.HeightTexture?.Index ?? -1;
+        owned[5] = material.DetailColorTexture?.Index ?? -1;
+        owned[6] = material.DetailNormalTexture?.Index ?? -1;
+        owned[7] = material.MaskTexture?.Index ?? -1;
+        owned[8] = material.OcclusionTexture?.Index ?? -1;
+        owned[9] = WriteToon(ref gpu, material.Toon);
+        for (int i = 0; i < ShaderTextures.Length; i++)
+        {
+            owned[OwnTextures + i] = material.ShaderTextures[i]?.Index ?? -1;
+        }
+    }
+
+    // The material as the shaders read it, with the table's plain textures where it has none, but without its shader
+    // textures and toon shading, which WriteMaterial adds.
+    private GpuMaterial ToGpu(in Material material)
+    {
+        return new GpuMaterial
         {
             BaseColor = material.BaseColor,
             Metallic = material.Metallic,
@@ -556,36 +595,6 @@ internal sealed unsafe class ResourceTable : IDisposable
             Dirt = Layer(material.Dirt, material.MaskTexture is not null),
             SoftEdge = float.IsFinite(material.SoftEdge) ? MathF.Max(material.SoftEdge, 0f) : 0f,
         };
-        for (int i = 0; i < ShaderTextures.Length; i++)
-        {
-            gpu.ShaderTextures[i] = (uint)(material.ShaderTextures[i] ?? _white).Index;
-            gpu.ShaderArrays[i] = (uint)(material.ShaderArrays[i] ?? _whiteArray).Index;
-        }
-
-        _materialFlags[index] = material.Flags;
-        _materialShaders[index] = material.Shader?.Index ?? 0;
-        _materialCutouts[index] = material.AlphaCutoff > 0f;
-        _materialWind[index] = Sway(material);
-        _materialFade[index] = material.Fade;
-        _materialGlows[index] = material.Emissive.X > 0f || material.Emissive.Y > 0f || material.Emissive.Z > 0f;
-        _materialSubsurface[index] = material.Subsurface.IsOn;
-
-        var owned = _materialTextures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);
-        owned[0] = material.BaseColorTexture?.Index ?? -1;
-        owned[1] = material.NormalTexture?.Index ?? -1;
-        owned[2] = material.SurfaceTexture?.Index ?? -1;
-        owned[3] = material.EmissiveTexture?.Index ?? -1;
-        owned[4] = material.HeightTexture?.Index ?? -1;
-        owned[5] = material.DetailColorTexture?.Index ?? -1;
-        owned[6] = material.DetailNormalTexture?.Index ?? -1;
-        owned[7] = material.MaskTexture?.Index ?? -1;
-        owned[8] = material.OcclusionTexture?.Index ?? -1;
-        owned[9] = WriteToon(ref gpu, material.Toon);
-        for (int i = 0; i < ShaderTextures.Length; i++)
-        {
-            owned[OwnTextures + i] = material.ShaderTextures[i]?.Index ?? -1;
-        }
-
     }
 
     // A toon material's flag, bands or ramp, and rim, and the ramp's texture slot for the material's own, -1 for none.

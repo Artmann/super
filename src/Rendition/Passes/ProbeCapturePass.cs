@@ -110,15 +110,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
         var writes = stackalloc WriteDescriptorSet[3];
         for (int i = 0; i < 3; i++)
         {
-            writes[i] = new WriteDescriptorSet
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = _set,
-                DstBinding = targets[i],
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                PImageInfo = &infos[i],
-            };
+            writes[i] = Descriptors.ImageWrite(_set, targets[i], DescriptorType.CombinedImageSampler, &infos[i]);
         }
 
         _context.Api.UpdateDescriptorSets(_context.Device, 3, writes, 0, null);
@@ -192,17 +184,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
 
         var api = _context.Api;
         uint layers = (uint)probes * 6;
-
-        // The last fold may still be reading the faces.
-        api.Transition(cmd, volume.FacesImage, ImageAspectFlags.ColorBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.ColorAttachmentOptimal,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit, layerCount: layers);
-        api.Transition(cmd, volume.FacesDepthImage, ImageAspectFlags.DepthBit,
-            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal,
-            PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit, AccessFlags2.DepthStencilAttachmentWriteBit,
-            PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit,
-            AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.DepthStencilAttachmentWriteBit, layerCount: layers);
+        ReadyFaces(cmd, volume, layers);
 
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _set };
         int[] order = System.Buffers.ArrayPool<int>.Shared.Rent(Math.Max(_kept.Count, 1));
@@ -231,6 +213,21 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
             PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit, layerCount: layers);
+    }
+
+    // Makes the first `layers` faces ready to draw into, colour and depth. The last fold may still be reading them.
+    private void ReadyFaces(CommandBuffer cmd, ProbeVolume volume, uint layers)
+    {
+        var api = _context.Api;
+        api.Transition(cmd, volume.FacesImage, ImageAspectFlags.ColorBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.ColorAttachmentOptimal,
+            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
+            PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit, layerCount: layers);
+        api.Transition(cmd, volume.FacesDepthImage, ImageAspectFlags.DepthBit,
+            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal,
+            PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit, AccessFlags2.DepthStencilAttachmentWriteBit,
+            PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit,
+            AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.DepthStencilAttachmentWriteBit, layerCount: layers);
     }
 
     public void Dispose()

@@ -482,7 +482,7 @@ first exception out of the loop is rethrown as itself, not as an `AggregateExcep
 `CookPipeline.InUse` still recognises a locked file. An `ICookedStore` is called from several
 workers at once. `StoreWriter` holds a lock per hash, so two workers never write the same
 object at once, and an object already in the store isn't made twice. `CookCache` guards its
-hash memo with a lock and writes each object under a lock of its own.
+hash memo (`FileHashes`) with a lock and writes each object under a lock of its own.
 
 The workers take the sources in a start order rather than by name, so a big model doesn't start
 last and cook alone at the end while the other workers sit idle. After each cook
@@ -495,6 +495,15 @@ then by file size, biggest first, and then the timed ones, slowest first. Ties k
 order. Without a cache folder there are no timings and only rank and size count. Past 20,000
 timed sources, those the last cook didn't time are dropped. The order changes only which
 source starts when: the results still merge in source order.
+
+`ModelCooker` cooks a model, or each of its parts, in steps of their own, which share a
+`ModelCook` (the input, the output, the part's message prefix, the settings, the textures and
+the graph runs). `ModelReader` reads the file with Assimp: the rig or the flattened scene, the
+embedded images, the materials (`ImportedMaterials`, each one by `MaterialImporter`, with
+`MaterialExtras` for its shader, toon, occlusion, wear and dirt), the meshes laid end to end
+(`ModelMeshes`) and the clips, and turns and scales the vertices. Then `LightmapUvs` settles
+the second UV set, `ModelMasks` bakes the masks, and `ModelCooker` checks the materials,
+compresses the textures and writes the model.
 
 Inside one model the slow steps also overlap. Before its materials are read, the models
 cooker runs the graphs they will ask for, three materials at a time
@@ -510,7 +519,7 @@ idle.
 All of that is bounded for the whole process, not per model: at most half the processors,
 from 2 to 8, run a graph at once (`MaterialGraphs.RunsAtOnce`, taken around `GraphRunner.Run`
 only, never while waiting for a shared run, which would deadlock) and as many bake masks
-(`ModelCooker.BakesAtOnce`). Most of the memory a cook took was garbage, though: the large
+(`ModelMasks.BakesAtOnce`). Most of the memory a cook took was garbage, though: the large
 object heap grew with the images workers dropped, and a cold cook of the whole Courtyard
 peaked at 9 to 15 GB from run to run. `super-cook` sets `System.GC.ConserveMemory` to 7, so
 the collector compacts that heap, and the same cook peaks near 6 GB in the same time. Lower
@@ -607,7 +616,7 @@ removes only the folders it left empty. That keeps `--cache` pointed at the wron
 from deleting it, except a content folder, whose `objects` are named as the cache's are, so
 both refuse a folder holding a `content.manifest` with an `InvalidOperationException`; a cook
 turns it into a warning. The record and step caches write objects through one
-`CookCache.SaveObject`, under a fixed set of 64 locks picked by the object's path, so two
+`CacheObjects.Save`, under a fixed set of 64 locks picked by the object's path, so two
 workers never write one object at once.
 A warm cook restores whole records and never reads the step entries, so under a tight limit
 the step entries are the first of a game's files to go, and the next edit runs its steps
@@ -621,7 +630,7 @@ Evicting it leaves the content folder's copy, and a later cook that needs it wri
 cache copy, which is a new file rather than a link to the old one, so its bytes are on disk
 twice until the content folder drops its copy.
 `hashes.json`, the memo of file hashes keyed by path, size and last-write time, drops on
-`Flush` every key whose file is gone or has changed since (`CookCache.CurrentKeys`, one
+`Flush` every key whose file is gone or has changed since (`FileHashes.CurrentKeys`, one
 listing per folder), so it doesn't grow with every edit.
 
 Graph runs are shared between the sources of a cook, and the cooks after it in the same
@@ -2163,7 +2172,7 @@ flags, the environment (a version bumped by `SetEnvironment`), its intensity, th
 turbidity, whether the sun's shadow is on, and the sun-shadow, light-shadow, plain-materials and underwater
 switches. Not wear and dirt, which neither path draws into a probe. When it changes, `EverythingChanged` marks every probe dirty.
 Geometry and the camera are not in it.
-`FollowProbeLights` compares the frame's point and spot lights with last frame's by `Key`: a
+`ProbeLightTracker.Follow` compares the frame's point and spot lights with last frame's by `Key`: a
 light that appeared, moved, turned, changed colour or range, or went away calls `LightChanged`
 for where it was and where it is. Then `Next` picks the batch: where the GPU traces,
 `ProbeBudget.Traced` probes and nothing more; otherwise `ProbeBudget.Raster` probes (8, 16 or 32
@@ -2294,7 +2303,7 @@ CPU, `Next` used to scan every probe each frame whatever the budget, which `--pr
 1 ms a frame at High. Reading only the waiting probes and the oldest captures took the Courtyard's
 CPU time from 1.6 to 0.7 ms a frame, and left `Next` under 1% of the game thread's samples.
 
-`ProbeDebugPass` draws `DebugView.Probes`. A frame's `RecordScene` runs it after the transparent pass and only while `_lightProbesInUse`, so with
+`ProbeDebugPass` draws `DebugView.Probes`. A frame's `RecordTransparent` runs it after the transparent pass and only while `_lightProbesInUse`, so with
 the probes off it records nothing and no atlases are made. It needs no buffers: probe_debug.vert
 builds a 12 × 8 UV sphere (576 vertices) from `gl_VertexIndex` and finds its probe from
 `gl_InstanceIndex`. The first instances are cascade 0's cells, placed and slotted with the same
@@ -2315,7 +2324,10 @@ The view leaves tone mapping and every effect on; unlike the trace view it sets 
 `LightmapUnwrap.Unwrap` gives a mesh a second UV set (`Vertex.Uv2`) for baked lighting, and
 `LightmapUnwrap.Problem` checks such a set and names the first thing wrong with it, or
 returns null. Both keep the triangles and their order; `Unwrap` only splits a vertex where
-two charts meet.
+two charts meet. The steps live beside it in `src/Rendition/Lightmaps`: `UnwrapCharts` grows
+the charts and `ChartCutter` cuts them back, `ChartPage` lays them out on the page,
+`TriangleOverlap` and `FarShareSearch` find triangles that overlap or share a texel, and
+`UvSet` and `TexelOwners` hold what `Problem` reads.
 
 Charts are found without looking at the first UVs, so a texture seam doesn't cut one.
 Corners are welded by exact position, and two triangles join across an edge only when the
@@ -3193,7 +3205,7 @@ The model cooker asks Assimp for a glTF material's occlusion as its `Lightmap` t
 which is where Assimp's glTF importer files `occlusionTexture`, with the UV set from
 `GetMaterialTexture`'s `uvindex`. `OcclusionWanted` settles the file, the set and a rule's
 `occlusion`, `occlusionUv` and `noOcclusionMap` while the materials import, but the texture
-is only added once `LightmapUv` has settled each material's second set. `LightmapUv` returns
+is only added once `LightmapUvs.Make` has settled each material's second set. `LightmapUvs.Make` returns
 the materials whose set it made (unwrapped or recalled), and `AddOcclusion` leaves out, with a
 warning, an occlusion texture on the second set of one of those, so the image is never cooked
 for nothing. `TextureCompression.Compress` takes the occlusion textures as BC4 in its `extra`
@@ -3367,7 +3379,7 @@ steps, so before this a strand pattern at a cutoff of 0.3
 went from 20% passing to none on its 8 by 8 level, and a grid lost a tenth of its pixels at
 64 by 64. So `TextureCompression` hands each cut-out texture its cutoff, the material's
 cutoff over `BaseColor.W` as above, and compresses every level but the full-size one
-through `KeepCompressedCoverage`. The encoder is told the alpha byte the cutoff falls on, and
+through `CutoutEncoder`. The encoder is told the alpha byte the cutoff falls on, and
 picks between mode 6 and mode 5, and among mode 5's rotations, by how many pixels' decoded
 alpha lands on the other side of it first and by squared error second, since mode 6 ties
 alpha to the colour's line and a colour gradient across a block drags it across the
@@ -3386,7 +3398,7 @@ or 2 pixels on the small levels. The cutoff is part of the compressed-texture me
 the step cache's key, and the model cooker's version went to 18.
 
 A material whose colour and surface both carry alpha (above) keeps its product's coverage
-through compression too. `TextureCompression.Coverage` sees both textures' partial alpha,
+through compression too. `CoverageClaims` sees both textures' partial alpha,
 leaves the surface whole, so its alpha is encoded plainly and never stretched, and hands
 the colour the uncompressed surface as its partner. Each pixel of the colour's level then
 has its own threshold, `ceil(cutoff * 255 * 255 / p)` over the partner byte p under it, read
@@ -4365,7 +4377,7 @@ baked again without it each frame (`BakedSunGpuTests`).
 When a frame's space is fresh, `Renderer.ResolveBakes` makes sure its bake is on the GPU
 (`LoadSpaceBake`). The loaded bake is keyed by its file, its combined inputs, the store and the
 store's `Reloads`, so a frame that matches reads nothing. Otherwise the old pages are destroyed,
-`IBakeStore.Load` reads the file, and `CheckPages` checks that the page counts agree, that each
+`IBakeStore.Load` reads the file, and `BakePages.CheckSpace` checks that the page counts agree, that each
 page's bytes fit its size and format (`TextureData.LevelSize`) and that every draw's page
 exists. `CheckProbes` checks the probes: the two atlases and the grid come all or none, the
 grid's spacing and corners are finite and the spacing above 0, it holds at most
@@ -4405,7 +4417,7 @@ at least 1x1), at most one irradiance page and one mask page, as many direction 
 irradiance ones, each plain page's size,
 each page's bytes against `TextureData.LevelSize`, and that every rect is on page 0. Its result,
 the bake or the exception's message, comes back through a `ConcurrentQueue`. A chunk that isn't
-resident is added to the frame with `BakeFreshness.AddChunk(..., pending: true)`: it counts in
+resident is added to the frame with `BakeFrame.AddChunk` and a `ChunkBakeState` that says pending: it counts in
 `ChunkPending`, not `ChunkFresh`, and its Baked lights stay live, so a frame never draws half a
 bake. `Render` never waits on the worker.
 
@@ -4525,7 +4537,7 @@ Transparent surfaces and particles don't read probes at all, so they are unchang
 
 The mask shadows Mixed lights. `LoadSpaceBake` keeps the file's `Channels` as a key-to-channel
 dictionary in `LoadedBake`. While `_activeLightmaps` is set (the space fresh, `BakedLighting`
-on, rects loaded) or a chunk is relit, `FindMaskSlots` works out the frame's slots (see
+on, rects loaded) or a chunk is relit, `FindMaskSlots` works out the frame's slots in `FrameMaskSlots` (see
 [Shadow mask channels](#shadow-mask-channels) for how chunks share them). For the space, the first sun that
 `BakeFrame.ModeOf` calls Mixed takes channel 0, the same rule `ShadowMaskChannels.Assign`
 followed at bake time over the suns the bake held (Mixed and not moving), so nothing more is
@@ -4577,7 +4589,7 @@ one hash (the same light twice) are told apart by index.
 Those are bake channels, one set of four per bake. A frame draws the space's bake and any
 number of chunk bakes, and the lighting pass reads one mask per pixel, so it works in four
 frame slots instead. `MaskSlots.Assign` (`src/Rendition/Baking/MaskSlots.cs`) hands them out
-each frame, from `Renderer.FindMaskSlots`, without allocating. The space keeps its channels as
+each frame, from `FrameMaskSlots.Assign`, without allocating. The space keeps its channels as
 its slots: the Mixed sun, when drawn, holds slot 0 and each Mixed local light in the file's
 `Channels` its channel, and those slots count as held everywhere, since the space's lights
 carry no position there. Then every Mixed local light owned by a relit chunk
@@ -4846,7 +4858,7 @@ updated, only on frames that draw a relit chunk, so a sky change shows the very 
 
 The frame's chunks are at set 0 binding 11 (`chunks.glsl`): first an 80-byte header (`ChunkHeaderBytes`) of the suns
 and the space's mask table, then a `ChunkData` per placed chunk, up to 256 (`BakeFiles.MaxChunks`), 128 bytes each and
-matching `GpuChunk` in `Renderer.cs`:
+matching `GpuChunk` in `GpuChunk.cs`:
 
 - `sun[4]`: every `Mixed` and `Baked` sun summed as deltas, each its radiance times `Y` towards it, in world space.
   A sun that moves is still counted, so a chunk's bounce follows a moving sun.

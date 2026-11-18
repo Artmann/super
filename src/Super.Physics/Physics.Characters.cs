@@ -34,12 +34,12 @@ public sealed partial class Physics
     public CharacterMove Move(Entity entity, Vector3 velocity, float seconds)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!(seconds >= 0f) || !float.IsFinite(seconds))
+        if (!Numbers.IsZeroOrMore(seconds))
         {
             throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "A move must last a finite number of seconds, 0 or more.");
         }
 
-        if (!float.IsFinite(velocity.X) || !float.IsFinite(velocity.Y) || !float.IsFinite(velocity.Z))
+        if (!Numbers.IsFinite(velocity))
         {
             throw new ArgumentOutOfRangeException(nameof(velocity), velocity, $"Entity {entity.Id} can't move at {velocity}; the velocity must be finite.");
         }
@@ -157,12 +157,12 @@ public sealed partial class Physics
             throw new ArgumentOutOfRangeException(nameof(settings), settings.MaxSlope, $"Entity {entity.Id}'s Character has a max slope of {settings.MaxSlope}°; it must be above 0 and below 90.");
         }
 
-        if (!(settings.StepHeight >= 0f) || !float.IsFinite(settings.StepHeight))
+        if (!Numbers.IsZeroOrMore(settings.StepHeight))
         {
             throw new ArgumentOutOfRangeException(nameof(settings), settings.StepHeight, $"Entity {entity.Id}'s Character has a step height of {settings.StepHeight}; it must be 0 or more.");
         }
 
-        if (!(settings.Mass > 0f) || !float.IsFinite(settings.Mass))
+        if (!Numbers.IsAboveZero(settings.Mass))
         {
             throw new ArgumentOutOfRangeException(nameof(settings), settings.Mass, $"Entity {entity.Id}'s Character has mass {settings.Mass}; it must be above 0.");
         }

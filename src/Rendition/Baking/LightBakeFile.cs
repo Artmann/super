@@ -1,6 +1,6 @@
-using System.IO.Compression;
 using System.Numerics;
 using Rendition.Vulkan;
+using static Rendition.LightBakeBinary;
 
 namespace Rendition;
 
@@ -84,100 +84,111 @@ public sealed record LightBakeFile(
         using var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
         {
-            writer.Write(Magic);
-            writer.Write(Version);
-            writer.Write(Inputs.Draws);
-            writer.Write(Inputs.Lights);
-            writer.Write(Inputs.Environment);
-            writer.Write(Inputs.Settings);
-            writer.Write((byte)Quality);
-
-            writer.Write(Draws.Count);
-            foreach (var (bakeId, rect) in Draws)
+            WriteHeader(writer);
+            WriteList(writer, Draws, WriteDraw);
+            writer.Write(PresentFlags());
+            WriteImages(writer);
+            WriteList(writer, Channels, (w, c) =>
             {
-                writer.Write(bakeId);
-                writer.Write(rect.Page);
-                writer.Write(rect.Scale.X);
-                writer.Write(rect.Scale.Y);
-                writer.Write(rect.Offset.X);
-                writer.Write(rect.Offset.Y);
-            }
-
-            if ((Irradiance is null) != (Direction is null))
+                w.Write(c.LightKey);
+                w.Write(c.Channel);
+            });
+            WriteList(writer, ChunkChannels, (w, c) =>
             {
-                throw new InvalidOperationException("A bake has both its irradiance and direction pages or neither.");
-            }
-
-            byte present = 0;
-            present |= Irradiance is null ? (byte)0 : HasPlainLight;
-            present |= ProbeIrradiance is null ? (byte)0 : HasProbeIrradiance;
-            present |= ProbeDepth is null ? (byte)0 : HasProbeDepth;
-            present |= Probes is null ? (byte)0 : HasProbes;
-            present |= Transfer is null ? (byte)0 : HasTransfer;
-            writer.Write(present);
-            if (Irradiance is not null && Direction is not null)
-            {
-                WritePages(writer, Irradiance);
-                WritePages(writer, Direction);
-            }
-
-            WritePages(writer, Mask);
-            if (ProbeIrradiance is not null)
-            {
-                WritePage(writer, ProbeIrradiance);
-            }
-
-            if (ProbeDepth is not null)
-            {
-                WritePage(writer, ProbeDepth);
-            }
-
-            if (Probes is { } probes)
-            {
-                writer.Write(probes.Min.X);
-                writer.Write(probes.Min.Y);
-                writer.Write(probes.Min.Z);
-                writer.Write(probes.Max.X);
-                writer.Write(probes.Max.Y);
-                writer.Write(probes.Max.Z);
-                writer.Write(probes.Spacing);
-            }
-
-            if (Transfer is { } transfer)
-            {
-                WritePage(writer, transfer.SkyRed);
-                WritePage(writer, transfer.SkyGreen);
-                WritePage(writer, transfer.SkyBlue);
-                WritePage(writer, transfer.Sun);
-                WritePage(writer, transfer.SunTint);
-            }
-
-            writer.Write(Channels.Count);
-            foreach (var (lightKey, channel) in Channels)
-            {
-                writer.Write(lightKey);
-                writer.Write(channel);
-            }
-
-            writer.Write(ChunkChannels.Count);
-            foreach (var (lightHash, channel) in ChunkChannels)
-            {
-                writer.Write(lightHash);
-                writer.Write(channel);
-            }
-
-            writer.Write(Report.LightsWithoutChannel.Count);
-            foreach (var key in Report.LightsWithoutChannel)
-            {
-                writer.Write(key);
-            }
-
+                w.Write(c.LightHash);
+                w.Write(c.Channel);
+            });
+            WriteList(writer, Report.LightsWithoutChannel, (w, key) => w.Write(key));
             writer.Write(Report.InvalidTexelShare);
             writer.Write(Report.Samples);
             writer.Write(Report.Time.Ticks);
         }
 
         return stream.ToArray();
+    }
+
+    private void WriteHeader(BinaryWriter writer)
+    {
+        writer.Write(Magic);
+        writer.Write(Version);
+        writer.Write(Inputs.Draws);
+        writer.Write(Inputs.Lights);
+        writer.Write(Inputs.Environment);
+        writer.Write(Inputs.Settings);
+        writer.Write((byte)Quality);
+    }
+
+    private static void WriteDraw(BinaryWriter writer, (ulong BakeId, LightmapRect Rect) draw)
+    {
+        writer.Write(draw.BakeId);
+        writer.Write(draw.Rect.Page);
+        writer.Write(draw.Rect.Scale.X);
+        writer.Write(draw.Rect.Scale.Y);
+        writer.Write(draw.Rect.Offset.X);
+        writer.Write(draw.Rect.Offset.Y);
+    }
+
+    // Which of the optional parts follow. Throws when only one of irradiance and direction is there.
+    private byte PresentFlags()
+    {
+        if ((Irradiance is null) != (Direction is null))
+        {
+            throw new InvalidOperationException("A bake has both its irradiance and direction pages or neither.");
+        }
+
+        byte present = 0;
+        present |= Irradiance is null ? (byte)0 : HasPlainLight;
+        present |= ProbeIrradiance is null ? (byte)0 : HasProbeIrradiance;
+        present |= ProbeDepth is null ? (byte)0 : HasProbeDepth;
+        present |= Probes is null ? (byte)0 : HasProbes;
+        present |= Transfer is null ? (byte)0 : HasTransfer;
+        return present;
+    }
+
+    // The pages and the probe volume, in the order the flags name them.
+    private void WriteImages(BinaryWriter writer)
+    {
+        if (Irradiance is not null && Direction is not null)
+        {
+            WritePages(writer, Irradiance);
+            WritePages(writer, Direction);
+        }
+
+        WritePages(writer, Mask);
+        if (ProbeIrradiance is not null)
+        {
+            WritePage(writer, ProbeIrradiance);
+        }
+
+        if (ProbeDepth is not null)
+        {
+            WritePage(writer, ProbeDepth);
+        }
+
+        if (Probes is { } probes)
+        {
+            WriteProbes(writer, probes);
+        }
+
+        if (Transfer is { } transfer)
+        {
+            WritePage(writer, transfer.SkyRed);
+            WritePage(writer, transfer.SkyGreen);
+            WritePage(writer, transfer.SkyBlue);
+            WritePage(writer, transfer.Sun);
+            WritePage(writer, transfer.SunTint);
+        }
+    }
+
+    private static void WriteProbes(BinaryWriter writer, ProbeVolumeSettings probes)
+    {
+        writer.Write(probes.Min.X);
+        writer.Write(probes.Min.Y);
+        writer.Write(probes.Min.Z);
+        writer.Write(probes.Max.X);
+        writer.Write(probes.Max.Y);
+        writer.Write(probes.Max.Z);
+        writer.Write(probes.Spacing);
     }
 
     /// <summary>
@@ -191,101 +202,91 @@ public sealed record LightBakeFile(
         using var reader = new BinaryReader(stream);
         try
         {
-            var (inputs, quality, version) = ReadHeader(reader);
-
-            var drawCount = ReadCount(reader, stream, 28, "draws");
-            var draws = new List<(ulong, LightmapRect)>(drawCount);
-            for (var i = 0; i < drawCount; i++)
-            {
-                var bakeId = reader.ReadUInt64();
-                var page = reader.ReadInt32();
-                var scale = new Vector2(reader.ReadSingle(), reader.ReadSingle());
-                var offset = new Vector2(reader.ReadSingle(), reader.ReadSingle());
-                draws.Add((bakeId, new LightmapRect(page, scale, offset)));
-            }
-
-            // Version 1 has the flags after the mask pages and always has a plain light. Version 2 has them first, as
-            // whether the irradiance and direction pages follow depends on them.
-            byte present = version >= 2 ? reader.ReadByte() : (byte)0;
-            List<LightBakePage>? irradiance = null;
-            List<LightBakePage>? direction = null;
-            if (version < 2 || (present & HasPlainLight) != 0)
-            {
-                irradiance = ReadPages(reader, stream);
-                direction = ReadPages(reader, stream);
-            }
-
-            var mask = ReadPages(reader, stream);
-            if (version < 2)
-            {
-                present = reader.ReadByte();
-            }
-
-            var probeIrradiance = (present & HasProbeIrradiance) != 0
-                ? ReadPage(reader, stream, BakedProbeAtlas.IrradianceAtlasSize, "probe irradiance atlas")
-                : null;
-            var probeDepth = (present & HasProbeDepth) != 0
-                ? ReadPage(reader, stream, BakedProbeAtlas.DepthAtlasSize, "probe depth atlas")
-                : null;
-            ProbeVolumeSettings? probes = null;
-            if ((present & HasProbes) != 0)
-            {
-                var min = new Vector3(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
-                var max = new Vector3(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
-                probes = new ProbeVolumeSettings(min, max, reader.ReadSingle());
-            }
-
-            LightBakeTransfer? transfer = null;
-            if ((present & HasTransfer) != 0)
-            {
-                const string what = "transfer page";
-                transfer = new LightBakeTransfer(
-                    ReadPage(reader, stream, LightmapLayout.PageSize, what), ReadPage(reader, stream, LightmapLayout.PageSize, what),
-                    ReadPage(reader, stream, LightmapLayout.PageSize, what), ReadPage(reader, stream, LightmapLayout.PageSize, what),
-                    ReadPage(reader, stream, LightmapLayout.PageSize, what));
-            }
-
-            var channelCount = ReadCount(reader, stream, 8, "channels");
-            var channels = new List<(int, int)>(channelCount);
-            for (var i = 0; i < channelCount; i++)
-            {
-                channels.Add((reader.ReadInt32(), reader.ReadInt32()));
-            }
-
-            var chunkChannels = new List<(ulong, int)>();
-            if (version >= 2)
-            {
-                var chunkChannelCount = ReadCount(reader, stream, 12, "chunk channels");
-                chunkChannels.Capacity = chunkChannelCount;
-                for (var i = 0; i < chunkChannelCount; i++)
-                {
-                    chunkChannels.Add((reader.ReadUInt64(), reader.ReadInt32()));
-                }
-            }
-
-            var unassignedCount = ReadCount(reader, stream, 4, "lights without a channel");
-            var unassigned = new List<int>(unassignedCount);
-            for (var i = 0; i < unassignedCount; i++)
-            {
-                unassigned.Add(reader.ReadInt32());
-            }
-
-            var report = new LightBakeReport(
-                unassigned, reader.ReadSingle(), reader.ReadInt32(), TimeSpan.FromTicks(reader.ReadInt64()));
-
-            return new LightBakeFile(
-                inputs, quality, draws, irradiance, direction, mask, probeIrradiance, probeDepth, probes, channels,
-                report)
-            {
-                Transfer = transfer,
-                ChunkChannels = chunkChannels,
-            };
+            return ReadFile(reader, stream);
         }
         catch (EndOfStreamException)
         {
             throw new InvalidDataException(
                 $"The .lightbake file is cut off: it ends at byte {stream.Length} before all its parts were read.");
         }
+    }
+
+    private static LightBakeFile ReadFile(BinaryReader reader, MemoryStream stream)
+    {
+        var (inputs, quality, version) = ReadHeader(reader);
+        var draws = ReadList(reader, stream, 28, "draws", ReadDraw);
+        var (present, irradiance, direction, mask) = ReadLightmapPages(reader, stream, version);
+        var probeIrradiance = (present & HasProbeIrradiance) != 0
+            ? ReadPage(reader, stream, BakedProbeAtlas.IrradianceAtlasSize, "probe irradiance atlas")
+            : null;
+        var probeDepth = (present & HasProbeDepth) != 0
+            ? ReadPage(reader, stream, BakedProbeAtlas.DepthAtlasSize, "probe depth atlas")
+            : null;
+        var probes = (present & HasProbes) != 0 ? ReadProbes(reader) : (ProbeVolumeSettings?)null;
+        var transfer = (present & HasTransfer) != 0 ? ReadTransfer(reader, stream) : null;
+        var channels = ReadList(reader, stream, 8, "channels", r => (r.ReadInt32(), r.ReadInt32()));
+        var chunkChannels = version >= 2
+            ? ReadList(reader, stream, 12, "chunk channels", r => (r.ReadUInt64(), r.ReadInt32()))
+            : [];
+        var unassigned = ReadList(reader, stream, 4, "lights without a channel", r => r.ReadInt32());
+        var report = new LightBakeReport(
+            unassigned, reader.ReadSingle(), reader.ReadInt32(), TimeSpan.FromTicks(reader.ReadInt64()));
+
+        return new LightBakeFile(
+            inputs, quality, draws, irradiance, direction, mask, probeIrradiance, probeDepth, probes, channels,
+            report)
+        {
+            Transfer = transfer,
+            ChunkChannels = chunkChannels,
+        };
+    }
+
+    private static (ulong, LightmapRect) ReadDraw(BinaryReader reader)
+    {
+        var bakeId = reader.ReadUInt64();
+        var page = reader.ReadInt32();
+        var scale = new Vector2(reader.ReadSingle(), reader.ReadSingle());
+        var offset = new Vector2(reader.ReadSingle(), reader.ReadSingle());
+        return (bakeId, new LightmapRect(page, scale, offset));
+    }
+
+    // Version 1 has the flags after the mask pages and always has a plain light. Version 2 has them first, as whether
+    // the irradiance and direction pages follow depends on them.
+    private static (byte Present, List<LightBakePage>? Irradiance, List<LightBakePage>? Direction, List<LightBakePage> Mask)
+        ReadLightmapPages(BinaryReader reader, MemoryStream stream, int version)
+    {
+        byte present = version >= 2 ? reader.ReadByte() : (byte)0;
+        List<LightBakePage>? irradiance = null;
+        List<LightBakePage>? direction = null;
+        if (version < 2 || (present & HasPlainLight) != 0)
+        {
+            irradiance = ReadPages(reader, stream);
+            direction = ReadPages(reader, stream);
+        }
+
+        var mask = ReadPages(reader, stream);
+        if (version < 2)
+        {
+            present = reader.ReadByte();
+        }
+
+        return (present, irradiance, direction, mask);
+    }
+
+    private static ProbeVolumeSettings ReadProbes(BinaryReader reader)
+    {
+        var min = new Vector3(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+        var max = new Vector3(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+        return new ProbeVolumeSettings(min, max, reader.ReadSingle());
+    }
+
+    private static LightBakeTransfer ReadTransfer(BinaryReader reader, MemoryStream stream)
+    {
+        const string what = "transfer page";
+        return new LightBakeTransfer(
+            ReadPage(reader, stream, LightmapLayout.PageSize, what), ReadPage(reader, stream, LightmapLayout.PageSize, what),
+            ReadPage(reader, stream, LightmapLayout.PageSize, what), ReadPage(reader, stream, LightmapLayout.PageSize, what),
+            ReadPage(reader, stream, LightmapLayout.PageSize, what));
     }
 
     /// <summary>Reads only the header, so a freshness check never inflates a page. Throws like <see cref="Read"/> for a wrong magic or version.</summary>
@@ -334,134 +335,13 @@ public sealed record LightBakeFile(
         return (inputs, (BakeQuality)quality, version);
     }
 
-    // A count read from the file is checked against the bytes left, so a damaged count can't ask for gigabytes.
-    private static int ReadCount(BinaryReader reader, MemoryStream stream, int minBytesEach, string what)
-    {
-        var count = reader.ReadInt32();
-        var left = stream.Length - stream.Position;
-        if (count < 0 || (long)count * minBytesEach > left)
-        {
-            throw new InvalidDataException(
-                $"The .lightbake file is cut off or damaged: it says {count} {what} but only {left} bytes are left.");
-        }
-
-        return count;
-    }
-
     private static void WritePages(BinaryWriter writer, IReadOnlyList<LightBakePage> pages)
     {
-        writer.Write(pages.Count);
-        foreach (var page in pages)
-        {
-            WritePage(writer, page);
-        }
-    }
-
-    private static void WritePage(BinaryWriter writer, LightBakePage page)
-    {
-        using var compressed = new MemoryStream();
-        using (var brotli = new BrotliStream(compressed, CompressionLevel.Optimal, leaveOpen: true))
-        {
-            brotli.Write(page.Pixels);
-        }
-
-        writer.Write(page.Width);
-        writer.Write(page.Height);
-        writer.Write((byte)page.Format);
-        writer.Write(page.Pixels.Length);
-        writer.Write((int)compressed.Length);
-        writer.Write(compressed.GetBuffer(), 0, (int)compressed.Length);
+        WriteList(writer, pages, WritePage);
     }
 
     private static List<LightBakePage> ReadPages(BinaryReader reader, MemoryStream stream)
     {
-        var count = ReadCount(reader, stream, 17, "pages");
-        var pages = new List<LightBakePage>(count);
-        for (var i = 0; i < count; i++)
-        {
-            pages.Add(ReadPage(reader, stream, LightmapLayout.PageSize, "lightmap page"));
-        }
-
-        return pages;
-    }
-
-    // largest is the most texels a side the page may have, which what names in the message.
-    private static LightBakePage ReadPage(BinaryReader reader, MemoryStream stream, int largest, string what)
-    {
-        var width = reader.ReadInt32();
-        var height = reader.ReadInt32();
-        var format = reader.ReadByte();
-        var rawLength = reader.ReadInt32();
-        var compressedLength = reader.ReadInt32();
-        var left = stream.Length - stream.Position;
-        if (rawLength < 0 || compressedLength < 0 || compressedLength > left)
-        {
-            throw new InvalidDataException(
-                $"The .lightbake file is cut off or damaged: a page says {compressedLength} compressed bytes " +
-                $"and {rawLength} raw bytes but {left} bytes are left.");
-        }
-
-        if (!Enum.IsDefined((LightBakePageFormat)format))
-        {
-            throw new InvalidDataException($"The .lightbake page format is wrong: found {format}, expected 0 to 3.");
-        }
-
-        var pageFormat = (LightBakePageFormat)format;
-        if (width < 0 || height < 0)
-        {
-            throw new InvalidDataException(
-                $"The .lightbake page is damaged: it is {width} by {height} texels, and a size can't be negative.");
-        }
-
-        // Checked before the pixels are allocated, so a damaged size can't ask for gigabytes.
-        if (width > largest || height > largest)
-        {
-            throw new InvalidDataException(
-                $"The .lightbake page is damaged: it is {width} by {height} texels, but a {what} is at most {largest} a side.");
-        }
-
-        var expected = ExpectedSize(width, height, pageFormat);
-        if (rawLength != expected)
-        {
-            throw new InvalidDataException(
-                $"The .lightbake page is damaged: a {width} by {height} {pageFormat} page takes {expected} bytes " +
-                $"but the file says {rawLength}.");
-        }
-
-        var compressed = reader.ReadBytes(compressedLength);
-        var pixels = new byte[rawLength];
-        bool extra;
-        try
-        {
-            using var brotli = new BrotliStream(new MemoryStream(compressed), CompressionMode.Decompress);
-            brotli.ReadExactly(pixels);
-            extra = brotli.ReadByte() >= 0;
-        }
-        catch (Exception e) when (e is EndOfStreamException or InvalidDataException or IOException)
-        {
-            throw new InvalidDataException($"The .lightbake page's pixels can't be inflated: {e.Message}", e);
-        }
-
-        if (extra)
-        {
-            throw new InvalidDataException(
-                $"The .lightbake page is damaged: its pixels inflate to more than the {rawLength} bytes it says.");
-        }
-
-        return new LightBakePage(width, height, pageFormat, pixels);
-    }
-
-    // Bytes a page of this size and format takes: 8 or 4 a texel, or 16 a 4 by 4 block for the block formats.
-    private static long ExpectedSize(int width, int height, LightBakePageFormat format)
-    {
-        switch (format)
-        {
-            case LightBakePageFormat.Rgba16f:
-                return (long)width * height * 8;
-            case LightBakePageFormat.Rgba8:
-                return (long)width * height * 4;
-            default:
-                return (long)((width + 3) / 4) * ((height + 3) / 4) * 16;
-        }
+        return ReadList(reader, stream, 17, "pages", r => ReadPage(r, stream, LightmapLayout.PageSize, "lightmap page"));
     }
 }

@@ -137,6 +137,19 @@ internal static class Bc6hEncoder
         // The strip: StripBlocks blocks across, as many rows as the used blocks fill, the last one padded with black.
         int stripAcross = Math.Min(StripBlocks, used.Count);
         int stripDown = (used.Count + stripAcross - 1) / stripAcross;
+        var encoded = EncodeBlocks(Strip(rgba16f, width, used, stripAcross, stripDown), stripAcross * 4, stripDown * 4);
+        for (int n = 0; n < used.Count; n++)
+        {
+            Array.Copy(encoded, n * 16, output, used[n] * 16, 16);
+        }
+
+        return output;
+    }
+
+    /// <summary>The pixels of the <paramref name="used"/> blocks side by side, <paramref name="stripAcross"/> blocks to a row, the rest black.</summary>
+    private static ColorRgbFloat[] Strip(byte[] rgba16f, int width, List<int> used, int stripAcross, int stripDown)
+    {
+        int across = width / 4;
         var strip = new ColorRgbFloat[stripAcross * 4 * stripDown * 4];
         for (int n = 0; n < used.Count; n++)
         {
@@ -153,13 +166,7 @@ internal static class Bc6hEncoder
             }
         }
 
-        var encoded = EncodeBlocks(strip, stripAcross * 4, stripDown * 4);
-        for (int n = 0; n < used.Count; n++)
-        {
-            Array.Copy(encoded, n * 16, output, used[n] * 16, 16);
-        }
-
-        return output;
+        return strip;
     }
 
     private static byte[] EncodeBlocks(ColorRgbFloat[] pixels, int width, int height)

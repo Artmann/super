@@ -98,15 +98,7 @@ internal sealed unsafe class ParticlePass : IDisposable
         var writes = stackalloc WriteDescriptorSet[ImageCount];
         for (int i = 0; i < ImageCount; i++)
         {
-            writes[i] = new WriteDescriptorSet
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = _set,
-                DstBinding = (uint)i,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                PImageInfo = &images[i],
-            };
+            writes[i] = Descriptors.ImageWrite(_set, (uint)i, DescriptorType.CombinedImageSampler, &images[i]);
         }
 
         _context.Api.UpdateDescriptorSets(_context.Device, ImageCount, writes, 0, null);

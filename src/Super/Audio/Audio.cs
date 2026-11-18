@@ -592,27 +592,7 @@ public sealed class Audio
         switch (command.Kind)
         {
             case AudioCommandKind.StartVoice:
-                if (command.Id != NoId)
-                {
-                    int slot = IdPool.Slot(command.Id);
-
-                    // The game frees an id when it sends the stop, so a slot still holding a game id here means that
-                    // stop was dropped from a full queue. Stopping the old voice now keeps it from playing forever.
-                    if (_voiceGameIds[slot] != NoId)
-                    {
-                        _mixer.Stop(_mixerVoices[slot], LoopFadeOutSeconds);
-                    }
-
-                    VoiceStart tagged = command.Start;
-                    tagged.Tag = command.Id;
-                    _voiceGameIds[slot] = command.Id;
-                    _mixerVoices[slot] = StartOnMixer(tagged);
-                }
-                else
-                {
-                    StartOnMixer(command.Start);
-                }
-
+                ApplyStartVoice(command);
                 break;
             case AudioCommandKind.StopVoice:
                 _mixer.Stop(MixerVoice(command.Id), command.FadeSeconds);
@@ -625,16 +605,7 @@ public sealed class Audio
                 _mixer.SetPosition(MixerVoice(command.Id), command.Position);
                 break;
             case AudioCommandKind.StartAmbience:
-                int slotOfAmbience = IdPool.Slot(command.Id);
-
-                // As for voices: a game id still here means its stop was dropped.
-                if (_ambienceGameIds[slotOfAmbience] != NoId)
-                {
-                    _mixer.StopAmbience(_mixerAmbiences[slotOfAmbience], LoopFadeOutSeconds);
-                }
-
-                _ambienceGameIds[slotOfAmbience] = command.Id;
-                _mixerAmbiences[slotOfAmbience] = StartAmbienceOnMixer(command);
+                ApplyStartAmbience(command);
                 break;
             case AudioCommandKind.AmbienceVolume:
                 _mixer.SetAmbienceVolume(MixerAmbience(command.Id), command.Value, command.FadeSeconds);
@@ -653,6 +624,43 @@ public sealed class Audio
                 _mixer.SetWorldRate(command.Value);
                 break;
         }
+    }
+
+    private void ApplyStartVoice(in AudioCommand command)
+    {
+        if (command.Id == NoId)
+        {
+            StartOnMixer(command.Start);
+            return;
+        }
+
+        int slot = IdPool.Slot(command.Id);
+
+        // The game frees an id when it sends the stop, so a slot still holding a game id here means that
+        // stop was dropped from a full queue. Stopping the old voice now keeps it from playing forever.
+        if (_voiceGameIds[slot] != NoId)
+        {
+            _mixer.Stop(_mixerVoices[slot], LoopFadeOutSeconds);
+        }
+
+        VoiceStart tagged = command.Start;
+        tagged.Tag = command.Id;
+        _voiceGameIds[slot] = command.Id;
+        _mixerVoices[slot] = StartOnMixer(tagged);
+    }
+
+    private void ApplyStartAmbience(in AudioCommand command)
+    {
+        int slot = IdPool.Slot(command.Id);
+
+        // As for voices: a game id still here means its stop was dropped.
+        if (_ambienceGameIds[slot] != NoId)
+        {
+            _mixer.StopAmbience(_mixerAmbiences[slot], LoopFadeOutSeconds);
+        }
+
+        _ambienceGameIds[slot] = command.Id;
+        _mixerAmbiences[slot] = StartAmbienceOnMixer(command);
     }
 
     /// <summary>

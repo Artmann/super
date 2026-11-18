@@ -341,6 +341,49 @@ public sealed class CacheTests : IDisposable
         Assert.Equal(0, result.FromCache);
     }
 
+    [Theory]
+    [InlineData("not json", "record unreadable: ")]
+    [InlineData("an array", "record damaged")]
+    [InlineData("an unknown kind", "record damaged")]
+    [InlineData("an object that isn't a hash", "record damaged")]
+    [InlineData("a damaged object", "cached object damaged: ")]
+    public void A_damaged_record_says_why_it_missed(string damage, string miss)
+    {
+        string src = Temp();
+        string cache = Temp();
+        File.WriteAllText(Path.Combine(src, "a.json"), "{ \"x\": 1 }");
+        Cook(cache, [new FolderRoot(src)]);
+        string record = Assert.Single(Directory.GetFiles(Path.Combine(cache, "records")));
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(record))!.AsObject();
+        switch (damage)
+        {
+            case "not json":
+                File.WriteAllText(record, "{ this is not json");
+                break;
+            case "an array":
+                File.WriteAllText(record, "[]");
+                break;
+            case "an unknown kind":
+                node["outputs"]![0]!["kind"] = "Nope";
+                File.WriteAllText(record, node.ToJsonString());
+                break;
+            case "an object that isn't a hash":
+                node["objects"] = new System.Text.Json.Nodes.JsonArray("zz");
+                File.WriteAllText(record, node.ToJsonString());
+                break;
+            default:
+                File.WriteAllText(Assert.Single(Directory.GetFiles(Path.Combine(cache, "objects"), "*", SearchOption.AllDirectories)), "garbage");
+                break;
+        }
+
+        var result = Cook(cache, [new FolderRoot(src)]);
+
+        var file = Assert.Single(result.Report.Files);
+        Assert.Equal(CookOutcome.Cooked, file.Outcome);
+        Assert.StartsWith(miss, file.Miss);
+        Assert.True(miss.EndsWith(' ') || file.Miss == miss, file.Miss);
+    }
+
     [Fact]
     public void A_corrupt_cached_object_is_a_miss_and_never_reaches_the_store()
     {

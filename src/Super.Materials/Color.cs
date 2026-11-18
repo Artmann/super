@@ -165,59 +165,70 @@ sealed class HslNode(Node input, float hue, float saturation, float lightness) :
                 var g = Math.Clamp(inputs[0][at + 1], 0f, 1f);
                 var b = Math.Clamp(inputs[0][at + 2], 0f, 1f);
 
-                var high = MathF.Max(r, MathF.Max(g, b));
-                var low = MathF.Min(r, MathF.Min(g, b));
-                var spread = high - low;
-                var l = (high + low) / 2f;
-                var s = spread == 0f ? 0f : spread / (1f - MathF.Abs(2f * l - 1f));
-                var h = 0f;
-
-                if (spread > 0f)
-                {
-                    if (high == r)
-                    {
-                        h = (g - b) / spread;
-
-                        if (h < 0f)
-                        {
-                            h += 6f;
-                        }
-                    }
-                    else if (high == g)
-                    {
-                        h = (b - r) / spread + 2f;
-                    }
-                    else
-                    {
-                        h = (r - g) / spread + 4f;
-                    }
-
-                    h /= 6f;
-                }
+                var (h, s, l) = ToHsl(r, g, b);
 
                 h += hue;
                 h -= MathF.Floor(h);
                 s = Math.Clamp(s + saturation, 0f, 1f);
                 l = Math.Clamp(l + lightness, 0f, 1f);
 
-                var chroma = (1f - MathF.Abs(2f * l - 1f)) * s;
-                var sector = h * 6f;
-                var second = chroma * (1f - MathF.Abs(sector - 2f * MathF.Floor(sector / 2f) - 1f));
-                var m = l - chroma / 2f;
-                var (cr, cg, cb) = (int)MathF.Floor(sector) switch
-                {
-                    0 => (chroma, second, 0f),
-                    1 => (second, chroma, 0f),
-                    2 => (0f, chroma, second),
-                    3 => (0f, second, chroma),
-                    4 => (second, 0f, chroma),
-                    _ => (chroma, 0f, second)
-                };
-
-                output[at] = cr + m;
-                output[at + 1] = cg + m;
-                output[at + 2] = cb + m;
+                (output[at], output[at + 1], output[at + 2]) = FromHsl(h, s, l);
             }
         });
+    }
+
+    /// <summary>A colour's hue from 0 up to 1, saturation and lightness.</summary>
+    static (float H, float S, float L) ToHsl(float r, float g, float b)
+    {
+        var high = MathF.Max(r, MathF.Max(g, b));
+        var low = MathF.Min(r, MathF.Min(g, b));
+        var spread = high - low;
+        var l = (high + low) / 2f;
+
+        if (spread == 0f)
+        {
+            return (0f, 0f, l);
+        }
+
+        var s = spread / (1f - MathF.Abs(2f * l - 1f));
+
+        return (Hue(r, g, b, high, spread) / 6f, s, l);
+    }
+
+    /// <summary>The hue in sixths, from 0 up to 6: which colour is highest, and how far towards its neighbours.</summary>
+    static float Hue(float r, float g, float b, float high, float spread)
+    {
+        if (high == r)
+        {
+            var h = (g - b) / spread;
+
+            return h < 0f ? h + 6f : h;
+        }
+
+        if (high == g)
+        {
+            return (b - r) / spread + 2f;
+        }
+
+        return (r - g) / spread + 4f;
+    }
+
+    static (float R, float G, float B) FromHsl(float h, float s, float l)
+    {
+        var chroma = (1f - MathF.Abs(2f * l - 1f)) * s;
+        var sector = h * 6f;
+        var second = chroma * (1f - MathF.Abs(sector - 2f * MathF.Floor(sector / 2f) - 1f));
+        var m = l - chroma / 2f;
+        var (cr, cg, cb) = (int)MathF.Floor(sector) switch
+        {
+            0 => (chroma, second, 0f),
+            1 => (second, chroma, 0f),
+            2 => (0f, chroma, second),
+            3 => (0f, second, chroma),
+            4 => (second, 0f, chroma),
+            _ => (chroma, 0f, second)
+        };
+
+        return (cr + m, cg + m, cb + m);
     }
 }

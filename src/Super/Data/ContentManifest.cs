@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 
 namespace Super;
@@ -61,22 +62,7 @@ public sealed class ContentManifest
         {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object)
-            {
-                throw Fail(where, "the manifest must be a JSON object.");
-            }
-
-            if (!root.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.Number
-                || !version.TryGetInt32(out int number) || number != 1)
-            {
-                throw Fail(where, "the manifest version must be 1.");
-            }
-
-            if (!root.TryGetProperty("target", out var target) || target.ValueKind != JsonValueKind.String)
-            {
-                throw Fail(where, "the manifest needs a \"target\" string.");
-            }
-
+            string target = ReadTarget(root, where);
             if (!root.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Object)
             {
                 throw Fail(where, "the manifest needs an \"assets\" object.");
@@ -85,47 +71,87 @@ public sealed class ContentManifest
             var entries = new Dictionary<string, ManifestEntry>(StringComparer.Ordinal);
             foreach (var asset in assets.EnumerateObject())
             {
-                if (asset.Value.ValueKind != JsonValueKind.Object
-                    || !asset.Value.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String
-                    || !asset.Value.TryGetProperty("hash", out var hash) || hash.ValueKind != JsonValueKind.String || hash.GetString()!.Length < 2
-                    || !asset.Value.TryGetProperty("size", out var size) || size.ValueKind != JsonValueKind.Number || !size.TryGetInt64(out long bytes))
-                {
-                    throw Fail(where, $"the asset \"{asset.Name}\" needs a kind, a hash and a size.");
-                }
-
-                if (!TryParseKind(kind.GetString()!, out var parsed))
-                {
-                    throw Fail(where, $"the asset \"{asset.Name}\" has the unknown kind \"{kind.GetString()}\".");
-                }
-
-                entries[asset.Name] = new ManifestEntry(parsed, hash.GetString()!, bytes);
+                entries[asset.Name] = ReadEntry(asset, where);
             }
 
-            var objects = new List<string>();
-            if (root.TryGetProperty("objects", out var listed))
-            {
-                if (listed.ValueKind != JsonValueKind.Array)
-                {
-                    throw Fail(where, "\"objects\" must be a list of hashes.");
-                }
-
-                foreach (var item in listed.EnumerateArray())
-                {
-                    if (item.ValueKind != JsonValueKind.String || !IsHash(item.GetString()!))
-                    {
-                        throw Fail(where, $"\"objects\" must hold only hashes, and {item.GetRawText()} isn't one.");
-                    }
-
-                    objects.Add(item.GetString()!);
-                }
-            }
-
-            return new ContentManifest(target.GetString()!, entries, objects);
+            return new ContentManifest(target, entries, ReadObjects(root, where));
         }
         catch (JsonException exception)
         {
             throw Fail(where, exception.Message);
         }
+    }
+
+    /// <summary>Checks the manifest is a version 1 object and returns its target.</summary>
+    private static string ReadTarget(JsonElement root, string where)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            throw Fail(where, "the manifest must be a JSON object.");
+        }
+
+        if (!root.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.Number
+            || !version.TryGetInt32(out int number) || number != 1)
+        {
+            throw Fail(where, "the manifest version must be 1.");
+        }
+
+        if (!root.TryGetProperty("target", out var target) || target.ValueKind != JsonValueKind.String)
+        {
+            throw Fail(where, "the manifest needs a \"target\" string.");
+        }
+
+        return target.GetString()!;
+    }
+
+    private static ManifestEntry ReadEntry(JsonProperty asset, string where)
+    {
+        if (asset.Value.ValueKind != JsonValueKind.Object
+            || !TryGetString(asset.Value, "kind", out string? kind)
+            || !TryGetString(asset.Value, "hash", out string? hash) || hash.Length < 2
+            || !asset.Value.TryGetProperty("size", out var size) || size.ValueKind != JsonValueKind.Number || !size.TryGetInt64(out long bytes))
+        {
+            throw Fail(where, $"the asset \"{asset.Name}\" needs a kind, a hash and a size.");
+        }
+
+        if (!TryParseKind(kind, out var parsed))
+        {
+            throw Fail(where, $"the asset \"{asset.Name}\" has the unknown kind \"{kind}\".");
+        }
+
+        return new ManifestEntry(parsed, hash, bytes);
+    }
+
+    private static bool TryGetString(JsonElement element, string name, [NotNullWhen(true)] out string? text)
+    {
+        text = element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        return text is not null;
+    }
+
+    private static List<string> ReadObjects(JsonElement root, string where)
+    {
+        var objects = new List<string>();
+        if (!root.TryGetProperty("objects", out var listed))
+        {
+            return objects;
+        }
+
+        if (listed.ValueKind != JsonValueKind.Array)
+        {
+            throw Fail(where, "\"objects\" must be a list of hashes.");
+        }
+
+        foreach (var item in listed.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String || !IsHash(item.GetString()!))
+            {
+                throw Fail(where, $"\"objects\" must hold only hashes, and {item.GetRawText()} isn't one.");
+            }
+
+            objects.Add(item.GetString()!);
+        }
+
+        return objects;
     }
 
     /// <summary>Writes the manifest as JSON with names sorted ordinally, <c>\n</c> newlines and no byte order mark.</summary>

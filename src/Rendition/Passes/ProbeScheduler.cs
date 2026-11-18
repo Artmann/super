@@ -26,6 +26,29 @@ internal readonly record struct ProbeBudget(int Raster, int Traced)
 /// <summary>A probe: its cascade (0 to 3, or 4 for the fixed grid) and its slot in that cascade.</summary>
 internal readonly record struct ProbeId(int Cascade, int Slot);
 
+/// <summary>The cells first to last of a grid on each axis. Empty on an axis (first greater than last) when none are.</summary>
+internal readonly record struct CellBox(Int3 First, Int3 Last)
+{
+    /// <summary>
+    /// The cells within [start, start + count) whose positions cell * spacing are from low to high, given relative to
+    /// the grid's own origin.
+    /// </summary>
+    public static CellBox Overlapping(Vector3 low, Vector3 high, float spacing, Int3 start, Int3 count)
+    {
+        var x = Axis(low.X, high.X, spacing, start.X, count.X);
+        var y = Axis(low.Y, high.Y, spacing, start.Y, count.Y);
+        var z = Axis(low.Z, high.Z, spacing, start.Z, count.Z);
+        return new CellBox(new Int3(x.First, y.First, z.First), new Int3(x.Last, y.Last, z.Last));
+    }
+
+    private static (int First, int Last) Axis(float low, float high, float spacing, int start, int count)
+    {
+        float first = Math.Clamp(MathF.Ceiling(low / spacing), start, start + count);
+        float last = Math.Clamp(MathF.Floor(high / spacing), start - 1, start + count - 1);
+        return ((int)first, (int)last);
+    }
+}
+
 /// <summary>
 /// Picks which probes to update each frame, within a count budget. It never looks at the GPU and
 /// never at the clock: ages are counted in calls to <see cref="Next"/>, so the same calls give the
@@ -227,43 +250,15 @@ internal sealed class ProbeScheduler
 
         for (int c = 0; c < ProbeCascades.Count; c++)
         {
-            if (_state[c] == null)
+            if (_state[c] != null)
             {
-                continue;
-            }
-
-            var layout = _cascades.Layout(c);
-            var origin = _cascades.Origin(c);
-            var x = Overlap(center.X, range, 0f, layout.Spacing, origin.X, layout.CountX);
-            var y = Overlap(center.Y, range, 0f, layout.Spacing, origin.Y, layout.CountY);
-            var z = Overlap(center.Z, range, 0f, layout.Spacing, origin.Z, layout.CountZ);
-            for (int cz = z.First; cz <= z.Last; cz++)
-            {
-                for (int cy = y.First; cy <= y.Last; cy++)
-                {
-                    for (int cx = x.First; cx <= x.Last; cx++)
-                    {
-                        MarkIfInRange(c, ProbeCascades.Wrap(new Int3(cx, cy, cz), layout), center, range);
-                    }
-                }
+                MarkCascade(c, center, range);
             }
         }
 
         if (_gridSpacing > 0f)
         {
-            var x = Overlap(center.X, range, _gridMin.X, _gridSpacing, 0, _gridCount.X);
-            var y = Overlap(center.Y, range, _gridMin.Y, _gridSpacing, 0, _gridCount.Y);
-            var z = Overlap(center.Z, range, _gridMin.Z, _gridSpacing, 0, _gridCount.Z);
-            for (int gz = z.First; gz <= z.Last; gz++)
-            {
-                for (int gy = y.First; gy <= y.Last; gy++)
-                {
-                    for (int gx = x.First; gx <= x.Last; gx++)
-                    {
-                        MarkIfInRange(FixedGrid, gx + _gridCount.X * (gy + _gridCount.Y * gz), center, range);
-                    }
-                }
-            }
+            MarkGridCells(center, range);
         }
         else
         {
@@ -272,6 +267,43 @@ internal sealed class ProbeScheduler
             for (int slot = 0; slot < state.Length; slot++)
             {
                 MarkIfInRange(FixedGrid, slot, center, range);
+            }
+        }
+    }
+
+    // Marks the captured probes of one cascade within range, looking only at the cells the light's sphere overlaps.
+    private void MarkCascade(int cascade, Vector3 center, float range)
+    {
+        var layout = _cascades.Layout(cascade);
+        var cells = CellBox.Overlapping(
+            center - new Vector3(range),
+            center + new Vector3(range),
+            layout.Spacing,
+            _cascades.Origin(cascade),
+            new Int3(layout.CountX, layout.CountY, layout.CountZ));
+        MarkCells(cascade, cells, layout, center, range);
+    }
+
+    // Marks the captured probes of the fixed grid within range, looking only at the cells the light's sphere overlaps.
+    // Those cells are all inside the grid, so wrapping them leaves each at its own slot.
+    private void MarkGridCells(Vector3 center, float range)
+    {
+        var cells = CellBox.Overlapping(
+            center - new Vector3(range) - _gridMin, center + new Vector3(range) - _gridMin, _gridSpacing, default, _gridCount);
+        var layout = new ProbeCascadeLayout(_gridSpacing, _gridCount.X, _gridCount.Y, _gridCount.Z);
+        MarkCells(FixedGrid, cells, layout, center, range);
+    }
+
+    private void MarkCells(int group, CellBox cells, ProbeCascadeLayout layout, Vector3 center, float range)
+    {
+        for (int z = cells.First.Z; z <= cells.Last.Z; z++)
+        {
+            for (int y = cells.First.Y; y <= cells.Last.Y; y++)
+            {
+                for (int x = cells.First.X; x <= cells.Last.X; x++)
+                {
+                    MarkIfInRange(group, ProbeCascades.Wrap(new Int3(x, y, z), layout), center, range);
+                }
             }
         }
     }
@@ -285,15 +317,6 @@ internal sealed class ProbeScheduler
             List(group, slot);
             _pending[group]++;
         }
-    }
-
-    // The indices first..last, within [start, start + count), whose positions offset + index * spacing are within range
-    // of center along one axis. Empty (first > last) when none are.
-    private static (int First, int Last) Overlap(float center, float range, float offset, float spacing, int start, int count)
-    {
-        float low = Math.Clamp(MathF.Ceiling((center - range - offset) / spacing), start, start + count);
-        float high = Math.Clamp(MathF.Floor((center + range - offset) / spacing), start - 1, start + count - 1);
-        return ((int)low, (int)high);
     }
 
     /// <summary>The sun, sky or environment changed: every captured probe is dirty, but its value stays in use.</summary>
@@ -334,20 +357,7 @@ internal sealed class ProbeScheduler
         Frame++;
         _batch.Clear();
 
-        long probes = 0;
-        bool pending = false;
-        for (int group = 0; group <= FixedGrid; group++)
-        {
-            probes += _state[group]?.Length ?? 0;
-            pending |= _pending[group] > 0;
-        }
-
-        if (pending)
-        {
-            _refreshesSinceChange = 0;
-        }
-
-        bool bounced = _refreshesSinceChange >= BounceRefreshes * probes;
+        bool bounced = BounceBuiltUp();
         if (budget <= 0)
         {
             return _batch;
@@ -363,13 +373,12 @@ internal sealed class ProbeScheduler
         int size = 0;
         OfferUnsettled(budget, camera, forward, ref nearSize, ref size);
 
-        // Clean probes come after every other, so they only fill what the rest leaves of the budget.
-        int room = budget - size;
-        if (Settled && bounced)
-        {
-            room = Math.Min(room, refreshBudget);
-        }
+        // Once the fine groups are settled and the bounce has had its refreshes, only refreshBudget clean probes are
+        // taken.
+        int refreshes = Settled && bounced ? refreshBudget : int.MaxValue;
 
+        // Clean probes come after every other, so they only fill what the rest leaves of the budget.
+        int room = Math.Min(budget - size, refreshes);
         size += _captures.TakeOldest(_heap.AsSpan(size, Math.Max(room, 0)), Frame, camera, forward);
 
         // The heaps are rebuilt every call, so they can be sorted in place. The order is total, so any sort gives the
@@ -378,28 +387,23 @@ internal sealed class ProbeScheduler
         var rest = _heap.AsSpan(0, size);
         near.Sort();
         rest.Sort();
+        FillBatch(near, rest, budget, refreshes);
+        return _batch;
+    }
 
+    // Takes the best of the sorted heaps into the batch: the near dirty probes, then the rest, within the budget and
+    // with at most `refreshes` clean probes.
+    private void FillBatch(ReadOnlySpan<ProbeCandidate> near, ReadOnlySpan<ProbeCandidate> rest, int budget, int refreshes)
+    {
         // Never-captured probes sort first in the rest; up to a quarter of the budget is theirs whatever is dirty.
-        int waiting = 0;
-        while (waiting < rest.Length && rest[waiting].Tier == NeverCaptured)
+        int waiting = ProbeCandidate.Ahead(rest, Dirty);
+        int nearTaken = Math.Min(near.Length, budget - Math.Min(waiting, budget / 4));
+        int restTaken = Math.Min(rest.Length, budget - nearTaken);
+
+        // Clean probes sort last in the rest.
+        if (refreshes < restTaken)
         {
-            waiting++;
-        }
-
-        int nearTaken = Math.Min(nearSize, budget - Math.Min(waiting, budget / 4));
-        int restTaken = Math.Min(size, budget - nearTaken);
-
-        // Clean probes sort last in the rest. Once the fine groups are settled and the bounce has had its refreshes,
-        // only refreshBudget of them are taken.
-        if (Settled && bounced && refreshBudget < restTaken)
-        {
-            int unsettled = 0;
-            while (unsettled < rest.Length && rest[unsettled].Tier != Clean)
-            {
-                unsettled++;
-            }
-
-            restTaken = Math.Min(restTaken, unsettled + refreshBudget);
+            restTaken = Math.Min(restTaken, ProbeCandidate.Ahead(rest, Clean) + refreshes);
         }
 
         foreach (var candidate in near[..nearTaken])
@@ -411,8 +415,26 @@ internal sealed class ProbeScheduler
         {
             _batch.Add(new ProbeId(candidate.Group, candidate.Slot));
         }
+    }
 
-        return _batch;
+    // Whether every probe has had BounceRefreshes refreshes since the last never-captured or dirty probe. A frame with
+    // such a probe starts the count again.
+    private bool BounceBuiltUp()
+    {
+        long probes = 0;
+        bool pending = false;
+        for (int group = 0; group <= FixedGrid; group++)
+        {
+            probes += _state[group]?.Length ?? 0;
+            pending |= _pending[group] > 0;
+        }
+
+        if (pending)
+        {
+            _refreshesSinceChange = 0;
+        }
+
+        return _refreshesSinceChange >= BounceRefreshes * probes;
     }
 
     // Offers every probe that isn't clean to the heaps, and forgets the ones that have been captured since they were

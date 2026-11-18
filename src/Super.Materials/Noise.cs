@@ -103,21 +103,7 @@ sealed class PerlinNode : Node
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
     {
         var size = context.Size;
-        var octaves = new Octave[_octaves];
-        var amplitude = 1f;
-        var total = 0f;
-
-        for (var o = 0; o < _octaves; o++)
-        {
-            var cellsX = _along << o;
-            var cellsY = _across << o;
-            var seed = Seed + (ulong)o * 0x9E3779B97F4A7C15UL;
-            var small = cellsX <= TableLimit && cellsY <= TableLimit;
-
-            octaves[o] = new Octave(cellsX, cellsY, seed, amplitude, small ? Gradients(cellsX, cellsY, seed) : null);
-            total += amplitude * amplitude;
-            amplitude *= _persistence;
-        }
+        var (octaves, total) = MakeOctaves();
 
         // The octaves are independent, so their spread adds as the root of the sum of squares. Dividing by that keeps
         // the spread the same however many octaves there are. 0.8 puts about 3 standard deviations across 0..1.
@@ -147,6 +133,28 @@ sealed class PerlinNode : Node
                 output[y * size + x] = Math.Clamp(0.5f + sum * scale, 0f, 1f);
             }
         });
+    }
+
+    /// <summary>Each octave twice as fine as the last, at <c>_persistence</c> times its strength, and the sum of their squared strengths.</summary>
+    (Octave[] Octaves, float Total) MakeOctaves()
+    {
+        var octaves = new Octave[_octaves];
+        var amplitude = 1f;
+        var total = 0f;
+
+        for (var o = 0; o < _octaves; o++)
+        {
+            var cellsX = _along << o;
+            var cellsY = _across << o;
+            var seed = Seed + (ulong)o * 0x9E3779B97F4A7C15UL;
+            var small = cellsX <= TableLimit && cellsY <= TableLimit;
+
+            octaves[o] = new Octave(cellsX, cellsY, seed, amplitude, small ? Gradients(cellsX, cellsY, seed) : null);
+            total += amplitude * amplitude;
+            amplitude *= _persistence;
+        }
+
+        return (octaves, total);
     }
 
     static (float, float)[] Gradients(int cellsX, int cellsY, ulong seed)
@@ -233,48 +241,15 @@ sealed class CellsNode : Node
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
     {
         var size = context.Size;
-        var seedY = Seed + 0xD1B54A32D192ED03UL;
-        var seedId = Seed + 0x8CB92BA72F3D8DD7UL;
 
         context.Rows(y =>
         {
             var py = (y + 0.5f) / size * _scale;
-            var cy = (int)MathF.Floor(py);
 
             for (var x = 0; x < size; x++)
             {
                 var px = (x + 0.5f) / size * _scale;
-                var cx = (int)MathF.Floor(px);
-                var f1 = float.MaxValue;
-                var f2 = float.MaxValue;
-                var id = 0f;
-
-                for (var dy = -1; dy <= 1; dy++)
-                {
-                    for (var dx = -1; dx <= 1; dx++)
-                    {
-                        var nx = cx + dx;
-                        var ny = cy + dy;
-                        var wx = ((nx % _scale) + _scale) % _scale;
-                        var wy = ((ny % _scale) + _scale) % _scale;
-                        var pointX = nx + 0.5f + (Hash.Unit(Seed, wx, wy) - 0.5f) * _jitter;
-                        var pointY = ny + 0.5f + (Hash.Unit(seedY, wx, wy) - 0.5f) * _jitter;
-                        var ddx = pointX - px;
-                        var ddy = pointY - py;
-                        var distance = MathF.Sqrt(ddx * ddx + ddy * ddy);
-
-                        if (distance < f1)
-                        {
-                            f2 = f1;
-                            f1 = distance;
-                            id = Hash.Unit(seedId, wx, wy);
-                        }
-                        else if (distance < f2)
-                        {
-                            f2 = distance;
-                        }
-                    }
-                }
+                var (f1, f2, id) = Nearest(px, py);
 
                 var value = _output switch
                 {
@@ -287,6 +262,50 @@ sealed class CellsNode : Node
                 output[y * size + x] = Math.Min(value, 1f);
             }
         });
+    }
+
+    /// <summary>
+    /// The distances to the nearest and second nearest cell points round the place, and the nearest cell's id, from
+    /// the cell it's in and the eight round it.
+    /// </summary>
+    (float F1, float F2, float Id) Nearest(float px, float py)
+    {
+        var seedY = Seed + 0xD1B54A32D192ED03UL;
+        var seedId = Seed + 0x8CB92BA72F3D8DD7UL;
+        var cx = (int)MathF.Floor(px);
+        var cy = (int)MathF.Floor(py);
+        var f1 = float.MaxValue;
+        var f2 = float.MaxValue;
+        var id = 0f;
+
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                var nx = cx + dx;
+                var ny = cy + dy;
+                var wx = ((nx % _scale) + _scale) % _scale;
+                var wy = ((ny % _scale) + _scale) % _scale;
+                var pointX = nx + 0.5f + (Hash.Unit(Seed, wx, wy) - 0.5f) * _jitter;
+                var pointY = ny + 0.5f + (Hash.Unit(seedY, wx, wy) - 0.5f) * _jitter;
+                var ddx = pointX - px;
+                var ddy = pointY - py;
+                var distance = MathF.Sqrt(ddx * ddx + ddy * ddy);
+
+                if (distance < f1)
+                {
+                    f2 = f1;
+                    f1 = distance;
+                    id = Hash.Unit(seedId, wx, wy);
+                }
+                else if (distance < f2)
+                {
+                    f2 = distance;
+                }
+            }
+        }
+
+        return (f1, f2, id);
     }
 }
 

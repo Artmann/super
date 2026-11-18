@@ -13,7 +13,7 @@ internal static class JointChecks
             throw new InvalidOperationException($"Entity {entity.Id}'s Joint is joined to itself; use another entity, or null for the world.");
         }
 
-        if (!Finite(joint.Anchor) || !Finite(joint.OtherAnchor))
+        if (!Numbers.IsFinite(joint.Anchor) || !Numbers.IsFinite(joint.OtherAnchor))
         {
             throw new InvalidOperationException($"Entity {entity.Id}'s Joint has an anchor that isn't a finite point.");
         }
@@ -31,7 +31,7 @@ internal static class JointChecks
 
     private static void CheckHinge(Entity entity, Joint joint)
     {
-        if (!Finite(joint.Axis) || joint.Axis.LengthSquared() < 1e-12f)
+        if (!Numbers.IsFinite(joint.Axis) || joint.Axis.LengthSquared() < 1e-12f)
         {
             throw new InvalidOperationException($"Entity {entity.Id}'s hinge Joint needs an axis to turn about, not {joint.Axis}.");
         }
@@ -41,6 +41,4 @@ internal static class JointChecks
             throw new InvalidOperationException($"Entity {entity.Id}'s hinge Joint turns from {joint.MinAngle} to {joint.MaxAngle} degrees; the least must be from -180 to 0, and the most from 0 to 180.");
         }
     }
-
-    private static bool Finite(Vector3 value) => float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
 }

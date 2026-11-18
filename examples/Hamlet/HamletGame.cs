@@ -159,7 +159,7 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
         for (int i = 0; i < buildings.Count; i++)
         {
             var building = buildings[i];
-            DrawBuilding(view, building, seconds, elevation, inside: pose.Indoors > 0.5f && building.Index == _tour.Cottage.Index);
+            BuildingDrawing.Draw(view, building, _pane, BuildingGlow.At(building, seconds, elevation), inside: pose.Indoors > 0.5f && building.Index == _tour.Cottage.Index);
         }
 
         // The cart moves, so it stays out of the bakes and is lit by the probes like the rest of what moves.
@@ -212,84 +212,112 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
         _cartColor = Palette.Accents[(seed % Palette.Accents.Length + Palette.Accents.Length) % Palette.Accents.Length];
     }
 
-    /// <summary>
-    /// Draws a building as a baked chunk, with its lamps and its lit windows. Its box is its
-    /// plan's, placed where the village put it, so every copy of a plan shares one bake.
-    /// <paramref name="inside"/> is true when the camera stands in it: the glowing panes are
-    /// left out then, as a pane is seen from both sides and would hide the night outside.
-    /// </summary>
-    private void DrawBuilding(View view, Building building, float seconds, float elevation, bool inside)
+    /// <summary>Draws the village's buildings: each as a baked chunk, with its lamps and its lit windows.</summary>
+    private static class BuildingDrawing
     {
-        int key = BuildingKey + building.Index * KeysPerBuilding;
-        int lightKey = LightKey + building.Index * KeysPerBuilding;
-        float level = 1f - DayCycle.Smooth(building.Dusk - 0.04f, building.Dusk + 0.04f, elevation);
-        float flicker = Flicker(seconds, building.Phase);
-        float fire = 1f + 0.18f * MathF.Sin(seconds * 9f + building.Phase) + 0.1f * MathF.Sin(seconds * 21f + building.Phase * 1.3f);
-        var plan = building.Plan;
-        view.BakedChunk(plan.Name, building.Placement, plan.Min, plan.Max, TexelsPerMetre, plan.EdgeBlend);
-
-        for (int p = 0; p < plan.Parts.Length; p++)
+        /// <summary>
+        /// Draws a building. Its box is its plan's, placed where the village put it, so every copy of a plan shares
+        /// one bake. <paramref name="inside"/> is true when the camera stands in it: the glowing panes are left out
+        /// then, as a pane is seen from both sides and would hide the night outside.
+        /// </summary>
+        public static void Draw(View view, Building building, ModelRef pane, BuildingGlow glow, bool inside)
         {
-            var part = plan.Parts[p];
-            Vector3? tint = part.Tint switch
-            {
-                PartTint.Roof => plan.RoofColor,
-                PartTint.Accent => plan.AccentColor,
-                PartTint.Lamps => new Vector3(1f + level * flicker),
-                PartTint.Fire => new Vector3(1f + fire),
-                _ => null,
-            };
+            var plan = building.Plan;
+            view.BakedChunk(plan.Name, building.Placement, plan.Min, plan.Max, TexelsPerMetre, plan.EdgeBlend);
 
-            view.Model(key + p, part.Model, building.Placement, tint, isStatic: !part.Glows);
+            DrawParts(view, building, glow);
+            DrawLamps(view, building, glow);
+            if (glow.Level > 0.01f)
+            {
+                DrawWindows(view, building, pane, glow, inside);
+            }
         }
 
-        for (int j = 0; j < plan.Lamps.Length; j++)
+        private static void DrawParts(View view, Building building, BuildingGlow glow)
         {
-            var lamp = plan.Lamps[j];
-            float strength = lamp.Fire ? fire : level * flicker;
-            if (strength > 0.01f)
+            int key = BuildingKey + building.Index * KeysPerBuilding;
+            var plan = building.Plan;
+            for (int p = 0; p < plan.Parts.Length; p++)
             {
+                var part = plan.Parts[p];
+                Vector3? tint = part.Tint switch
+                {
+                    PartTint.Roof => plan.RoofColor,
+                    PartTint.Accent => plan.AccentColor,
+                    PartTint.Lamps => new Vector3(1f + glow.Level * glow.Flicker),
+                    PartTint.Fire => new Vector3(1f + glow.Fire),
+                    _ => null,
+                };
+
+                view.Model(key + p, part.Model, building.Placement, tint, isStatic: !part.Glows);
+            }
+        }
+
+        private static void DrawLamps(View view, Building building, BuildingGlow glow)
+        {
+            int lightKey = LightKey + building.Index * KeysPerBuilding;
+            var lamps = building.Plan.Lamps;
+            for (int j = 0; j < lamps.Length; j++)
+            {
+                var lamp = lamps[j];
+                float strength = lamp.Fire ? glow.Fire : glow.Level * glow.Flicker;
+                if (strength > 0.01f)
+                {
+                    view.SpotLight(
+                        lightKey + j,
+                        building.ToWorld(lamp.Position),
+                        building.DirectionToWorld(lamp.Direction),
+                        lamp.Color * strength,
+                        lamp.Range,
+                        lamp.InnerAngle,
+                        lamp.OuterAngle,
+                        mode: lamp.Mode);
+                }
+            }
+        }
+
+        /// <summary>Lit windows: a glowing pane in each, and a little warm light thrown out onto the ground.</summary>
+        private static void DrawWindows(View view, Building building, ModelRef pane, BuildingGlow glow, bool inside)
+        {
+            int key = BuildingKey + building.Index * KeysPerBuilding;
+            int lightKey = LightKey + building.Index * KeysPerBuilding;
+            var windows = building.Plan.Windows;
+            for (int w = 0; w < windows.Length; w++)
+            {
+                var window = windows[w];
+                var middle = window.Middle - window.Outward * 0.09f;
+                var frame = Matrix4x4.CreateScale(window.Size.X, window.Size.Y, 1f) * PlanBuilder.Facing(middle, window.Outward) * building.Placement;
+                if (!inside)
+                {
+                    view.Model(key + PaneKeys + w, pane, frame, new Vector3(1f + glow.Level * glow.Flicker));
+                }
+
+                var outward = building.DirectionToWorld(window.Outward);
                 view.SpotLight(
-                    lightKey + j,
-                    building.ToWorld(lamp.Position),
-                    building.DirectionToWorld(lamp.Direction),
-                    lamp.Color * strength,
-                    lamp.Range,
-                    lamp.InnerAngle,
-                    lamp.OuterAngle,
-                    mode: lamp.Mode);
+                    lightKey + PaneKeys + w,
+                    building.ToWorld(window.Middle + window.Outward * 0.25f),
+                    outward + new Vector3(0f, -0.6f, 0f),
+                    Palette.Lamplight * 1.6f * glow.Level * glow.Flicker,
+                    7f,
+                    0.5f,
+                    1.2f,
+                    shadows: false,
+                    volumetric: 0.3f,
+                    mode: LightMode.Realtime);
             }
         }
+    }
 
-        if (level <= 0.01f)
-        {
-            return;
-        }
-
-        // Lit windows: a glowing pane in each, and a little warm light thrown out onto the ground.
-        for (int w = 0; w < plan.Windows.Length; w++)
-        {
-            var window = plan.Windows[w];
-            var middle = window.Middle - window.Outward * 0.09f;
-            var frame = Matrix4x4.CreateScale(window.Size.X, window.Size.Y, 1f) * PlanBuilder.Facing(middle, window.Outward) * building.Placement;
-            if (!inside)
-            {
-                view.Model(key + PaneKeys + w, _pane, frame, new Vector3(1f + level * flicker));
-            }
-
-            var outward = building.DirectionToWorld(window.Outward);
-            view.SpotLight(
-                lightKey + PaneKeys + w,
-                building.ToWorld(window.Middle + window.Outward * 0.25f),
-                outward + new Vector3(0f, -0.6f, 0f),
-                Palette.Lamplight * 1.6f * level * flicker,
-                7f,
-                0.5f,
-                1.2f,
-                shadows: false,
-                volumetric: 0.3f,
-                mode: LightMode.Realtime);
-        }
+    /// <summary>
+    /// How lit a building is now: its lamps and windows' level as dusk falls, their flame's flicker, and its fires'
+    /// own flicker.
+    /// </summary>
+    private readonly record struct BuildingGlow(float Level, float Flicker, float Fire)
+    {
+        public static BuildingGlow At(Building building, float seconds, float elevation) => new(
+            1f - DayCycle.Smooth(building.Dusk - 0.04f, building.Dusk + 0.04f, elevation),
+            HamletGame.Flicker(seconds, building.Phase),
+            1f + 0.18f * MathF.Sin(seconds * 9f + building.Phase) + 0.1f * MathF.Sin(seconds * 21f + building.Phase * 1.3f));
     }
 
     /// <summary>A lamp's flame wavering, about 1, different for every building.</summary>

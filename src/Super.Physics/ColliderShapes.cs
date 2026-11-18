@@ -14,21 +14,27 @@ internal static class ColliderShapes
             throw new ArgumentOutOfRangeException(nameof(collider), collider.Layers, $"{what} is on layers {collider.Layers}; layers are bits 0 to 15, and it needs at least one.");
         }
 
-        if (!float.IsFinite(collider.Offset.X) || !float.IsFinite(collider.Offset.Y) || !float.IsFinite(collider.Offset.Z))
+        if (!Numbers.IsFinite(collider.Offset))
         {
             throw new ArgumentOutOfRangeException(nameof(collider), collider.Offset, $"{what} has offset {collider.Offset}, which isn't a finite position.");
         }
 
         switch (collider.Shape)
         {
-            case ColliderShape.Ball when !(collider.Radius > 0f) || !float.IsFinite(collider.Radius):
+            case ColliderShape.Ball when !Numbers.IsAboveZero(collider.Radius):
                 throw new ArgumentOutOfRangeException(nameof(collider), collider.Radius, $"{what} is a ball of radius {collider.Radius}; it must be above 0.");
-            case ColliderShape.Box when !(collider.Size.X > 0f && collider.Size.Y > 0f && collider.Size.Z > 0f) || !float.IsFinite(collider.Size.X + collider.Size.Y + collider.Size.Z):
+            case ColliderShape.Box when !IsBoxSize(collider.Size):
                 throw new ArgumentOutOfRangeException(nameof(collider), collider.Size, $"{what} is a box of size {collider.Size}; each side must be above 0.");
-            case ColliderShape.Capsule when !(collider.Radius > 0f) || !(collider.Size.Y >= collider.Radius * 2f) || !float.IsFinite(collider.Size.Y):
+            case ColliderShape.Capsule when !IsCapsule(collider.Radius, collider.Size.Y):
                 throw new ArgumentOutOfRangeException(nameof(collider), collider.Size.Y, $"{what} is a capsule {collider.Size.Y} high with radius {collider.Radius}; the radius must be above 0 and the height at least twice it.");
         }
     }
+
+    private static bool IsBoxSize(Vector3 size) =>
+        size.X > 0f && size.Y > 0f && size.Z > 0f && float.IsFinite(size.X + size.Y + size.Z);
+
+    private static bool IsCapsule(float radius, float height) =>
+        radius > 0f && height >= radius * 2f && float.IsFinite(height);
 
     /// <summary>The collider's shape in its entity's space, scaled with it.</summary>
     public static Shape Make(Collider collider, Vector3 scale)

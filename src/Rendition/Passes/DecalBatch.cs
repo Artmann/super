@@ -70,11 +70,19 @@ public static class DecalBatch
         }
     }
 
-    internal static bool IsFinite(in Matrix4x4 m) =>
-        float.IsFinite(m.M11) && float.IsFinite(m.M12) && float.IsFinite(m.M13) && float.IsFinite(m.M14)
-        && float.IsFinite(m.M21) && float.IsFinite(m.M22) && float.IsFinite(m.M23) && float.IsFinite(m.M24)
-        && float.IsFinite(m.M31) && float.IsFinite(m.M32) && float.IsFinite(m.M33) && float.IsFinite(m.M34)
-        && float.IsFinite(m.M41) && float.IsFinite(m.M42) && float.IsFinite(m.M43) && float.IsFinite(m.M44);
+    // The sixteen numbers lie in a row, M11 to M44.
+    internal static bool IsFinite(in Matrix4x4 m)
+    {
+        foreach (float value in MemoryMarshal.CreateReadOnlySpan(in m.M11, 16))
+        {
+            if (!float.IsFinite(value))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }
 
 /// <summary>One decal as the shaders read it, one instance of the box. Must match decal.vert.</summary>

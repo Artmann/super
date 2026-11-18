@@ -35,197 +35,157 @@ internal sealed record GameArguments(
 
     public const int DefaultProfileFrames = 60;
 
+    /// <summary>
+    /// What each option does to the arguments read so far. An option that takes a value reads it from the
+    /// <see cref="Reader"/>, which names the option in its errors.
+    /// </summary>
+    private static readonly Dictionary<string, Func<GameArguments, Reader, GameArguments>> Options = new()
+    {
+        ["--seed"] = (parsed, reader) => parsed with { Seed = reader.Int() },
+        ["--ticks"] = (parsed, reader) => parsed with { Ticks = reader.Long() },
+        ["--screenshot"] = (parsed, reader) => parsed with { ScreenshotPath = reader.Value() },
+        ["--record"] = (parsed, reader) => parsed with { RecordPath = reader.Value() },
+        ["--seconds"] = (parsed, reader) => parsed with { Seconds = PositiveSeconds(reader.Value()) },
+        ["--fps"] = (parsed, reader) => parsed with { FramesPerSecond = reader.Int() },
+        ["--size"] = WithSize,
+        ["--profile"] = (parsed, reader) => parsed with { ProfilePath = reader.Value() },
+        ["--frames"] = (parsed, reader) => parsed with { Frames = reader.Int() },
+        ["--script"] = (parsed, reader) => parsed with { ScriptName = reader.Value() },
+        ["--user-data"] = (parsed, reader) => parsed with { UserDataFolder = reader.Value() },
+        ["--ui-scale"] = (parsed, reader) => parsed with { UiScale = PositiveScale(reader.Value()) },
+        ["--render-scale"] = (parsed, reader) => parsed with { RenderScale = SceneScale(reader.Value()) },
+        ["--graphics"] = (parsed, reader) => parsed with { GraphicsProfile = GraphicsProfileName(reader.Value()) },
+        ["--upscaler"] = (parsed, reader) => parsed with { Upscaler = UpscalerName(reader.Value()) },
+        ["--debug-view"] = (parsed, reader) => parsed with { DebugView = DebugViewName(reader.Value()) },
+        ["--vsync"] = (parsed, _) => parsed with { Vsync = true },
+        ["--no-materials"] = (parsed, _) => parsed with { NoMaterials = true },
+        ["--no-trace"] = (parsed, _) => parsed with { NoTrace = true },
+        ["--bake"] = (parsed, _) => parsed with { Bake = true },
+        ["--bake-check"] = (parsed, _) => parsed with { BakeCheck = true },
+        ["--bake-quality"] = (parsed, reader) => parsed with { BakeQuality = BakeQualityName(reader.Value()) },
+    };
+
     public static GameArguments Parse(ReadOnlySpan<string> args)
     {
-        int? seed = null;
-        long? ticks = null;
-        string? screenshotPath = null;
-        string? recordPath = null;
-        double? seconds = null;
-        int framesPerSecond = DefaultFramesPerSecond;
-        int? width = null;
-        int? height = null;
-        string? profilePath = null;
-        int? frames = null;
-        bool vsync = false;
-        bool noMaterials = false;
-        bool noTrace = false;
-        string? scriptName = null;
-        string? userDataFolder = null;
-        float? uiScale = null;
-        float? renderScale = null;
-        Rendition.Upscaler? upscaler = null;
-        var debugView = Rendition.DebugView.None;
-        bool bake = false;
-        bool bakeCheck = false;
-        Rendition.BakeQuality? bakeQuality = null;
-        string? graphicsProfile = null;
-
-        for (int i = 0; i < args.Length; i++)
+        var parsed = new GameArguments(null, null, null);
+        var given = new HashSet<string>();
+        var reader = new Reader(args.ToArray());
+        while (reader.NextOption() is { } option)
         {
-            switch (args[i])
+            if (Options.TryGetValue(option, out var apply))
             {
-                case "--seed":
-                    seed = (int)Number(args, ++i, "--seed");
-                    break;
-                case "--ticks":
-                    ticks = Number(args, ++i, "--ticks");
-                    break;
-                case "--screenshot":
-                    screenshotPath = Value(args, ++i, "--screenshot");
-                    break;
-                case "--record":
-                    recordPath = Value(args, ++i, "--record");
-                    break;
-                case "--seconds":
-                    seconds = PositiveSeconds(args, ++i);
-                    break;
-                case "--fps":
-                    framesPerSecond = (int)Number(args, ++i, "--fps");
-                    break;
-                case "--size":
-                    (width, height) = Size(args, ++i);
-                    break;
-                case "--profile":
-                    profilePath = Value(args, ++i, "--profile");
-                    break;
-                case "--frames":
-                    frames = (int)Number(args, ++i, "--frames");
-                    break;
-                case "--script":
-                    scriptName = Value(args, ++i, "--script");
-                    break;
-                case "--user-data":
-                    userDataFolder = Value(args, ++i, "--user-data");
-                    break;
-                case "--ui-scale":
-                    uiScale = PositiveScale(args, ++i);
-                    break;
-                case "--render-scale":
-                    renderScale = SceneScale(args, ++i);
-                    break;
-                case "--graphics":
-                    graphicsProfile = GraphicsProfileName(args, ++i);
-                    break;
-                case "--upscaler":
-                    upscaler = UpscalerName(args, ++i);
-                    break;
-                case "--debug-view":
-                    debugView = DebugViewName(args, ++i);
-                    break;
-                case "--vsync":
-                    vsync = true;
-                    break;
-                case "--no-materials":
-                    noMaterials = true;
-                    break;
-                case "--no-trace":
-                    noTrace = true;
-                    break;
-                case "--bake":
-                    bake = true;
-                    break;
-                case "--bake-check":
-                    bakeCheck = true;
-                    break;
-                case "--bake-quality":
-                    bakeQuality = BakeQualityName(args, ++i);
-                    break;
+                parsed = apply(parsed, reader);
+                given.Add(option);
             }
         }
 
-        if (ticks < 0)
+        if (parsed.Ticks < 0)
         {
             throw new ArgumentException("--ticks can't be negative.");
         }
 
-        // A bake is a run of its own: it neither saves a picture nor plays in a window.
-        foreach (var (asked, name) in new[] { (bake, "--bake"), (bakeCheck, "--bake-check") })
-        {
-            if (!asked)
-            {
-                continue;
-            }
+        parsed.CheckBake(given);
+        parsed.CheckCapture();
+        parsed.CheckProfile(given);
+        parsed.CheckRecord();
+        return parsed;
+    }
 
-            string? other = screenshotPath is not null ? "--screenshot"
-                : recordPath is not null ? "--record"
-                : profilePath is not null ? "--profile"
-                : name == "--bake" && bakeCheck ? "--bake-check"
-                : vsync ? "--vsync"
-                : null;
-            if (other is not null)
+    /// <summary>Whether the run saves a picture, a video or a profile instead of playing in a window.</summary>
+    private bool Captures => ScreenshotPath is not null || RecordPath is not null || ProfilePath is not null;
+
+    /// <summary>A bake is a run of its own: it neither saves a picture nor plays in a window.</summary>
+    private void CheckBake(HashSet<string> given)
+    {
+        foreach (var (asked, name) in new[] { (Bake, "--bake"), (BakeCheck, "--bake-check") })
+        {
+            if (asked && BakeConflict(name) is { } other)
             {
                 throw new ArgumentException($"{name} can't run with {other}.");
             }
         }
 
-        if (bakeQuality is not null && !bake)
+        if (given.Contains("--bake-quality") && !Bake)
         {
             throw new ArgumentException("--bake-quality needs --bake.");
         }
+    }
 
-        if (ticks is not null && screenshotPath is null && recordPath is null && profilePath is null && !bake && !bakeCheck)
+    /// <summary>The first option given that can't run with <paramref name="name"/>, or null.</summary>
+    private string? BakeConflict(string name)
+    {
+        (bool Given, string Option)[] conflicts =
+        [
+            (ScreenshotPath is not null, "--screenshot"),
+            (RecordPath is not null, "--record"),
+            (ProfilePath is not null, "--profile"),
+            (name == "--bake" && BakeCheck, "--bake-check"),
+            (Vsync, "--vsync"),
+        ];
+        return conflicts.FirstOrDefault(conflict => conflict.Given).Option;
+    }
+
+    private void CheckCapture()
+    {
+        if (Ticks is not null && !Captures && !Bake && !BakeCheck)
         {
             throw new ArgumentException("--ticks needs --screenshot, --record, --profile, --bake or --bake-check, because those are the only runs without a window so far.");
         }
 
-        if ((screenshotPath is not null ? 1 : 0) + (recordPath is not null ? 1 : 0) + (profilePath is not null ? 1 : 0) > 1)
+        if (new[] { ScreenshotPath, RecordPath, ProfilePath }.Count(path => path is not null) > 1)
         {
             throw new ArgumentException("--screenshot, --record and --profile can't run together.");
         }
 
         // A run without a window decides for itself whether to wait for the display.
-        if (vsync && (screenshotPath is not null || recordPath is not null || profilePath is not null))
+        if (Vsync && Captures)
         {
             throw new ArgumentException("--vsync only works when playing in a window, so it can't run with --screenshot, --record or --profile.");
         }
+    }
 
-        if (frames is not null && profilePath is null)
+    private void CheckProfile(HashSet<string> given)
+    {
+        if (given.Contains("--frames") && ProfilePath is null)
         {
             throw new ArgumentException("--frames needs --profile.");
         }
 
-        if (frames <= 0)
+        if (Frames <= 0)
         {
             throw new ArgumentException("--frames must be above zero.");
         }
+    }
 
-        if (recordPath is not null && seconds is null)
+    private void CheckRecord()
+    {
+        if (RecordPath is not null && Seconds is null)
         {
             throw new ArgumentException("--record needs --seconds.");
         }
 
-        if (recordPath is not null && !recordPath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
+        if (RecordPath is not null && !RecordPath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException("--record needs a path ending in .mp4.");
         }
 
-        if (seconds is not null && recordPath is null)
+        if (Seconds is not null && RecordPath is null)
         {
             throw new ArgumentException("--seconds needs --record.");
         }
 
-        if (framesPerSecond <= 0)
+        if (FramesPerSecond <= 0)
         {
             throw new ArgumentException("--fps must be above zero.");
         }
-
-        return new GameArguments(
-            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, vsync, scriptName, userDataFolder, uiScale, noMaterials,
-            renderScale, upscaler, noTrace, debugView, bake, bakeCheck, bakeQuality ?? Rendition.BakeQuality.Final,
-            graphicsProfile);
     }
 
-    private static Rendition.BakeQuality BakeQualityName(ReadOnlySpan<string> args, int index)
+    private static Rendition.BakeQuality BakeQualityName(string text) => text switch
     {
-        string text = Value(args, index, "--bake-quality");
-        return text switch
-        {
-            "preview" => Rendition.BakeQuality.Preview,
-            "final" => Rendition.BakeQuality.Final,
-            _ => throw new ArgumentException($"--bake-quality needs preview or final, not '{text}'."),
-        };
-    }
+        "preview" => Rendition.BakeQuality.Preview,
+        "final" => Rendition.BakeQuality.Final,
+        _ => throw new ArgumentException($"--bake-quality needs preview or final, not '{text}'."),
+    };
 
     /// <summary>
     /// The start-up error for a debug view the GPU can't show, or null when it can. The trace view needs a GPU that
@@ -241,45 +201,32 @@ internal sealed record GameArguments(
         return null;
     }
 
-    private static Rendition.DebugView DebugViewName(ReadOnlySpan<string> args, int index)
+    private static Rendition.DebugView DebugViewName(string text) => text switch
     {
-        string text = Value(args, index, "--debug-view");
-        return text switch
-        {
-            "trace" => Rendition.DebugView.Trace,
-            "probes" => Rendition.DebugView.Probes,
-            _ => throw new ArgumentException($"--debug-view doesn't know '{text}'. It knows: trace, probes."),
-        };
-    }
+        "trace" => Rendition.DebugView.Trace,
+        "probes" => Rendition.DebugView.Probes,
+        _ => throw new ArgumentException($"--debug-view doesn't know '{text}'. It knows: trace, probes."),
+    };
 
-    private static float PositiveScale(ReadOnlySpan<string> args, int index)
-    {
-        string text = Value(args, index, "--ui-scale");
-        return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float scale) && scale > 0f && float.IsFinite(scale)
+    private static float PositiveScale(string text) =>
+        float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float scale) && scale > 0f && float.IsFinite(scale)
             ? scale
             : throw new ArgumentException($"--ui-scale needs a number above zero, such as 2 or 1.5, not '{text}'.");
-    }
 
-    private static float SceneScale(ReadOnlySpan<string> args, int index)
-    {
-        string text = Value(args, index, "--render-scale");
-        return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float scale)
-            && scale is >= Rendition.Renderer.MinRenderScale and <= Rendition.Renderer.MaxRenderScale
-                ? scale
-                : throw new ArgumentException($"--render-scale needs a number from 0.5 to 2, such as 1.5, not '{text}'.");
-    }
+    private static float SceneScale(string text) =>
+        float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float scale)
+        && scale is >= Rendition.Renderer.MinRenderScale and <= Rendition.Renderer.MaxRenderScale
+            ? scale
+            : throw new ArgumentException($"--render-scale needs a number from 0.5 to 2, such as 1.5, not '{text}'.");
 
     /// <summary>The names <c>--graphics</c> takes besides a profile's path.</summary>
     internal const string AutoProfile = "auto";
 
-    private static string GraphicsProfileName(ReadOnlySpan<string> args, int index)
-    {
-        string text = Value(args, index, "--graphics");
-        return text is "low" or "medium" or "high" or "ultra" or "fastest" or AutoProfile
-            || text.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+    private static string GraphicsProfileName(string text) =>
+        text is "low" or "medium" or "high" or "ultra" or "fastest" or AutoProfile
+        || text.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
             ? text
             : throw new ArgumentException($"--graphics needs low, medium, high, ultra, fastest, auto or a profile ending in .json, not '{text}'.");
-    }
 
     /// <summary>
     /// The settings <c>--graphics</c> names: a <see cref="GraphicsQuality"/> preset, <see cref="Graphics.Fastest"/>, the
@@ -308,51 +255,61 @@ internal sealed record GameArguments(
         return Graphics.For(Enum.Parse<GraphicsQuality>(profile, ignoreCase: true));
     }
 
-    private static Rendition.Upscaler UpscalerName(ReadOnlySpan<string> args, int index)
+    private static Rendition.Upscaler UpscalerName(string text) => text switch
     {
-        string text = Value(args, index, "--upscaler");
-        return text switch
-        {
-            "taa" => Rendition.Upscaler.Taa,
-            "fsr" => Rendition.Upscaler.Fsr,
-            _ => throw new ArgumentException($"--upscaler needs taa or fsr, not '{text}'."),
-        };
-    }
+        "taa" => Rendition.Upscaler.Taa,
+        "fsr" => Rendition.Upscaler.Fsr,
+        _ => throw new ArgumentException($"--upscaler needs taa or fsr, not '{text}'."),
+    };
 
-    private static double PositiveSeconds(ReadOnlySpan<string> args, int index)
-    {
-        string text = Value(args, index, "--seconds");
-        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double seconds) && seconds > 0 && double.IsFinite(seconds)
+    private static double PositiveSeconds(string text) =>
+        double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double seconds) && seconds > 0 && double.IsFinite(seconds)
             ? seconds
             : throw new ArgumentException($"--seconds needs a number above zero, not '{text}'.");
-    }
 
-    private static (int Width, int Height) Size(ReadOnlySpan<string> args, int index)
+    private static GameArguments WithSize(GameArguments parsed, Reader reader)
     {
-        string text = Value(args, index, "--size");
+        string text = reader.Value();
         string[] parts = text.Split('x');
         return parts.Length == 2
             && int.TryParse(parts[0], CultureInfo.InvariantCulture, out int width) && width > 0
             && int.TryParse(parts[1], CultureInfo.InvariantCulture, out int height) && height > 0
-                ? (width, height)
+                ? parsed with { Width = width, Height = height }
                 : throw new ArgumentException($"--size needs a size like 1920x1080, not '{text}'.");
     }
 
-    private static long Number(ReadOnlySpan<string> args, int index, string name)
+    /// <summary>Walks the command line one option at a time and reads the values that follow an option.</summary>
+    private sealed class Reader(string[] args)
     {
-        string text = Value(args, index, name);
-        if (name != "--ticks")
+        private int index = -1;
+
+        private string option = "";
+
+        /// <summary>The next word on the command line, or null at the end.</summary>
+        public string? NextOption()
         {
-            return int.TryParse(text, CultureInfo.InvariantCulture, out int small)
-                ? small
-                : throw new ArgumentException($"{name} needs a whole number, not '{text}'.");
+            index++;
+            option = index < args.Length ? args[index] : "";
+            return index < args.Length ? option : null;
         }
 
-        return long.TryParse(text, CultureInfo.InvariantCulture, out long number)
-            ? number
-            : throw new ArgumentException($"{name} needs a whole number, not '{text}'.");
-    }
+        public string Value() =>
+            ++index < args.Length ? args[index] : throw new ArgumentException($"{option} needs a value.");
 
-    private static string Value(ReadOnlySpan<string> args, int index, string name) =>
-        index < args.Length ? args[index] : throw new ArgumentException($"{name} needs a value.");
+        public int Int()
+        {
+            string text = Value();
+            return int.TryParse(text, CultureInfo.InvariantCulture, out int number)
+                ? number
+                : throw new ArgumentException($"{option} needs a whole number, not '{text}'.");
+        }
+
+        public long Long()
+        {
+            string text = Value();
+            return long.TryParse(text, CultureInfo.InvariantCulture, out long number)
+                ? number
+                : throw new ArgumentException($"{option} needs a whole number, not '{text}'.");
+        }
+    }
 }

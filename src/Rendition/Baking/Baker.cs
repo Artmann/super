@@ -291,21 +291,9 @@ internal sealed unsafe class Baker : IDisposable
         }
 
         // Whatever comes next, the later bake stages or a copy, reads what was written.
-        var barrier = new MemoryBarrier2
-        {
-            SType = StructureType.MemoryBarrier2,
-            SrcStageMask = PipelineStageFlags2.ComputeShaderBit,
-            SrcAccessMask = AccessFlags2.ShaderStorageWriteBit,
-            DstStageMask = PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit,
-            DstAccessMask = AccessFlags2.ShaderStorageReadBit | AccessFlags2.TransferReadBit,
-        };
-        var dependency = new DependencyInfo
-        {
-            SType = StructureType.DependencyInfo,
-            MemoryBarrierCount = 1,
-            PMemoryBarriers = &barrier,
-        };
-        api.CmdPipelineBarrier2(cmd, &dependency);
+        api.MemoryBarrier(cmd, (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
+            (PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit,
+                AccessFlags2.ShaderStorageReadBit | AccessFlags2.TransferReadBit));
     }
 
     /// <summary>Every texel of a page, <see cref="TexelFloats"/> floats each, row by row. Waits for the GPU; for tests.</summary>
@@ -317,6 +305,26 @@ internal sealed unsafe class Baker : IDisposable
     /// </summary>
     internal float[] ReadTexels(int page, int x, int y, int width, int height)
     {
+        CheckRegion(page, x, y, width, height);
+        var targets = _pages[page];
+        var readBack = new TexelReadBack((ulong)width * (ulong)height);
+        using var buffer = GpuBuffer.CreateHostVisible(_context, readBack.Bytes, BufferUsageFlags.TransferDstBit);
+
+        _context.SubmitAndWait(cmd =>
+        {
+            _context.Api.MemoryBarrier(cmd, (PipelineStageFlags2.AllCommandsBit, AccessFlags2.MemoryWriteBit),
+                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
+            Copy(cmd, targets.Position, buffer, readBack.PositionAt, x, y, width, height);
+            Copy(cmd, targets.GeometricNormal, buffer, readBack.GeometricAt, x, y, width, height);
+            Copy(cmd, targets.ShadingNormal, buffer, readBack.ShadingAt, x, y, width, height);
+            Copy(cmd, targets.Validity, buffer, readBack.ValidityAt, x, y, width, height);
+        });
+
+        return readBack.Unpack((byte*)buffer.Mapped);
+    }
+
+    private void CheckRegion(int page, int x, int y, int width, int height)
+    {
         if (page < 0 || page >= _pages.Count)
         {
             throw new ArgumentOutOfRangeException(nameof(page), page, $"There are {_pages.Count} pages, so page {page} doesn't exist.");
@@ -327,63 +335,58 @@ internal sealed unsafe class Baker : IDisposable
             throw new ArgumentOutOfRangeException(
                 nameof(width), $"The region at ({x}, {y}) of {width} by {height} texels isn't inside the page.");
         }
+    }
 
-        var targets = _pages[page];
-        ulong count = (ulong)width * (ulong)height;
-        ulong positionAt = 0;
-        ulong geometricAt = Align(positionAt + count * 16);
-        ulong shadingAt = Align(geometricAt + count * 8);
-        ulong validityAt = Align(shadingAt + count * 8);
-        using var buffer = GpuBuffer.CreateHostVisible(_context, validityAt + count, BufferUsageFlags.TransferDstBit);
-
-        _context.SubmitAndWait(cmd =>
+    // Where a texel readback's four images sit in its buffer, for count texels, and how they turn into texels.
+    private readonly struct TexelReadBack
+    {
+        public TexelReadBack(ulong count)
         {
-            var api = _context.Api;
-            var barrier = new MemoryBarrier2
-            {
-                SType = StructureType.MemoryBarrier2,
-                SrcStageMask = PipelineStageFlags2.AllCommandsBit,
-                SrcAccessMask = AccessFlags2.MemoryWriteBit,
-                DstStageMask = PipelineStageFlags2.CopyBit,
-                DstAccessMask = AccessFlags2.TransferReadBit,
-            };
-            var dependency = new DependencyInfo
-            {
-                SType = StructureType.DependencyInfo,
-                MemoryBarrierCount = 1,
-                PMemoryBarriers = &barrier,
-            };
-            api.CmdPipelineBarrier2(cmd, &dependency);
-            Copy(cmd, targets.Position, buffer, positionAt, x, y, width, height);
-            Copy(cmd, targets.GeometricNormal, buffer, geometricAt, x, y, width, height);
-            Copy(cmd, targets.ShadingNormal, buffer, shadingAt, x, y, width, height);
-            Copy(cmd, targets.Validity, buffer, validityAt, x, y, width, height);
-        });
-
-        var texels = new float[count * TexelFloats];
-        var bytes = (byte*)buffer.Mapped;
-        var positions = (float*)(bytes + positionAt);
-        var geometric = (Half*)(bytes + geometricAt);
-        var shading = (Half*)(bytes + shadingAt);
-        var validity = bytes + validityAt;
-        for (ulong i = 0; i < count; i++)
-        {
-            ulong at = i * TexelFloats;
-            for (ulong c = 0; c < 4; c++)
-            {
-                texels[at + c] = positions[i * 4 + c];
-            }
-
-            for (ulong c = 0; c < 3; c++)
-            {
-                texels[at + 4 + c] = (float)geometric[i * 4 + c];
-                texels[at + 7 + c] = (float)shading[i * 4 + c];
-            }
-
-            texels[at + 10] = validity[i] / 255f;
+            Count = count;
+            GeometricAt = Align(PositionAt + count * 16);
+            ShadingAt = Align(GeometricAt + count * 8);
+            ValidityAt = Align(ShadingAt + count * 8);
         }
 
-        return texels;
+        public ulong Count { get; }
+
+        public ulong PositionAt => 0;
+
+        public ulong GeometricAt { get; }
+
+        public ulong ShadingAt { get; }
+
+        public ulong ValidityAt { get; }
+
+        public ulong Bytes => ValidityAt + Count;
+
+        // Each texel's TexelFloats floats, row by row, from the mapped buffer.
+        public float[] Unpack(byte* bytes)
+        {
+            var texels = new float[Count * TexelFloats];
+            var positions = (float*)(bytes + PositionAt);
+            var geometric = (Half*)(bytes + GeometricAt);
+            var shading = (Half*)(bytes + ShadingAt);
+            var validity = bytes + ValidityAt;
+            for (ulong i = 0; i < Count; i++)
+            {
+                ulong at = i * TexelFloats;
+                for (ulong c = 0; c < 4; c++)
+                {
+                    texels[at + c] = positions[i * 4 + c];
+                }
+
+                for (ulong c = 0; c < 3; c++)
+                {
+                    texels[at + 4 + c] = (float)geometric[i * 4 + c];
+                    texels[at + 7 + c] = (float)shading[i * 4 + c];
+                }
+
+                texels[at + 10] = validity[i] / 255f;
+            }
+
+            return texels;
+        }
     }
 
     /// <summary>
@@ -701,21 +704,8 @@ internal sealed unsafe class Baker : IDisposable
     internal void RecordSumsReadBack(
         CommandBuffer cmd, int page, RenderTarget[] sums, GpuBuffer buffer, int x, int y, int width, int height, bool transfer)
     {
-        var barrier = new MemoryBarrier2
-        {
-            SType = StructureType.MemoryBarrier2,
-            SrcStageMask = PipelineStageFlags2.AllCommandsBit,
-            SrcAccessMask = AccessFlags2.MemoryWriteBit,
-            DstStageMask = PipelineStageFlags2.CopyBit,
-            DstAccessMask = AccessFlags2.TransferReadBit,
-        };
-        var dependency = new DependencyInfo
-        {
-            SType = StructureType.DependencyInfo,
-            MemoryBarrierCount = 1,
-            PMemoryBarriers = &barrier,
-        };
-        _context.Api.CmdPipelineBarrier2(cmd, &dependency);
+        _context.Api.MemoryBarrier(cmd, (PipelineStageFlags2.AllCommandsBit, AccessFlags2.MemoryWriteBit),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
 
         ulong bytes = (ulong)width * (ulong)height * 16;
         int read = SumsRead(transfer);
@@ -908,8 +898,40 @@ internal sealed unsafe class Baker : IDisposable
         var api = _context.Api;
         _tile ??= new TileTargets(_context, MultisampleCount());
         var tile = _tile;
+        ClearToUncovered(cmd, targets);
 
-        // Tiles nothing is drawn in stay cleared to uncovered.
+        var set = AllocateSet(_resolveSetLayout, pool);
+        WriteResolveSet(set, tile, targets);
+
+        const int tiles = LightmapLayout.PageSize / TileSize;
+        var tileDraws = new List<(DrawItem Draw, LightmapRect Rect)>();
+        for (int tileY = 0; tileY < tiles; tileY++)
+        {
+            for (int tileX = 0; tileX < tiles; tileX++)
+            {
+                var origin = new Offset2D(tileX * TileSize, tileY * TileSize);
+                CollectTouching(draws, origin, tileDraws);
+                if (tileDraws.Count > 0)
+                {
+                    DrawTile(cmd, tile, origin, tileDraws, set);
+                }
+            }
+        }
+
+        // The validity pass reads the position and geometric normal the resolves wrote.
+        foreach (var target in targets.Colors)
+        {
+            api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.General, ImageLayout.General,
+                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
+                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit);
+        }
+    }
+
+    // Clears a page's targets for the resolves to write, so tiles nothing is drawn in stay uncovered.
+    private void ClearToUncovered(CommandBuffer cmd, PageTargets targets)
+    {
+        var api = _context.Api;
         var clear = new ClearColorValue(0f, 0f, 0f, 0f);
         var range = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1);
         foreach (var target in targets.Colors)
@@ -924,67 +946,39 @@ internal sealed unsafe class Baker : IDisposable
                 PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
                 PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit);
         }
+    }
 
-        var set = AllocateSet(_resolveSetLayout, pool);
-        WriteResolveSet(set, tile, targets);
+    // Draws one tile's draws into the multisampled targets and resolves them into the page through set.
+    private void DrawTile(
+        CommandBuffer cmd, TileTargets tile, Offset2D origin, List<(DrawItem Draw, LightmapRect Rect)> draws, DescriptorSet set)
+    {
+        var api = _context.Api;
 
-        const int tiles = LightmapLayout.PageSize / TileSize;
-        var tileDraws = new List<(DrawItem Draw, LightmapRect Rect)>();
-        for (int tileY = 0; tileY < tiles; tileY++)
-        {
-            for (int tileX = 0; tileX < tiles; tileX++)
-            {
-                var origin = new Offset2D(tileX * TileSize, tileY * TileSize);
-                tileDraws.Clear();
-                foreach (var entry in draws)
-                {
-                    if (Touches(entry.Rect, origin))
-                    {
-                        tileDraws.Add(entry);
-                    }
-                }
-
-                if (tileDraws.Count == 0)
-                {
-                    continue;
-                }
-
-                // The last tile's resolve must finish reading before this one draws over it.
-                foreach (var target in tile.Colors)
-                {
-                    api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
-                        ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal,
-                        PipelineStageFlags2.ComputeShaderBit, AccessFlags2.None,
-                        PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit);
-                }
-
-                DrawInto(cmd, tile.Colors, new Extent2D(TileSize, TileSize), origin, tileDraws);
-
-                foreach (var target in tile.Colors)
-                {
-                    api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
-                        ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal,
-                        PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
-                        PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit);
-                }
-
-                var constants = new ResolveConstants { X = origin.X, Y = origin.Y, Samples = (int)tile.SampleCount };
-                api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _resolvePipeline);
-                api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _resolveLayout, 0, 1, &set, 0, null);
-                api.CmdPushConstants(cmd, _resolveLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(ResolveConstants), &constants);
-                const uint groups = TileSize / GroupSize;
-                api.CmdDispatch(cmd, groups, groups, 1);
-            }
-        }
-
-        // The validity pass reads the position and geometric normal the resolves wrote.
-        foreach (var target in targets.Colors)
+        // The last tile's resolve must finish reading before this one draws over it.
+        foreach (var target in tile.Colors)
         {
             api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.General, ImageLayout.General,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit);
+                ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal,
+                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.None,
+                PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit);
         }
+
+        DrawInto(cmd, tile.Colors, new Extent2D(TileSize, TileSize), origin, draws);
+
+        foreach (var target in tile.Colors)
+        {
+            api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal,
+                PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
+                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit);
+        }
+
+        var constants = new ResolveConstants { X = origin.X, Y = origin.Y, Samples = (int)tile.SampleCount };
+        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _resolvePipeline);
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _resolveLayout, 0, 1, &set, 0, null);
+        api.CmdPushConstants(cmd, _resolveLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(ResolveConstants), &constants);
+        const uint groups = TileSize / GroupSize;
+        api.CmdDispatch(cmd, groups, groups, 1);
     }
 
     /// <summary>
@@ -1043,6 +1037,20 @@ internal sealed unsafe class Baker : IDisposable
         }
 
         api.CmdEndRendering(cmd);
+    }
+
+    // Fills tileDraws with the draws whose rectangle reaches into the tile at origin.
+    private static void CollectTouching(
+        List<(DrawItem Draw, LightmapRect Rect)> draws, Offset2D origin, List<(DrawItem Draw, LightmapRect Rect)> tileDraws)
+    {
+        tileDraws.Clear();
+        foreach (var entry in draws)
+        {
+            if (Touches(entry.Rect, origin))
+            {
+                tileDraws.Add(entry);
+            }
+        }
     }
 
     /// <summary>Whether a rectangle, with a texel round it for conservative overestimation, reaches into a tile.</summary>

@@ -103,59 +103,81 @@ sealed class HeightToOcclusionNode(Node input, float width, float depth, float r
     {
         var size = context.Size;
         var height = inputs[0];
-        var metresPerPixel = width / size;
-        var stepPixels = radius * size / Steps;
-        var cos = new float[Directions];
-        var sin = new float[Directions];
-
-        for (var d = 0; d < Directions; d++)
-        {
-            var angle = 2f * MathF.PI * d / Directions;
-
-            cos[d] = DMath.Cos(angle);
-            sin[d] = DMath.Sin(angle);
-        }
+        var probes = Probes(size);
 
         context.Rows(y =>
         {
             for (var x = 0; x < size; x++)
             {
-                var h0 = height[y * size + x] * depth;
-                var hidden = 0f;
-
-                for (var d = 0; d < Directions; d++)
-                {
-                    var steepest = 0f;
-
-                    for (var step = 1; step <= Steps; step++)
-                    {
-                        var reach = step * stepPixels;
-                        var ox = (int)MathF.Round(cos[d] * reach);
-                        var oy = (int)MathF.Round(sin[d] * reach);
-
-                        if (ox == 0 && oy == 0)
-                        {
-                            continue;
-                        }
-
-                        var distance = MathF.Sqrt(ox * ox + oy * oy) * metresPerPixel;
-                        var h = height[Sampling.Wrap(y + oy, size) * size + Sampling.Wrap(x + ox, size)] * depth;
-                        var slope = (h - h0) / distance;
-
-                        if (slope > steepest)
-                        {
-                            steepest = slope;
-                        }
-                    }
-
-                    // The sine of the angle above the flat, which is how much of that direction's sky is gone.
-                    hidden += steepest / MathF.Sqrt(1f + steepest * steepest);
-                }
-
-                output[y * size + x] = 1f - hidden / Directions;
+                output[y * size + x] = 1f - Hidden(height, size, x, y, probes) / Directions;
             }
         });
     }
+
+    /// <summary>
+    /// For each direction, the pixels a step at a time out to the radius, as offsets with their distance in metres.
+    /// A step that rounds to the pixel itself is left out.
+    /// </summary>
+    Probe[][] Probes(int size)
+    {
+        var metresPerPixel = width / size;
+        var stepPixels = radius * size / Steps;
+        var probes = new Probe[Directions][];
+
+        for (var d = 0; d < Directions; d++)
+        {
+            var angle = 2f * MathF.PI * d / Directions;
+            var cos = DMath.Cos(angle);
+            var sin = DMath.Sin(angle);
+            var line = new List<Probe>(Steps);
+
+            for (var step = 1; step <= Steps; step++)
+            {
+                var reach = step * stepPixels;
+                var ox = (int)MathF.Round(cos * reach);
+                var oy = (int)MathF.Round(sin * reach);
+
+                if (ox != 0 || oy != 0)
+                {
+                    line.Add(new Probe(ox, oy, MathF.Sqrt(ox * ox + oy * oy) * metresPerPixel));
+                }
+            }
+
+            probes[d] = [.. line];
+        }
+
+        return probes;
+    }
+
+    /// <summary>How much of the sky the heights round the pixel hide, summed over the directions.</summary>
+    float Hidden(float[] height, int size, int x, int y, Probe[][] probes)
+    {
+        var h0 = height[y * size + x] * depth;
+        var hidden = 0f;
+
+        foreach (var line in probes)
+        {
+            var steepest = 0f;
+
+            foreach (var probe in line)
+            {
+                var h = height[Sampling.Wrap(y + probe.Y, size) * size + Sampling.Wrap(x + probe.X, size)] * depth;
+                var slope = (h - h0) / probe.Distance;
+
+                if (slope > steepest)
+                {
+                    steepest = slope;
+                }
+            }
+
+            // The sine of the angle above the flat, which is how much of that direction's sky is gone.
+            hidden += steepest / MathF.Sqrt(1f + steepest * steepest);
+        }
+
+        return hidden;
+    }
+
+    readonly record struct Probe(int X, int Y, float Distance);
 }
 
 sealed class NormalOverNode(Node baseNormal, Node detail) : Node(3, baseNormal, detail)
