@@ -127,7 +127,7 @@ out once the way is clear. With several walls, pass the nearest hit. With
 keeps the camera's near plane out of them too:
 
 ```csharp
-var blocked = physics.ShapeCast(Collider.Ball(0.3f), arm.Origin, arm.Direction, reach: boom.Length, layers: Walls);
+var blocked = physics.Queries.ShapeCast(Collider.Ball(0.3f), arm.Origin, arm.Direction, reach: boom.Length, layers: Walls);
 boom.Update(player.Position, time.TickSeconds, blockedAt: blocked?.Distance);
 ``` `Walk` turns a stick
 into a direction on the ground, so forward goes where the camera faces.

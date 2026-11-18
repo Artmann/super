@@ -53,12 +53,12 @@ public class AllocationTests
         void Frame()
         {
             physics.Step(Tick);
-            physics.Move(walker, new Vector3(1f, -1f, 0f), Tick);
-            physics.Raycast(ray);
-            physics.RaycastAll(ray, rays);
-            physics.ShapeCast(Collider.Ball(0.3f), ray.Origin, ray.Direction);
-            physics.ShapeCastAll(Collider.Ball(0.3f), ray.Origin, ray.Direction, casts);
-            physics.Overlap(Collider.Ball(2f), Vector3.Zero, overlaps);
+            physics.Characters.Move(walker, new Vector3(1f, -1f, 0f), Tick);
+            physics.Queries.Raycast(ray);
+            physics.Queries.RaycastAll(ray, rays);
+            physics.Queries.ShapeCast(Collider.Ball(0.3f), ray.Origin, ray.Direction);
+            physics.Queries.ShapeCastAll(Collider.Ball(0.3f), ray.Origin, ray.Direction, casts);
+            physics.Queries.Overlap(Collider.Ball(2f), Vector3.Zero, overlaps);
         }
 
         // Warm up first, so lists have grown and JIT and lazy setup are done.

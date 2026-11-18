@@ -4,7 +4,7 @@ using Super.Ecs;
 namespace Super.Physics;
 
 /// <summary>
-/// Makes an entity walk with <see cref="Physics.Move"/>: it slides along walls, climbs steps, stays on the ground
+/// Makes an entity walk with <see cref="PhysicsCharacters.Move"/>: it slides along walls, climbs steps, stays on the ground
 /// going down slopes and stairs, and pushes dynamic bodies. Its shape is its <see cref="Collider"/>, usually a
 /// capsule standing on its feet. It needs a Transform and no <see cref="Parent"/>, and can't also have a dynamic
 /// <see cref="Body"/>.
@@ -43,7 +43,7 @@ public enum Footing
 }
 
 /// <summary>
-/// Where a <see cref="Physics.Move"/> left a character. <see cref="Velocity"/> is what it really moved at, after
+/// Where a <see cref="PhysicsCharacters.Move"/> left a character. <see cref="Velocity"/> is what it really moved at, after
 /// walls and slopes; keep its Y for gravity and jumps.
 /// </summary>
 public readonly record struct CharacterMove(

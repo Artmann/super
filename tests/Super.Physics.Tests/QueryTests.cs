@@ -27,7 +27,7 @@ public class QueryTests
         var wall = Place(world, new Vector3(0f, 1f, -0.5f), Collider.Box(new Vector3(10f, 2f, 1f)));
         physics.Sync();
 
-        var hit = physics.ShapeCast(Collider.Ball(0.5f), new Vector3(0f, 1f, 5f), -Vector3.UnitZ);
+        var hit = physics.Queries.ShapeCast(Collider.Ball(0.5f), new Vector3(0f, 1f, 5f), -Vector3.UnitZ);
 
         // The wall's face is at z = 0, and the ball's front reaches it when its centre is at 0.5.
         Assert.NotNull(hit);
@@ -48,8 +48,8 @@ public class QueryTests
 
         var from = new Vector3(0f, 1f, 5f);
 
-        Assert.Null(physics.Raycast(new Ray(from, -Vector3.UnitZ)));
-        Assert.NotNull(physics.ShapeCast(Collider.Ball(0.3f), from, -Vector3.UnitZ));
+        Assert.Null(physics.Queries.Raycast(new Ray(from, -Vector3.UnitZ)));
+        Assert.NotNull(physics.Queries.ShapeCast(Collider.Ball(0.3f), from, -Vector3.UnitZ));
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public class QueryTests
         var floor = Place(world, new Vector3(0f, -0.5f, 0f), Collider.Box(new Vector3(20f, 1f, 20f)));
         physics.Sync();
 
-        var hit = physics.ShapeCast(Collider.Capsule(1.8f, 0.4f), new Vector3(3f, 10f, 2f), -Vector3.UnitY, reach: 50f);
+        var hit = physics.Queries.ShapeCast(Collider.Capsule(1.8f, 0.4f), new Vector3(3f, 10f, 2f), -Vector3.UnitY, reach: 50f);
 
         // A capsule stands on its offset, so its foot meets the floor after 10 m.
         Assert.Equal(floor, hit!.Value.Entity);
@@ -79,7 +79,7 @@ public class QueryTests
         physics.Sync();
 
         var hits = new List<ShapeHit>();
-        physics.ShapeCastAll(Collider.Ball(0.5f), new Vector3(0f, 1f, 5f), -Vector3.UnitZ, hits);
+        physics.Queries.ShapeCastAll(Collider.Ball(0.5f), new Vector3(0f, 1f, 5f), -Vector3.UnitZ, hits);
 
         Assert.Equal([a, b, c], hits.Select(hit => hit.Entity));
     }
@@ -92,8 +92,8 @@ public class QueryTests
         Place(world, Vector3.Zero, Collider.Ball(0.5f));
         physics.Sync();
 
-        Assert.Null(physics.ShapeCast(Collider.Ball(0.5f), new Vector3(0f, 0f, 5f), -Vector3.UnitZ, reach: 3.9f));
-        Assert.NotNull(physics.ShapeCast(Collider.Ball(0.5f), new Vector3(0f, 0f, 5f), -Vector3.UnitZ, reach: 4.1f));
+        Assert.Null(physics.Queries.ShapeCast(Collider.Ball(0.5f), new Vector3(0f, 0f, 5f), -Vector3.UnitZ, reach: 3.9f));
+        Assert.NotNull(physics.Queries.ShapeCast(Collider.Ball(0.5f), new Vector3(0f, 0f, 5f), -Vector3.UnitZ, reach: 4.1f));
     }
 
     [Fact]
@@ -104,8 +104,8 @@ public class QueryTests
         Place(world, new Vector3(0f, 0f, -0.5f), Collider.Box(new Vector3(10f, 10f, 1f)));
         physics.Sync();
 
-        var flat = physics.ShapeCast(Collider.Box(new Vector3(2f, 0.2f, 0.2f)), new Vector3(0f, 0f, 5f), -Vector3.UnitZ);
-        var turned = physics.ShapeCast(
+        var flat = physics.Queries.ShapeCast(Collider.Box(new Vector3(2f, 0.2f, 0.2f)), new Vector3(0f, 0f, 5f), -Vector3.UnitZ);
+        var turned = physics.Queries.ShapeCast(
             Collider.Box(new Vector3(2f, 0.2f, 0.2f)),
             new Vector3(0f, 0f, 5f),
             -Vector3.UnitZ,
@@ -128,7 +128,7 @@ public class QueryTests
         physics.Sync();
 
         var hits = new List<Entity>();
-        physics.Overlap(Collider.Ball(1.2f), Vector3.Zero, hits, layers: 1);
+        physics.Queries.Overlap(Collider.Ball(1.2f), Vector3.Zero, hits, layers: 1);
 
         Assert.Equal([near, under], hits);
     }
@@ -142,10 +142,10 @@ public class QueryTests
         physics.Sync();
 
         var hits = new List<Entity>();
-        physics.Overlap(Collider.Ball(0.6f), Vector3.Zero, hits);
+        physics.Queries.Overlap(Collider.Ball(0.6f), Vector3.Zero, hits);
         Assert.Empty(hits);
 
-        physics.Overlap(Collider.Ball(0.6f, offset: new Vector3(0f, 3f, 0f)), Vector3.Zero, hits);
+        physics.Queries.Overlap(Collider.Ball(0.6f, offset: new Vector3(0f, 3f, 0f)), Vector3.Zero, hits);
         Assert.Equal([high], hits);
     }
 
@@ -160,10 +160,10 @@ public class QueryTests
         physics.Sync();
 
         var hits = new List<Entity>();
-        physics.Overlap(Collider.Ball(0.5f), Vector3.Zero, hits);
+        physics.Queries.Overlap(Collider.Ball(0.5f), Vector3.Zero, hits);
 
-        Assert.Equal(behind, physics.Raycast(new Ray(new Vector3(0f, 0f, 5f), -Vector3.UnitZ))!.Value.Entity);
-        Assert.Equal(behind, physics.ShapeCast(Collider.Ball(0.2f), new Vector3(0f, 0f, 5f), -Vector3.UnitZ)!.Value.Entity);
+        Assert.Equal(behind, physics.Queries.Raycast(new Ray(new Vector3(0f, 0f, 5f), -Vector3.UnitZ))!.Value.Entity);
+        Assert.Equal(behind, physics.Queries.ShapeCast(Collider.Ball(0.2f), new Vector3(0f, 0f, 5f), -Vector3.UnitZ)!.Value.Entity);
         Assert.Empty(hits);
     }
 
@@ -173,7 +173,7 @@ public class QueryTests
         var (_, physics) = Make();
         using var __ = physics;
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => physics.ShapeCast(Collider.Ball(0f), Vector3.Zero, Vector3.UnitX));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => physics.Queries.ShapeCast(Collider.Ball(0f), Vector3.Zero, Vector3.UnitX));
 
         Assert.StartsWith("The ShapeCast shape is a ball of radius 0; it must be above 0.", error.Message);
     }
@@ -184,7 +184,7 @@ public class QueryTests
         var (_, physics) = Make();
         using var __ = physics;
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => physics.ShapeCast(Collider.Ball(1f), Vector3.Zero, Vector3.Zero));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => physics.Queries.ShapeCast(Collider.Ball(1f), Vector3.Zero, Vector3.Zero));
 
         Assert.StartsWith("A shape cast needs a direction that isn't zero.", error.Message);
     }

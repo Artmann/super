@@ -40,7 +40,7 @@ public class RagdollTests
     private static List<RagdollShapeView> Shapes(Physics physics, Entity entity)
     {
         List<RagdollShapeView> shapes = [];
-        physics.RagdollShapes(entity, shapes);
+        physics.Ragdolls.Shapes(entity, shapes);
         return shapes;
     }
 
@@ -67,7 +67,7 @@ public class RagdollTests
         var head = JointAt(world, person, animator, "Head");
         Assert.True(hips.Y is > 0f and < 0.35f, $"the hips are {hips.Y} m up");
         Assert.True(head.Y is > 0f and < 0.35f, $"the head is {head.Y} m up");
-        Assert.True(physics.Velocity(person).Length() < 0.2f, $"it still moves at {physics.Velocity(person)}");
+        Assert.True(physics.Bodies.Velocity(person).Length() < 0.2f, $"it still moves at {physics.Bodies.Velocity(person)}");
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public class RagdollTests
         Assert.True(hips.Y is > 0f and < 0.35f, $"the hips are {hips.Y} m up");
         Assert.True(head.Y is > 0f and < 0.35f, $"the head is {head.Y} m up");
         Assert.True(Vector3.Distance(hips, head) is > 0.4f and < 0.8f, $"the head is {Vector3.Distance(hips, head)} m from the hips");
-        Assert.True(physics.Velocity(person).Length() < 0.2f, $"it still moves at {physics.Velocity(person)}");
+        Assert.True(physics.Bodies.Velocity(person).Length() < 0.2f, $"it still moves at {physics.Bodies.Velocity(person)}");
     }
 
     [Theory]
@@ -131,7 +131,7 @@ public class RagdollTests
         world.Get<Ragdoll>(person) = world.Get<Ragdoll>(person) with { Mode = RagdollMode.Simulated };
         Run(physics, animator, 1);
 
-        var velocity = physics.Velocity(person);
+        var velocity = physics.Bodies.Velocity(person);
         Assert.Equal(4f, velocity.X, 0.1f);
         Assert.Equal(-9.81f * Tick, velocity.Y, 0.05f);
     }
@@ -143,7 +143,7 @@ public class RagdollTests
         using var _ = physics;
         var (person, animator) = TestHumanoid.Place(world, Transform.At(new Vector3(0f, 10f, 0f)), TestHumanoid.Limp(Body));
 
-        physics.SetVelocity(person, new Vector3(3f, 0f, 0f));
+        physics.Bodies.SetVelocity(person, new Vector3(3f, 0f, 0f));
         Run(physics, animator, 30);
 
         // Half a second at 3 m/s, while the hips are drawn where their body is.
@@ -161,10 +161,10 @@ public class RagdollTests
         using var _ = physics;
         var (person, _) = TestHumanoid.Place(world, Transform.At(new Vector3(0f, 10f, 0f)), TestHumanoid.Limp(Body));
 
-        physics.Push(person, new Vector3(0f, 0f, 140f));
+        physics.Bodies.Push(person, new Vector3(0f, 0f, 140f));
 
         // 140 newton-seconds on 70 kilograms.
-        Assert.Equal(2f, physics.Velocity(person).Z, 0.01f);
+        Assert.Equal(2f, physics.Bodies.Velocity(person).Z, 0.01f);
     }
 
     [Fact]
@@ -176,13 +176,13 @@ public class RagdollTests
         physics.Sync();
         var before = Bone(physics, person, "LeftForeArm");
 
-        physics.PushPart(person, "LeftHand", new Vector3(0f, 0f, 2f));
+        physics.Ragdolls.PushPart(person, "LeftHand", new Vector3(0f, 0f, 2f));
         Run(physics, animator, 10);
 
         // The hand swings the forearm forward; the rest of the body hardly moves.
         var after = Bone(physics, person, "LeftForeArm");
         Assert.True(after.Z > before.Z + 0.2f, $"the forearm points {after}");
-        Assert.True(MathF.Abs(physics.Velocity(person).Z) < 0.2f, $"the body moves at {physics.Velocity(person)}");
+        Assert.True(MathF.Abs(physics.Bodies.Velocity(person).Z) < 0.2f, $"the body moves at {physics.Bodies.Velocity(person)}");
     }
 
     [Fact]
@@ -230,7 +230,7 @@ public class RagdollTests
         for (int i = 0; i < 60; i++)
         {
             // Hold the upper part still and keep pushing the end of the limb one way, front or back.
-            physics.PushPart(person, end, new Vector3(0f, 0f, 1.5f * way));
+            physics.Ragdolls.PushPart(person, end, new Vector3(0f, 0f, 1.5f * way));
             Run(physics, animator, 1);
         }
 
@@ -262,7 +262,7 @@ public class RagdollTests
         float radius = 0f;
         for (int i = 0; i < 60; i++)
         {
-            physics.PushPart(person, pushed, new Vector3(-6f, 0f, 0f));
+            physics.Ragdolls.PushPart(person, pushed, new Vector3(-6f, 0f, 0f));
             Run(physics, animator, 1);
             var shapes = Shapes(physics, person);
             var still = shapes.Single(shape => shape.Joint == held);
@@ -373,7 +373,7 @@ public class RagdollTests
 
         Run(physics, animator, 120);
 
-        Assert.Equal(faceUp, physics.IsFaceUp(person));
+        Assert.Equal(faceUp, physics.Ragdolls.IsFaceUp(person));
     }
 
     [Theory]
@@ -442,12 +442,12 @@ public class RagdollTests
         var (person, animator) = TestHumanoid.Place(world, Transform.At(Vector3.Zero), new Ragdoll(Body) { Mode = RagdollMode.Kinematic });
         var down = new Super.Ray(new Vector3(0f, 5f, 0f), -Vector3.UnitY);
         physics.Sync();
-        Assert.Equal(person, physics.Raycast(down)?.Entity);
+        Assert.Equal(person, physics.Queries.Raycast(down)?.Entity);
 
         world.Remove<Ragdoll>(person);
         physics.Sync();
 
-        Assert.Null(physics.Raycast(down));
+        Assert.Null(physics.Queries.Raycast(down));
         Assert.False(animator.Pose.IsPhysical);
     }
 

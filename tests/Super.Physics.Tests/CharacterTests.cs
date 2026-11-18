@@ -45,7 +45,7 @@ public class CharacterTests
         {
             physics.Step(Tick);
             fall = move.Grounded ? 0f : fall - (9.81f * Tick);
-            move = physics.Move(walker, velocity with { Y = fall }, Tick);
+            move = physics.Characters.Move(walker, velocity with { Y = fall }, Tick);
             fall = move.Velocity.Y;
         }
 
@@ -165,7 +165,7 @@ public class CharacterTests
         Walk(physics, walker, Vector3.Zero, 5);
 
         world.Get<Transform>(walker).Position = new Vector3(8f, 0f, 0f);
-        var move = physics.Move(walker, new Vector3(1f, 0f, 0f), Tick);
+        var move = physics.Characters.Move(walker, new Vector3(1f, 0f, 0f), Tick);
 
         Assert.Equal(8f + (1f / 60f), move.Position.X, 0.001f);
     }
@@ -180,7 +180,7 @@ public class CharacterTests
         Walk(physics, walker, new Vector3(0f, 0f, -2f), 60);
         physics.Sync();
 
-        var hit = physics.Raycast(new Ray(new Vector3(0f, 1f, 10f), -Vector3.UnitZ));
+        var hit = physics.Queries.Raycast(new Ray(new Vector3(0f, 1f, 10f), -Vector3.UnitZ));
 
         Assert.Equal(walker, hit!.Value.Entity);
     }
@@ -192,7 +192,7 @@ public class CharacterTests
         using var _ = physics;
         var box = Place(world, Vector3.Zero, Collider.Box(Vector3.One));
 
-        var error = Assert.Throws<InvalidOperationException>(() => physics.Move(box, Vector3.UnitX, Tick));
+        var error = Assert.Throws<InvalidOperationException>(() => physics.Characters.Move(box, Vector3.UnitX, Tick));
 
         Assert.Equal($"Entity {box.Id} can't Move: it needs a Character, a Collider and a Transform.", error.Message);
     }
