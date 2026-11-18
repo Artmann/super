@@ -87,12 +87,12 @@ internal sealed unsafe class FsrPass : IDisposable
     }
 
     /// <summary>
-    /// Records FSR's frame: it reads <paramref name="color"/>, which must be ready to sample, and
-    /// <paramref name="depth"/>, read-only after the scene, and writes <paramref name="output"/> at the display's
+    /// Records FSR's frame, with the frame's and the exposure meter's <paramref name="sets"/>: it reads the colour image,
+    /// which must be ready to sample, and depth, read-only after the scene, and writes the output at the display's
     /// size, which is left ready to sample. Depth goes back to read-only for the passes after.
     /// </summary>
     public void Record(
-        CommandBuffer cmd, DescriptorSet frameSet, DescriptorSet exposureSet, Image color, Image depth, Image output,
+        CommandBuffer cmd, (DescriptorSet Frame, DescriptorSet Exposure) sets, (Image Color, Image Depth, Image Output) images,
         in FsrFrame frame)
     {
         if (_fsr is null || _motion is null || _exposure is null)
@@ -101,13 +101,8 @@ internal sealed unsafe class FsrPass : IDisposable
         }
 
         var api = _context.Api;
-        api.BeginColorTarget(cmd, _motion.Image);
-        _motionPass.Record(cmd, _motion.View, _fsr.RenderSize, [frameSet, _motionSet]);
-        api.EndColorTarget(cmd, _motion.Image);
-
-        api.BeginColorTarget(cmd, _exposure.Image);
-        _exposurePass.Record(cmd, _exposure.View, new Extent2D(1, 1), [frameSet, exposureSet]);
-        api.EndColorTarget(cmd, _exposure.Image);
+        var (color, depth, output) = images;
+        RecordInputs(cmd, sets, _fsr, (_motion, _exposure));
 
         // FSR samples depth from compute shaders, in the layout it was told.
         api.Transition(cmd, depth, ImageAspectFlags.DepthBit,
@@ -137,6 +132,20 @@ internal sealed unsafe class FsrPass : IDisposable
             ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal,
             PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
             PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit);
+    }
+
+    // Draws the motion vectors FSR reads, and the exposure it reads, into their own targets.
+    private void RecordInputs(
+        CommandBuffer cmd, (DescriptorSet Frame, DescriptorSet Exposure) sets, Fsr fsr, (RenderTarget Motion, RenderTarget Exposure) inputs)
+    {
+        var api = _context.Api;
+        api.BeginColorTarget(cmd, inputs.Motion.Image);
+        _motionPass.Record(cmd, inputs.Motion.View, fsr.RenderSize, [sets.Frame, _motionSet]);
+        api.EndColorTarget(cmd, inputs.Motion.Image);
+
+        api.BeginColorTarget(cmd, inputs.Exposure.Image);
+        _exposurePass.Record(cmd, inputs.Exposure.View, new Extent2D(1, 1), [sets.Frame, sets.Exposure]);
+        api.EndColorTarget(cmd, inputs.Exposure.Image);
     }
 
     public void Dispose()

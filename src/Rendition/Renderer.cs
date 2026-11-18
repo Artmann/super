@@ -2438,7 +2438,7 @@ public sealed unsafe class Renderer : IDisposable
         if (_upscaling)
         {
             RecordHistoryCopy(cmd, targets.Hdr.Image, drawnJustNow: false);
-            _fsrPass.Record(cmd, frameSet, _exposureMeter.Set, targets.Hdr.Image, targets.Depth.Image, targets.Resolved.Image, _fsrFrame);
+            _fsrPass.Record(cmd, (frameSet, _exposureMeter.Set), (targets.Hdr.Image, targets.Depth.Image, targets.Resolved.Image), _fsrFrame);
         }
         else if (_readsAntiAliased)
         {
@@ -2469,7 +2469,7 @@ public sealed unsafe class Renderer : IDisposable
         if (_depthOfField is { } lens)
         {
             var source = _readsAntiAliased ? targets.Resolved : targets.Hdr;
-            _depthOfFieldPass.Record(cmd, frameSet, source.Image, source.View, extent, lens);
+            _depthOfFieldPass.Record(cmd, frameSet, (source.Image, source.View, extent), lens);
         }
 
         _gpuTimer.Mark(cmd);

@@ -67,21 +67,14 @@ internal struct DepthOfFieldConstants
 internal sealed unsafe class DepthOfFieldPass : IDisposable
 {
     private readonly VulkanContext _context;
-    private readonly Sampler _pointSampler;
-    private readonly Sampler _linearSampler;
-    private readonly DescriptorSetLayout _setLayout;
-    private readonly DescriptorPool _pool;
-    private readonly DescriptorSet _cocSet;
-    private readonly DescriptorSet _blurSet;
-    private readonly DescriptorSet _combineSet;
+    private readonly DepthOfFieldSets _sets;
     private readonly FullscreenPass _cocPass;
     private readonly FullscreenPass _blurPass;
     private readonly FullscreenPass _combinePass;
+
     // The half-size layers, made the first time a frame draws depth of field, so a game that never
     // opens a lens never spends the memory on them. Null until then, and again after a resize.
-    private RenderTarget? _coc;
-    private RenderTarget? _near;
-    private RenderTarget? _far;
+    private DepthOfFieldLayers? _layers;
     private Extent2D _half;
     private ImageView _source;
     private ImageView _depth;
@@ -89,24 +82,8 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
     public DepthOfFieldPass(VulkanContext context, Sampler pointSampler, Sampler linearSampler, DescriptorSetLayout frameSetLayout)
     {
         _context = context;
-        _pointSampler = pointSampler;
-        _linearSampler = linearSampler;
-
-        _setLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-            new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-            new(2, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-        ]);
-
-        const int setCount = 3;
-        _pool = context.CreateDescriptorPool(setCount, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, setCount * 3));
-
-        _cocSet = Allocate();
-        _blurSet = Allocate();
-        _combineSet = Allocate();
-
-        ReadOnlySpan<DescriptorSetLayout> layouts = [frameSetLayout, _setLayout];
+        _sets = new DepthOfFieldSets(context, (pointSampler, linearSampler));
+        ReadOnlySpan<DescriptorSetLayout> layouts = [frameSetLayout, _sets.Layout];
         _cocPass = new FullscreenPass(context, "dof_coc.frag", [GBuffer.HdrFormat], layouts, DepthOfFieldConstants.Size);
         _blurPass = new FullscreenPass(context, "dof_blur.frag", [GBuffer.HdrFormat, GBuffer.HdrFormat], layouts, DepthOfFieldConstants.Size);
         _combinePass = new FullscreenPass(context, "dof_combine.frag", [GBuffer.HdrFormat], layouts, DepthOfFieldConstants.Size, blend: true);
@@ -120,86 +97,63 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
     /// </summary>
     public void SetTargets(ImageView source, ImageView depth, Extent2D extent)
     {
-        DestroyTargets();
+        DestroyLayers();
         _half = new Extent2D(Math.Max((extent.Width + 1) / 2, 1), Math.Max((extent.Height + 1) / 2, 1));
         _source = source;
         _depth = depth;
     }
 
     /// <summary>Whether the half-size layers exist yet: only once a frame has drawn depth of field.</summary>
-    public bool HasTargets => _coc is not null;
+    public bool HasTargets => _layers is not null;
 
     /// <summary>Reads a different picture from the next frame on. Frames still in flight must have finished.</summary>
     public void SetSource(ImageView source, ImageView depth)
     {
         _source = source;
         _depth = depth;
-        if (HasTargets)
+        if (_layers is not null)
         {
-            WriteSets();
+            _sets.Write(_source, _depth, _layers);
         }
-    }
-
-    private void WriteSets()
-    {
-        var depthInfo = new DescriptorImageInfo(_pointSampler, _depth, ImageLayout.DepthReadOnlyOptimal);
-        Write(_cocSet,
-        [
-            new(_linearSampler, _source, ImageLayout.ShaderReadOnlyOptimal),
-            depthInfo,
-            new(_linearSampler, _source, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
-        Write(_blurSet,
-        [
-            new(_pointSampler, _coc!.View, ImageLayout.ShaderReadOnlyOptimal),
-            depthInfo,
-            new(_linearSampler, _coc!.View, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
-        Write(_combineSet,
-        [
-            new(_linearSampler, _near!.View, ImageLayout.ShaderReadOnlyOptimal),
-            depthInfo,
-            new(_linearSampler, _far!.View, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
     }
 
     /// <summary>
     /// Blurs <paramref name="target"/>, the picture <see cref="SetSource"/> was given, in place. It must be
     /// ready to sample, and is left ready to sample again.
     /// </summary>
-    public void Record(CommandBuffer cmd, DescriptorSet frameSet, Image target, ImageView targetView, Extent2D extent, in DepthOfFieldConstants constants)
+    public void Record(
+        CommandBuffer cmd, DescriptorSet frameSet, (Image Image, ImageView View, Extent2D Extent) target, in DepthOfFieldConstants constants)
     {
-        if (_coc is null || _near is null || _far is null)
+        if (_layers is null)
         {
             // The first frame to draw depth of field since start or a resize. Nothing has used the
             // sets yet, so they can be written while recording.
-            _coc = CreateTarget();
-            _near = CreateTarget();
-            _far = CreateTarget();
-            WriteSets();
+            _layers = new DepthOfFieldLayers(_context, _half);
+            _sets.Write(_source, _depth, _layers);
         }
 
         var api = _context.Api;
+        var layers = _layers;
         var lens = constants;
         var bytes = new ReadOnlySpan<byte>(&lens, (int)DepthOfFieldConstants.Size);
 
-        api.BeginColorTarget(cmd, _coc.Image);
-        _cocPass.Record(cmd, [_coc.View], _half, [frameSet, _cocSet], bytes);
-        api.EndColorTarget(cmd, _coc.Image);
+        api.BeginColorTarget(cmd, layers.Coc.Image);
+        _cocPass.Record(cmd, [layers.Coc.View], _half, [frameSet, _sets.Coc], bytes);
+        api.EndColorTarget(cmd, layers.Coc.Image);
 
-        api.BeginColorTarget(cmd, _near.Image);
-        api.BeginColorTarget(cmd, _far.Image);
-        _blurPass.Record(cmd, [_near.View, _far.View], _half, [frameSet, _blurSet], bytes);
-        api.EndColorTarget(cmd, _near.Image);
-        api.EndColorTarget(cmd, _far.Image);
+        api.BeginColorTarget(cmd, layers.Near.Image);
+        api.BeginColorTarget(cmd, layers.Far.Image);
+        _blurPass.Record(cmd, [layers.Near.View, layers.Far.View], _half, [frameSet, _sets.Blur], bytes);
+        api.EndColorTarget(cmd, layers.Near.Image);
+        api.EndColorTarget(cmd, layers.Far.Image);
 
         // The combine blends over the picture, so it keeps what's there. The meter, a compute pass, reads it after.
-        api.Transition(cmd, target, ImageAspectFlags.ColorBit,
+        api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ShaderReadOnlyOptimal, ImageLayout.ColorAttachmentOptimal,
             PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
             PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentReadBit | AccessFlags2.ColorAttachmentWriteBit);
-        _combinePass.Record(cmd, [targetView], extent, [frameSet, _combineSet], bytes);
-        api.Transition(cmd, target, ImageAspectFlags.ColorBit,
+        _combinePass.Record(cmd, [target.View], target.Extent, [frameSet, _sets.Combine], bytes);
+        api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
             PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit);
@@ -207,40 +161,16 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
 
     public void Dispose()
     {
-        DestroyTargets();
+        DestroyLayers();
         _combinePass.Dispose();
         _blurPass.Dispose();
         _cocPass.Dispose();
-        _context.Api.DestroyDescriptorPool(_context.Device, _pool, null);
-        _context.Api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
+        _sets.Dispose();
     }
 
-    private DescriptorSet Allocate() => _context.AllocateSet(_pool, _setLayout);
-
-    private RenderTarget CreateTarget() =>
-        new(_context, GBuffer.HdrFormat, _half, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
-
-    private void DestroyTargets()
+    private void DestroyLayers()
     {
-        _coc?.Dispose();
-        _near?.Dispose();
-        _far?.Dispose();
-        _coc = null;
-        _near = null;
-        _far = null;
-    }
-
-    private void Write(DescriptorSet set, ReadOnlySpan<DescriptorImageInfo> images)
-    {
-        var writes = stackalloc WriteDescriptorSet[images.Length];
-        fixed (DescriptorImageInfo* imagesPtr = images)
-        {
-            for (int i = 0; i < images.Length; i++)
-            {
-                writes[i] = Descriptors.ImageWrite(set, (uint)i, DescriptorType.CombinedImageSampler, &imagesPtr[i]);
-            }
-
-            _context.Api.UpdateDescriptorSets(_context.Device, (uint)images.Length, writes, 0, null);
-        }
+        _layers?.Dispose();
+        _layers = null;
     }
 }
