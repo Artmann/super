@@ -61,7 +61,7 @@ public sealed unsafe class Renderer : IDisposable
 
     // Whether this frame shows the probe debug view: the lit scene with a sphere at every light probe.
     private bool _probeView;
-    private readonly EnvironmentMap _environment;
+    private readonly EnvironmentSky _sky;
     private readonly ReflectionProbes _probes;
 
     private readonly VolumetricFogVolume _volumetricFog;
@@ -80,25 +80,8 @@ public sealed unsafe class Renderer : IDisposable
     // The frame whose uniforms Render wrote last, so the probe test hooks read what that frame did.
     private int _uniformFrame;
 
-    // Goes up with every SetEnvironment, so the light probes see the sky has changed.
-    private int _environmentVersion;
-
-    // What the last SetEnvironment gave, hashed, and the strength the last frame drew it at, for EnvironmentHash.
-    private ulong _environmentContent;
-    private float _environmentIntensity;
-
-    // The clear sky and sun the environment was last baked with. The lighting hashes cover what
-    // decides it through the view, so baking it again leaves the version alone.
-    private SkySun _bakedSky;
-
-    // The photographed skies made with CreateSkyImage, by handle, each with its sun and a hash of what it holds.
-    private readonly List<(GpuTexture Cube, SkyImageSun Sun, ulong Content)> _skyImages = [];
-
     // The view's lights with the sun coloured by the physical sky's air; see SkyModel.Tinted.
     private DirectionalLight[] _tintedLights = [];
-
-    /// <summary>The sky or the environment's description changed and its cubes aren't redrawn yet.</summary>
-    private bool _environmentPending;
 
     private readonly DescriptorKit _kit;
     private readonly HistoryCopier _copier;
@@ -455,8 +438,6 @@ public sealed unsafe class Renderer : IDisposable
     private int[] _cameraSources = [];
     private int[] _cameraChunks = [];
 
-    private SkySh _skySh = null!;
-
     // The world-space ball round each draw this frame, for fitting sun shadows to what casts them.
     private Vector4[] _casterBounds = [];
     private readonly DrawItem[][] _shadowDraws = new DrawItem[ShadowPass.MaxCascades][];
@@ -518,23 +499,15 @@ public sealed unsafe class Renderer : IDisposable
         _clusterLayout = _context.CreatePipelineLayout([_kit.FrameSetLayout]);
         _clusterPipeline = PipelineFactory.CreateCompute(_context, "cluster.comp", _clusterLayout);
 
-        _environment = new EnvironmentMap(_context);
-        SetEnvironment(new EnvironmentDescription
-        {
-            Ceiling = new Vector3(0.5f),
-            Horizon = new Vector3(0.4f),
-            Floor = new Vector3(0.2f),
-        });
-        FlushEnvironment();
-        _skySh = new SkySh(_context, _environment.Sky, _environment.Sampler);
-        _frames.WriteSkySh(_skySh);
+        _sky = new EnvironmentSky(_context, _ring);
+        _frames.WriteSkySh(_sky.Sh);
 
-        _probes = new ReflectionProbes(_context, _environment.Sampler, FrameRing.Count);
+        _probes = new ReflectionProbes(_context, _sky.Map.Sampler, FrameRing.Count);
         var captureScene = new CaptureScene(_meshStore.MeshSlots, _meshStore.DetailSlots, _shadowPass);
         _reflectionCapture = new ReflectionCapturePass(_context, _kit.FrameSetLayout, _resources, captureScene,
-            new DescriptorImageInfo(_environment.Sampler, _environment.Sky, ImageLayout.ShaderReadOnlyOptimal));
-        var probeVolume = new ProbeVolume(_context, _environment.Sampler, _environment.Sky);
-        LightProbes = new LightProbes(_context, _environment, _kit,
+            new DescriptorImageInfo(_sky.Map.Sampler, _sky.Map.Sky, ImageLayout.ShaderReadOnlyOptimal));
+        var probeVolume = new ProbeVolume(_context, _sky.Map.Sampler, _sky.Map.Sky);
+        LightProbes = new LightProbes(_context, _sky.Map, _kit,
             new LightProbes.Sources(_resources, _tracing, captureScene, _ring, probeVolume));
         ProbeTests = new ProbeTestHooks(_context, LightProbes, _kit, () => _frames[_uniformFrame].Set, WriteTargetDescriptors);
 
@@ -543,7 +516,7 @@ public sealed unsafe class Renderer : IDisposable
         _copier = new HistoryCopier(_api);
         _occlusion = new OcclusionStage(_context, _kit, _copier);
         _lighting = new LightingStage(_context, _kit,
-            new LightingStage.Sources(_resources, _environment, _probes, probeVolume, _shadowPass));
+            new LightingStage.Sources(_resources, _sky.Map, _probes, probeVolume, _shadowPass));
         _taaSet = _kit.NewSet(_kit.FourTextureLayout);
         _tonemapSet = _kit.NewSet(_kit.TwoTextureLayout);
         _finishSet = _kit.NewSet(_kit.TwoTextureLayout);
@@ -551,7 +524,7 @@ public sealed unsafe class Renderer : IDisposable
         _bloomPass = new BloomPass(_context, _kit.LinearSampler, _gBuffer.Picture.Resolved.View, _gBuffer.Picture.Display);
         _particlePass = new ParticlePass(_context, _kit.FrameSetLayout, FrameRing.Count);
         _decalPass = new DecalPass(_context, _kit.FrameSetLayout, _resources, FrameRing.Count);
-        _transparentPass = new TransparentPass(_context, _kit.FrameSetLayout, _resources, _environment, _probes);
+        _transparentPass = new TransparentPass(_context, _kit.FrameSetLayout, _resources, _sky.Map, _probes);
         _probeDebugPass = new ProbeDebugPass(_context, _kit.FrameSetLayout, _kit.LightingSetLayout);
         _exposureMeter = new ExposureMeter(_context, _kit.NearestSampler);
         _fsrPass = new FsrPass(_context, _kit.NearestSampler, _kit.FrameSetLayout, _exposureMeter.SetLayout);
@@ -571,7 +544,7 @@ public sealed unsafe class Renderer : IDisposable
         _areaInputs = new AreaInputs(_meshStore.PartBounds, () => EnvironmentHash);
         var spaceBake = new SpaceBake(_readableBakes, data => CreateTexture(data, TextureEdges.Clamp), DestroyTexture);
         _frameBakes = new FrameBakes(_readableBakes, _chunkPool, _retired, _areaInputs, spaceBake);
-        BakeJobs = new BakeJobs(_context, new PreparedBakers(_context, _environment, () => new Baker(_context, this)),
+        BakeJobs = new BakeJobs(_context, new PreparedBakers(_context, _sky.Map,() => new Baker(_context, this)),
             _meshStore, _resources, _areaInputs);
         BackgroundBakes = new BackgroundBakes(_context, _ring, _retired, BakeJobs,
             new BackgroundBakes.BakeWants(_frameBakes.Resolver, _readableBakes, _areaInputs.Lights));
@@ -794,40 +767,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public void SetEnvironment(in EnvironmentDescription environment)
     {
-        _environment.SetDescription(environment);
-        _environmentPending = true;
-        _environmentVersion++;
-        _environmentContent = HashEnvironment(environment);
-    }
-
-    /// <summary>
-    /// Records the frame's share of the environment's redraw: after a change of sky or description, its sharp levels
-    /// and a slice of the rough reflections, and after that, while the sky holds still, the slices left. A change
-    /// pending at the first frame draws every level, so a sky a game sets before it, and a screenshot of it, show no
-    /// default.
-    /// </summary>
-    private void RecordEnvironment(CommandBuffer cmd)
-    {
-        if (_environmentPending && _ring.FramesSubmitted == 0)
-        {
-            _environment.Record(cmd, _bakedSky);
-        }
-        else
-        {
-            _environment.RecordFrame(cmd, _bakedSky, _environmentPending);
-        }
-
-        _environmentPending = false;
-    }
-
-    /// <summary>Redraws the whole of a changed environment now and waits, for the paths that draw outside a frame.</summary>
-    private void FlushEnvironment()
-    {
-        if (_environmentPending || _environment.Unfinished)
-        {
-            _context.SubmitAndWait(cmd => _environment.Record(cmd, _bakedSky));
-            _environmentPending = false;
-        }
+        _sky.Set(environment);
     }
 
     /// <summary>
@@ -836,14 +776,7 @@ public sealed unsafe class Renderer : IDisposable
     /// last frame drawn. It follows what they hold, so setting the same environment again gives the same hash. See
     /// "Is the bake fresh?" in docs/design.md.
     /// </summary>
-    public ulong EnvironmentHash => StableHasher.ForThread()
-        .Add(_environmentContent)
-        .Add(_bakedSky.Turbidity)
-        .Add(_bakedSky.Image is { } image ? _skyImages[image.Index].Content : 0UL)
-        .Add(_bakedSky.Rotation)
-        .Add(_bakedSky.Scale)
-        .Add(_environmentIntensity)
-        .Finish();
+    public ulong EnvironmentHash => _sky.Hash;
 
     /// <summary>
     /// Where bakes are looked up, such as a <see cref="LightBakeStore"/> over the game's content. With none, or with
@@ -943,8 +876,8 @@ public sealed unsafe class Renderer : IDisposable
         _context.WaitIdle();
         BackgroundBakes.DropAll();
         _uploads.Flush();
-        BakeSky(view);
-        FlushEnvironment();
+        _sky.Follow(view);
+        _sky.Flush();
     }
 
     /// <summary>
@@ -996,96 +929,17 @@ public sealed unsafe class Renderer : IDisposable
         return BakeJobs.RunToEnd(job);
     }
 
-    private static ulong HashEnvironment(in EnvironmentDescription environment)
-    {
-        var hasher = new StableHasher().Add(environment.Ceiling).Add(environment.Horizon).Add(environment.Floor);
-        hasher.Add(environment.Panels.Length);
-        foreach (ref readonly var panel in environment.Panels)
-        {
-            hasher.Add(panel.Direction).Add(panel.HalfWidth).Add(panel.HalfHeight).Add(panel.Radiance);
-        }
-
-        return hasher.Finish();
-    }
-
-    /// <summary>
-    /// Marks the environment for a redraw with the view's clear sky when it or its sun has changed. The next frame
-    /// records it, or <see cref="FlushEnvironment"/> draws it now. A gradient sky gives the same empty
-    /// <see cref="SkySun"/> whatever the sun does, so that never redraws.
-    /// </summary>
-    private void BakeSky(in FrameView view)
-    {
-        _environmentIntensity = view.Environment.Intensity;
-        var sky = view.Environment.Sky.Image is { } image
-            ? SkyModel.Photographed(image, SkyImage(image).Sun, view.Environment.Sky.Rotation, view.Environment.Sky.Exposure)
-            : SkyModel.Sun(view);
-        if (sky == _bakedSky)
-        {
-            return;
-        }
-
-        if (sky.Image != _bakedSky.Image)
-        {
-            // The redraws read the image through descriptor sets that recorded frames may still use.
-            _context.WaitIdle();
-            _environment.SetImage(sky.Image is { } next ? _skyImages[next.Index].Cube : null);
-        }
-
-        _bakedSky = sky;
-        _environmentPending = true;
-        SkyRebakes++;
-    }
-
-    private (GpuTexture Cube, SkyImageSun Sun, ulong Content) SkyImage(SkyImageHandle image)
-    {
-        if (image.Index < 0 || image.Index >= _skyImages.Count)
-        {
-            throw new ArgumentException($"Sky image {image.Index} was not made by this renderer.", nameof(image));
-        }
-
-        return _skyImages[image.Index];
-    }
-
     /// <summary>
     /// Uploads a photographed sky, cooked from an equirectangular .hdr, for <see cref="AnalyticSky.Image"/>. It waits
     /// for the upload and stays until the renderer is disposed. See "A photographed sky" in docs/rendering.md.
     /// </summary>
-    public SkyImageHandle CreateSkyImage(SkyImageData data)
-    {
-        ArgumentNullException.ThrowIfNull(data);
-        if (data.Faces.Length != 6)
-        {
-            throw new ArgumentException($"A sky image needs 6 faces, not {data.Faces.Length}.", nameof(data));
-        }
+    public SkyImageHandle CreateSkyImage(SkyImageData data) => _sky.Create(data);
 
-        var first = data.Faces[0];
-        var content = new System.IO.Hashing.XxHash64();
-        foreach (var face in data.Faces)
-        {
-            if (face.Width != first.Width || face.Height != first.Width || face.Format != TextureFormat.Rgba16f
-                || face.Mips.Length != first.Mips.Length)
-            {
-                throw new ArgumentException(
-                    $"Every face of a sky image must be square Rgba16f, {first.Width} wide with {first.Mips.Length} mips.",
-                    nameof(data));
-            }
-
-            foreach (var mip in face.Mips)
-            {
-                content.Append(mip);
-            }
-        }
-
-        var sun = new SkyImageSun(data.SunDirection, data.SunRadiance, data.SunCosine);
-        _skyImages.Add((GpuTexture.Cube(_context, data.Faces), sun, content.GetCurrentHashAsUInt64()));
-        return new SkyImageHandle(_skyImages.Count - 1);
-    }
-
-    /// <summary>How many times <see cref="BakeSky"/> has baked the environment again, for tests.</summary>
-    internal int SkyRebakes { get; private set; }
+    /// <summary>How many times the environment has been drawn again for a new sky, for tests.</summary>
+    internal int SkyRebakes => _sky.Rebakes;
 
     /// <summary>Projects the sky cube to L1 now and reads it back, coefficient by coefficient, for tests.</summary>
-    internal Vector4[] ProjectSky() => _skySh.Project();
+    internal Vector4[] ProjectSky() => _sky.Sh.Project();
 
     /// <summary>What the last frame's uniforms gave, for tests.</summary>
     internal LastFrame Last { get; } = new();
@@ -1176,7 +1030,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             // The array grew, so the lighting and glass read the new one.
             WriteTargetDescriptors();
-            _transparentPass.WriteProbes(_environment.Sampler, _probes.Cubes.View);
+            _transparentPass.WriteProbes(_sky.Map.Sampler, _probes.Cubes.View);
         }
 
         return handle;
@@ -1231,7 +1085,7 @@ public sealed unsafe class Renderer : IDisposable
         // then, so a capture would keep its half-faded picture; the fade ending changes the hash once more, and the
         // capture after it sees the bake whole, as one made when the level loads with the bake saved does.
         return HashCode.Combine(
-            ReflectionLightingHash(view, _environmentVersion), LightProbes.InUse, LightProbes.SettledOnce, _frameBakes.DrawnKey,
+            ReflectionLightingHash(view, _sky.Version), LightProbes.InUse, LightProbes.SettledOnce, _frameBakes.DrawnKey,
             _frameBakes.Fading);
     }
 
@@ -1337,7 +1191,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private int PlanProbes(in FrameView view, ReadOnlySpan<DrawItem> draws) =>
         LightProbes.Plan(view, draws, DrawnLocalLights(view),
-            new ProbePlanInputs(ProbeLightingKey(view, _environmentVersion, _off), ShadowSun(view), _frameNumber));
+            new ProbePlanInputs(ProbeLightingKey(view, _sky.Version, _off), ShadowSun(view), _frameNumber));
 
     /// <summary>
     /// Takes the reflection probe at the front of the line for this frame's capture, when there is one and reflections
@@ -1789,7 +1643,7 @@ public sealed unsafe class Renderer : IDisposable
 
         // Worked out once, from the original view: a frame drawn again without its baked sun keeps the sky that sun
         // lights, and its disc.
-        BakeSky(view);
+        _sky.Follow(view);
         bool relit = _frameBakes.TryResolve(view, draws, Bakes, out var withoutBakedLights);
 
         // From the frame with every light, since a bake takes the lights a fresh bake would drop.
@@ -1995,7 +1849,7 @@ public sealed unsafe class Renderer : IDisposable
 
         // A changed sky, redrawn before the frame's passes read it. It waits on the GPU for earlier reads itself, so the
         // bake slice above traces last frame's sky, a frame behind, which the timer leaves out of the "Sky" pass.
-        RecordEnvironment(cmd);
+        _sky.RecordFrame(cmd);
         _gpuTimer.Mark(cmd);
 
         // Worked out here, just before the frame is recorded, so a frame that is never drawn doesn't move the clock.
@@ -2348,12 +2202,7 @@ public sealed unsafe class Renderer : IDisposable
         LightProbes.Dispose();
         _volumetricFog.Dispose();
         _reflectionCapture.Dispose();
-        _skySh.Dispose();
-        _environment.Dispose();
-        foreach (var image in _skyImages)
-        {
-            image.Cube.Dispose();
-        }
+        _sky.Dispose();
     }
 
     private void RecordFrame(CommandBuffer cmd, DescriptorSet frameSet, uint imageIndex, in FrameDraws draws, int overlayQuads)
@@ -2710,7 +2559,7 @@ public sealed unsafe class Renderer : IDisposable
         // A chunk's bake is relit by the frame's sky and suns: its sky is projected first, for writeBaked.
         if (_frameBakes.Relight.Active)
         {
-            _skySh.Record(cmd);
+            _sky.Sh.Record(cmd);
             instances.Chunks = _cameraChunks;
             instances.ChunkLightmaps = _frameBakes.Relight.Lightmaps;
         }
@@ -3042,7 +2891,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         uniforms->CameraBlock.CameraPosition = new Vector4(view.CameraPosition, 1f);
         uniforms->BackgroundRadiance = new Vector4(view.Background.Radiance, view.Environment.Intensity);
-        var flat = _environment.Flat;
+        var flat = _sky.Map.Flat;
         uniforms->BakedBlock.FlatIrradiance = new Vector4(flat.Irradiance, 0f);
         uniforms->BakedBlock.FlatReflection = new Vector4(flat.Reflection, 0f);
         Last.Flat = flat;
@@ -3050,7 +2899,7 @@ public sealed unsafe class Renderer : IDisposable
         // Probes leave the sun's disc out: their rough levels would scatter it into specks, and
         // the sun's own light already gives surfaces its highlight. The sky is the one BakeSky worked out from the
         // original view, so a frame drawn without its baked sun still shows that sun's disc.
-        var sky = _bakedSky;
+        var sky = _sky.Baked;
         uniforms->SkyBlock.SkySun = new Vector4(sky.Direction, sky.Turbidity);
         var disc = new Vector4(sky.DiscRadiance, sky.DiscCosine);
         uniforms->SkyBlock.SunDisc = disc;
@@ -3406,7 +3255,7 @@ public sealed unsafe class Renderer : IDisposable
         _reflectionCapture.WriteSet(
             new(_kit.LinearSampler, LightProbes.Volume.IrradianceView, ImageLayout.General),
             new(_kit.LinearSampler, LightProbes.Volume.DepthView, ImageLayout.General),
-            new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sky.Map.Sampler, _sky.Map.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
             _kit.ShadowSampler);
 
         // Glass and particles read depth while it's also attached for glass to test against.
@@ -3416,9 +3265,9 @@ public sealed unsafe class Renderer : IDisposable
         _particlePass.WriteTargets(
             testedDepth,
             new(_kit.ShadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal));
+            new(_sky.Map.Sampler, _sky.Map.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sky.Map.Sampler, _sky.Map.Reflections, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sky.Map.Sampler, _sky.Map.Background, ImageLayout.ShaderReadOnlyOptimal));
     }
 
     // From anti-aliasing to the window: anti-aliasing, tonemapping, the meter and the finish, and the volumetric fog.
@@ -3446,7 +3295,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _volumetricFog.SetSources(
             new(_kit.ShadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sky.Map.Sampler, _sky.Map.Background, ImageLayout.ShaderReadOnlyOptimal),
             new(_kit.LinearSampler, LightProbes.Volume.IrradianceView, ImageLayout.General),
             new(_kit.LinearSampler, LightProbes.Volume.DepthView, ImageLayout.General));
         _frames.WriteVolumetric(_volumetricFog.Result);
