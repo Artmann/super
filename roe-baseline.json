@@ -891,12 +891,6 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.HeightToOcclusionNode.Evaluate",
-      "file": "src/Super.Materials/SurfaceNodes.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Super.Mixer.Mix",
       "file": "src/Super/Audio/Mixer.cs",
       "metric": 16
@@ -2046,12 +2040,6 @@
       "name": "Super.Materials.GraphRunner.Run",
       "file": "src/Super.Materials/GraphRunner.cs",
       "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.HeightToOcclusionNode.Evaluate",
-      "file": "src/Super.Materials/SurfaceNodes.cs",
-      "metric": 56
     },
     {
       "kind": "long-method",
