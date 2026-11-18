@@ -52,7 +52,7 @@ internal static unsafe class ModelReader
                 return null;
             }
 
-            RigImporter? rig = RigImporter.HasBones(scene) ? RigImporter.Read(scene, cook.Warning) : null;
+            RigImporter? rig = SceneNodes.HasBones(scene) ? RigImporter.Read(scene, cook.Warning) : null;
             if (rig is null && !Flatten(cook, assimp, ref scene))
             {
                 return null;
