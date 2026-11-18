@@ -23,7 +23,7 @@ public class SurfaceOcclusionTests
     [Fact]
     public void Occlusion_on_the_second_uv_set_sets_the_materials_flag()
     {
-        Assert.Equal(MaterialFlags.OcclusionOnUv2, SurfaceMaterials.FlagsOf(new Surface { OcclusionOnUv2 = true }));
+        Assert.Equal(MaterialFlags.OcclusionOnUv2, SurfaceMaterials.FlagsOf(new Surface { Occlusion = new OcclusionMap(new TextureRef(1), OnUv2: true) }));
         Assert.Equal(MaterialFlags.None, SurfaceMaterials.FlagsOf(new Surface()) & MaterialFlags.OcclusionOnUv2);
     }
 
@@ -31,7 +31,7 @@ public class SurfaceOcclusionTests
     public void A_mesh_whose_uv2_fits_keeps_it_with_occlusion_on_it()
     {
         var content = new Content(new MemoryContent());
-        var box = Shapes.Box(Vector3.One) with { Surface = new Surface { OcclusionTexture = Grey(content, 90), OcclusionOnUv2 = true } };
+        var box = Shapes.Box(Vector3.One) with { Surface = new Surface { Occlusion = new OcclusionMap(Grey(content, 90), OnUv2: true) } };
 
         Assert.Same(box, box.WithLightmapUvs());
     }
@@ -44,7 +44,7 @@ public class SurfaceOcclusionTests
         var bare = box with
         {
             Vertices = [.. box.Vertices.Select(v => v with { Uv2 = Vector2.Zero })],
-            Surface = new Surface { OcclusionTexture = Grey(content, 90), OcclusionOnUv2 = true },
+            Surface = new Surface { Occlusion = new OcclusionMap(Grey(content, 90), OnUv2: true) },
         };
         string? problem = Problem(bare);
         Assert.NotNull(problem);
@@ -64,7 +64,7 @@ public class SurfaceOcclusionTests
         var bare = box with
         {
             Vertices = [.. box.Vertices.Select(v => v with { Uv2 = Vector2.Zero })],
-            Surface = new Surface { OcclusionTexture = Grey(content, 90) },
+            Surface = new Surface { Occlusion = new OcclusionMap(Grey(content, 90)) },
         };
 
         var made = bare.WithLightmapUvs();
@@ -76,11 +76,11 @@ public class SurfaceOcclusionTests
     public void An_occlusion_texture_named_nowhere_is_refused()
     {
         var content = new Content(new MemoryContent());
-        var surface = new Surface { OcclusionTexture = new TextureRef(41) };
+        var surface = new Surface { Occlusion = new OcclusionMap(new TextureRef(41)) };
 
         var error = Assert.Throws<ArgumentException>(() => content.Mesh(new GeneratedMesh(Triangle, [0, 1, 2], surface)));
 
-        Assert.Equal("OcclusionTexture names 41, but nothing was named with that index. (Parameter 'OcclusionTexture')", error.Message);
+        Assert.Equal("Occlusion.Map names 41, but nothing was named with that index. (Parameter 'Occlusion.Map')", error.Message);
     }
 
     [Fact]
@@ -93,9 +93,9 @@ public class SurfaceOcclusionTests
             content.Mesh(new GeneratedMesh(Triangle, [0, 1, 2], surface)), content.Items, content.Files, _ => []);
 
         ulong plain = Identity(new Surface());
-        ulong darkOnFirst = Identity(new Surface { OcclusionTexture = dark });
-        ulong lightOnFirst = Identity(new Surface { OcclusionTexture = light });
-        ulong darkOnSecond = Identity(new Surface { OcclusionTexture = dark, OcclusionOnUv2 = true });
+        ulong darkOnFirst = Identity(new Surface { Occlusion = new OcclusionMap(dark) });
+        ulong lightOnFirst = Identity(new Surface { Occlusion = new OcclusionMap(light) });
+        ulong darkOnSecond = Identity(new Surface { Occlusion = new OcclusionMap(dark, OnUv2: true) });
 
         Assert.Equal(4, new[] { plain, darkOnFirst, lightOnFirst, darkOnSecond }.Distinct().Count());
     }

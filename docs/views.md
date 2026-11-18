@@ -462,7 +462,7 @@ A view refuses, with a message naming what's wrong:
 
 A character walking through a puddle stain or standing over a scorch mark shouldn't wear it,
 so animated characters never take decals: a rigged model drawn with a pose is drawn after the
-decals are laid, over them. Any surface can opt out the same way with `NoDecals = true`, such
+decals are laid, over them. Any surface can opt out the same way with `Features = SurfaceFeatures.NoDecals`, such
 as a crate set down in a stain, whose lid the stain would otherwise reach; a cooked model's
 material takes `"noDecals": true` in its rule. What doesn't take decals still covers them where
 it stands in front, and the decals still land on the ground round it.

@@ -478,10 +478,10 @@ public sealed class Content
         RequireTexture(surface.ColorTexture, nameof(surface.ColorTexture));
         RequireTexture(surface.NormalTexture, nameof(surface.NormalTexture));
         RequireTexture(surface.SurfaceTexture, nameof(surface.SurfaceTexture));
-        RequireTexture(surface.HeightTexture, nameof(surface.HeightTexture));
-        RequireTexture(surface.DetailColorTexture, nameof(surface.DetailColorTexture));
-        RequireTexture(surface.DetailNormalTexture, nameof(surface.DetailNormalTexture));
-        RequireTexture(surface.OcclusionTexture, nameof(surface.OcclusionTexture));
+        RequireTexture(surface.Height?.Map, "Height.Map");
+        RequireTexture(surface.Detail?.ColorTexture, "Detail.ColorTexture");
+        RequireTexture(surface.Detail?.NormalTexture, "Detail.NormalTexture");
+        RequireTexture(surface.Occlusion?.Map, "Occlusion.Map");
         if (surface.Toon is { } toon)
         {
             RequireTexture(toon.Ramp, "Toon.Ramp");
@@ -491,22 +491,23 @@ public sealed class Content
             }
         }
 
-        if (surface.Shader is { } shader)
+        if (surface.Shader is not { } shader)
         {
-            Require<ShaderItem>(shader.Index, nameof(surface.Shader), "shader");
+            return;
         }
 
-        RequireCount(surface.Parameters.Length, Super.Surface.MaxParameters, nameof(surface.Parameters));
-        RequireCount(surface.ShaderTextures.Length, Super.Surface.MaxShaderTextures, nameof(surface.ShaderTextures));
-        RequireCount(surface.ShaderArrays.Length, Super.Surface.MaxShaderTextures, nameof(surface.ShaderArrays));
-        for (int i = 0; i < surface.ShaderTextures.Length; i++)
+        Require<ShaderItem>(shader.Fragment.Index, "Shader.Fragment", "shader");
+        RequireCount(shader.Parameters.Length, SurfaceShader.MaxParameters, "Shader.Parameters");
+        RequireCount(shader.Textures.Length, SurfaceShader.MaxTextures, "Shader.Textures");
+        RequireCount(shader.Arrays.Length, SurfaceShader.MaxTextures, "Shader.Arrays");
+        for (int i = 0; i < shader.Textures.Length; i++)
         {
-            RequireTexture(surface.ShaderTextures[i], $"{nameof(surface.ShaderTextures)}[{i}]");
+            RequireTexture(shader.Textures[i], $"Shader.Textures[{i}]");
         }
 
-        for (int i = 0; i < surface.ShaderArrays.Length; i++)
+        for (int i = 0; i < shader.Arrays.Length; i++)
         {
-            Require<TextureArrayItem>(surface.ShaderArrays[i].Index, $"{nameof(surface.ShaderArrays)}[{i}]", "texture array");
+            Require<TextureArrayItem>(shader.Arrays[i].Index, $"Shader.Arrays[{i}]", "texture array");
         }
     }
 
@@ -699,10 +700,10 @@ public sealed class Content
     {
         TextureRef?[] own =
         [
-            surface.ColorTexture, surface.NormalTexture, surface.SurfaceTexture, surface.HeightTexture,
-            surface.DetailColorTexture, surface.DetailNormalTexture, surface.OcclusionTexture, surface.Toon?.Ramp,
+            surface.ColorTexture, surface.NormalTexture, surface.SurfaceTexture, surface.Height?.Map,
+            surface.Detail?.ColorTexture, surface.Detail?.NormalTexture, surface.Occlusion?.Map, surface.Toon?.Ramp,
         ];
-        return own.Contains(texture) || surface.ShaderTextures.Contains(texture);
+        return own.Contains(texture) || (surface.Shader?.Textures.Contains(texture) ?? false);
     }
 
     /// <summary>Whether an item was let go. Cheap, so drawing can ask every frame.</summary>

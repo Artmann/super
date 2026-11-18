@@ -851,7 +851,7 @@ public sealed class View
     }
 
     /// <summary>
-    /// Sets the ink lines drawn round surfaces with <see cref="Surface.Outline"/>: their linear colour, black when null,
+    /// Sets the ink lines drawn round surfaces with <see cref="SurfaceFeatures.Outline"/>: their linear colour, black when null,
     /// how many pixels of the picture wide they are, from 0 for none to <see cref="OutlineSettings.MostThickness"/>, and
     /// the distances in metres over which they fade out. Without a call they're black, 1.5 pixels wide and fade from
     /// 30 to 60 metres.

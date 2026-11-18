@@ -134,8 +134,8 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
             ["water"] = new() { Color = new Vector3(0.1f, 0.18f, 0.2f), Roughness = 0.05f },
             ["orange"] = new() { Color = new Vector3(0.9f, 0.35f, 0.04f), Roughness = 0.6f },
             ["leaves"] = new() { Color = new Vector3(0.16f, 0.32f, 0.08f), ColorTexture = plaster, Roughness = 0.9f },
-            ["panel"] = new() { Color = new Vector3(0.9f, 0.88f, 0.8f), Roughness = 0.5f, Shader = glow, Parameters = [new Vector4(2.4f, 2.1f, 1.6f, 0f)] },
-            ["lamp"] = new() { Color = new Vector3(1f, 0.95f, 0.85f), Roughness = 0.5f, Shader = glow, Parameters = [new Vector4(10f, 7.5f, 4.2f, 0f)] },
+            ["panel"] = new() { Color = new Vector3(0.9f, 0.88f, 0.8f), Roughness = 0.5f, Shader = new SurfaceShader(glow) { Parameters = [new Vector4(2.4f, 2.1f, 1.6f, 0f)] } },
+            ["lamp"] = new() { Color = new Vector3(1f, 0.95f, 0.85f), Roughness = 0.5f, Shader = new SurfaceShader(glow) { Parameters = [new Vector4(10f, 7.5f, 4.2f, 0f)] } },
             ["shade"] = new() { Color = new Vector3(0.06f, 0.06f, 0.065f), Roughness = 0.4f, Metallic = 1f },
         };
 

@@ -54,15 +54,14 @@ internal sealed class Palette
         {
             Color = new Vector3(0.18f, 0.17f, 0.15f),
             Roughness = 0.3f,
-            Shader = glow,
-            Parameters = [new Vector4(Lamplight, BulbStrength)],
+            Shader = new SurfaceShader(glow) { Parameters = [new Vector4(Lamplight, BulbStrength)] },
         };
-        Pane = Glow with { Color = new Vector3(0.03f, 0.03f, 0.035f), Parameters = [new Vector4(Lamplight, WindowStrength)] };
-        Embers = Glow with { Color = new Vector3(0.05f, 0.03f, 0.02f), Parameters = [new Vector4(1f, 0.35f, 0.08f, 12f)] };
+        Pane = Glow with { Color = new Vector3(0.03f, 0.03f, 0.035f), Shader = new SurfaceShader(glow) { Parameters = [new Vector4(Lamplight, WindowStrength)] } };
+        Embers = Glow with { Color = new Vector3(0.05f, 0.03f, 0.02f), Shader = new SurfaceShader(glow) { Parameters = [new Vector4(1f, 0.35f, 0.08f, 12f)] } };
     }
 
     /// <summary>Walls, ceilings and the low garden walls: light grey with a faint mottle.</summary>
-    public Surface Plaster { get; } = new() { Color = new Vector3(0.74f, 0.73f, 0.7f), Roughness = 0.92f, WorldVariation = true };
+    public Surface Plaster { get; } = new() { Color = new Vector3(0.74f, 0.73f, 0.7f), Roughness = 0.92f, Features = SurfaceFeatures.WorldVariation };
 
     /// <summary>Beams, furniture, posts and window bars.</summary>
     public Surface Wood { get; } = new() { Color = new Vector3(0.3f, 0.2f, 0.13f), Roughness = 0.8f };
@@ -71,7 +70,7 @@ internal sealed class Palette
     public Surface Floor { get; } = new() { Color = new Vector3(0.45f, 0.36f, 0.26f), Roughness = 0.85f };
 
     /// <summary>Foundations, paving, the well and the forge.</summary>
-    public Surface Stone { get; } = new() { Color = new Vector3(0.5f, 0.49f, 0.47f), Roughness = 0.95f, WorldVariation = true };
+    public Surface Stone { get; } = new() { Color = new Vector3(0.5f, 0.49f, 0.47f), Roughness = 0.95f, Features = SurfaceFeatures.WorldVariation };
 
     /// <summary>Roofs, tinted per kind from <see cref="Roofs"/>.</summary>
     public Surface Roof { get; } = new() { Color = Vector3.One, Roughness = 0.85f };

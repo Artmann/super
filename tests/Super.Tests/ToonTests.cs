@@ -91,7 +91,7 @@ public class ToonTests
     [Fact]
     public void An_outlined_surface_sets_the_outline_flag()
     {
-        Assert.Equal(MaterialFlags.Outline, SurfaceMaterials.FlagsOf(new Surface { Outline = true }) & MaterialFlags.Outline);
+        Assert.Equal(MaterialFlags.Outline, SurfaceMaterials.FlagsOf(new Surface { Features = SurfaceFeatures.Outline }) & MaterialFlags.Outline);
         Assert.Equal(MaterialFlags.None, SurfaceMaterials.FlagsOf(new Surface()) & MaterialFlags.Outline);
     }
 
@@ -130,7 +130,7 @@ public class ToonTests
             Identity(new Surface { Toon = new Toon() }),
             Identity(new Surface { Toon = new Toon(Steps: 2) }),
             Identity(new Surface { Toon = new Toon(Rim: new Vector3(0.2f)) }),
-            Identity(new Surface { Outline = true }),
+            Identity(new Surface { Features = SurfaceFeatures.Outline }),
         ];
 
         Assert.Equal(ids.Length, ids.Distinct().Count());

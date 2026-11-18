@@ -175,7 +175,7 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
         var tables = new Growth(Grow(() => Corals.Table(polyps, stream)), CoralTints, 0.8f, 1.4f);
         var fans = new Growth(Grow(() => Corals.SeaFan(polyps with { Wind = 0.3f }, stream)), FanTints, 1f, 2f, AcrossSurge: true);
         var brain = Grow(() => Boulders.Create(settings.Material(content, "brain-coral"), stream, typicalWidth: 1.4f, lumpiness: 0.35f));
-        var seagrassShapes = Grow(() => Corals.Seagrass(settings.Material(content, "seagrass") with { Foliage = true, Translucency = 0.5f, Wind = 1f }, stream));
+        var seagrassShapes = Grow(() => Corals.Seagrass(settings.Material(content, "seagrass") with { Foliage = new Foliage(Translucency: 0.5f), Wind = 1f }, stream));
         var seagrass = new Growth(seagrassShapes, null, 0.8f, 1.6f);
         var meadow = seagrass with { MinScale = 0.9f, MaxScale = 1.7f };
 

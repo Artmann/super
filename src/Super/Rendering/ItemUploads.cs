@@ -119,31 +119,28 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
             BaseColorTexture = ownedTexture ?? items.TextureFor(surface.ColorTexture, content),
             NormalTexture = items.TextureFor(surface.NormalTexture, content),
             SurfaceTexture = items.TextureFor(surface.SurfaceTexture, content),
-            HeightTexture = items.TextureFor(surface.HeightTexture, content),
-            HeightDepth = surface.HeightDepth,
-            DetailColorTexture = items.TextureFor(surface.DetailColorTexture, content),
-            DetailNormalTexture = items.TextureFor(surface.DetailNormalTexture, content),
-            DetailScale = surface.DetailScale,
-            OcclusionTexture = items.TextureFor(surface.OcclusionTexture, content),
+            HeightTexture = items.TextureFor(surface.Height?.Map, content),
+            HeightDepth = surface.Height?.Depth ?? 0f,
+            DetailColorTexture = items.TextureFor(surface.Detail?.ColorTexture, content),
+            DetailNormalTexture = items.TextureFor(surface.Detail?.NormalTexture, content),
+            DetailScale = (surface.Detail ?? new DetailMap()).Scale,
+            OcclusionTexture = items.TextureFor(surface.Occlusion?.Map, content),
             Toon = surface.Toon is { } toon
                 ? new ToonShading { Steps = toon.Steps, Ramp = items.TextureFor(toon.Ramp, content), Rim = toon.Rim }
                 : null,
             Subsurface = surface.Subsurface,
-            Shader = surface.Shader is { } shader ? items.Require<ShaderOnGpu>(shader.Index, content).Handle : null,
+            Shader = surface.Shader is { } shader ? items.Require<ShaderOnGpu>(shader.Fragment.Index, content).Handle : null,
         };
-        for (int i = 0; i < surface.Parameters.Length; i++)
+        var custom = surface.Shader ?? new SurfaceShader(default);
+        custom.Parameters.CopyTo(material.ShaderParameters);
+        for (int i = 0; i < custom.Textures.Length; i++)
         {
-            material.ShaderParameters[i] = surface.Parameters[i];
+            material.ShaderTextures[i] = items.TextureFor(custom.Textures[i], content);
         }
 
-        for (int i = 0; i < surface.ShaderTextures.Length; i++)
+        for (int i = 0; i < custom.Arrays.Length; i++)
         {
-            material.ShaderTextures[i] = items.TextureFor(surface.ShaderTextures[i], content);
-        }
-
-        for (int i = 0; i < surface.ShaderArrays.Length; i++)
-        {
-            material.ShaderArrays[i] = items.Require<TextureArrayOnGpu>(surface.ShaderArrays[i].Index, content).Handle;
+            material.ShaderArrays[i] = items.Require<TextureArrayOnGpu>(custom.Arrays[i].Index, content).Handle;
         }
 
         return material;

@@ -103,9 +103,8 @@ public sealed class BricksGame(Content content, Input input) : IGame
         Roughness = roughness,
         ColorTexture = content.Texture(masonry.Color),
         NormalTexture = content.Texture(masonry.Normal, Rendition.TextureKind.Linear, normalMap: true),
-        HeightTexture = content.Texture(masonry.Height, Rendition.TextureKind.Linear),
-        HeightDepth = depth,
-        OcclusionTexture = content.Texture(masonry.Occlusion, Rendition.TextureKind.Linear),
+        Height = new HeightMap(content.Texture(masonry.Height, Rendition.TextureKind.Linear), depth),
+        Occlusion = new OcclusionMap(content.Texture(masonry.Occlusion, Rendition.TextureKind.Linear)),
     };
 
     /// <summary>The shape with its occlusion map and without, each in every mix of height map and detail.</summary>
@@ -113,15 +112,15 @@ public sealed class BricksGame(Content content, Input input) : IGame
     {
         Look Looks(Surface surface)
         {
-            var detailed = detail is { } d ? surface with { DetailColorTexture = d.Color, DetailNormalTexture = d.Normal, DetailScale = 5f } : surface;
-            var flat = detailed with { HeightTexture = null };
+            var detailed = detail is { } d ? surface with { Detail = new DetailMap { ColorTexture = d.Color, NormalTexture = d.Normal, Scale = 5f } } : surface;
+            var flat = detailed with { Height = null };
             return new Look(
                 content.Mesh(mesh with { Surface = detailed }),
                 content.Mesh(mesh with { Surface = flat }),
                 content.Mesh(mesh with { Surface = surface }),
-                content.Mesh(mesh with { Surface = surface with { HeightTexture = null } }));
+                content.Mesh(mesh with { Surface = surface with { Height = null } }));
         }
 
-        return (Looks(surface), Looks(surface with { OcclusionTexture = null }));
+        return (Looks(surface), Looks(surface with { Occlusion = null }));
     }
 }

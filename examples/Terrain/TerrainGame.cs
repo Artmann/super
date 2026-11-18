@@ -262,14 +262,16 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
         {
             Color = Vector3.One,
             Roughness = 0.9f,
-            Shader = _shader,
-            Parameters =
-            [
-                new Vector4(SnowHeight, SnowFade, RockSteepness, RockFade),
-                new Vector4(chunkX * ChunkSize, chunkZ * ChunkSize, 1f / ChunkSize, SplatSize),
-            ],
-            ShaderTextures = [splat],
-            ShaderArrays = [_colors, _normals],
+            Shader = new SurfaceShader(_shader)
+            {
+                Parameters =
+                [
+                    new Vector4(SnowHeight, SnowFade, RockSteepness, RockFade),
+                    new Vector4(chunkX * ChunkSize, chunkZ * ChunkSize, 1f / ChunkSize, SplatSize),
+                ],
+                Textures = [splat],
+                Arrays = [_colors, _normals],
+            },
         };
         var model = content.Mesh(_field.Chunk(chunkX, chunkZ, ChunkQuads, surface, UvPerMetre));
         return new Chunk(model, splat);

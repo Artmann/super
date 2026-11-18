@@ -51,7 +51,7 @@ public class DecalOptOutTests
     [Fact]
     public void A_surface_with_no_decals_sets_the_flag()
     {
-        Assert.Equal(MaterialFlags.NoDecals, SurfaceMaterials.FlagsOf(new Surface { NoDecals = true }) & MaterialFlags.NoDecals);
+        Assert.Equal(MaterialFlags.NoDecals, SurfaceMaterials.FlagsOf(new Surface { Features = SurfaceFeatures.NoDecals }) & MaterialFlags.NoDecals);
         Assert.Equal(MaterialFlags.None, SurfaceMaterials.FlagsOf(new Surface()) & MaterialFlags.NoDecals);
     }
 }
