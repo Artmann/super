@@ -64,8 +64,8 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
         }
 
         // Only here can a player see a loading screen, and only here may real time decide its length.
-        host.Content.Streaming = true;
-        host.Content.GoLive();
+        host.Content.Store.Loading.Streaming = true;
+        host.Content.Data.Live.GoLive();
 
         // Only here is missing lighting baked as it appears, and only here does a bake that arrives fade in.
         scene.Renderer.BakeFadeSeconds = PlayBakeFadeSeconds;
@@ -126,7 +126,7 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
     }
 
     private static DevSettings? DevOf(GameLoop host) =>
-        host.Content.Files is CookedFolder { Dev: { Roots.Length: > 0 } dev } ? dev : null;
+        host.Content.Store.Files is CookedFolder { Dev: { Roots.Length: > 0 } dev } ? dev : null;
 
     /// <summary>
     /// Hands the renderer what to bake by itself, from <see cref="Graphics.BakeOnArrival"/> and

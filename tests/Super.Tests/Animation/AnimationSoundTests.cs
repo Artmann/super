@@ -64,7 +64,7 @@ public class AnimationSoundTests
             var idle = TestRig.Idle();
             var rest = new AnimationClip("rest", idle.FrameRate, idle.JointCount, idle.Frames);
             var rig = new Rig(TestRig.Skeleton(), [new AnimationClip(idle.Name, idle.FrameRate, idle.JointCount, idle.Frames, setup.Cooked), rest, TestRig.Wave()]);
-            content.Adopt(rig);
+            rig.Runner = content.Animators;
             setup.Mark?.Invoke(rig, content);
             Controller = new AnimationController<Stance, Deed>(rig) { CrossFadeSeconds = setup.CrossFade, EventThreshold = setup.Threshold }
                 .State(Stance.Idle, rig.Clip("idle"))
@@ -199,8 +199,8 @@ public class AnimationSoundTests
             {
                 Assert.Equal(new Vector3(-10f, 0f, 0f), at);
                 Assert.Equal("step", animationEvent.Name);
-                Assert.Equal(content.Sound("step.wav"), sound);
-                return picks++ == 0 ? content.Sound("stone.wav") : null;
+                Assert.Equal(content.Sounds.Sound("step.wav"), sound);
+                return picks++ == 0 ? content.Sounds.Sound("stone.wav") : null;
             };
             setup.Update = null;
         };

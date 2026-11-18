@@ -185,7 +185,7 @@ public static class Game
         }
 
         // Bakes are sources, like the scene's models, so they're saved beside them in the first content root.
-        if (host.Content.Files is not CookedFolder { Dev: { Roots.Length: > 0 } dev })
+        if (host.Content.Store.Files is not CookedFolder { Dev: { Roots.Length: > 0 } dev })
         {
             Console.Error.WriteLine(
                 $"--bake needs the game run from source, where the build writes {DevSettings.FileName} to say where the content is.");

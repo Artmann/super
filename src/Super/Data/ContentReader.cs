@@ -11,14 +11,23 @@ internal sealed record CheckedFile(string Path, ReadOnlyMemory<byte> Bytes, stri
     public ReadOnlySpan<byte> Json => Bytes.Span;
 }
 
-/// <summary>Reads JSON content. It belongs to one <see cref="Content"/>, so nothing is shared between games.</summary>
+/// <summary>
+/// Reads JSON content: the catalogs, all or nothing, the references between them, and their schemas, and reads them
+/// again when the files change. It belongs to one <see cref="Content"/>, so nothing is shared between games.
+/// </summary>
 internal sealed class ContentReader
 {
     private readonly IContentFiles _files;
+    private readonly ContentItems _store;
+    private readonly Dictionary<(Type Type, string Folder), ICatalog> _catalogs = [];
+    private readonly List<ContentReference> _waiting = [];
 
-    public ContentReader(Content content, IContentFiles files)
+    /// <param name="source">The cooked folder and its development settings when the game runs from source; see <see cref="ContentLive"/>.</param>
+    public ContentReader(Content content, ContentItems store, Func<(string Folder, DevSettings Dev)?> source)
     {
-        _files = files;
+        _files = store.Files;
+        _store = store;
+        Live = new ContentLive(source, WriteSchemas);
         var options = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -38,6 +47,169 @@ internal sealed class ContentReader
     }
 
     public JsonSerializerOptions Options { get; }
+
+    /// <summary>Watches the files of a game run from source, and says when they changed.</summary>
+    public ContentLive Live { get; }
+
+    /// <summary>How many times the files have been read again by <see cref="Reload"/>, so what was read from them before can be forgotten.</summary>
+    public int Reloads { get; private set; }
+
+    /// <summary>
+    /// Reads every JSON file under a folder of the content folder, one record per file. Anything wrong stops here with
+    /// a <see cref="ContentException"/> listing every problem. Loading the same folder again hands back the same catalog.
+    /// </summary>
+    public Catalog<T> LoadAll<T>(string folder)
+        where T : notnull
+    {
+        if (_catalogs.TryGetValue((typeof(T), folder), out var known))
+        {
+            return (Catalog<T>)known;
+        }
+
+        RequireId(typeof(T));
+        var catalog = new Catalog<T>(folder);
+        LoadCatalogs([catalog], [.. _catalogs.Values, catalog]);
+        _catalogs.Add((typeof(T), folder), catalog);
+        return catalog;
+    }
+
+    /// <summary>
+    /// Fails if a reference still has no catalog to point at. Files can load in any order
+    /// within one Load or one tick, so this runs when those end.
+    /// </summary>
+    public void RequireReferences()
+    {
+        if (_waiting.Count == 0)
+        {
+            return;
+        }
+
+        var problems = _waiting.ConvertAll(reference =>
+            $"{reference.Place}: {reference.Field} points at {reference.Id}, but no {reference.Target.Name} was loaded");
+        _waiting.Clear();
+        throw new ContentException(problems);
+    }
+
+    /// <summary>The schema for a type of record, as text.</summary>
+    public string SchemaText(Type type) => ContentSchema.Text(type, Options);
+
+    /// <summary>Writes a schema for every catalog into a content folder.</summary>
+    public void WriteSchemas(string root)
+    {
+        foreach (var catalog in _catalogs.Values)
+        {
+            ContentSchema.Write(root, catalog.Folder, catalog.RecordType, Options);
+        }
+    }
+
+    /// <summary>
+    /// Reads every catalog again, all or nothing. A mistake is written to the log and the old
+    /// catalog data stays, because a typo shouldn't end a play session. The cooked folder has
+    /// already swapped to the new manifest by then, so what's read by name afterwards sees the
+    /// new content. A file that can't be read yet is likely still being saved, so it's tried
+    /// again on the next tick.
+    /// </summary>
+    public bool Reload(TextWriter log)
+    {
+        Live.ReloadWanted = false;
+        ICatalog[] all = [.. _catalogs.Values];
+        try
+        {
+            _files.Refresh();
+            Reloads++;
+            _store.Identities.ForgetHashes(); // A cooked file named again may hash differently now.
+            LoadCatalogs(all, all);
+        }
+        catch (ContentException mistake)
+        {
+            log.WriteLine($"Content not reloaded:{Environment.NewLine}{mistake.Message}");
+            return false;
+        }
+        catch (Exception problem) when (problem is IOException or UnauthorizedAccessException)
+        {
+            foreach (var catalog in all)
+            {
+                catalog.Drop();
+            }
+
+            Live.ReloadWanted = true;
+            return false;
+        }
+
+        foreach (var catalog in all)
+        {
+            catalog.Announce();
+        }
+
+        log.WriteLine("Content reloaded.");
+        return true;
+    }
+
+    /// <summary>
+    /// Reads catalogs all or nothing, so a mistake in one leaves every one of them as it
+    /// was. References are checked against everything known, including what's being read.
+    /// </summary>
+    private void LoadCatalogs(ICatalog[] catalogs, ICatalog[] known)
+    {
+        var problems = new List<string>();
+        var references = new List<ContentReference>();
+        foreach (var catalog in catalogs)
+        {
+            catalog.Check(this, problems, references);
+        }
+
+        var waiting = new List<ContentReference>(_waiting);
+        waiting.AddRange(references);
+        var stillWaiting = Resolve(waiting, known, problems);
+
+        if (problems.Count == 0)
+        {
+            foreach (var catalog in catalogs)
+            {
+                catalog.Build(this, problems);
+            }
+        }
+
+        foreach (var catalog in catalogs)
+        {
+            if (problems.Count > 0)
+            {
+                catalog.Drop();
+            }
+            else
+            {
+                catalog.Commit();
+            }
+        }
+
+        if (problems.Count > 0)
+        {
+            throw new ContentException(problems);
+        }
+
+        _waiting.Clear();
+        _waiting.AddRange(stillWaiting);
+    }
+
+    /// <summary>Reports references that point at nothing, and hands back those with no catalog yet.</summary>
+    private static List<ContentReference> Resolve(List<ContentReference> references, ICatalog[] known, List<string> problems)
+    {
+        var stillWaiting = new List<ContentReference>();
+        foreach (var reference in references)
+        {
+            var targets = known.Where(catalog => catalog.RecordType == reference.Target).ToArray();
+            if (targets.Length == 0)
+            {
+                stillWaiting.Add(reference);
+            }
+            else if (!targets.Any(catalog => catalog.Has(reference.Id)))
+            {
+                problems.Add($"{reference.Place}: {reference.Field} points at {reference.Id}, but there is no {reference.Target.Name} called that");
+            }
+        }
+
+        return stillWaiting;
+    }
 
     /// <summary>Stops a type that can't be loaded before any file is read. This is a mistake in code, not data.</summary>
     public void RequireId(Type type)

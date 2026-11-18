@@ -42,7 +42,7 @@ internal abstract class GameLoop
         changes.Hooks = services.GetServices<IStateHook>().ToArray();
         LoopedGame.Load();
         changes.Apply();
-        Content.RequireReferences();
+        Content.Data.RequireReferences();
     }
 
     /// <summary>The game, as the loop calls it.</summary>

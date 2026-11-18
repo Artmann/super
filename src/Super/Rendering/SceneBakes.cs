@@ -71,15 +71,15 @@ internal sealed class SceneBakes
     public void Follow(Content content)
     {
         // The bakes read so far came from other files, or from these before they were read again, so they're read again.
-        if (!ReferenceEquals(_files, content.Files) || _filesReloads != content.Reloads)
+        if (!ReferenceEquals(_files, content.Store.Files) || _filesReloads != content.Data.Reloads)
         {
             Bakes.Forget();
-            _filesReloads = content.Reloads;
+            _filesReloads = content.Data.Reloads;
         }
 
         // A chunk baked in the background is in the cache now, so the bake held for its file is read again.
         _written.ForgetIn(Bakes);
-        _files = content.Files;
+        _files = content.Store.Files;
     }
 
     /// <summary>Says, once, why the first area the last frame wanted a bake for isn't baked.</summary>

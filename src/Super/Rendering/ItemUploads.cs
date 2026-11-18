@@ -31,7 +31,7 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
     /// <summary>Frees what each item the content let go of made, then clears the content's list of them.</summary>
     public void UnloadPending(Content content)
     {
-        foreach (int index in content.PendingUnloads)
+        foreach (int index in content.Store.PendingUnloads)
         {
             if (items.Take(index, content) is { } loaded)
             {
@@ -39,7 +39,7 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
             }
         }
 
-        content.ClearPendingUnloads();
+        content.Store.ClearPendingUnloads();
     }
 
     /// <summary>

@@ -77,7 +77,7 @@ public class LoadAllTests
         var (content, _) = Make(("items/axe.json", Axe), ("items/hatchet.json", Axe.Replace("\"axe\"", "\"hatchet\"")));
         var items = content.LoadAll<Item>("items");
         Assert.Equal(items["axe"].Model, items["hatchet"].Model);
-        Assert.Single(content.Items);
+        Assert.Single(content.Store.Items);
     }
 
     [Fact]
@@ -284,7 +284,7 @@ public class LoadAllTests
     {
         var (content, _) = Make(("items/axe.json", Axe.Replace("3,", "\"x\",")));
         Assert.Throws<ContentException>(() => content.LoadAll<Item>("items"));
-        Assert.Empty(content.Items);
+        Assert.Empty(content.Store.Items);
     }
 
     [Fact]

@@ -37,11 +37,11 @@ public class SoundContentTests
         var files = new MemoryContent().Add("sounds/pop.wav", Wav());
         var content = new Content(files);
 
-        SoundRef first = content.Sound("sounds/pop.wav");
-        SoundRef second = content.Sound("sounds/pop.wav");
+        SoundRef first = content.Sounds.Sound("sounds/pop.wav");
+        SoundRef second = content.Sounds.Sound("sounds/pop.wav");
 
         Assert.Equal(first, second);
-        Assert.Equal(3.0, content.Clip(first).Seconds * 48000, 3);
+        Assert.Equal(3.0, content.Sounds.ClipOf(first).Seconds * 48000, 3);
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class SoundContentTests
         var files = new MemoryContent().Add("sounds/a.wav", Wav()).Add("sounds/b.wav", Wav(0.75f));
         var content = new Content(files);
 
-        Assert.NotEqual(content.Sound("sounds/a.wav"), content.Sound("sounds/b.wav"));
+        Assert.NotEqual(content.Sounds.Sound("sounds/a.wav"), content.Sounds.Sound("sounds/b.wav"));
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class SoundContentTests
     {
         var content = new Content(new MemoryContent());
 
-        var problem = Assert.Throws<ContentException>(() => content.Sound("sounds/missing.wav"));
+        var problem = Assert.Throws<ContentException>(() => content.Sounds.Sound("sounds/missing.wav"));
 
         Assert.Contains("sounds/missing.wav", problem.Message);
     }
@@ -68,7 +68,7 @@ public class SoundContentTests
     {
         var content = new Content(ForestFiles(Forest));
 
-        AmbienceDefinition forest = content.AmbienceOf(content.Ambience("sounds/forest.ambience.json"));
+        AmbienceDefinition forest = content.Sounds.AmbienceOf(content.Sounds.Ambience("sounds/forest.ambience.json"));
 
         Assert.Equal(2, forest.Layers.Length);
         Assert.Equal(0.6f, forest.Layers[0].Volume);
@@ -95,7 +95,7 @@ public class SoundContentTests
             """;
         var content = new Content(files);
 
-        AmbienceDefinition ambience = content.AmbienceOf(content.Ambience("sounds/a.ambience.json"));
+        AmbienceDefinition ambience = content.Sounds.AmbienceOf(content.Sounds.Ambience("sounds/a.ambience.json"));
 
         Assert.Equal(1f, ambience.Layers[0].Volume);
         Assert.Equal(0f, ambience.Scattered[0].PitchVariation);
@@ -106,7 +106,7 @@ public class SoundContentTests
     {
         var content = new Content(ForestFiles(Forest));
 
-        Assert.Equal(content.Ambience("sounds/forest.ambience.json"), content.Ambience("sounds/forest.ambience.json"));
+        Assert.Equal(content.Sounds.Ambience("sounds/forest.ambience.json"), content.Sounds.Ambience("sounds/forest.ambience.json"));
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public class SoundContentTests
         files["sounds/forest.ambience.json"] = """{ "layers": [ { "file": "ambient/rain.wav", "volume": 1 } ] }""";
         var content = new Content(files);
 
-        AmbienceDefinition forest = content.AmbienceOf(content.Ambience("sounds/forest.ambience.json"));
+        AmbienceDefinition forest = content.Sounds.AmbienceOf(content.Sounds.Ambience("sounds/forest.ambience.json"));
 
         Assert.Equal("sounds/ambient/rain.wav", forest.Layers[0].Clip.Path);
         Assert.Empty(forest.Scattered);
@@ -129,7 +129,7 @@ public class SoundContentTests
         files["sounds/forest/forest.ambience.json"] = """{ "layers": [ { "file": "../shared/rain.wav" } ] }""";
         var content = new Content(files);
 
-        AmbienceDefinition forest = content.AmbienceOf(content.Ambience("sounds/forest/forest.ambience.json"));
+        AmbienceDefinition forest = content.Sounds.AmbienceOf(content.Sounds.Ambience("sounds/forest/forest.ambience.json"));
 
         Assert.Equal("sounds/shared/rain.wav", forest.Layers[0].Clip.Path);
     }
@@ -141,7 +141,7 @@ public class SoundContentTests
         files["sounds/forest.ambience.json"] = """{ "layers": [ { "file": "ambient\\rain.wav" } ] }""";
         var content = new Content(files);
 
-        AmbienceDefinition forest = content.AmbienceOf(content.Ambience("sounds/forest.ambience.json"));
+        AmbienceDefinition forest = content.Sounds.AmbienceOf(content.Sounds.Ambience("sounds/forest.ambience.json"));
 
         Assert.Equal("sounds/ambient/rain.wav", forest.Layers[0].Clip.Path);
     }
@@ -168,7 +168,7 @@ public class SoundContentTests
         CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
         try
         {
-            var problem = Assert.Throws<ContentException>(() => content.Ambience("sounds/a.ambience.json"));
+            var problem = Assert.Throws<ContentException>(() => content.Sounds.Ambience("sounds/a.ambience.json"));
 
             Assert.Equal(["sounds/a.ambience.json: " + expected], problem.Problems);
         }
@@ -190,7 +190,7 @@ public class SoundContentTests
             """;
         var content = new Content(files);
 
-        AmbienceDefinition ambience = content.AmbienceOf(content.Ambience("sounds/a.ambience.json"));
+        AmbienceDefinition ambience = content.Sounds.AmbienceOf(content.Sounds.Ambience("sounds/a.ambience.json"));
 
         Assert.Equal(0f, ambience.Layers[0].Volume);
         Assert.Equal(0.01f, ambience.Scattered[0].MinSeconds);
@@ -205,7 +205,7 @@ public class SoundContentTests
         files.Remove("sounds/birds.wav");
         var content = new Content(files);
 
-        var problem = Assert.Throws<ContentException>(() => content.Ambience("sounds/forest.ambience.json"));
+        var problem = Assert.Throws<ContentException>(() => content.Sounds.Ambience("sounds/forest.ambience.json"));
 
         Assert.Contains("sounds/forest.ambience.json", problem.Message);
         Assert.Contains("sounds/birds.wav", problem.Message);
@@ -218,7 +218,7 @@ public class SoundContentTests
         files["sounds/bad.ambience.json"] = "{ not json";
         var content = new Content(files);
 
-        var problem = Assert.Throws<ContentException>(() => content.Ambience("sounds/bad.ambience.json"));
+        var problem = Assert.Throws<ContentException>(() => content.Sounds.Ambience("sounds/bad.ambience.json"));
 
         Assert.Contains("sounds/bad.ambience.json", problem.Message);
     }

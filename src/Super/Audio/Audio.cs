@@ -99,7 +99,7 @@ public sealed class Audio
 
         var start = new VoiceStart
         {
-            Clip = _content.Clip(clip),
+            Clip = _content.Sounds.ClipOf(clip),
             Channel = on,
             Volume = volume,
             Pitch = pitchVariation > 0 ? 1 + _pitch.Between(-pitchVariation, pitchVariation) : 1,

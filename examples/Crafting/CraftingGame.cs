@@ -62,7 +62,7 @@ public sealed class CraftingGame(Content content) : IGame
         _recipes = content.LoadAll<Recipe>("recipes");
         foreach (var item in _items)
         {
-            _icons[item.Id] = content.Image(item.Icon);
+            _icons[item.Id] = content.UiImages.Image(item.Icon);
         }
 
         Bag.Add("wood", 12);

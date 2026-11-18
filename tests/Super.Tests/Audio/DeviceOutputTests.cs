@@ -41,7 +41,7 @@ public class DeviceOutputTests
 
         // 0.2 s is six ticks: still playing after five, gone after seven, because each tick mixed its own share.
         // Ticking needs no Draw in between, since each tick's Advance hands over what's queued.
-        audio.Play(run.Game.Content.Sound("click.wav"));
+        audio.Play(run.Game.Content.Sounds.Sound("click.wav"));
         run.Ticks(1);
         Assert.Single(run.Sounds);
         run.Ticks(4);
@@ -67,7 +67,7 @@ public class DeviceOutputTests
     {
         var content = new Content(new MemoryContent());
         var reader = new WatchedReader();
-        SoundRef music = content.AddClip(SoundClip.Streaming("long.ogg", Mixer.SampleRate, 1, 20, () => reader));
+        SoundRef music = content.Sounds.AddClip(SoundClip.Streaming("long.ogg", Mixer.SampleRate, 1, 20, () => reader));
         var audio = new AudioService(content, seed: 1);
         audio.Music(music, fadeSeconds: 0);
         audio.Advance(0.1f);
@@ -403,7 +403,7 @@ public sealed class AudioThreadTests
         audio.Device.UseOutput(speakers, TextWriter.Null);
         try
         {
-            audio.Play(content.Sound("bang.wav"));
+            audio.Play(content.Sounds.Sound("bang.wav"));
             Frame(audio);
 
             // The clip is a constant 0.5, played flat at full volume.
@@ -449,7 +449,7 @@ public sealed class AudioThreadTests
             audio.Device.Pause();
             long paused = audio.Mixing.Clock;
 
-            audio.Play(content.Sound("bang.wav"));
+            audio.Play(content.Sounds.Sound("bang.wav"));
             audio.Advance(0.1f);
 
             Assert.Equal(paused + 4800, audio.Mixing.Clock);
@@ -470,7 +470,7 @@ public sealed class AudioThreadTests
     public void ASoundThatFailsOnTheThreadIsLogged()
     {
         var content = new Content(new MemoryContent());
-        SoundRef broken = content.AddClip(SoundClip.Streaming("broken.ogg", Mixer.SampleRate, 1, 20, () => throw new InvalidDataException("can't open")));
+        SoundRef broken = content.Sounds.AddClip(SoundClip.Streaming("broken.ogg", Mixer.SampleRate, 1, 20, () => throw new InvalidDataException("can't open")));
         var audio = new AudioService(content, seed: 1);
         var log = new SharedLog();
         audio.Device.UseOutput(new StandInSpeakers(), log);
@@ -553,7 +553,7 @@ public sealed class AudioThreadTests
         try
         {
             WaitFor(() => log.Text.Length > 0, "the thread to stop playing");
-            SoundRef bang = content.Sound("bang.wav");
+            SoundRef bang = content.Sounds.Sound("bang.wav");
 
             // Three frames of 3000 sounds overflow the 4096 the queue holds, unless the thread keeps taking them.
             for (int round = 0; round < 3; round++)

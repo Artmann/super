@@ -72,7 +72,7 @@ internal sealed class GameHost<TGame> : GameLoop, IDisposable
 
     public void Dispose()
     {
-        Content.StopLive();
+        Content.Data.Live.StopLive();
 
         // Before the services go, so the audio thread is stopped while everything it reads is still there.
         try

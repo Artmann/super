@@ -118,7 +118,7 @@ internal sealed class SceneRenderer : IDisposable
         _items.Update(content);
 
         // Decal materials point at the textures being freed, so they go too, and are made again when next used.
-        if (content.PendingUnloads.Length > 0)
+        if (content.Store.PendingUnloads.Length > 0)
         {
             _decals.DestroyAll();
         }

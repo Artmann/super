@@ -23,7 +23,7 @@ public readonly record struct ModelOptions
     public SwimMotion Swim { get; init; }
 
     /// <summary>
-    /// Shows only some meshes of the model, the ones <see cref="Content.Meshes"/> picked for the mask. Meshes it leaves
+    /// Shows only some meshes of the model, the ones <see cref="ContentModels.Meshes"/> picked for the mask. Meshes it leaves
     /// out are not drawn, and cost no triangles. The mask must have been made for this model. Null shows them all.
     /// </summary>
     public MeshMask? Meshes { get; init; }
@@ -75,7 +75,7 @@ public readonly record struct ModelOptions
     {
         if (meshes is { } mask && mask.Model != model.Index)
         {
-            throw new ArgumentException($"The mesh mask was made for model {mask.Model}, not model {model.Index}. Make it with Content.Meshes for this model.", name);
+            throw new ArgumentException($"The mesh mask was made for model {mask.Model}, not model {model.Index}. Make it with content.Models.Meshes for this model.", name);
         }
     }
 }

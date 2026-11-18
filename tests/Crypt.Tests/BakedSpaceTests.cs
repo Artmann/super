@@ -59,7 +59,7 @@ public sealed class BakedSpaceTests
             return Shapes.BuiltIn()[-model.Index - 1].Vertices;
         }
 
-        return content.Items[model.Index - 1] is GeneratedMesh mesh ? mesh.Vertices : null;
+        return content.Store.Items[model.Index - 1] is GeneratedMesh mesh ? mesh.Vertices : null;
     }
 
     private static (Vector3 Min, Vector3 Max) WorldBounds(Rendition.Vertex[] vertices, Matrix4x4 transform)

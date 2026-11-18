@@ -4,8 +4,8 @@ using Rendition;
 namespace Super.Ui;
 
 /// <summary>
-/// A picture named by <see cref="Content.Image(string)"/>, or painted in code and handed to
-/// <see cref="Content.Image(int, int, byte[])"/>. Its size is known at once, so layout never waits for it.
+/// A picture named by <see cref="ContentUiImages.Image(string)"/>, or painted in code and handed to
+/// <see cref="ContentUiImages.Image(int, int, byte[])"/>. Its size is known at once, so layout never waits for it.
 /// </summary>
 public sealed class GameImage
 {

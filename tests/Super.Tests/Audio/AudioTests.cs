@@ -71,7 +71,7 @@ public class AudioTests
         var plan = new Plan();
         using var run = Start(plan);
 
-        Once(run, plan, (audio, content, _) => audio.Play(content.Sound("click.wav")));
+        Once(run, plan, (audio, content, _) => audio.Play(content.Sounds.Sound("click.wav")));
 
         PlayingSound click = Assert.Single(run.Sounds);
         Assert.Equal("click.wav", click.Clip);
@@ -92,7 +92,7 @@ public class AudioTests
         var plan = new Plan();
         using var run = Start(plan);
 
-        Once(run, plan, (audio, content, _) => audio.Play(content.Sound("bang.wav"), at: new Vector3(-10, 0, 0)));
+        Once(run, plan, (audio, content, _) => audio.Play(content.Sounds.Sound("bang.wav"), at: new Vector3(-10, 0, 0)));
 
         PlayingSound bang = Assert.Single(run.Sounds);
         Assert.Equal(Channel.Effects, bang.Channel);
@@ -110,8 +110,8 @@ public class AudioTests
 
         Once(run, plan, (audio, content, _) =>
         {
-            audio.Play(content.Sound("click.wav"), channel: Channel.Music);
-            audio.Play(content.Sound("bang.wav"), at: new Vector3(-10, 0, 0), channel: Channel.Interface);
+            audio.Play(content.Sounds.Sound("click.wav"), channel: Channel.Music);
+            audio.Play(content.Sounds.Sound("bang.wav"), at: new Vector3(-10, 0, 0), channel: Channel.Interface);
         });
 
         Assert.Equal(Channel.Music, Find(run, "click.wav").Channel);
@@ -128,7 +128,7 @@ public class AudioTests
         {
             audio.Volume(Channel.Interface, 0.5f);
             audio.Volume(Channel.Master, 0.4f);
-            audio.Play(content.Sound("bang.wav"), volume: 0.5f);
+            audio.Play(content.Sounds.Sound("bang.wav"), volume: 0.5f);
         });
 
         Assert.Equal(0.5f * 0.5f * 0.4f, Assert.Single(run.Sounds).Gain, 0.0001f);
@@ -142,11 +142,11 @@ public class AudioTests
     {
         var plan = new Plan();
         using var run = Start(plan);
-        Once(run, plan, (audio, content, _) => audio.Music(content.Sound("a.wav")));
+        Once(run, plan, (audio, content, _) => audio.Music(content.Sounds.Sound("a.wav")));
 
         // The first track fades in over two seconds too, so ten ticks in it has reached a sixth.
         run.Ticks(9);
-        Once(run, plan, (audio, content, _) => audio.Music(content.Sound("b.wav")));
+        Once(run, plan, (audio, content, _) => audio.Music(content.Sounds.Sound("b.wav")));
         float aAtSwitch = Find(run, "a.wav").Gain;
         Assert.Equal(10f / 60f, aAtSwitch, 0.0001f);
         PlayingSound b = Find(run, "b.wav");
@@ -175,7 +175,7 @@ public class AudioTests
     [Fact]
     public void SameMusicAgainDoesNothing()
     {
-        var plan = new Plan { Update = (audio, content, _) => audio.Music(content.Sound("a.wav")) };
+        var plan = new Plan { Update = (audio, content, _) => audio.Music(content.Sounds.Sound("a.wav")) };
         using var run = Start(plan);
 
         run.Ticks(90);
@@ -190,7 +190,7 @@ public class AudioTests
     {
         var plan = new Plan();
         using var run = Start(plan);
-        Once(run, plan, (audio, content, _) => audio.Music(content.Sound("a.wav")));
+        Once(run, plan, (audio, content, _) => audio.Music(content.Sounds.Sound("a.wav")));
         run.Ticks(70);
 
         Once(run, plan, (audio, _, _) => audio.Music(null));
@@ -211,8 +211,8 @@ public class AudioTests
         using var run = Start(plan);
         Once(run, plan, (audio, content, _) =>
         {
-            audio.Music(content.Sound("a.wav"));
-            audio.Play(content.Sound("bang.wav"), at: new Vector3(0, 0, -1));
+            audio.Music(content.Sounds.Sound("a.wav"));
+            audio.Play(content.Sounds.Sound("bang.wav"), at: new Vector3(0, 0, -1));
         });
         run.Ticks(10);
 
@@ -241,9 +241,9 @@ public class AudioTests
 
         Once(run, plan, (audio, content, _) =>
         {
-            audio.Play(content.Sound("bang.wav"), pitchVariation: 0.5f);
-            audio.Play(content.Sound("bang.wav"), pitchVariation: 0.5f);
-            audio.Play(content.Sound("bang.wav"));
+            audio.Play(content.Sounds.Sound("bang.wav"), pitchVariation: 0.5f);
+            audio.Play(content.Sounds.Sound("bang.wav"), pitchVariation: 0.5f);
+            audio.Play(content.Sounds.Sound("bang.wav"));
         });
         run.Ticks(30);
 
@@ -262,7 +262,7 @@ public class AudioTests
         {
             var plan = new Plan();
             using var run = Start(plan, seed);
-            Once(run, plan, (audio, content, _) => audio.Play(content.Sound("bang.wav"), pitchVariation: 0.5f));
+            Once(run, plan, (audio, content, _) => audio.Play(content.Sounds.Sound("bang.wav"), pitchVariation: 0.5f));
             run.Ticks(30);
             return run.Sounds.Select(sound => sound.Seconds).ToArray();
         }
@@ -278,7 +278,7 @@ public class AudioTests
             var plan = new Plan();
             if (playing)
             {
-                plan.Update = (audio, content, _) => audio.Play(content.Sound("click.wav"), pitchVariation: 0.3f);
+                plan.Update = (audio, content, _) => audio.Play(content.Sounds.Sound("click.wav"), pitchVariation: 0.3f);
             }
 
             using var run = Start(plan, seed: 7);
@@ -307,7 +307,7 @@ public class AudioTests
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
 
-        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => audio.Play(content.Sound("click.wav"), pitchVariation: 1));
+        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => audio.Play(content.Sounds.Sound("click.wav"), pitchVariation: 1));
 
         Assert.Equal("pitchVariation", problem.ParamName);
         Assert.Contains("up to, but not including, 1", problem.Message);
@@ -320,7 +320,7 @@ public class AudioTests
         var audio = new AudioService(content, seed: 1);
 
         var problem = Assert.Throws<ArgumentOutOfRangeException>(
-            () => audio.Play(content.Sound("click.wav"), at: Vector3.Zero, near: 5, far: 5));
+            () => audio.Play(content.Sounds.Sound("click.wav"), at: Vector3.Zero, near: 5, far: 5));
 
         Assert.Equal("far", problem.ParamName);
         Assert.Contains("further than near", problem.Message);
@@ -333,7 +333,7 @@ public class AudioTests
         var audio = new AudioService(content, seed: 1);
 
         var problem = Assert.Throws<ArgumentOutOfRangeException>(
-            () => audio.Play(content.Sound("click.wav"), at: new Vector3(float.NaN, 0, 0)));
+            () => audio.Play(content.Sounds.Sound("click.wav"), at: new Vector3(float.NaN, 0, 0)));
 
         Assert.Equal("at", problem.ParamName);
         Assert.Contains("finite", problem.Message);
@@ -344,7 +344,7 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        audio.Play(content.Sound("bang.wav"));
+        audio.Play(content.Sounds.Sound("bang.wav"));
 
         audio.Advance(1f / TicksPerSecond);
 
@@ -357,7 +357,7 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        audio.Play(content.Sound("bang.wav"));
+        audio.Play(content.Sounds.Sound("bang.wav"));
 
         Assert.Empty(audio.Playing);
         audio.EndFrame(new Camera(Vector3.Zero, -Vector3.UnitZ), 1);
@@ -369,7 +369,7 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        audio.Play(content.Sound("bang.wav"));
+        audio.Play(content.Sounds.Sound("bang.wav"));
 
         // A seventieth of a second is 685 5/7 frames. Rounding each call alone would mix 686, 20 frames too many
         // over 70 calls; carried over, the second comes to 48 000 frames.
@@ -386,9 +386,9 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        int first = audio.Loops.Start(new SoundLoop { Clip = content.Sound("a.wav"), Channel = Channel.Effects });
+        int first = audio.Loops.Start(new SoundLoop { Clip = content.Sounds.Sound("a.wav"), Channel = Channel.Effects });
         audio.Loops.Stop(first);
-        int second = audio.Loops.Start(new SoundLoop { Clip = content.Sound("b.wav"), Channel = Channel.Effects });
+        int second = audio.Loops.Start(new SoundLoop { Clip = content.Sounds.Sound("b.wav"), Channel = Channel.Effects });
 
         audio.Loops.ChangeVolume(first, 0);
         audio.Loops.Stop(first);
@@ -414,7 +414,7 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        int first = audio.Loops.Start(new SoundLoop { Clip = content.Sound("a.wav"), Channel = Channel.Effects });
+        int first = audio.Loops.Start(new SoundLoop { Clip = content.Sounds.Sound("a.wav"), Channel = Channel.Effects });
         audio.Advance(0.2f);
 
         FillQueue(audio);
@@ -423,7 +423,7 @@ public class AudioTests
         audio.Advance(0.2f);
         Assert.Equal("a.wav", Assert.Single(audio.Playing).Clip);
 
-        int second = audio.Loops.Start(new SoundLoop { Clip = content.Sound("b.wav"), Channel = Channel.Effects });
+        int second = audio.Loops.Start(new SoundLoop { Clip = content.Sounds.Sound("b.wav"), Channel = Channel.Effects });
         Assert.NotEqual(first, second);
         audio.Advance(0.5f);
 
@@ -435,18 +435,18 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        audio.Music(content.Sound("a.wav"));
+        audio.Music(content.Sounds.Sound("a.wav"));
         audio.Advance(2.1f);
 
         // Both the stop of a and the start of b are dropped, so a plays on.
         FillQueue(audio);
-        audio.Music(content.Sound("b.wav"));
+        audio.Music(content.Sounds.Sound("b.wav"));
         Assert.Equal(2, audio.Commands.Dropped);
         audio.Advance(0.2f);
         Assert.Equal("a.wav", Assert.Single(audio.Playing).Clip);
 
         // Asking again sends b, and a, whose stop never arrived, ends as b takes over its id.
-        audio.Music(content.Sound("b.wav"));
+        audio.Music(content.Sounds.Sound("b.wav"));
         audio.Advance(2.1f);
 
         PlayingSound only = Assert.Single(audio.Playing);
@@ -459,7 +459,7 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        int first = audio.Ambiences.Start(content.Ambience("forest.ambience.json"), 1);
+        int first = audio.Ambiences.Start(content.Sounds.Ambience("forest.ambience.json"), 1);
         audio.Advance(2.1f);
 
         FillQueue(audio);
@@ -468,7 +468,7 @@ public class AudioTests
         audio.Advance(0.2f);
         Assert.Single(audio.Playing);
 
-        int second = audio.Ambiences.Start(content.Ambience("forest.ambience.json"), 1);
+        int second = audio.Ambiences.Start(content.Sounds.Ambience("forest.ambience.json"), 1);
         Assert.NotEqual(first, second);
         audio.Advance(0.5f);
 
@@ -495,7 +495,7 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        int loop = audio.Loops.Start(new SoundLoop { Clip = content.Sound("a.wav"), Channel = Channel.Effects });
+        int loop = audio.Loops.Start(new SoundLoop { Clip = content.Sounds.Sound("a.wav"), Channel = Channel.Effects });
 
         audio.Advance(0.05f);
         Assert.Equal(0.5f, Assert.Single(audio.Playing).Gain, 0.001f);
@@ -514,7 +514,7 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        int loop = audio.Loops.Start(new SoundLoop { Clip = content.Sound("a.wav"), Channel = Channel.Effects, At = new Vector3(-1, 0, 0) });
+        int loop = audio.Loops.Start(new SoundLoop { Clip = content.Sounds.Sound("a.wav"), Channel = Channel.Effects, At = new Vector3(-1, 0, 0) });
         audio.Advance(0.2f);
 
         audio.Loops.Move(loop, new Vector3(10, 0, 0));
@@ -531,7 +531,7 @@ public class AudioTests
     {
         var content = new Content(Files());
         var audio = new AudioService(content, seed: 1);
-        int forest = audio.Ambiences.Start(content.Ambience("forest.ambience.json"), 0.8f);
+        int forest = audio.Ambiences.Start(content.Sounds.Ambience("forest.ambience.json"), 0.8f);
 
         audio.Advance(1);
         PlayingSound layer = Assert.Single(audio.Playing);

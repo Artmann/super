@@ -453,7 +453,7 @@ reads it through `CookedFolder`.
 Models are big (162 MB for a rigged FBX with its clips), so they go through
 `IContentFiles.Open`, a stream: `ItemReads.LoadModel` reads the model piece by piece on
 the loading thread, `Content.Rig` reads only the rig at the front of the file and
-`Content.Meshes` only the mesh names before it, so the raw file is never held whole beside what's built from it. `CookedFolder.Open` is a `FileStream`
+`ContentModels.Meshes` only the mesh names before it, so the raw file is never held whole beside what's built from it. `CookedFolder.Open` is a `FileStream`
 with a 64 KB buffer, small enough to stay off the large object heap, opened with
 `FileShare.Read | FileShare.Delete` so a cook running beside the game can still replace or
 delete the object. Content in memory gets a `MemoryStream` over `Read` by default.
@@ -836,10 +836,10 @@ transform by hand: points by the transform, normals by its inverse transpose, an
 sign flips for a mirroring transform. Each mesh then stays its own named part, and its own
 draw call. `ModelData.ToBytes` refuses a name count that isn't zero or the part count, so a
 model with no names writes none. The names are the first thing after the header in the
-`.rmodel`, before the rig, so `ModelData.ReadMeshNames` and `Content.Meshes` read them without
-the geometry, and `ModelData.ReadRig` reads them on its way to the rig, so `Content.Rig` caches
-them for `Content.Meshes`. `Content` caches each model's names by index and drops them when the
-model is unloaded.
+`.rmodel`, before the rig, so `ModelData.ReadMeshNames` and `ContentModels.Meshes` read them without
+the geometry, and `ModelData.ReadRig` reads them on its way to the rig, so `Content.Rig` hands
+them to `ContentModels.RememberMeshNames`. `ContentModels` caches each model's names by index and
+drops them when the model is unloaded.
 
 At draw time a `MeshMask` is a bitset over the model's parts, made for one `ModelRef`.
 `View.Model` checks the mask's model, and `MeshMaskParts.AddShown` copies only the shown parts
@@ -874,9 +874,9 @@ source stopped counting or playing and begins any a source came to count inside,
 ends stay paired. Joints are read from the finished pose, and the events go into a reused array,
 so reading them doesn't allocate.
 
-Clip sounds are named in content when a rig gets its `AnimatorRunner` (from `content.Rig` or
-`Content.Adopt`): the setter calls `ClipEventTable.NameSounds` with the runner's lookup, which is
-`Content.Sound`, so a missing file throws at load, and `Rig.Event` names a new event's sound the
+Clip sounds are named in content when a rig gets its `AnimatorRunner` (from `content.Rig`, or a
+test setting `Rig.Runner` to `Content.Animators`): the setter calls `ClipEventTable.NameSounds` with
+the runner's lookup, which is `ContentSounds.Sound`, so a missing file throws at load, and `Rig.Event` names a new event's sound the
 same way. `GameHost` sets `AnimatorRunner.Play` to a `ClipSoundPlayer` that calls `Audio.Play`
 (a delegate rather than `Audio` itself, since `Audio` holds `Content`, which holds the runner), and
 each animator's `EventTracker.Finish` hands the tick's events to `TickEvents.PlaySounds`, which plays every
@@ -927,8 +927,10 @@ on the Courtyard. Dynamic PGO (`TieredPGO`) needs tiering, so a game built this 
 
 **`content.dev.json`** is written beside the cooked folder by the build, and
 only for a game run from source. It names the content roots, each root's `Only` globs, the
-`super-cook` tool and the target, and `CookProcess` passes the globs on as `--only`. `Content.GoLive` reads it through `CookedFolder.Dev`; a published game has none and
-never watches anything. When the game's content goes live (`Content.GoLive`):
+`super-cook` tool and the target, and `CookProcess` passes the globs on as `--only`. `ContentLive.GoLive` reads it through `CookedFolder.Dev`, which
+`Content` hands it as a function; a published game has none and never watches anything. `ContentLive` is held by
+`ContentReader`, the content's `Data`, since it writes the catalogs' schemas and asks for them to be read again.
+When the game's content goes live (`ContentLive.GoLive`):
 
 1. It writes the JSON schemas into the first content root.
 2. It starts a `ContentWatcher` on the cooked folder, filtered to `content.manifest`. The
@@ -947,8 +949,8 @@ access denied instead, so `FolderStore` turns access denied on its atomic move, 
 else, into a `FileInUseException` carrying a sharing violation, after deleting its temp file.
 When it
 commits a new manifest the watcher's timer fires on a thread-pool thread, which only sets
-`Content.ReloadWanted`. `LoopTick` checks that flag at the start of a tick and calls
-`Content.Reload` on the game thread, so no catalog is ever read from two threads.
+`ContentLive.ReloadWanted`. `LoopTick` checks that flag at the start of a tick and calls
+`ContentReader.Reload` on the game thread, so no catalog is ever read from two threads.
 
 `Reload` refreshes `CookedFolder`, which parses the new manifest and swaps it in, then
 reads every catalog again. The catalogs are all or nothing: a mistake in the new data is
@@ -982,7 +984,7 @@ through `LoopTick` and a frame through `LoopDraw`. Both then catch exceptions an
 `LoopHalts`, which holds what stopped the game. It keeps the first error
 only and reports it once. It also sets `Input.Readable` back to false, since Update may
 have thrown with input still open. A stopped `Tick` returns without doing anything, so
-`Time.Tick` doesn't move, until the change counter moves or `Content.ReloadWanted` is set.
+`Time.Tick` doesn't move, until the change counter moves or `ContentLive.ReloadWanted` is set.
 Then it clears the stop and runs the tick, which delivers the reload and `CodeReloaded`
 before `Update`.
 
@@ -4221,7 +4223,7 @@ is all a part adds. A static model of more than `BakeIds.MaxParts` parts throws 
 `View.Model` throws, through `ModelOptions`' check, for a static draw with a swim or a pose, so the renderer's own check
 below never sees one from a view.
 
-`Content.IdentityOf(model)` hashes what the model is, once, on its first static draw, and keeps
+`ContentItems.IdentityOf(model)`, through `ModelIdentities`, hashes what the model is, once, on its first static draw, and keeps
 it until the model is unloaded or the content reloads. It starts with a kind:
 
 - 0, a built-in shape: its name, such as `cube` or `sphere`.
@@ -4236,7 +4238,7 @@ it until the model is unloaded or the content reloads. It starts with a kind:
   generated one by its size, pixels, kind and normal-map flag), the shader's name and the
   SHA-256 of its SPIR-V, parameters, shader textures and array layers.
 
-A shader's SPIR-V comes from `Content.ShaderBytes`, which is `ItemReads.LoadShader` (the
+A shader's SPIR-V comes from `ModelIdentities.ShaderBytes`, which is `ItemReads.LoadShader` (the
 `shaders` folder beside the program) unless a test swaps it, so editing a shader changes the
 ids of every static draw that uses it. A game that draws nothing static never hashes a model.
 
@@ -4408,7 +4410,7 @@ pages are resident in the pool; see "Chunk bakes on the GPU" and "Relighting a c
 
 `LightBakeStore` (`src/Rendition/Baking/LightBakeStore.cs`) is the `IBakeStore` a Super game
 uses. It reads files through a `Func<string, byte[]?>`, so Rendition doesn't know where content
-lives; `SceneBakes` gives it `Content.Files.Read` for names whose kind is `ContentKind.Data`,
+lives; `SceneBakes` gives it `ContentItems.Files.Read` for names whose kind is `ContentKind.Data`,
 so it sees the cooked bakes, and logs to `Console.Error`. `Saved(file)` and `SavedQuality(file)`
 read a file's header with `LightBakeFile.ReadInputsAndQuality` the first time either is asked about
 and keep its inputs and quality in a `Dictionary`, null for a missing file or one that can't be read: a header
@@ -4428,8 +4430,8 @@ allocates nothing, the stale path included, which `LightBakeStoreTests` checks w
 `GC.GetAllocatedBytesForCurrentThread`.
 
 `Forget` clears both, so the next frame reads the headers again and logs again. `SceneBakes`
-calls it in `Follow` when `Content.Files` is a different object or `Content.Reloads` has moved
-since the last frame; `Content.Reload` counts up right after it refreshes the files. `Load`
+calls it in `Follow` when `ContentItems.Files` is a different object or `ContentReader.Reloads` has moved
+since the last frame; `ContentReader.Reload` counts up right after it refreshes the files. `Load`
 reads a whole file with `LightBakeFile.Read` and keeps nothing; it is for drawing a fresh bake.
 `Forget` also counts up `Reloads`, so the renderer reads the bake it holds again. `Forget(file)` drops one file's header and its stale report instead, and does not count `Reloads` up, since that would make the renderer let go of every chunk bake on the GPU and upload them all again. It records the file for `IBakeStore.TakeForgotten`, which the renderer drains in `FrameBakes.TryResolve`: it takes that file off its unreadable set and calls `ChunkBakePool.Forget`, which touches just that entry (see [Chunk bakes on the GPU](#chunk-bakes-on-the-gpu)). That reads no file and waits for nothing, so the other chunk bakes stay resident. `Load`, `Reloads` and `TakeForgotten` are on
 `IBakeStore` with defaults (`Load` gives null, `Reloads` stays 0, `TakeForgotten` gives none, and `SavedQuality` gives null,

@@ -127,7 +127,7 @@ fades out. There is nothing to call and no handle to keep:
 var engine = world.Create();
 world.Add(engine, Transform.At(new Vector3(4f, 0f, 2f)));
 world.Add(engine, new Smoothed());
-world.Add(engine, new Sound(content.Sound("sounds/engine.ogg"), Volume: 0.8f));
+world.Add(engine, new Sound(content.Sounds.Sound("sounds/engine.ogg"), Volume: 0.8f));
 ```
 
 With a `Transform` the sound sits where the entity is drawn (`Smoothed` and `Parent`
@@ -142,7 +142,7 @@ on the same entity it plays for as long as its game state does:
 screen.OnEnter(Screen.Forest, () =>
 {
     var forest = world.Create();
-    world.Add(forest, new Ambience(content.Ambience("ambience/forest.ambience.json")));
+    world.Add(forest, new Ambience(content.Sounds.Ambience("ambience/forest.ambience.json")));
     world.Add(forest, new ScopedTo<Screen>(Screen.Forest));
 });
 ```

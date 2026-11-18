@@ -62,7 +62,7 @@ internal sealed class LoopTick
             return;
         }
 
-        if (!_halts.MayTick(_content.ReloadWanted))
+        if (!_halts.MayTick(_content.Data.Live.ReloadWanted))
         {
             return;
         }
@@ -85,7 +85,7 @@ internal sealed class LoopTick
 
         // Last, so all of Update saw one state and the next Draw shows the new one.
         _changes.Apply();
-        _content.RequireReferences();
+        _content.Data.RequireReferences();
         _time.Tick++;
     }
 
@@ -94,9 +94,9 @@ internal sealed class LoopTick
         Script?.Play(_time.Tick - _scriptStart, _input, ui);
 
         // Only here, so all of a tick and the Draw after it see one version of the data.
-        if (_content.ReloadWanted)
+        if (_content.Data.Live.ReloadWanted)
         {
-            _content.Reload(Console.Error);
+            _content.Data.Reload(Console.Error);
         }
 
         // At the start of a tick, on the game's thread, however the runtime delivered the change.

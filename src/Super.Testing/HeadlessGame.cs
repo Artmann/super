@@ -55,13 +55,13 @@ public sealed class HeadlessRun<TGame> : IDisposable
         (States<TState>)_host.GetService(typeof(States<TState>));
 
     /// <summary>Keeps <see cref="Content.IsLoaded"/> false, so a test can look at a loading screen.</summary>
-    public void HoldLoading() => _host.Content.Held = true;
+    public void HoldLoading() => _host.Content.Store.Loading.Held = true;
 
     /// <summary>Lets a held load finish, as if everything arrived at once.</summary>
-    public void FinishLoading() => _host.Content.Held = false;
+    public void FinishLoading() => _host.Content.Store.Loading.Held = false;
 
     /// <summary>Acts as if a content file was saved. It lands on the next tick, as it does in the window.</summary>
-    public void ContentChanged() => _host.Content.ReloadWanted = true;
+    public void ContentChanged() => _host.Content.Data.Live.ReloadWanted = true;
 
     /// <summary>
     /// Acts as if hot reload changed the game's code, so <see cref="IGame.CodeReloaded"/> runs

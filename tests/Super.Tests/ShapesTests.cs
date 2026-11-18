@@ -404,8 +404,8 @@ public class ShapesTests
     {
         var content = new Content(new MemoryContent());
 
-        Assert.True(content.IsReady(ModelRef.Torus));
-        var problem = Assert.Throws<ArgumentException>(() => content.Unload(ModelRef.Sphere));
+        Assert.True(content.Models.IsReady(ModelRef.Torus));
+        var problem = Assert.Throws<ArgumentException>(() => content.Models.Unload(ModelRef.Sphere));
         Assert.StartsWith("The built-in shapes, such as the cube, can't be unloaded.", problem.Message);
     }
 

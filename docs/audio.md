@@ -7,8 +7,8 @@ stops the game with a `ContentException` that names it.
 ## Sounds and ambiences
 
 ```csharp
-SoundRef pop = content.Sound("sounds/pop.wav");
-AmbienceRef forest = content.Ambience("sounds/forest.ambience.json");
+SoundRef pop = content.Sounds.Sound("sounds/pop.wav");
+AmbienceRef forest = content.Sounds.Ambience("sounds/forest.ambience.json");
 ```
 
 A name is the [path from the content root](content.md#names), and must have been cooked:
@@ -79,7 +79,7 @@ audio seed (headless, screenshots, recordings) gives the same ambience every run
 
 Paths inside an ambience file are relative to the folder of that file, so
 `sounds/forest.ambience.json` naming `"ambient/rain.wav"` reads `sounds/ambient/rain.wav`.
-`..` steps up a folder, and `\` works like `/`. Paths given to `content.Sound` and `content.Ambience` are
+`..` steps up a folder, and `\` works like `/`. Paths given to `content.Sounds.Sound` and `content.Sounds.Ambience` are
 relative to the content folder.
 
 A mistake in an ambience, such as `"every": [12, 4]`, a number outside the limits in the
@@ -94,8 +94,8 @@ Ask for `Audio` in a constructor, as for `Content`, and play a clip once with `P
 ```csharp
 class Combat(Audio audio, Content content)
 {
-    private readonly SoundRef _click = content.Sound("sounds/click.wav");
-    private readonly SoundRef _hit = content.Sound("sounds/hit.wav");
+    private readonly SoundRef _click = content.Sounds.Sound("sounds/click.wav");
+    private readonly SoundRef _hit = content.Sounds.Sound("sounds/hit.wav");
 
     public void Strike(Vector3 where)
     {
@@ -144,7 +144,7 @@ and stops it for you, so `Draw` and `Update` make no sound calls:
 
 ```csharp
 world.Add(machine, Transform.At(new Vector3(8f, 0f, 3f)));
-world.Add(machine, new Sound(content.Sound("sounds/hum.ogg"), Volume: 0.6f, Near: 3, Far: 30));
+world.Add(machine, new Sound(content.Sounds.Sound("sounds/hum.ogg"), Volume: 0.6f, Near: 3, Far: 30));
 ```
 
 | Field | Meaning | Default |
@@ -177,7 +177,7 @@ and the layers fade out.
 forest.OnEnter(Screen.Forest, () =>
 {
     var entity = world.Create();
-    world.Add(entity, new Ambience(content.Ambience("ambience/forest.ambience.json"), Volume: 0.7f));
+    world.Add(entity, new Ambience(content.Sounds.Ambience("ambience/forest.ambience.json"), Volume: 0.7f));
     world.Add(entity, new ScopedTo<Screen>(Screen.Forest));
 });
 ```
@@ -202,8 +202,8 @@ scaled by how much the clip shows. See [Sounds from events](animation.md#sounds-
 ## Music
 
 ```csharp
-audio.Music(content.Sound("music/forest.ogg"));
-audio.Music(content.Sound("music/battle.ogg"), fadeSeconds: 0.5f);
+audio.Music(content.Sounds.Sound("music/forest.ogg"));
+audio.Music(content.Sounds.Sound("music/battle.ogg"), fadeSeconds: 0.5f);
 audio.Music(null);
 ```
 

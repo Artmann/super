@@ -148,7 +148,7 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
 
         for (int i = 0; i < _ground.Models.Count; i++)
         {
-            if (content.IsReady(_ground.Models[i]))
+            if (content.Models.IsReady(_ground.Models[i]))
             {
                 view.Model(GroundKey + i, _ground.Models[i], Matrix4x4.Identity);
             }

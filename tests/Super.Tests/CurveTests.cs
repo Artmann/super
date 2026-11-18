@@ -192,7 +192,7 @@ public class CurveTests
     {
         var content = Content();
 
-        string schema = content.SchemaText(typeof(Motion));
+        string schema = content.Data.SchemaText(typeof(Motion));
 
         Assert.Contains("\"keys\"", schema, StringComparison.Ordinal);
         Assert.Contains("\"easing\"", schema, StringComparison.Ordinal);

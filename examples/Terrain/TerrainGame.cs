@@ -176,7 +176,7 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
         // A chunk still being prepared on the loading thread is skipped rather than waited for.
         foreach (var (key, chunk) in _chunks)
         {
-            if (content.IsReady(chunk.Model))
+            if (content.Models.IsReady(chunk.Model))
             {
                 view.Model(DrawKey(key), chunk.Model, Matrix4x4.Identity);
             }
@@ -237,7 +237,7 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
         {
             var chunk = _chunks[key];
             _chunks.Remove(key);
-            content.Unload(chunk.Model);
+            content.Models.Unload(chunk.Model);
             content.Unload(chunk.Splat);
         }
 

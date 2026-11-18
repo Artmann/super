@@ -193,7 +193,7 @@ public class BakeIdentityTests
         ulong Id(byte[] spirv)
         {
             var content = Fresh();
-            content.ShaderBytes = name =>
+            content.Store.Identities.ShaderBytes = name =>
             {
                 Assert.Equal("glow", name);
                 return spirv;
@@ -284,8 +284,8 @@ public class BakeIdentityTests
         public ulong IdentityOf(byte[]? shaderBytes = null)
         {
             var content = new Content(new CookedFolder(_folder));
-            content.ShaderBytes = _ => shaderBytes ?? [7];
-            return content.IdentityOf(content.Model("hero.glb"));
+            content.Store.Identities.ShaderBytes = _ => shaderBytes ?? [7];
+            return content.Store.IdentityOf(content.Model("hero.glb"));
         }
 
         private static string Hash(byte[] bytes) => Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
