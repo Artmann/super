@@ -375,18 +375,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Cook.CookPipeline.Cook",
-      "file": "src/Super.Cook/CookPipeline.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.CookPipeline.CookOne",
-      "file": "src/Super.Cook/CookPipeline.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Cook.CookReport.Summary",
       "file": "src/Super.Cook/CookReport.cs",
       "metric": 11
@@ -918,18 +906,6 @@
       "name": "Super.Cook.CookCache.TryRestore",
       "file": "src/Super.Cook/CookCache.cs",
       "metric": 28
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.CookPipeline.Cook",
-      "file": "src/Super.Cook/CookPipeline.cs",
-      "metric": 35
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.CookPipeline.CookOne",
-      "file": "src/Super.Cook/CookPipeline.cs",
-      "metric": 33
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2040,18 +2016,6 @@
       "name": "Super.Cook.CookDurations.Save",
       "file": "src/Super.Cook/CookDurations.cs",
       "metric": 46
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookPipeline.Cook",
-      "file": "src/Super.Cook/CookPipeline.cs",
-      "metric": 152
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.CookPipeline.CookOne",
-      "file": "src/Super.Cook/CookPipeline.cs",
-      "metric": 152
     },
     {
       "kind": "long-method",
@@ -3623,7 +3587,7 @@
       "kind": "large-type",
       "name": "Super.Ui.UiPointer",
       "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 38
+      "metric": 37
     },
     {
       "kind": "large-type",
