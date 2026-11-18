@@ -42,9 +42,8 @@ public sealed unsafe class Renderer : IDisposable
     private readonly int _maxImageSize;
     private readonly Vk _api;
     private readonly FrameSlots _frames;
-    // How far a simpler model may stray. Shadows are soft, so they can afford more.
+    // How far a simpler model may stray from the camera's view. Shadows, which are soft, afford more.
     private const float CameraDetailError = 1f;
-    private const float ShadowDetailError = 2f;
 
     private readonly FrameRing _ring = new();
     private readonly MeshStore _meshStore = new();
@@ -161,9 +160,6 @@ public sealed unsafe class Renderer : IDisposable
     private bool _upscaling;
     private readonly FsrPass _fsrPass;
     private FsrFrame _fsrFrame;
-
-    // Whether a sun casts its shadow this frame, so its maps are drawn.
-    private bool _sunShadowsDrawn;
 
     // Whether the frame being recorded draws the volumetric fog.
     private bool _volumetricDrawn;
@@ -429,24 +425,10 @@ public sealed unsafe class Renderer : IDisposable
 
     // The world-space ball round each draw this frame, for fitting sun shadows to what casts them.
     private Vector4[] _casterBounds = [];
-    private readonly DrawItem[][] _shadowDraws = new DrawItem[ShadowPass.MaxCascades][];
-    private readonly int[] _shadowCounts = new int[ShadowPass.MaxCascades];
-    private readonly Matrix4x4[] _shadowMatrices = new Matrix4x4[ShadowPass.MaxCascades];
-    private int _shadowCascades;
 
-    // Point and spot lights: those the view needs, their shadow tiles and what each tile draws.
-    private readonly LocalLights _localLights = new();
-    private DrawItem[] _tileDraws = [];
-    // Which tiles this frame draws, and what the others were last drawn with, so a tile whose light and casters stand
-    // still keeps its depths. The world counts changes that can change any tile, such as a mesh or texture going.
-    private readonly ShadowPass.TileDraws[] _tileRanges = new ShadowPass.TileDraws[LocalLights.MaxTiles];
-    private int _tileCount;
-    private readonly ShadowTileCache _tileCache = new();
-    private ulong _shadowWorld;
-    private bool _atlasKept;
-    private bool _clustersNeeded;
-    private readonly PipelineLayout _clusterLayout;
-    private readonly LivePipeline _clusterPipeline;
+    // The sun's cascades, and the point and spot lights with their shadow tiles.
+    private readonly SunShadows _sunShadows;
+    private readonly LocalLightShadows _localShadows;
 
     public Renderer(RendererOptions options)
     {
@@ -485,8 +467,8 @@ public sealed unsafe class Renderer : IDisposable
         _shadowPass = new ShadowPass(_context, _kit.FrameSetLayout, _resources, _shadowResolution);
         _frames.WriteAtlas(_shadowPass.Atlas.View);
 
-        _clusterLayout = _context.CreatePipelineLayout([_kit.FrameSetLayout]);
-        _clusterPipeline = PipelineFactory.CreateCompute(_context, "cluster.comp", _clusterLayout);
+        _sunShadows = new SunShadows(_api, _shadowPass, _meshStore, _switches);
+        _localShadows = new LocalLightShadows(_context, _kit.FrameSetLayout, _shadowPass, _meshStore, _switches);
 
         _sky = new EnvironmentSky(_context, _ring);
         _frames.WriteSkySh(_sky.Sh);
@@ -1726,7 +1708,7 @@ public sealed unsafe class Renderer : IDisposable
         _transition = TransitionConstants.From(view.Picture.Transition);
         _transitionHold = view.Picture.Transition.Hold;
         var (cameraCount, shadowCount) = SelectDraws(view, camera.ViewProjection, draws, castsShadow);
-        int tileDrawCount = SelectTileDraws(draws);
+        int tileDrawCount = _localShadows.Select(draws, MeshDetailScale);
         _frames.ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
         _frameBakes.Relight.WriteTo(frame.Chunks, _frameBakes.MaskSlots.SpaceSlots);
 
@@ -1877,26 +1859,16 @@ public sealed unsafe class Renderer : IDisposable
         if (_cameraDraws.Length < draws.Length * 2)
         {
             _cameraDraws = new DrawItem[draws.Length * 2];
-            for (int i = 0; i < _shadowDraws.Length; i++)
-            {
-                _shadowDraws[i] = new DrawItem[draws.Length * 2];
-            }
         }
 
         var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, (int)_gBuffer.Extent.Height);
         var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, _switches.DetailError(CameraDetailError, MeshDetailScale), cull: _switches.Culls);
         _cameraView = camera;
         int cameraCount = SelectCameraDraws(camera, draws);
-        int shadowCount = 0;
-        Array.Clear(_shadowCounts);
-        if (castsShadow)
-        {
-            shadowCount = SelectShadowDraws(view, draws);
-        }
-
+        int shadowCount = _sunShadows.Select(view, draws, castsShadow, MeshDetailScale);
         if (MeasureGpu)
         {
-            CountDrawnTriangles(cameraCount);
+            DrawnTriangles = (DrawSelection.Triangles(_cameraDraws.AsSpan(0, cameraCount)), _sunShadows.Triangles());
         }
 
         return (cameraCount, shadowCount);
@@ -1925,34 +1897,6 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         return cameraCount;
-    }
-
-    // Picks each shadow cascade's draws, and returns how many there are in all.
-    private int SelectShadowDraws(in FrameView view, ReadOnlySpan<DrawItem> draws)
-    {
-        int shadowCount = 0;
-        for (int cascade = 0; cascade < _shadowCascades; cascade++)
-        {
-            float texelsPerUnit = _shadowPass.Resolution / (2f * ShadowCascades.CascadeRadius(view.Shadows, cascade));
-            var shadow = new DetailView(
-                _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, _switches.DetailError(ShadowDetailError, MeshDetailScale), cull: _switches.Culls);
-            _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _meshStore.DetailSlots, _shadowDraws[cascade], _switches.WindReach, fades: _switches.FadeRules);
-            shadowCount += _shadowCounts[cascade];
-        }
-
-        return shadowCount;
-    }
-
-    // Counts the triangles the camera and the shadow cascades draw, for DrawnTriangles.
-    private void CountDrawnTriangles(int cameraCount)
-    {
-        long shadowTriangles = 0;
-        for (int cascade = 0; cascade < _shadowCascades; cascade++)
-        {
-            shadowTriangles += CountTriangles(_shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]));
-        }
-
-        DrawnTriangles = (CountTriangles(_cameraDraws.AsSpan(0, cameraCount)), shadowTriangles);
     }
 
     /// <summary>
@@ -1995,47 +1939,6 @@ public sealed unsafe class Renderer : IDisposable
         _transparentView = TransparentView.From(view.View, view.Projection);
     }
 
-    /// <summary>
-    /// Picks what each shadow tile of the atlas can see, one after another in
-    /// <see cref="_tileDraws"/>, and returns how many there are in all. A tile the atlas still holds as it would be
-    /// drawn is left out, with no draws.
-    /// </summary>
-    private int SelectTileDraws(ReadOnlySpan<DrawItem> draws)
-    {
-        var tiles = _localLights.Tiles;
-        int total = 0;
-        int drawn = 0;
-        _tileCache.Begin(_shadowWorld);
-        for (int tile = 0; tile < tiles.Length; tile++)
-        {
-            if (_tileDraws.Length < total + draws.Length * 2)
-            {
-                Array.Resize(ref _tileDraws, Math.Max(_tileDraws.Length * 2, total + draws.Length * 2));
-            }
-
-            ref readonly var view = ref tiles[tile];
-            var shadow = new DetailView(
-                view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, _switches.DetailError(ShadowDetailError, MeshDetailScale), far: true, cull: _switches.Culls);
-            int count = DrawSelection.Select(shadow, draws, _meshStore.DetailSlots, _tileDraws.AsSpan(total), _switches.WindReach, fades: _switches.FadeRules);
-            _tileRanges[tile] = (total, count);
-            total += count;
-        }
-
-        _tileCache.End();
-        ShadowTiles = MeasureGpu ? (drawn, tiles.Length - drawn) : default;
-        return total;
-    }
-
-    private static long CountTriangles(ReadOnlySpan<DrawItem> draws)
-    {
-        long indices = 0;
-        foreach (ref readonly var draw in draws)
-        {
-            indices += draw.IndexCount;
-        }
-
-        return indices / 3;
-    }
 
     public byte[] Capture(in FrameView view, ReadOnlySpan<DrawItem> draws, out int width, out int height)
     {
@@ -2127,8 +2030,7 @@ public sealed unsafe class Renderer : IDisposable
         _occlusion.Dispose();
         _gBufferPass.Dispose();
         _shadowPass.Dispose();
-        _clusterPipeline.Destroy();
-        _api.DestroyPipelineLayout(_context.Device, _clusterLayout, null);
+        _localShadows.Dispose();
         DisposeProbesAndSky();
     }
 
@@ -2343,8 +2245,8 @@ public sealed unsafe class Renderer : IDisposable
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
         }
 
-        RecordSunShadows(cmd, frameSet, instances);
-        RecordTileShadows(cmd, frameSet, instances);
+        _sunShadows.Record(cmd, frameSet, instances);
+        _localShadows.RecordTiles(cmd, frameSet, instances);
         _gpuTimer.Mark(cmd);
         RecordLightSetup(cmd, frameSet, draws, instances);
         RecordGBuffer(cmd, targets, frameSet, draws.Camera, instances);
@@ -2364,64 +2266,6 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Draws the sun's shadow cascades. Targets are shared between frames in flight, so each first use waits for the
-    /// previous frame's sampling to finish. Contents are discarded via Undefined. When no sun casts a shadow the maps
-    /// aren't drawn, or even cleared, and nothing reads them, but the lighting pass still binds them.
-    /// </summary>
-    private void RecordSunShadows(CommandBuffer cmd, DescriptorSet frameSet, InstanceBuffer instances)
-    {
-        var shadowMap = _shadowPass.Target.Image;
-        if (_sunShadowsDrawn)
-        {
-            _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
-                DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit, layerCount: ShadowPass.MaxCascades);
-            for (int cascade = 0; cascade < _shadowCascades; cascade++)
-            {
-                var casters = _shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]);
-                _shadowPass.Record(cmd, frameSet, new SceneGeometry(casters, _meshStore.MeshSlots, _meshStore.DetailSlots, instances), cascade);
-            }
-
-            _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess,
-                layerCount: ShadowPass.MaxCascades);
-        }
-        else
-        {
-            _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, ShadowReadStages, SampledAccess, ShadowReadStages, SampledAccess,
-                layerCount: ShadowPass.MaxCascades);
-        }
-    }
-
-    /// <summary>Draws the shadow tiles of the point and spot lights into the atlas.</summary>
-    private void RecordTileShadows(CommandBuffer cmd, DescriptorSet frameSet, InstanceBuffer instances)
-    {
-        // The lighting pass binds the atlas even when no light has a tile in it.
-        // Tiles that weren't drawn keep their depths from earlier frames, so the atlas keeps its contents from frame to
-        // frame. On its first frame it has none, and the cache remembers no tile, so every tile is drawn.
-        var atlas = _shadowPass.Atlas.Image;
-        var kept = _atlasKept ? ImageLayout.ShaderReadOnlyOptimal : ImageLayout.Undefined;
-        var ranges = _tileRanges.AsSpan(0, _tileCount);
-        if (ShadowPass.AnyRedrawn(ranges))
-        {
-            _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                kept, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
-                DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
-            _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileRanges.AsSpan(0, _tileCount), new SceneGeometry(_tileDraws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances));
-            _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess);
-        }
-        else if (!_atlasKept)
-        {
-            _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, ShadowReadStages, SampledAccess, ShadowReadStages, SampledAccess);
-        }
-
-        _atlasKept = true;
-    }
-
-    /// <summary>
     /// Updates the light probes and the reflection probe capture from the whole scene, sorts the lights into clusters
     /// and fills the volumetric fog, each as a timed pass, ahead of the G-buffer.
     /// </summary>
@@ -2435,9 +2279,9 @@ public sealed unsafe class Renderer : IDisposable
         RecordReflectionCapture(cmd, frameSet, draws.Scene, instances);
         _gpuTimer.Mark(cmd);
 
-        if (_clustersNeeded)
+        if (_localShadows.ClustersNeeded)
         {
-            RecordClusters(cmd, frameSet);
+            _localShadows.RecordClusters(cmd, frameSet);
         }
 
         _gpuTimer.Mark(cmd);
@@ -2629,34 +2473,6 @@ public sealed unsafe class Renderer : IDisposable
         _gBufferPass.Record(cmd, targets, frameSet, new SceneGeometry(draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances), ScenePass.OpaqueAfterDecals);
     }
 
-    /// <summary>
-    /// Sorts the point and spot lights into the view's clusters on the GPU, before anything
-    /// that lights reads the lists. The last frame to use this slot's lists has finished,
-    /// as its fence was waited on, so only this frame's readers need to wait.
-    /// </summary>
-    private void RecordClusters(CommandBuffer cmd, DescriptorSet frameSet)
-    {
-        _api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _clusterPipeline);
-        _api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _clusterLayout, 0, 1, &frameSet, 0, null);
-        _api.CmdDispatch(cmd, (LocalLights.ClusterCount + 63) / 64, 1, 1);
-
-        var barrier = new MemoryBarrier2
-        {
-            SType = StructureType.MemoryBarrier2,
-            SrcStageMask = PipelineStageFlags2.ComputeShaderBit,
-            SrcAccessMask = AccessFlags2.ShaderStorageWriteBit,
-            DstStageMask = PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit,
-            DstAccessMask = AccessFlags2.ShaderStorageReadBit,
-        };
-        var dependency = new DependencyInfo
-        {
-            SType = StructureType.DependencyInfo,
-            MemoryBarrierCount = 1,
-            PMemoryBarriers = &barrier,
-        };
-        _api.CmdPipelineBarrier2(cmd, &dependency);
-    }
-
     /// <summary>Copies the finished frame into a buffer the CPU can read, then readies it for display.</summary>
     private void RecordCapture(CommandBuffer cmd, Image swapchainImage, Extent2D extent, GpuBuffer capture)
     {
@@ -2714,19 +2530,18 @@ public sealed unsafe class Renderer : IDisposable
 
         uniforms->CountBlock.Time = view.Time;
         uniforms->CountBlock.PreviousTime = historyValid ? _previousTime : view.Time;
-        bool castsShadow = WriteSuns(uniforms, view, casters);
+        bool castsShadow = _sunShadows.Write(uniforms, view, casters, MaxShadowCascades, _frameBakes.MaskSlots.Sun);
         uniforms->CountBlock.Off = unchecked((int)(_switches.Off & ShadedEffects & ~RenderEffects.DepthFirst))
             | (_switches.Off.HasFlag(RenderEffects.Fades) ? FadesOffBit : 0)
             | (_switches.TraceView ? DebugViewBit : 0);
         uniforms->CountBlock.MipBias = _switches.Off.HasFlag(RenderEffects.AntiAliasing) ? 0f
             : _upscaling ? FsrMipBias(_gBuffer.Extent.Width, _gBuffer.Picture.Display.Width)
             : TemporalMipBias;
-        _sunShadowsDrawn = castsShadow;
-        WriteLocalLights(frame, uniforms, view);
+        _localShadows.Write(frame, uniforms, view, _gBuffer.Extent, (_frameBakes.MaskSlots.Channels, _probes.Order));
 
         // Probe updates and reflection probe captures light their faces with every point and spot light of the frame,
         // and see the sun's shadow through maps of their own, each zero when there is none this frame.
-        uniforms->CountBlock.ProbeLightCount = _localLights.ProbeLightCount;
+        uniforms->CountBlock.ProbeLightCount = _localShadows.ProbeLightCount;
         uniforms->ProbeSunMatrix = LightProbes.SunMatrix;
         uniforms->ReflectionSunMatrix = _reflectionCaptureSlot >= 0 ? _reflectionCapture.SunMatrix : default;
         return castsShadow;
@@ -2866,46 +2681,6 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// The suns, and the shadow cascades of the first one that casts a shadow. Returns whether one does.
-    /// </summary>
-    private bool WriteSuns(FrameUniforms* uniforms, in FrameView view, ReadOnlySpan<Vector4> casters)
-    {
-        int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
-        uniforms->CountBlock.LightCount = count;
-        _shadowCascades = Math.Min(ShadowCascades.CascadeCount(view.Shadows), MaxShadowCascades);
-        uniforms->CountBlock.ShadowCascades = _shadowCascades;
-        bool castsShadow = false;
-        uniforms->ShadowBlock.ShadowDepthScales = Vector4.One;
-        for (int i = 0; i < count; i++)
-        {
-            ref readonly var light = ref view.Lights[i];
-            var direction = Vector3.Normalize(light.Direction);
-            bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f && !_switches.Off.HasFlag(RenderEffects.SunShadows);
-            if (casts)
-            {
-                uniforms->ShadowBlock.ShadowRadii = FitCascades(view, direction, casters, out uniforms->ShadowBlock.ShadowFade, out uniforms->ShadowBlock.ShadowDepthScales);
-                uniforms->ShadowBlock.ShadowFade.W = ShadowCascades.ContactLength(view.Shadows, _switches.Off);
-                for (int cascade = 0; cascade < _shadowCascades; cascade++)
-                {
-                    uniforms->CameraBlock.ShadowMatrices[cascade] = _shadowMatrices[cascade];
-                }
-
-                castsShadow = true;
-            }
-
-            uniforms->Lights[i] = new GpuLight
-            {
-                Direction = new Vector4(direction, casts ? 1f : 0f),
-                Radiance = new Vector4(light.Radiance, i == _frameBakes.MaskSlots.Sun ? 0f : -1f),
-            };
-        }
-
-        // With no sun shadow there are no maps to look up, so nothing walks the cascades.
-        uniforms->CountBlock.ShadowCascades = castsShadow ? _shadowCascades : 0;
-        return castsShadow;
-    }
-
-    /// <summary>
     /// Fills the volumetric fog's part of the frame block and writes the fog volumes it draws, and decides whether
     /// this frame draws the fog at all.
     /// </summary>
@@ -2987,82 +2762,6 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
-
-    /// <summary>
-    /// Picks the point and spot lights the view needs and their shadow tiles, and writes
-    /// them where the shaders read them.
-    /// </summary>
-    private void WriteLocalLights(in FrameSlot frame, FrameUniforms* uniforms, in FrameView view)
-    {
-        if (view.LocalLights.Length > LocalLight.MaxPerFrame)
-        {
-            throw new ArgumentException(
-                $"A frame can have at most {LocalLight.MaxPerFrame} point and spot lights, not {view.LocalLights.Length}.", nameof(view));
-        }
-
-        _localLights.Prepare(
-            _switches.DrawnLocalLights(view),
-            (view.View, view.Projection, (int)_gBuffer.Extent.Height),
-            new Span<GpuLocalLight>(frame.Lights.Mapped, LocalLight.MaxPerFrame),
-            new Span<GpuShadowTile>(frame.ShadowTiles.Mapped, LocalLights.MaxTiles),
-            shadows: !_switches.Off.HasFlag(RenderEffects.LightShadows),
-            maskChannels: _frameBakes.MaskSlots.Channels,
-            cover: _probes.Order.Count > 0 ? (_probes.Order.NearDepth, _probes.Order.FarDepth) : null);
-        _tileCount = _localLights.TileCount;
-        _clustersNeeded = _localLights.LightCount > 0 || _probes.Order.Count > 0;
-        uniforms->CountBlock.LocalLightCount = _localLights.LightCount;
-        uniforms->Clusters = new Vector4(_localLights.NearDepth, _localLights.FarDepth, _localLights.Parallel ? 1f : 0f, 0f);
-        uniforms->Screen = new Vector4(_gBuffer.Extent.Width, _gBuffer.Extent.Height, 1f / _gBuffer.Extent.Width, 1f / _gBuffer.Extent.Height);
-    }
-
-    /// <summary>
-    /// Places each cascade's map. In a perspective view each ball takes the next slice of
-    /// what the camera sees, starting at the camera, so none of it is spent behind. Its radius
-    /// never changes as the camera turns, and its centre moves in whole texels, so edges don't
-    /// shimmer. A parallel view keeps every cascade centred on the settings' centre. Returns
-    /// each cascade's radius, and how shadows fade out with distance.
-    /// </summary>
-    private Vector4 FitCascades(
-        in FrameView view, Vector3 direction, ReadOnlySpan<Vector4> casters, out Vector4 fade, out Vector4 depthScales)
-    {
-        var radii = Vector4.Zero;
-        depthScales = Vector4.One;
-        float? spread = ShadowCascades.Spread(view.Projection);
-        Matrix4x4.Invert(view.View, out var world);
-        var eye = world.Translation;
-        var forward = Vector3.Normalize(-new Vector3(world.M31, world.M32, world.M33));
-        float start = 0f;
-        for (int cascade = 0; cascade < _shadowCascades; cascade++)
-        {
-            float radius = ShadowCascades.CascadeRadius(view.Shadows, cascade);
-            var center = view.Shadows.Center;
-            float reach = radius;
-            if (spread is { } opening)
-            {
-                (float along, start) = ShadowCascades.FitSlice(start, radius, opening);
-                center = eye + forward * along;
-
-                // Reach towards the sun at least as far as a cascade round the target would,
-                // so tall things out of view, like the edge of a wood in a low sun, still cast.
-                reach = radius + MathF.Max(Vector3.Dot(view.Shadows.Center - center, direction), 0f);
-
-                // And far enough to take in whatever stands up-sun of it, like a tree out of
-                // frame whose shade falls on a wall in it.
-                reach = ShadowCascades.CasterReach(center, radius, direction, reach, casters);
-            }
-
-            _shadowMatrices[cascade] = ShadowCascades.CreateMatrix(direction, center, radius, reach, _shadowPass.Resolution);
-            radii[cascade] = radius;
-            depthScales[cascade] = ShadowCascades.DepthScale(radius, reach);
-        }
-
-        // The last slice ends where shadows do, and they fade out over its last part rather
-        // than stopping at a line. A parallel view has no such end, so only the map's edge fades.
-        fade = spread is null
-            ? new Vector4(float.MaxValue, float.MaxValue, ShadowPass.HandOver, 0f)
-            : new Vector4(start * (1f - ShadowPass.FadeShare), start, ShadowPass.HandOver, 0f);
-        return radii;
-    }
 
     /// <summary>What tonemapping and bloom read: the anti-aliased image, or the lit one when anti-aliasing is left out.</summary>
     private ImageView DisplaySource => _readsAntiAliased ? _gBuffer.Picture.Resolved.View : _gBuffer.Hdr.View;
