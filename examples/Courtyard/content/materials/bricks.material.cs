@@ -92,61 +92,73 @@ public sealed class Bricks : MaterialGraph
 
         for (var attempt = 0; attempt < 10000; attempt++)
         {
-            var deck = new List<int>();
-
-            for (var tone = 0; tone < ToneCounts.Length; tone++)
-            {
-                for (var n = 0; n < ToneCounts[tone]; n++)
-                {
-                    deck.Add(tone);
-                }
-            }
-
-            // Shuffle with a fixed generator, so the wall comes out the same on every machine.
-            for (var i = deck.Count - 1; i > 0; i--)
-            {
-                state = state * 6364136223846793005UL + 1442695040888963407UL;
-                var j = (int)((state >> 33) % (ulong)(i + 1));
-                (deck[i], deck[j]) = (deck[j], deck[i]);
-            }
-
-            var table = new int[Rows, Columns];
-            var dealt = true;
-
-            for (var row = 0; row < Rows && dealt; row++)
-            {
-                for (var column = 0; column < Columns; column++)
-                {
-                    table[row, column] = -1;
-                }
-            }
-
-            for (var row = 0; row < Rows && dealt; row++)
-            {
-                for (var column = 0; column < Columns && dealt; column++)
-                {
-                    var taken = NeighboursOf(row, column).Select(n => table[n.Row, n.Column]).ToHashSet();
-                    var pick = deck.FindIndex(tone => !taken.Contains(tone));
-
-                    if (pick < 0)
-                    {
-                        dealt = false;
-
-                        break;
-                    }
-
-                    table[row, column] = deck[pick];
-                    deck.RemoveAt(pick);
-                }
-            }
-
-            if (dealt)
+            if (Deal(Shuffled(ref state)) is { } table)
             {
                 return table;
             }
         }
 
         throw new InvalidOperationException("No way was found to deal the brick tones so that neighbours differ.");
+    }
+
+    /// <summary>Every brick's tone, as many of each as <see cref="ToneCounts"/> says, shuffled.</summary>
+    static List<int> Shuffled(ref ulong state)
+    {
+        var deck = new List<int>();
+
+        for (var tone = 0; tone < ToneCounts.Length; tone++)
+        {
+            for (var n = 0; n < ToneCounts[tone]; n++)
+            {
+                deck.Add(tone);
+            }
+        }
+
+        // Shuffle with a fixed generator, so the wall comes out the same on every machine.
+        for (var i = deck.Count - 1; i > 0; i--)
+        {
+            state = state * 6364136223846793005UL + 1442695040888963407UL;
+            var j = (int)((state >> 33) % (ulong)(i + 1));
+            (deck[i], deck[j]) = (deck[j], deck[i]);
+        }
+
+        return deck;
+    }
+
+    /// <summary>
+    /// Deals the deck brick by brick, each the first tone left that none of its neighbours has; null when a brick
+    /// finds none.
+    /// </summary>
+    static int[,]? Deal(List<int> deck)
+    {
+        var table = new int[Rows, Columns];
+
+        for (var row = 0; row < Rows; row++)
+        {
+            for (var column = 0; column < Columns; column++)
+            {
+                table[row, column] = -1;
+            }
+        }
+
+        for (var row = 0; row < Rows; row++)
+        {
+            for (var column = 0; column < Columns; column++)
+            {
+                var taken = NeighboursOf(row, column).Select(n => table[n.Row, n.Column]).ToHashSet();
+                var pick = deck.FindIndex(tone => !taken.Contains(tone));
+
+                if (pick < 0)
+                {
+                    return null;
+                }
+
+                table[row, column] = deck[pick];
+                deck.RemoveAt(pick);
+            }
+        }
+
+        return table;
     }
 
     /// <summary>Each brick's tone as tone / 7, so 0 is the plum and 1 the buff. Mortar takes the tone of the brick it is in line with.</summary>

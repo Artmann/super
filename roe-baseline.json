@@ -3,18 +3,6 @@
   "findings": [
     {
       "kind": "high-complexity",
-      "name": "Bricks.ToneTable",
-      "file": "examples/Courtyard/content/materials/bricks.material.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Cobweb.Distance",
-      "file": "examples/Courtyard/content/materials/cobweb.material.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.LightmapLayout.Single",
       "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
       "metric": 11
@@ -435,12 +423,6 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Bricks.ToneTable",
-      "file": "examples/Courtyard/content/materials/bricks.material.cs",
-      "metric": 27
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Rendition.LightmapLayout.Single",
       "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
       "metric": 17
@@ -681,12 +663,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Bricks.ToneTable",
-      "file": "examples/Courtyard/content/materials/bricks.material.cs",
-      "metric": 61
-    },
-    {
-      "kind": "long-method",
       "name": "BricksExample.Masonry.Make",
       "file": "examples/Bricks/Masonry.cs",
       "metric": 51
@@ -696,12 +672,6 @@
       "name": "Burlap.Build",
       "file": "examples/Courtyard/content/materials/burlap.material.cs",
       "metric": 131
-    },
-    {
-      "kind": "long-method",
-      "name": "Cobweb.Distance",
-      "file": "examples/Courtyard/content/materials/cobweb.material.cs",
-      "metric": 60
     },
     {
       "kind": "long-method",
