@@ -18,7 +18,7 @@ public sealed class MyGame(Director director) : IGame
             .Then(Shot.Move(3f,
                 new Camera(new Vector3(0f, 8f, -12f), Vector3.Zero, 0.8f),
                 new Camera(new Vector3(0f, 1.6f, -3f), new Vector3(0f, 1.4f, 0f), 0.6f)))
-            .At(1.5f, () => hero.Animator.Play(Move.Wave))
+            .At(1.5f, () => hero.Animator.Moves.Play(Move.Wave))
             .Then(Shot.Orbit(4f, () => hero.Position,
                 new OrbitPath(Radius: 3f, Height: 0.5f, FromAngle: 0f, ToAngle: MathF.PI),
                 look: new Vector3(0f, 1.4f, 0f)))

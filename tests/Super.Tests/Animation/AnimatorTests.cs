@@ -164,10 +164,10 @@ public class AnimatorTests
     {
         var animator = Controller().Start(Stance.Move);
 
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
         animator.Advance(0.5f);
 
-        Assert.True(animator.IsPlaying(Deed.Wave));
+        Assert.True(animator.Moves.IsPlaying(Deed.Wave));
         Assert.Equal(1f, RootX(animator), Tolerance);
         Assert.Equal(1f, ChildX(animator), Tolerance);
     }
@@ -176,14 +176,14 @@ public class AnimatorTests
     public void An_action_ends_when_its_clip_does()
     {
         var animator = Controller().Start(Stance.Idle);
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
 
         animator.Advance(1.5f);
-        Assert.True(animator.IsPlaying(Deed.Wave));
+        Assert.True(animator.Moves.IsPlaying(Deed.Wave));
 
         animator.Advance(0.5f);
 
-        Assert.False(animator.IsPlaying(Deed.Wave));
+        Assert.False(animator.Moves.IsPlaying(Deed.Wave));
         Assert.Equal(1, animator.Pose.LayerCount);
         Assert.Equal(0f, ChildX(animator), Tolerance);
     }
@@ -192,10 +192,10 @@ public class AnimatorTests
     public void Playing_an_action_again_restarts_it()
     {
         var animator = Controller().Start(Stance.Idle);
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
         animator.Advance(1f);
 
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
 
         Assert.Equal(0f, ChildX(animator), Tolerance);
     }
@@ -204,11 +204,11 @@ public class AnimatorTests
     public void Stop_ends_an_action_early()
     {
         var animator = Controller().Start(Stance.Idle);
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
 
-        animator.Stop(Deed.Wave);
+        animator.Moves.Stop(Deed.Wave);
 
-        Assert.False(animator.IsPlaying(Deed.Wave));
+        Assert.False(animator.Moves.IsPlaying(Deed.Wave));
         Assert.Equal(1, animator.Pose.LayerCount);
     }
 
@@ -216,7 +216,7 @@ public class AnimatorTests
     public void An_action_fades_in_and_out()
     {
         var animator = Controller().Start(Stance.Idle);
-        animator.Play(Deed.FadedWave);
+        animator.Moves.Play(Deed.FadedWave);
 
         animator.Advance(0.25f);
         Assert.Equal(0.5f, animator.Pose.Layers[1].Amount, Tolerance);
@@ -233,34 +233,34 @@ public class AnimatorTests
     {
         var animator = Controller().Start(Stance.Idle);
 
-        animator.Play(Deed.Wave);
-        Assert.True(animator.Crossed(Deed.Wave, 0f));
-        Assert.False(animator.Crossed(Deed.Wave, 0.5f));
+        animator.Moves.Play(Deed.Wave);
+        Assert.True(animator.Moves.Crossed(Deed.Wave, 0f));
+        Assert.False(animator.Moves.Crossed(Deed.Wave, 0.5f));
 
         animator.Advance(0.5f);
-        Assert.False(animator.Crossed(Deed.Wave, 0f));
-        Assert.True(animator.Crossed(Deed.Wave, 0.25f));
-        Assert.True(animator.Crossed(Deed.Wave, 0.5f));
-        Assert.False(animator.Crossed(Deed.Wave, 0.75f));
+        Assert.False(animator.Moves.Crossed(Deed.Wave, 0f));
+        Assert.True(animator.Moves.Crossed(Deed.Wave, 0.25f));
+        Assert.True(animator.Moves.Crossed(Deed.Wave, 0.5f));
+        Assert.False(animator.Moves.Crossed(Deed.Wave, 0.75f));
 
         animator.Advance(0.5f);
-        Assert.False(animator.Crossed(Deed.Wave, 0.5f));
+        Assert.False(animator.Moves.Crossed(Deed.Wave, 0.5f));
     }
 
     [Fact]
     public void An_action_says_how_far_into_its_clip_it_is_while_it_plays()
     {
         var animator = Controller().Start(Stance.Idle);
-        Assert.Null(animator.TimeOf(Deed.Wave));
+        Assert.Null(animator.Moves.TimeOf(Deed.Wave));
 
-        animator.Play(Deed.Wave);
-        Assert.Equal(0f, animator.TimeOf(Deed.Wave));
+        animator.Moves.Play(Deed.Wave);
+        Assert.Equal(0f, animator.Moves.TimeOf(Deed.Wave));
 
         animator.Advance(0.25f);
-        Assert.Equal(0.25f, animator.TimeOf(Deed.Wave)!.Value, Tolerance);
+        Assert.Equal(0.25f, animator.Moves.TimeOf(Deed.Wave)!.Value, Tolerance);
 
         animator.Advance(10f);
-        Assert.Null(animator.TimeOf(Deed.Wave));
+        Assert.Null(animator.Moves.TimeOf(Deed.Wave));
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public class AnimatorTests
         var animator = Controller().Start(Stance.Idle);
         animator.Advance(1f);
 
-        Assert.False(animator.Crossed(Deed.Wave, 0.5f));
+        Assert.False(animator.Moves.Crossed(Deed.Wave, 0.5f));
     }
 
     [Fact]
@@ -289,7 +289,7 @@ public class AnimatorTests
     {
         var animator = Controller().Start(Stance.Move);
         animator.Advance(0.5f);
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
         animator.Speed = 0f;
 
         animator.Advance(0.5f);
@@ -327,7 +327,7 @@ public class AnimatorTests
     {
         var animator = Controller().Start(Stance.Idle);
 
-        var problem = Assert.Throws<InvalidOperationException>(() => animator.Play(Deed.Unset));
+        var problem = Assert.Throws<InvalidOperationException>(() => animator.Moves.Play(Deed.Unset));
 
         Assert.Equal("The controller has no clip for the action Unset.", problem.Message);
     }

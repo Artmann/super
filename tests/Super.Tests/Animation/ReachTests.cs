@@ -107,7 +107,7 @@ public class ReachTests
         var before = Model(pose);
         var turn = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2f);
 
-        pose.Turn("shoulder", turn);
+        pose.Joints.Turn("shoulder", turn);
         var after = Model(pose);
 
         var shoulder = before[1].Translation;
@@ -115,7 +115,7 @@ public class ReachTests
         var expected = shoulder + Vector3.Transform(before[4].Translation - shoulder, turn);
         Assert.True(Vector3.Distance(expected, after[4].Translation) < Close, $"the sword is at {after[4].Translation}, not {expected}");
 
-        pose.Turn("shoulder", Quaternion.Identity);
+        pose.Joints.Turn("shoulder", Quaternion.Identity);
         Assert.True(Vector3.Distance(before[4].Translation, Model(pose)[4].Translation) < Close);
     }
 
@@ -126,9 +126,9 @@ public class ReachTests
         var pose = new AnimationPose(rig);
         var rest = Model(pose)[4].Translation;
 
-        pose.Turn("elbow", Quaternion.CreateFromAxisAngle(Vector3.UnitX, 1f));
+        pose.Joints.Turn("elbow", Quaternion.CreateFromAxisAngle(Vector3.UnitX, 1f));
         pose.Reach(rig.Limb("shoulder", "elbow", "wrist"), new Vector3(0f, 5f, 0f));
-        pose.ClearJoints();
+        pose.Joints.Clear();
 
         Assert.True(Vector3.Distance(rest, Model(pose)[4].Translation) < Close);
     }

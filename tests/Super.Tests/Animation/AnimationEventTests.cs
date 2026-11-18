@@ -118,7 +118,7 @@ public class AnimationEventTests
     public void A_window_begins_stays_active_and_ends()
     {
         var animator = Controller(rig => rig.Event(rig.Clip("wave"), "swing", 0.3f, 0.5f)).Start(Stance.Idle);
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
 
         animator.Advance(0.4f);
         Assert.Equal([("swing", AnimationEventKind.Begin)], Read(animator));
@@ -137,7 +137,7 @@ public class AnimationEventTests
     public void A_window_passed_in_one_tick_begins_and_ends()
     {
         var animator = Controller(rig => rig.Event(rig.Clip("wave"), "swing", 0.3f, 0.5f)).Start(Stance.Idle);
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
 
         animator.Advance(1f);
 
@@ -149,10 +149,10 @@ public class AnimationEventTests
     public void Stopping_an_action_ends_its_open_window()
     {
         var animator = Controller(rig => rig.Event(rig.Clip("wave"), "swing", 0.3f, 0.5f)).Start(Stance.Idle);
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
         animator.Advance(0.4f);
 
-        animator.Stop(Deed.Wave);
+        animator.Moves.Stop(Deed.Wave);
         animator.Advance(0.05f);
 
         Assert.Equal([("swing", AnimationEventKind.End)], Read(animator));
@@ -163,7 +163,7 @@ public class AnimationEventTests
     public void An_action_event_at_the_start_fires_on_its_first_tick_only()
     {
         var animator = Controller(rig => rig.Event(rig.Clip("wave"), "start", 0f)).Start(Stance.Idle);
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
 
         animator.Advance(0.1f);
         Assert.Equal([("start", AnimationEventKind.Moment)], Read(animator));
@@ -210,7 +210,7 @@ public class AnimationEventTests
     public void An_event_carries_where_its_joint_is_after_the_tick()
     {
         var animator = Controller(rig => rig.Event(rig.Clip("wave"), "hit", 0.25f, TestRig.Child)).Start(Stance.Idle);
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
 
         animator.Advance(0.5f);
 
@@ -228,7 +228,7 @@ public class AnimationEventTests
     public void An_event_without_a_joint_carries_none()
     {
         var animator = Controller(rig => rig.Event(rig.Clip("wave"), "hit", 0.25f)).Start(Stance.Idle);
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
 
         animator.Advance(0.5f);
 
@@ -243,7 +243,7 @@ public class AnimationEventTests
             rig.Event(rig.Clip("move"), "step", 0.5f);
             rig.Event(rig.Clip("wave"), "hit", 0.2f);
         }).Start(Stance.Move);
-        animator.Play(Deed.Wave);
+        animator.Moves.Play(Deed.Wave);
 
         animator.Advance(1f);
 

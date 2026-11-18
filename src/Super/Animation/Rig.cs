@@ -13,8 +13,6 @@ public readonly record struct ClipRef(int Index);
 /// </summary>
 public sealed class Rig
 {
-    private readonly Dictionary<string, ClipRef> _clipsByName = new(StringComparer.Ordinal);
-
     public Rig(Skeleton skeleton, IReadOnlyList<AnimationClip> clips)
     {
         for (int i = 0; i < clips.Count; i++)
@@ -24,24 +22,21 @@ public sealed class Rig
                 throw new ArgumentException(
                     $"Clip {clips[i].Name} has {clips[i].JointCount} joints, but the skeleton has {skeleton.Count}.", nameof(clips));
             }
-
-            _clipsByName.TryAdd(clips[i].Name, new ClipRef(i));
         }
 
         Skeleton = skeleton;
         Clips = clips;
-        _events = new ClipEventTable[clips.Count];
+        ClipIndex = new RigClipIndex(clips);
+        EventTables = new ClipEventTable[clips.Count];
         for (int i = 0; i < clips.Count; i++)
         {
-            _events[i] = new ClipEventTable();
+            EventTables[i] = new ClipEventTable();
             foreach (var clipEvent in clips[i].Events)
             {
-                _events[i].Add(clipEvent, Skeleton, sounds: null);
+                EventTables[i].Add(clipEvent, Skeleton, sounds: null);
             }
         }
     }
-
-    private readonly ClipEventTable[] _events;
 
     public Skeleton Skeleton { get; }
 
@@ -65,7 +60,7 @@ public sealed class Rig
             field = value;
             if (value is not null)
             {
-                foreach (var table in _events)
+                foreach (var table in EventTables)
                 {
                     table.NameSounds(value.Sounds);
                 }
@@ -74,20 +69,18 @@ public sealed class Rig
     }
 
     /// <summary>The clip names, for a game that wants to list them.</summary>
-    public IEnumerable<string> ClipNames => Clips.Select(clip => clip.Name);
+    public IEnumerable<string> ClipNames => ClipIndex.Names;
+
+    /// <summary>The clips by name, and the check that a clip is one of them.</summary>
+    internal RigClipIndex ClipIndex { get; }
+
+    /// <summary>Each clip's events, by the clip's number.</summary>
+    internal ClipEventTable[] EventTables { get; }
 
     /// <summary>A clip by the name it had in the model file or the importer's settings.</summary>
-    public ClipRef Clip(string name)
-    {
-        if (!_clipsByName.TryGetValue(name, out var clip))
-        {
-            throw new ArgumentException($"The rig has no clip called {name}. It has: {string.Join(", ", ClipNames)}.", nameof(name));
-        }
+    public ClipRef Clip(string name) => ClipIndex.Find(name);
 
-        return clip;
-    }
-
-    public bool HasClip(string name) => _clipsByName.ContainsKey(name);
+    public bool HasClip(string name) => ClipIndex.Has(name);
 
     /// <summary>
     /// Marks a moment in a clip, in seconds, such as a foot landing. An animator playing the
@@ -104,7 +97,7 @@ public sealed class Rig
     /// </summary>
     public void Event(ClipRef clip, string name, float from, float to, string? joint = null, ClipSound? sound = null)
     {
-        Check(clip);
+        ClipIndex.Check(clip);
         if (string.IsNullOrEmpty(name))
         {
             throw new ArgumentException("An event needs a name.", nameof(name));
@@ -117,17 +110,15 @@ public sealed class Rig
                 nameof(from), $"Event {name} runs from {from} to {to} seconds, but clip {Clips[clip.Index].Name} lasts {duration}, and the start can't come after the end.");
         }
 
-        _events[clip.Index].Add(new ClipEvent(name, from, to, joint) { Sound = sound }, Skeleton, Runner?.Sounds);
+        EventTables[clip.Index].Add(new ClipEvent(name, from, to, joint) { Sound = sound }, Skeleton, Runner?.Sounds);
     }
 
     /// <summary>The moments and windows marked in a clip, from its cooked file and from <see cref="Event(ClipRef, string, float, string?, ClipSound?)"/>.</summary>
     public IReadOnlyList<ClipEvent> Events(ClipRef clip)
     {
-        Check(clip);
-        return _events[clip.Index].Events;
+        ClipIndex.Check(clip);
+        return EventTables[clip.Index].Events;
     }
-
-    internal ClipEventTable EventTable(int clip) => _events[clip];
 
     /// <summary>
     /// The joints with these names and every joint under them, so an action on the
@@ -167,39 +158,7 @@ public sealed class Rig
     /// <paramref name="tip"/> is what's carried to the goal, such as the joint a sword hangs
     /// from; it's the end itself when left out, and must be the end or under it.
     /// </summary>
-    public Limb Limb(string upper, string lower, string end, string? tip = null)
-    {
-        int Find(string name)
-        {
-            int joint = Skeleton.IndexOf(name);
-            return joint >= 0
-                ? joint
-                : throw new ArgumentException($"The rig has no joint called {name}. It has: {string.Join(", ", Skeleton.Names)}.", nameof(upper));
-        }
-
-        int u = Find(upper), l = Find(lower), e = Find(end), t = tip is null ? e : Find(tip);
-        Under(l, u, lower, upper);
-        Under(e, l, end, lower);
-        if (t != e)
-        {
-            Under(t, e, tip!, end);
-        }
-
-        return new Limb(this, u, l, e, t);
-    }
-
-    private void Under(int joint, int above, string name, string aboveName)
-    {
-        for (int i = Skeleton.Parents[joint]; i >= 0; i = Skeleton.Parents[i])
-        {
-            if (i == above)
-            {
-                return;
-            }
-        }
-
-        throw new ArgumentException($"A limb's joints must each be under the one before, but {name} isn't under {aboveName}.");
-    }
+    public Limb Limb(string upper, string lower, string end, string? tip = null) => Super.Limb.Find(this, upper, lower, end, tip);
 
     /// <summary>
     /// Where a joint is in the model at a moment of a clip, played alone: the hand at the
@@ -208,7 +167,7 @@ public sealed class Rig
     /// </summary>
     public Matrix4x4 Joint(ClipRef clip, float seconds, string joint)
     {
-        Check(clip);
+        ClipIndex.Check(clip);
         int index = Skeleton.IndexOf(joint);
         if (index < 0)
         {
@@ -241,7 +200,7 @@ public sealed class Rig
         var sorted = new (int Clip, float At)[points.Length];
         for (int i = 0; i < points.Length; i++)
         {
-            Check(points[i].Clip);
+            ClipIndex.Check(points[i].Clip);
             if (i > 0 && !(points[i].At > points[i - 1].At))
             {
                 throw new ArgumentException($"Blend points must rise, but {points[i].At} comes after {points[i - 1].At}.", nameof(points));
@@ -255,6 +214,9 @@ public sealed class Rig
 
     /// <summary>The joint whose travel across the ground moves the character, once <see cref="RootMotion"/> has picked one.</summary>
     public string? RootMotionJoint { get; private set; }
+
+    /// <summary>The travel taken out of the clips once <see cref="RootMotion"/> has picked a joint, or null.</summary>
+    internal RigTravel? RootTravel { get; private set; }
 
     /// <summary>
     /// Takes the travel across the ground out of every clip and hands it to the game
@@ -282,92 +244,8 @@ public sealed class Rig
             throw new ArgumentException($"The rig has no joint called {joint}. It has: {string.Join(", ", Skeleton.Names)}.", nameof(joint));
         }
 
-        var tracks = new Vector3[Clips.Count][];
-        for (int i = 0; i < Clips.Count; i++)
-        {
-            tracks[i] = TakeTravel(Clips[i], index);
-        }
-
-        _travel = tracks;
-        _rootJoint = index;
+        RootTravel = new RigTravel(Skeleton, Clips, index);
         RootMotionJoint = joint;
-    }
-
-    private Vector3[][]? _travel;
-    private int _rootJoint = -1;
-
-    /// <summary>The joint root motion comes from, or -1.</summary>
-    internal int RootJoint => _rootJoint;
-
-    /// <summary>
-    /// How far a clip has carried the character over the ground from its first frame,
-    /// in the model's space, at a moment held at the ends. Zero without root motion.
-    /// </summary>
-    internal Vector3 Travel(int clip, float seconds)
-    {
-        if (_travel is null)
-        {
-            return Vector3.Zero;
-        }
-
-        var track = _travel[clip];
-        var data = Clips[clip];
-        float frame = Math.Clamp(seconds * data.FrameRate, 0f, track.Length - 1);
-        int first = Math.Min((int)frame, track.Length - 2);
-        if (first < 0)
-        {
-            return track[0];
-        }
-
-        return Vector3.Lerp(track[first], track[first + 1], frame - first);
-    }
-
-    /// <summary>
-    /// Pins the joint over its first frame's spot on the ground, frame by frame, and
-    /// returns where it would have gone. The sums run in the model's space, after the
-    /// joint's parents and the root transform, since only there is up the y axis.
-    /// </summary>
-    private Vector3[] TakeTravel(AnimationClip clip, int joint)
-    {
-        int joints = Skeleton.Count;
-        var globals = new Matrix4x4[joints];
-        var track = new Vector3[clip.FrameCount];
-        Vector3 start = default;
-        for (int f = 0; f < clip.FrameCount; f++)
-        {
-            var frame = clip.Frames.AsSpan(f * joints, joints);
-            for (int i = 0; i < joint; i++)
-            {
-                globals[i] = Skeleton.Parents[i] >= 0 ? frame[i].Matrix * globals[Skeleton.Parents[i]] : frame[i].Matrix;
-            }
-
-            int parent = Skeleton.Parents[joint];
-            var toModel = (parent >= 0 ? globals[parent] : Matrix4x4.Identity) * Skeleton.RootTransform;
-            var at = Vector3.Transform(frame[joint].Position, toModel);
-            if (f == 0)
-            {
-                start = at;
-            }
-
-            var travel = new Vector3(at.X - start.X, 0f, at.Z - start.Z);
-            track[f] = travel;
-            if (!Matrix4x4.Invert(toModel, out var toJoint))
-            {
-                throw new InvalidOperationException($"The joints above {Skeleton.Names[joint]} squash it flat in clip {clip.Name}, so its travel can't be taken out.");
-            }
-
-            frame[joint].Position = Vector3.Transform(at - travel, toJoint);
-        }
-
-        return track;
-    }
-
-    internal void Check(ClipRef clip)
-    {
-        if (clip.Index < 0 || clip.Index >= Clips.Count)
-        {
-            throw new ArgumentException($"Clip {clip.Index} doesn't exist. The rig has {Clips.Count} clips.", nameof(clip));
-        }
     }
 }
 

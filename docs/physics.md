@@ -306,7 +306,7 @@ get-up clip to pick before the switch:
 ```csharp
 bool faceUp = physics.Ragdolls.IsFaceUp(stuntman);
 world.Get<Ragdoll>(stuntman) = world.Get<Ragdoll>(stuntman) with { Mode = RagdollMode.Off };
-animator.Play(faceUp ? Move.StandUp : Move.StandUpFromFront);
+animator.Moves.Play(faceUp ? Move.StandUp : Move.StandUpFromFront);
 ```
 
 Play the get-up in the same Update as the switch, as an action with `fadeSeconds: 0`,

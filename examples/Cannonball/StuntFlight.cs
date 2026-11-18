@@ -70,7 +70,7 @@ public sealed class StuntFlight(World world, Physics physics, RandomStream rando
                 break;
             case Stage.Cheering:
                 // The moment of standing counts from the end of the cheer.
-                if (Animator.IsPlaying(Move.Cheer))
+                if (Animator.Moves.IsPlaying(Move.Cheer))
                 {
                     _seconds = 0f;
                 }
@@ -138,7 +138,7 @@ public sealed class StuntFlight(World world, Physics physics, RandomStream rando
         bool faceUp = physics.Ragdolls.IsFaceUp(Stuntman);
         world.Get<Ragdoll>(Stuntman) = world.Get<Ragdoll>(Stuntman) with { Mode = RagdollMode.Off };
         Animator.Set(Stance.Idle);
-        Animator.Play(faceUp ? Move.StandUp : Move.StandUpFromFront);
+        Animator.Moves.Play(faceUp ? Move.StandUp : Move.StandUpFromFront);
         Stage = Stage.GettingUp;
         _seconds = 0f;
     }
@@ -146,12 +146,12 @@ public sealed class StuntFlight(World world, Physics physics, RandomStream rando
     /// <summary>Waits out the get-up, then has him rally the crowd.</summary>
     private void WatchForGetUp()
     {
-        if (Animator.IsPlaying(Move.StandUp) || Animator.IsPlaying(Move.StandUpFromFront))
+        if (Animator.Moves.IsPlaying(Move.StandUp) || Animator.Moves.IsPlaying(Move.StandUpFromFront))
         {
             return;
         }
 
-        Animator.Play(Move.Cheer);
+        Animator.Moves.Play(Move.Cheer);
         Stage = Stage.Cheering;
         _seconds = 0f;
     }

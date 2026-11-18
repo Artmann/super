@@ -48,7 +48,7 @@ internal readonly ref struct SkeletonSpace
     /// Bends a limb so <paramref name="point"/>, in its tip's space, reaches <paramref name="goal"/> in the skeleton's
     /// space, mixed in by <paramref name="weight"/>. The bend keeps to the side it's on, and the end keeps its turn.
     /// </summary>
-    public void Reach(Limb limb, Vector3 point, float weight, Vector3 goal)
+    public void Reach(LimbJoints limb, Vector3 point, float weight, Vector3 goal)
     {
         var upper = Globals[limb.Upper].Translation;
         var lower = Globals[limb.Lower].Translation;
@@ -58,15 +58,40 @@ internal readonly ref struct SkeletonSpace
         // What the tip holds stays where it is relative to the end, which keeps its turn, so
         // the end's goal is the goal less that.
         var held = Vector3.Transform(point, Globals[limb.Tip]) - end;
-        var wrist = goal - held;
+        if (Bend(upper, lower, end, goal - held) is not { } bend)
+        {
+            return;
+        }
 
+        var (elbow, wrist) = bend;
+        var first = Quaternion.Slerp(Quaternion.Identity, Between(lower - upper, elbow - upper), weight);
+        Turn(limb.Upper, first);
+        Refresh(limb.Upper);
+
+        var bent = Globals[limb.Lower].Translation;
+        var second = Quaternion.Slerp(Quaternion.Identity, Between(Globals[limb.End].Translation - bent, wrist - bent), weight);
+        Turn(limb.Lower, second);
+        Refresh(limb.Lower);
+
+        // The end turns back to how the layers had it.
+        Turn(limb.End, endTurn * Quaternion.Inverse(Turned[limb.End]));
+        Refresh(limb.End);
+    }
+
+    /// <summary>
+    /// Where the lower joint goes, and where the end can get to, for a limb whose end reaches for
+    /// <paramref name="wrist"/>: as near as the bones' lengths let it, bent to the side it's on now.
+    /// Null for a limb with no length, or a goal on the upper joint.
+    /// </summary>
+    private static (Vector3 Elbow, Vector3 Wrist)? Bend(Vector3 upper, Vector3 lower, Vector3 end, Vector3 wrist)
+    {
         float upperLength = Vector3.Distance(upper, lower);
         float lowerLength = Vector3.Distance(lower, end);
         var toGoal = wrist - upper;
         float span = toGoal.Length();
         if (upperLength < 1e-6f || lowerLength < 1e-6f || span < 1e-6f)
         {
-            return;
+            return null;
         }
 
         var along = toGoal / span;
@@ -83,19 +108,7 @@ internal readonly ref struct SkeletonSpace
         bend = Vector3.Normalize(bend);
         float cos = Math.Clamp(((upperLength * upperLength) + (span * span) - (lowerLength * lowerLength)) / (2f * upperLength * span), -1f, 1f);
         var elbow = upper + (upperLength * ((cos * along) + (MathF.Sqrt(1f - (cos * cos)) * bend)));
-
-        var first = Quaternion.Slerp(Quaternion.Identity, Between(lower - upper, elbow - upper), weight);
-        Turn(limb.Upper, first);
-        Refresh(limb.Upper);
-
-        var bent = Globals[limb.Lower].Translation;
-        var second = Quaternion.Slerp(Quaternion.Identity, Between(Globals[limb.End].Translation - bent, upper + (span * along) - bent), weight);
-        Turn(limb.Lower, second);
-        Refresh(limb.Lower);
-
-        // The end turns back to how the layers had it.
-        Turn(limb.End, endTurn * Quaternion.Inverse(Turned[limb.End]));
-        Refresh(limb.End);
+        return (elbow, upper + (span * along));
     }
 
     /// <summary>A rotation given outside a frame, such as the model's, as the same rotation inside it.</summary>
