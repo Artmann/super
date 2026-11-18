@@ -311,7 +311,7 @@
       "kind": "high-complexity",
       "name": "Super.Audio.Apply",
       "file": "src/Super/Audio/Audio.cs",
-      "metric": 14
+      "metric": 11
     },
     {
       "kind": "high-complexity",
@@ -1941,12 +1941,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Audio.Apply",
-      "file": "src/Super/Audio/Audio.cs",
-      "metric": 66
-    },
-    {
-      "kind": "long-method",
       "name": "Super.BakeCache.Read",
       "file": "src/Super/Rendering/BakeCache.cs",
       "metric": 42
@@ -3155,7 +3149,7 @@
       "kind": "large-file",
       "name": "src/Super/Audio/Audio.cs",
       "file": "src/Super/Audio/Audio.cs",
-      "metric": 860
+      "metric": 868
     },
     {
       "kind": "large-file",
@@ -3413,7 +3407,7 @@
       "kind": "large-type",
       "name": "Super.Audio",
       "file": "src/Super/Audio/Audio.cs",
-      "metric": 73
+      "metric": 75
     },
     {
       "kind": "large-type",
