@@ -633,12 +633,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Shapes.ShapeBuilder.LayOutLightmap",
-      "file": "src/Super/Shapes.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Spline.CheckPositions",
       "file": "src/Super/Spline.cs",
       "metric": 12
@@ -1110,12 +1104,6 @@
       "name": "Super.Mixer.Mix",
       "file": "src/Super/Audio/Mixer.cs",
       "metric": 16
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Shapes.ShapeBuilder.LayOutLightmap",
-      "file": "src/Super/Shapes.cs",
-      "metric": 28
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2460,12 +2448,6 @@
       "name": "Super.Shapes.ShapeBuilder.Disc",
       "file": "src/Super/Shapes.cs",
       "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Shapes.ShapeBuilder.LayOutLightmap",
-      "file": "src/Super/Shapes.cs",
-      "metric": 89
     },
     {
       "kind": "long-method",
