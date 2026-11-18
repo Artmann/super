@@ -501,18 +501,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Cook.Tool.Program.Cache",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Tool.Program.CookAll",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 30
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.CookedTexture.DecodePixels",
       "file": "src/Super/Rendering/CookedTexture.cs",
       "metric": 13
@@ -1002,18 +990,6 @@
       "name": "Super.Cook.TextureCompression.Coverage",
       "file": "src/Super.Cook/Textures/TextureCompression.cs",
       "metric": 20
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Tool.Program.Cache",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 22
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Tool.Program.CookAll",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 26
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2190,30 +2166,6 @@
       "name": "Super.Cook.TextureCompression.KeepCompressedCoverage",
       "file": "src/Super.Cook/Textures/TextureCompression.cs",
       "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Tool.Program.Cache",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 86
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Tool.Program.CookAll",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 121
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Tool.Program.CookAndReport",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 47
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Tool.Program.CookOne",
-      "file": "tools/Super.Cook.Tool/Program.cs",
-      "metric": 55
     },
     {
       "kind": "long-method",
