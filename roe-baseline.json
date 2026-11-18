@@ -3,33 +3,9 @@
   "findings": [
     {
       "kind": "high-complexity",
-      "name": "Rendition.LightmapLayout.Single",
-      "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.SkylinePacker.TryPack",
-      "file": "src/Rendition/Lightmaps/SkylinePacker.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.Vulkan.TraceScene.Collect",
       "file": "src/Rendition/Vulkan/TraceScene.cs",
       "metric": 13
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapLayout.Single",
-      "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
-      "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.SkylinePacker.TryPack",
-      "file": "src/Rendition/Lightmaps/SkylinePacker.cs",
-      "metric": 28
     },
     {
       "kind": "long-method",
@@ -207,66 +183,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.BakeJob.BakeJob",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 57
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Baker.Baker",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 110
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Baker.DrawInto",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 50
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Baker.ReadSumsBack",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 59
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Baker.RecordTexels",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 67
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Baker.WriteProbeSet",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 50
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Baker.WriteTraceSet",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 59
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Baker.WriteValiditySet",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapLayout.Build",
-      "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
-      "metric": 42
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapLayout.Single",
-      "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
-      "metric": 76
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Passes.FsrPass.Record",
       "file": "src/Rendition/Passes/FsrPass.cs",
       "metric": 44
@@ -324,18 +240,6 @@
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
       "metric": 108
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.SkylinePacker.Raise",
-      "file": "src/Rendition/Lightmaps/SkylinePacker.cs",
-      "metric": 50
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.SkylinePacker.TryPack",
-      "file": "src/Rendition/Lightmaps/SkylinePacker.cs",
-      "metric": 107
     },
     {
       "kind": "long-method",
@@ -483,78 +387,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.BakeInputHash.Space",
-      "file": "src/Rendition/Baking/BakeInputHash.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.BakeJob.BakeJob",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 11
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Baker.Copy",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Baker.CreateFilter/6",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Baker.CreateProbeSet",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Baker.CreateTraceSet",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Baker.ReadSumsBack",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Baker.RecordPasses",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Baker.RecordProbePasses",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Baker.RecordSumsReadBack",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 9
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Baker.WriteProbeSet",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Baker.WriteTraceSet",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Rendition.Passes.DepthOfFieldPass.Record",
       "file": "src/Rendition/Passes/DepthOfFieldPass.cs",
       "metric": 6
@@ -681,12 +513,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.ShadowMaskChannels.Assign",
-      "file": "src/Rendition/Baking/ShadowMaskChannels.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Rendition.Vulkan.GpuAllocation.GpuAllocation",
       "file": "src/Rendition/Vulkan/GpuMemory.cs",
       "metric": 6
@@ -720,12 +546,6 @@
       "name": "Rendition.Vulkan.VulkanExtensions.Transition",
       "file": "src/Rendition/Vulkan/VulkanExtensions.cs",
       "metric": 10
-    },
-    {
-      "kind": "large-file",
-      "name": "src/Rendition/Baking/Baker.cs",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 1540
     },
     {
       "kind": "large-file",
@@ -780,30 +600,6 @@
       "name": "Reef.Boids",
       "file": "examples/Reef/Boids.cs",
       "metric": 28
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.BakeFrame",
-      "file": "src/Rendition/Baking/BakeFreshness.cs",
-      "metric": 37
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.BakeJob",
-      "file": "src/Rendition/Baking/BakeJob.cs",
-      "metric": 85
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Baker",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 80
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.ChunkBakePool",
-      "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 38
     },
     {
       "kind": "large-type",
@@ -969,12 +765,6 @@
     }
   ],
   "cycles": [
-    {
-      "members": [
-        "Rendition.BakeInputHash",
-        "Rendition.BakeInputs"
-      ]
-    },
     {
       "members": [
         "Rendition.ProbeCascades",
