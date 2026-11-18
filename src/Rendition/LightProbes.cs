@@ -202,8 +202,13 @@ internal sealed class LightProbes(VulkanContext context, EnvironmentMap environm
         const float tracedBlend = 0.25f;
         const float tracedSnap = 0.05f;
         Volume.BeginFolds(cmd);
-        tracePass.Record(cmd, Batch.Ids, scene, sources.Tracing!, sources.Ring.Index, frameSet,
-            Batch.Positions, Batch.Spacings, (uint)Batch.Scheduler!.Frame, Batch.EnvironmentIntensity);
+        sources.Tracing!.ReadyToTrace(cmd);
+        var probes = new TracedProbes(Batch.Ids, Batch.Positions, Batch.Spacings)
+        {
+            Seed = (uint)Batch.Scheduler!.Frame,
+            EnvironmentIntensity = Batch.EnvironmentIntensity,
+        };
+        tracePass.Record(cmd, scene, probes, (sources.Ring.Index, frameSet));
         Volume.RecordBlend(cmd, Batch.Ids, tracedBlend, tracedSnap);
     }
 

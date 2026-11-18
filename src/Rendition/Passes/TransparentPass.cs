@@ -6,6 +6,12 @@ using Rendition.Vulkan;
 namespace Rendition.Passes;
 
 /// <summary>Where glass is seen from: to sort it, and to tell where on screen it lands.</summary>
+/// <summary>What the transparent pass needs of the frame: its descriptor set, the view, and how far the wind reaches.</summary>
+internal readonly record struct TransparentFrame(DescriptorSet FrameSet, TransparentView View, WindReach Wind);
+
+/// <summary>The frame's particles: the pass that holds them sorted, the frame's slot, how many there are and the camera.</summary>
+internal readonly record struct ParticleDraws(ParticlePass Pass, int FrameIndex, int Count, ParticlePass.CameraConstants Camera);
+
 internal readonly record struct TransparentView(Vector3 Eye, Vector3 Forward, Matrix4x4 ViewProjection)
 {
     public static TransparentView From(in Matrix4x4 view, in Matrix4x4 projection)
@@ -113,23 +119,12 @@ internal sealed unsafe class TransparentPass : IDisposable
     /// attachment and depth read-only, as it stays throughout.
     /// </summary>
     public void Record(
-        CommandBuffer cmd,
-        GBuffer targets,
-        DescriptorSet frameSet,
-        ReadOnlySpan<DrawItem> draws,
-        List<Mesh?> meshes,
-        List<PartDetail> details,
-        InstanceBuffer instances,
-        in TransparentView view,
-        ParticlePass particles,
-        int frameIndex,
-        int particleCount,
-        in ParticlePass.CameraConstants particleCamera,
-        WindReach wind = default)
+        CommandBuffer cmd, GBuffer targets, in SceneGeometry scene, in TransparentFrame frame, in ParticleDraws particles)
     {
-        int glassCount = CollectGlass(draws, details, view, wind);
-        var sorted = particles.Sorted[..particleCount];
-        TransparentPlan.Build(_glass.AsSpan(0, glassCount), sorted, view, _steps);
+        var frameSet = frame.FrameSet;
+        int glassCount = CollectGlass(scene.Draws, scene.Details, frame.View, frame.Wind);
+        var sorted = particles.Pass.Sorted[..particles.Count];
+        TransparentPlan.Build(_glass.AsSpan(0, glassCount), sorted, frame.View, _steps);
         if (_steps.Count == 0)
         {
             return;
@@ -146,12 +141,7 @@ internal sealed unsafe class TransparentPass : IDisposable
         }
 
         TransparentTargets.Begin(_context.Api, cmd, targets);
-        RecordSteps(
-            cmd,
-            targets,
-            frameSet,
-            new GlassDraws(draws, meshes, details, instances),
-            new ParticleDraws(particles, frameIndex, particleCamera));
+        RecordSteps(cmd, targets, frameSet, scene, particles);
         _context.Api.CmdEndRendering(cmd);
     }
 
@@ -162,22 +152,9 @@ internal sealed unsafe class TransparentPass : IDisposable
         Glass,
     }
 
-    /// <summary>What drawing a piece of glass needs.</summary>
-    private readonly ref struct GlassDraws(
-        ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, List<PartDetail> details, InstanceBuffer instances)
-    {
-        public readonly ReadOnlySpan<DrawItem> Draws = draws;
-        public readonly List<Mesh?> Meshes = meshes;
-        public readonly List<PartDetail> Details = details;
-        public readonly InstanceBuffer Instances = instances;
-    }
-
-    /// <summary>What drawing a run of particles needs.</summary>
-    private readonly record struct ParticleDraws(ParticlePass Pass, int FrameIndex, ParticlePass.CameraConstants Camera);
-
     // Records the plan's steps in order, inside rendering begun on the targets, binding each kind's state as it changes.
     private void RecordSteps(
-        CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, in GlassDraws glass, in ParticleDraws particles)
+        CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, in SceneGeometry glass, in ParticleDraws particles)
     {
         var bound = Binding.None;
         var drawn = new SceneDraws.Bound();
@@ -222,7 +199,7 @@ internal sealed unsafe class TransparentPass : IDisposable
         _context.Api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 3, sets, 0, null);
     }
 
-    private void DrawGlass(CommandBuffer cmd, TransparentStep step, in GlassDraws glass, ref SceneDraws.Bound drawn)
+    private void DrawGlass(CommandBuffer cmd, TransparentStep step, in SceneGeometry glass, ref SceneDraws.Bound drawn)
     {
         int index = step.First;
         var constants = SceneDraws.Constants(glass.Draws[index], cascade: 0, _resources.Materials.SwayOf, glass.Details);

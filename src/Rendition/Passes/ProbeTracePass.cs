@@ -6,6 +6,24 @@ using Silk.NET.Vulkan;
 namespace Rendition.Passes;
 
 /// <summary>
+/// A batch of probes to trace: their ids and, in the same order, their positions and their cascades' spacings.
+/// <see cref="Seed"/> sets each probe's rotation of its rays, so the same frames give the same rays, and a ray that hits
+/// nothing sees the environment times <see cref="EnvironmentIntensity"/>.
+/// </summary>
+internal readonly ref struct TracedProbes(IReadOnlyList<ProbeId> ids, ReadOnlySpan<Vector3> positions, ReadOnlySpan<float> spacings)
+{
+    public IReadOnlyList<ProbeId> Ids { get; } = ids;
+
+    public ReadOnlySpan<Vector3> Positions { get; } = positions;
+
+    public ReadOnlySpan<float> Spacings { get; } = spacings;
+
+    public uint Seed { get; init; }
+
+    public float EnvironmentIntensity { get; init; }
+}
+
+/// <summary>
 /// Updates a batch of light probes with rays, where the GPU can trace them: probe_trace.comp sends 128 rays from each
 /// probe through the frame's top-level structure, shades what they hit as probe_light.glsl says, with shadow rays for
 /// the sun and the point and spot lights, and folds them into the probe's tiles in <see cref="ProbeVolumeAtlases.Staging"/>,
@@ -91,13 +109,7 @@ internal sealed unsafe class ProbeTracePass : IDisposable
         _probeSet = context.AllocateSet(_pool, _probeLayout);
         _sceneSets = new DescriptorSet[framesInFlight];
         context.AllocateSets(_pool, _sceneLayout, _sceneSets);
-
-        _probes = new GpuBuffer[framesInFlight];
-        for (int i = 0; i < framesInFlight; i++)
-        {
-            _probes[i] = GpuBuffer.CreateHostVisible(
-                context, (ulong)(capacity * sizeof(GpuTracedProbe)), BufferUsageFlags.StorageBufferBit);
-        }
+        _probes = CreateProbeBuffers(context, framesInFlight, capacity);
 
         _pipelineLayout = context.CreatePipelineLayout(
             [frameSetLayout, resources.Layout, _probeLayout, _sceneLayout],
@@ -132,25 +144,14 @@ internal sealed unsafe class ProbeTracePass : IDisposable
 
     /// <summary>
     /// Traces the batch's probes through <paramref name="scene"/> into staging slots 0 to batch.Count - 1, one
-    /// workgroup each. <paramref name="positions"/> and <paramref name="spacings"/> are the batch's probes', in the same
-    /// order. <paramref name="frame"/> seeds each probe's rotation of its rays, so the same frames give the same rays.
-    /// <paramref name="tracing"/> built the scene earlier in <paramref name="cmd"/>; the frame in flight's set and buffer
-    /// are rewritten, so only call it once that frame's last use is done. The caller makes the staging slots safe to
-    /// write first (<see cref="ProbeVolume.BeginFolds"/>) and blends them after. A ray that hits nothing sees the
-    /// environment times <paramref name="environmentIntensity"/>.
+    /// workgroup each, with the frame in flight's set and buffer, rewritten here, so only call it once that frame's last
+    /// use is done. The scene was built earlier in <paramref name="cmd"/>, and the caller makes it ready to trace
+    /// (<see cref="RayTracing.ReadyToTrace"/>) and the staging slots safe to write (<see cref="ProbeVolume.BeginFolds"/>)
+    /// first, and blends them after.
     /// </summary>
-    public void Record(
-        CommandBuffer cmd,
-        IReadOnlyList<ProbeId> batch,
-        in TopLevelStructure scene,
-        RayTracing tracing,
-        int frameIndex,
-        DescriptorSet frameSet,
-        ReadOnlySpan<Vector3> positions,
-        ReadOnlySpan<float> spacings,
-        uint frame,
-        float environmentIntensity)
+    public void Record(CommandBuffer cmd, in TopLevelStructure scene, in TracedProbes probes, (int Index, DescriptorSet Set) frame)
     {
+        var batch = probes.Ids;
         ArgumentNullException.ThrowIfNull(batch);
         if (batch.Count == 0)
         {
@@ -158,38 +159,56 @@ internal sealed unsafe class ProbeTracePass : IDisposable
         }
 
         ArgumentOutOfRangeException.ThrowIfGreaterThan(batch.Count, _capacity);
-        if (positions.Length != batch.Count || spacings.Length != batch.Count)
-        {
-            throw new ArgumentException(
-                $"The batch has {batch.Count} probes, but {positions.Length} positions and {spacings.Length} spacings.");
-        }
-
-        var probes = new Span<GpuTracedProbe>(_probes[frameIndex].Mapped, batch.Count);
-        for (int i = 0; i < batch.Count; i++)
-        {
-            probes[i] = new GpuTracedProbe
-            {
-                PositionSpacing = new Vector4(positions[i], spacings[i]),
-                Cascade = (uint)batch[i].Cascade,
-                Slot = (uint)batch[i].Slot,
-            };
-        }
-
-        var sceneSet = _sceneSets[frameIndex];
-        WriteSceneSet(sceneSet, scene, _probes[frameIndex]);
-        tracing.ReadyToTrace(cmd);
+        WriteProbes(probes, _probes[frame.Index]);
+        var sceneSet = _sceneSets[frame.Index];
+        WriteSceneSet(sceneSet, scene, _probes[frame.Index]);
 
         var api = _context.Api;
         var constants = new TraceConstants
         {
-            Frame = frame,
-            EnvironmentIntensity = environmentIntensity,
+            Frame = probes.Seed,
+            EnvironmentIntensity = probes.EnvironmentIntensity,
         };
-        var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _probeSet, sceneSet };
+        var sets = stackalloc DescriptorSet[] { frame.Set, _resources.Set, _probeSet, sceneSet };
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipeline);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 4, sets, 0, null);
         api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(TraceConstants), &constants);
         api.CmdDispatch(cmd, (uint)batch.Count, 1, 1);
+    }
+
+    // One host-visible buffer of `capacity` probes for each frame in flight.
+    private static GpuBuffer[] CreateProbeBuffers(VulkanContext context, int framesInFlight, int capacity)
+    {
+        var buffers = new GpuBuffer[framesInFlight];
+        for (int i = 0; i < framesInFlight; i++)
+        {
+            buffers[i] = GpuBuffer.CreateHostVisible(
+                context, (ulong)(capacity * sizeof(GpuTracedProbe)), BufferUsageFlags.StorageBufferBit);
+        }
+
+        return buffers;
+    }
+
+    // Writes the batch's probes into the frame's buffer, after checking every probe has a position and a spacing.
+    private static void WriteProbes(in TracedProbes probes, GpuBuffer buffer)
+    {
+        var batch = probes.Ids;
+        if (probes.Positions.Length != batch.Count || probes.Spacings.Length != batch.Count)
+        {
+            throw new ArgumentException(
+                $"The batch has {batch.Count} probes, but {probes.Positions.Length} positions and {probes.Spacings.Length} spacings.");
+        }
+
+        var gpu = new Span<GpuTracedProbe>(buffer.Mapped, batch.Count);
+        for (int i = 0; i < batch.Count; i++)
+        {
+            gpu[i] = new GpuTracedProbe
+            {
+                PositionSpacing = new Vector4(probes.Positions[i], probes.Spacings[i]),
+                Cascade = (uint)batch[i].Cascade,
+                Slot = (uint)batch[i].Slot,
+            };
+        }
     }
 
     private WriteDescriptorSet ImageWrite(uint binding, DescriptorImageInfo* info) => new()

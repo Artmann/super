@@ -547,7 +547,7 @@ public sealed unsafe class Renderer : IDisposable
             _traceScene = new TraceScene(TraceFlagsOf);
         }
 
-        _traceDebugPass = _tracing is null ? null : new TraceDebugPass(_context, FrameRing.Count, _kit.FrameSetLayout, _resources.Layout);
+        _traceDebugPass = _tracing is null ? null : new TraceDebugPass(_context, _tracing, FrameRing.Count, _kit.FrameSetLayout, _resources.Layout);
 
         _shadowResolution = ShadowPass.CheckResolution(options.ShadowResolution);
         _shadowPass = new ShadowPass(_context, _kit.FrameSetLayout, _resources, _shadowResolution);
@@ -2792,7 +2792,7 @@ public sealed unsafe class Renderer : IDisposable
     private void RecordTraceView(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, TopLevelStructure scene)
     {
         _gpuTimer.Mark(cmd);
-        _traceDebugPass!.Record(cmd, _ring.Index, _tracing!, scene, frameSet, _resources.Set, targets.Hdr, targets.Extent);
+        _traceDebugPass!.Record(cmd, _ring.Index, scene, (frameSet, _resources.Set), (targets.Hdr, targets.Extent));
         _gpuTimer.Mark(cmd);
         _gpuTimer.Mark(cmd);
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
@@ -2814,8 +2814,8 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
             ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
             AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
-        _transparentPass.Record(cmd, targets, frameSet, draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances, _transparentView,
-            _particlePass, _ring.Index, _particleCount, _particleCamera, _windReach);
+        _transparentPass.Record(cmd, targets, new SceneGeometry(draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances),
+            new TransparentFrame(frameSet, _transparentView, _windReach), new ParticleDraws(_particlePass, _ring.Index, _particleCount, _particleCamera));
 
         // With the probes off there are no spheres, and no atlases to read.
         if (_probeView && LightProbes.InUse)
