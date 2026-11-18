@@ -1,16 +1,17 @@
 using System.Numerics;
 using Super;
 using Super.Ui;
+using static Crafting.BenchColors;
 
 namespace Crafting;
 
 /// <summary>A crafting bench: pick a recipe, see what it takes, make it, and sort the bag by hand.</summary>
 public sealed class CraftingGame(Content content) : IGame
 {
-    public const int Columns = 12;
-    public const int Rows = 3;
-    public const float SlotSize = 64f;
-    public const float Gap = 8f;
+    public const int Columns = BagView.Columns;
+    public const int Rows = BagView.Rows;
+    public const float SlotSize = BagView.SlotSize;
+    public const float Gap = BagView.Gap;
 
     private const float Margin = 24f;
     private const float PanelPadding = 16f;
@@ -22,17 +23,9 @@ public sealed class CraftingGame(Content content) : IGame
     /// <summary>Where the bag's first slot starts, in a 1280 by 720 window.</summary>
     public static readonly Vector2 BagOrigin = new(Margin + PanelPadding, Margin + TopHeight + Gap + 4f + PanelPadding);
 
-    private static readonly Color Page = Color.Hex("#14171F");
-    private static readonly Color Panel = Color.Hex("#1E232E");
-    private static readonly Color Edge = Color.Hex("#343B4A");
-    private static readonly Color SlotFill = Color.Hex("#161A23");
-    private static readonly Color SlotHover = Color.Hex("#2A3140");
-    private static readonly Color Muted = Color.Hex("#9AA4B5");
-    private static readonly Color Enough = Color.Hex("#8CCB8C");
-    private static readonly Color Lacking = Color.Hex("#E08A7C");
-
     private Catalog<Item> _items = null!;
     private Catalog<Recipe> _recipes = null!;
+    private BagView _bag = null!;
     private readonly Dictionary<string, GameImage> _icons = [];
 
     public Inventory Bag { get; } = new(Columns * Rows);
@@ -75,6 +68,7 @@ public sealed class CraftingGame(Content content) : IGame
         Bag.Add("fiber", 10);
         Bag.Add("ingot", 2);
         Selected = _recipes["bandage"];
+        _bag = new BagView(Bag, _items, Icon);
     }
 
     public void Update(GameTime time)
@@ -92,7 +86,7 @@ public sealed class CraftingGame(Content content) : IGame
             RecipePanel(),
             DetailPanel(),
         },
-        BagPanel(),
+        _bag.Panel(BagWidth, BagHeight, PanelPadding),
     }
     .Padding(Margin)
     .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading)
@@ -162,69 +156,5 @@ public sealed class CraftingGame(Content content) : IGame
             },
             BagWidth - RecipesWidth - Gap - 4f,
             TopHeight);
-    }
-
-    private UiView BagPanel()
-    {
-        var grid = new Grid(Columns, Gap);
-        for (int slot = 0; slot < Bag.Slots; slot++)
-        {
-            grid.Add(Slot(slot).Id(slot));
-        }
-
-        return new HStack(VerticalAlignment.Top, 24f)
-        {
-            grid.Frame(width: Columns * SlotSize + (Columns - 1) * Gap),
-            new VStack(HorizontalAlignment.Leading, 8f)
-            {
-                new Text("Bag").Bold().FontSize(20f),
-                new Text("Drag a stack to move it. Drop it on the same item to merge.").Foreground(Muted),
-            },
-        }
-        .Padding(PanelPadding)
-        .Frame(BagWidth, BagHeight, alignment: Alignment.TopLeading)
-        .Background(Panel)
-        .Border(1f, Edge)
-        .CornerRadius(10f);
-    }
-
-    private UiView Slot(int slot)
-    {
-        var stack = Bag[slot];
-        if (stack is null)
-        {
-            return new Pressable(look => SlotFace(stack, look))
-                .DropTarget<int>(from => Bag.Move(from, slot), from => from != slot);
-        }
-
-        var item = _items[stack.Item];
-        return new Pressable(look => SlotFace(stack, look))
-            .Draggable(slot, Icon(stack.Item, 56f).Opacity(0.85f))
-            .Tooltip(new VStack(HorizontalAlignment.Leading, 4f)
-                {
-                    new Text(item.Name).Bold(),
-                    new Text(item.Description).Foreground(Muted).Frame(maxWidth: 240f, alignment: Alignment.Leading),
-                }
-                .Padding(10f)
-                .Background(SlotFill)
-                .Border(1f, Edge)
-                .CornerRadius(6f))
-            .DropTarget<int>(from => Bag.Move(from, slot), from => from != slot);
-    }
-
-    private UiView SlotFace(Stack? stack, PressState look)
-    {
-        var face = new ZStack(Alignment.BottomTrailing);
-        if (stack is not null)
-        {
-            face.Add(Icon(stack.Item, 52f).Frame(SlotSize, SlotSize));
-            face.Add(new Text($"{stack.Count}").Bold().FontSize(13f).MonospacedDigit().Padding(5f));
-        }
-
-        return face
-            .Frame(SlotSize, SlotSize)
-            .Background(look.Hovered ? SlotHover : SlotFill)
-            .Border(1f, look.Hovered ? Muted : Edge)
-            .CornerRadius(6f);
     }
 }
