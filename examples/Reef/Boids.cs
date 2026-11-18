@@ -125,15 +125,25 @@ internal sealed class Boids
     private Vector3 Steer(int fish, Species species)
     {
         var position = _positions[fish];
-        int school = _schools[fish];
-        var away = Vector3.Zero;
-        var heading = Vector3.Zero;
-        var middle = Vector3.Zero;
-        int schoolmates = 0;
-        int seen = 0;
-        float sightSquared = species.Sight * species.Sight;
-        float personalSquared = species.Personal * species.Personal;
+        var flock = Look(fish, species);
 
+        var push = flock.Away * SeparationWeight;
+        if (flock.Schoolmates > 0)
+        {
+            push += (flock.Heading / flock.Schoolmates - _velocities[fish]) * AlignmentWeight;
+            push += (flock.Middle / flock.Schoolmates - position) * CohesionWeight;
+        }
+
+        var toTarget = _schoolTargets[_schools[fish]] - position;
+        push += SafeNormalize(toTarget) * species.MaxSpeed * TargetWeight;
+        return push + AvoidEdges(position);
+    }
+
+    /// <summary>What a fish sees of the others in its cell and the cells round it, up to <see cref="MaxNeighbours"/>.</summary>
+    private Flock Look(int fish, Species species)
+    {
+        var position = _positions[fish];
+        var flock = new Flock();
         int cellX = CellIndex(position.X + _settings.Radius);
         int cellY = CellIndex(position.Y);
         int cellZ = CellIndex(position.Z + _settings.Radius);
@@ -143,47 +153,51 @@ internal sealed class Boids
             {
                 for (int x = Math.Max(cellX - 1, 0); x <= Math.Min(cellX + 1, _columns - 1); x++)
                 {
-                    for (int other = _firstInCell[(y * _columns + z) * _columns + x]; other >= 0 && seen < MaxNeighbours; other = _nextInCell[other])
-                    {
-                        if (other == fish)
-                        {
-                            continue;
-                        }
-
-                        var offset = position - _positions[other];
-                        float squared = offset.LengthSquared();
-                        if (squared >= sightSquared || squared == 0f)
-                        {
-                            continue;
-                        }
-
-                        seen++;
-                        if (squared < personalSquared)
-                        {
-                            away += offset / squared;
-                        }
-
-                        if (_schools[other] == school)
-                        {
-                            heading += _velocities[other];
-                            middle += _positions[other];
-                            schoolmates++;
-                        }
-                    }
+                    LookInCell(fish, (y * _columns + z) * _columns + x, species, ref flock);
                 }
             }
         }
 
-        var push = away * SeparationWeight;
-        if (schoolmates > 0)
-        {
-            push += (heading / schoolmates - _velocities[fish]) * AlignmentWeight;
-            push += (middle / schoolmates - position) * CohesionWeight;
-        }
+        return flock;
+    }
 
-        var toTarget = _schoolTargets[school] - position;
-        push += SafeNormalize(toTarget) * species.MaxSpeed * TargetWeight;
-        return push + AvoidEdges(position);
+    private void LookInCell(int fish, int cell, Species species, ref Flock flock)
+    {
+        var position = _positions[fish];
+        float sightSquared = species.Sight * species.Sight;
+        float personalSquared = species.Personal * species.Personal;
+        for (int other = _firstInCell[cell]; other >= 0 && flock.Seen < MaxNeighbours; other = _nextInCell[other])
+        {
+            var offset = position - _positions[other];
+            float squared = offset.LengthSquared();
+            if (other == fish || squared >= sightSquared || squared == 0f)
+            {
+                continue;
+            }
+
+            flock.Seen++;
+            if (squared < personalSquared)
+            {
+                flock.Away += offset / squared;
+            }
+
+            if (_schools[other] == _schools[fish])
+            {
+                flock.Heading += _velocities[other];
+                flock.Middle += _positions[other];
+                flock.Schoolmates++;
+            }
+        }
+    }
+
+    /// <summary>The sums a fish steers by: away from those too close, and towards its schoolmates' heading and middle.</summary>
+    private struct Flock
+    {
+        public Vector3 Away;
+        public Vector3 Heading;
+        public Vector3 Middle;
+        public int Schoolmates;
+        public int Seen;
     }
 
     private Vector3 AvoidEdges(Vector3 position)

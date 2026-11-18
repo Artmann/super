@@ -33,12 +33,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Reef.Boids.Steer",
-      "file": "examples/Reef/Boids.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.BakeFiles.IsRigid",
       "file": "src/Rendition/Baking/BakeFiles.cs",
       "metric": 14
@@ -573,12 +567,6 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Reef.Boids.Steer",
-      "file": "examples/Reef/Boids.cs",
-      "metric": 33
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Rendition.BakeJob.Finish",
       "file": "src/Rendition/Baking/BakeJob.cs",
       "metric": 16
@@ -1068,12 +1056,6 @@
       "name": "Mud.Build",
       "file": "examples/Courtyard/content/materials/mud.material.cs",
       "metric": 71
-    },
-    {
-      "kind": "long-method",
-      "name": "Reef.Boids.Steer",
-      "file": "examples/Reef/Boids.cs",
-      "metric": 62
     },
     {
       "kind": "long-method",
@@ -2783,7 +2765,7 @@
       "kind": "large-type",
       "name": "Reef.Boids",
       "file": "examples/Reef/Boids.cs",
-      "metric": 26
+      "metric": 28
     },
     {
       "kind": "large-type",
