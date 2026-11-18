@@ -555,12 +555,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Ecs.ViewExtensions.Models",
-      "file": "src/Super.Ecs/ViewExtensions.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
       "metric": 27
@@ -1062,12 +1056,6 @@
       "name": "Super.Cook.Tool.Program.CookAll",
       "file": "tools/Super.Cook.Tool/Program.cs",
       "metric": 26
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Ecs.ViewExtensions.Models",
-      "file": "src/Super.Ecs/ViewExtensions.cs",
-      "metric": 28
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2292,12 +2280,6 @@
       "name": "Super.Cook.Tool.Program.CookOne",
       "file": "tools/Super.Cook.Tool/Program.cs",
       "metric": 55
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Ecs.ViewExtensions.Models",
-      "file": "src/Super.Ecs/ViewExtensions.cs",
-      "metric": 82
     },
     {
       "kind": "long-method",
