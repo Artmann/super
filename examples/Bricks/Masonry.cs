@@ -35,7 +35,7 @@ public sealed class Masonry
             return (row * columns + column, inside);
         }
 
-        return Make(size, Brick, metresAcross, depth, stone: new Vector3(0.55f, 0.2f, 0.13f), joint: new Vector3(0.62f, 0.6f, 0.55f), seed: 1);
+        return Make(size, Brick, metresAcross, depth, new StoneLook(Stone: new Vector3(0.55f, 0.2f, 0.13f), Joint: new Vector3(0.62f, 0.6f, 0.55f), Seed: 1));
     }
 
     /// <summary>Square setts in rows, each a little off square, as on an old street.</summary>
@@ -57,7 +57,7 @@ public sealed class Masonry
             return (id, inside);
         }
 
-        return Make(size, Sett, metresAcross, depth, stone: new Vector3(0.26f, 0.25f, 0.24f), joint: new Vector3(0.3f, 0.26f, 0.2f), seed: 2);
+        return Make(size, Sett, metresAcross, depth, new StoneLook(Stone: new Vector3(0.26f, 0.25f, 0.24f), Joint: new Vector3(0.3f, 0.26f, 0.2f), Seed: 2));
     }
 
     /// <summary>
@@ -83,7 +83,10 @@ public sealed class Masonry
         return (new GeneratedTexture(size, color), NormalMap(heights, size, 0.001f / (0.25f / size)));
     }
 
-    private static Masonry Make(int size, Layout layout, float metresAcross, float depth, Vector3 stone, Vector3 joint, int seed)
+    /// <summary>The colours of a laid surface's stones and of the mortar between them, and the seed of its roughness and tones.</summary>
+    private readonly record struct StoneLook(Vector3 Stone, Vector3 Joint, int Seed);
+
+    private static Masonry Make(int size, Layout layout, float metresAcross, float depth, StoneLook look)
     {
         // A stone's edge rounds over this many pixels before it reaches its top.
         float bevel = size / 64f;
@@ -96,26 +99,8 @@ public sealed class Masonry
             for (int x = 0; x < size; x++)
             {
                 var (id, inside) = layout(x, y);
-                float rough = Noise.Tiled(x, y, size, 16f, seed);
-                float h;
-                float open;
-                Vector3 shade;
-                if (inside <= 0f)
-                {
-                    h = 0.1f + 0.1f * rough;
-                    open = 0.3f + 0.1f * rough;
-                    shade = joint * (0.85f + 0.3f * rough);
-                }
-                else
-                {
-                    float rise = MathF.Min(inside / bevel, 1f);
-                    rise = MathF.Sqrt(rise * (2f - rise));
-                    h = 0.25f + 0.75f * rise * (0.85f + 0.15f * rough);
-                    // The stone's own rounded edge hides some of the sky, until it's twice the bevel in from it.
-                    open = 0.6f + 0.4f * MathF.Min(inside / (2f * bevel), 1f);
-                    float tone = 0.8f + 0.4f * Noise.Hash(id, seed);
-                    shade = stone * tone * (0.88f + 0.24f * rough);
-                }
+                float rough = Noise.Tiled(x, y, size, 16f, look.Seed);
+                var (h, open, shade) = inside <= 0f ? Joint(rough, look) : Stone(id, inside, bevel, rough, look);
 
                 heights[y * size + x] = h;
                 byte value = (byte)MathF.Round(h * 255f);
@@ -134,6 +119,25 @@ public sealed class Masonry
             Normal = NormalMap(heights, size, depth / metresPerPixel),
             Occlusion = new GeneratedTexture(size, occlusionPixels),
         };
+    }
+
+    /// <summary>The height, the share of the sky seen and the colour of a point of mortar, <paramref name="rough"/> from 0 to 1.</summary>
+    private static (float Height, float Open, Vector3 Shade) Joint(float rough, StoneLook look) =>
+        (0.1f + 0.1f * rough, 0.3f + 0.1f * rough, look.Joint * (0.85f + 0.3f * rough));
+
+    /// <summary>
+    /// The height, the share of the sky seen and the colour of a point of stone <paramref name="id"/>,
+    /// <paramref name="inside"/> pixels in from its edge, which rounds over <paramref name="bevel"/> pixels.
+    /// </summary>
+    private static (float Height, float Open, Vector3 Shade) Stone(int id, float inside, float bevel, float rough, StoneLook look)
+    {
+        float rise = MathF.Min(inside / bevel, 1f);
+        rise = MathF.Sqrt(rise * (2f - rise));
+        float h = 0.25f + 0.75f * rise * (0.85f + 0.15f * rough);
+        // The stone's own rounded edge hides some of the sky, until it's twice the bevel in from it.
+        float open = 0.6f + 0.4f * MathF.Min(inside / (2f * bevel), 1f);
+        float tone = 0.8f + 0.4f * Noise.Hash(id, look.Seed);
+        return (h, open, look.Stone * tone * (0.88f + 0.24f * rough));
     }
 
     /// <summary>

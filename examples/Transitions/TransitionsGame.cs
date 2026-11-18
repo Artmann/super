@@ -1,6 +1,7 @@
 using System.Numerics;
 using Super;
 using Super.Ui;
+using static TransitionsExample.Stations;
 
 namespace TransitionsExample;
 
@@ -14,11 +15,6 @@ public sealed class TransitionsGame(Content content, Input input, Director direc
 {
     private static readonly Color Muted = new(0.8f, 0.82f, 0.86f);
     private static readonly Color Panel = new(0.06f, 0.07f, 0.09f, 0.72f);
-
-    // The stations' middles, left to right.
-    private static readonly Vector3 Warm = new(-7f, 0f, 0f);
-    private static readonly Vector3 Blue = new(0f, 0f, -3f);
-    private static readonly Vector3 Green = new(7f, 0f, 0f);
 
     /// <summary>Where the camera stands at each station during play.</summary>
     private static readonly Camera[] Spots =
@@ -108,10 +104,7 @@ public sealed class TransitionsGame(Content content, Input input, Director direc
         view.Lights.Shadows(16f, cascades: 2);
         view.Model(0, _floor, Matrix4x4.Identity);
 
-        float angle = float.Lerp(_previousAngle, _angle, view.Blend);
-        DrawWarm(view, angle);
-        DrawBlue(view, angle);
-        DrawGreen(view, angle);
+        Stations.Draw(view, float.Lerp(_previousAngle, _angle, view.Blend));
     }
 
     public UiView? Ui
@@ -182,41 +175,6 @@ public sealed class TransitionsGame(Content content, Input input, Director direc
             .Then(Shot.Hold(2f, Spots[0]))
             .At(21f, () => _caption = "Cut")
             .End(Transition.Fade(1f)));
-    }
-
-    private void DrawWarm(View view, float angle)
-    {
-        var at = Warm;
-        view.Model(10, ModelRef.Cube, Matrix4x4.CreateScale(1.2f) * Matrix4x4.CreateTranslation(at + new Vector3(-0.8f, 0.6f, 0f)), new Vector3(0.85f, 0.25f, 0.18f));
-        view.Model(11, ModelRef.Cube, Matrix4x4.CreateScale(0.8f) * Matrix4x4.CreateRotationY(0.4f) * Matrix4x4.CreateTranslation(at + new Vector3(-0.8f, 1.6f, 0f)), new Vector3(0.95f, 0.55f, 0.2f));
-        view.Model(12, ModelRef.Sphere, Matrix4x4.CreateTranslation(at + new Vector3(0.9f, 0.5f + MathF.Abs(MathF.Sin(angle * 3f)) * 1.2f, 0.4f)), new Vector3(0.95f, 0.75f, 0.3f));
-        view.Model(13, ModelRef.Cone, Matrix4x4.CreateTranslation(at + new Vector3(0.2f, 0.5f, -1.4f)), new Vector3(0.75f, 0.35f, 0.25f));
-    }
-
-    private void DrawBlue(View view, float angle)
-    {
-        var at = Blue;
-        view.Model(20, ModelRef.Cylinder, Matrix4x4.CreateScale(1.4f, 0.6f, 1.4f) * Matrix4x4.CreateTranslation(at + new Vector3(0f, 0.3f, 0f)), new Vector3(0.75f, 0.78f, 0.82f));
-        view.Model(21, ModelRef.Torus, Matrix4x4.CreateRotationX(MathF.PI / 2f) * Matrix4x4.CreateRotationY(angle) * Matrix4x4.CreateScale(1.3f) * Matrix4x4.CreateTranslation(at + new Vector3(0f, 1.45f, 0f)), new Vector3(0.2f, 0.4f, 0.9f));
-        for (int i = 0; i < 6; i++)
-        {
-            float around = i * MathF.Tau / 6f + angle * 0.5f;
-            var place = at + new Vector3(MathF.Sin(around) * 2.4f, 0.5f, MathF.Cos(around) * 2.4f);
-            view.Model(22 + i, ModelRef.Cone, Matrix4x4.CreateScale(0.6f, 1f, 0.6f) * Matrix4x4.CreateTranslation(place), new Vector3(0.3f, 0.55f, 0.85f));
-        }
-    }
-
-    private void DrawGreen(View view, float angle)
-    {
-        var at = Green;
-        ReadOnlySpan<float> heights = [0.8f, 1.6f, 2.4f, 1.2f];
-        for (int i = 0; i < heights.Length; i++)
-        {
-            var place = at + new Vector3(-1.2f + i * 0.8f, heights[i] / 2f, -0.6f + (i % 2) * 0.6f);
-            view.Model(30 + i, ModelRef.Cylinder, Matrix4x4.CreateScale(0.55f, heights[i], 0.55f) * Matrix4x4.CreateTranslation(place), new Vector3(0.25f, 0.6f + i * 0.08f, 0.3f));
-        }
-
-        view.Model(35, ModelRef.Capsule, Matrix4x4.CreateRotationZ(MathF.Sin(angle * 2f) * 0.3f) * Matrix4x4.CreateTranslation(at + new Vector3(1.6f, 1f, 1.2f)), new Vector3(0.6f, 0.85f, 0.35f));
     }
 
     /// <summary>Light and dark squares, <paramref name="square"/> pixels wide.</summary>

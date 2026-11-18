@@ -1,7 +1,6 @@
 using System.Numerics;
 using Rendition;
 using Super;
-using Super.Terrain;
 
 namespace Terrain;
 
@@ -30,30 +29,17 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
 {
     private const float FlyoverSeconds = 8f;
 
-    internal const int ChunkQuads = 32;
-    internal const float Spacing = 2f;
-    internal const float ChunkSize = ChunkQuads * Spacing;
-    internal const int LoadRadius = 4;
-    internal const int UnloadRadius = LoadRadius + 1;
+    internal const int ChunkQuads = TerrainChunks.ChunkQuads;
+    internal const float Spacing = Hills.Spacing;
+    internal const float ChunkSize = TerrainChunks.ChunkSize;
+    internal const int LoadRadius = TerrainChunks.LoadRadius;
+    internal const int UnloadRadius = TerrainChunks.UnloadRadius;
     private const float Speed = 24f;
     private const float TurnPerPixel = 0.0025f;
     private const float TurnPerSecond = 2.5f;
-    private const float UvPerMetre = 0.125f;
-    private const int SplatSize = 32;
-    private const int LayerSize = 64;
-    private const float SnowHeight = 26f;
-    private const float SnowFade = 6f;
-    private const float RockSteepness = 0.18f;
-    private const float RockFade = 0.12f;
 
-    private readonly Dictionary<(int X, int Z), Chunk> _chunks = [];
-    private readonly List<(int X, int Z)> _leaving = [];
-    private Heightfield _field = null!;
-    private Noise _ground = null!;
-    private Noise _moisture = null!;
-    private ShaderRef _shader;
-    private TextureArrayRef _colors;
-    private TextureArrayRef _normals;
+    private Hills _hills = null!;
+    private TerrainChunks _chunks = null!;
     private Vector3 _position;
     private Vector3 _previousPosition;
     private Road _road = null!;
@@ -66,10 +52,10 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
     internal Vector3 Position => _position;
 
     /// <summary>Which chunks are loaded right now, by chunk coordinates.</summary>
-    internal IReadOnlyCollection<(int X, int Z)> LoadedChunks => _chunks.Keys;
+    internal IReadOnlyCollection<(int X, int Z)> LoadedChunks => _chunks.Loaded;
 
     /// <summary>How high the ground is anywhere.</summary>
-    internal float GroundHeight(float x, float z) => _field.Height(x, z);
+    internal float GroundHeight(float x, float z) => _hills.Field.Height(x, z);
 
     /// <summary>The road round the start, and the cart on it.</summary>
     internal Road Road => _road;
@@ -87,47 +73,19 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
         actions.Bind(Control.Rise, Binding.Axis((Binding)Key.LeftShift, (Binding)Key.Space), Binding.Axis((Binding)GamepadTrigger.Left, (Binding)GamepadTrigger.Right));
         actions.Bind(Control.Flyover, Key.F, GamepadButton.North);
 
-        _ground = new Noise(random.Stream("ground"));
-        _moisture = new Noise(random.Stream("moisture"));
-        _field = new Heightfield(Height, Spacing);
-        _shader = content.Shader("terrain");
+        var ground = new Noise(random.Stream("ground"));
+        var moisture = new Noise(random.Stream("moisture"));
+        _hills = new Hills(ground);
+        var shader = content.Shader("terrain");
+        var layers = GroundLayers.Make(content, random.Stream("looks"));
+        _chunks = new TerrainChunks(content, _hills, moisture, shader, layers);
 
-        var looks = random.Stream("looks");
-        TextureRef[] colorLayers =
-        [
-            content.Texture(ColorLayer(looks, new Vector3(0.66f, 0.58f, 0.40f), 0.05f)),
-            content.Texture(ColorLayer(looks, new Vector3(0.28f, 0.46f, 0.17f), 0.08f)),
-            content.Texture(ColorLayer(looks, new Vector3(0.44f, 0.42f, 0.40f), 0.14f)),
-            content.Texture(ColorLayer(looks, new Vector3(0.93f, 0.95f, 0.98f), 0.02f)),
-        ];
-        TextureRef[] bumpLayers =
-        [
-            content.Texture(BumpLayer(looks, 0.015f, 3), TextureKind.Linear, normalMap: true),
-            content.Texture(BumpLayer(looks, 0.02f, 7), TextureKind.Linear, normalMap: true),
-            content.Texture(BumpLayer(looks, 0.12f, 2), TextureKind.Linear, normalMap: true),
-            content.Texture(BumpLayer(looks, 0.015f, 4), TextureKind.Linear, normalMap: true),
-        ];
-        _colors = content.TextureArray(colorLayers);
-        _normals = content.TextureArray(bumpLayers);
-
-        // The arrays keep their own copy of each layer, so the single textures need not
-        // take texture slots as well.
-        foreach (var layer in colorLayers)
-        {
-            content.Unload(layer);
-        }
-
-        foreach (var layer in bumpLayers)
-        {
-            content.Unload(layer);
-        }
-
-        _position = new Vector3(0f, Height(0f, 0f) + 14f, 0f);
+        _position = new Vector3(0f, _hills.Height(0f, 0f) + 14f, 0f);
         _previousPosition = _position;
         _previousYaw = _yaw;
         _previousPitch = _pitch;
-        _road = new Road(content, Height);
-        UpdateChunks();
+        _road = new Road(content, _hills.Height);
+        _chunks.Update(_position);
     }
 
     public void Update(GameTime time)
@@ -149,13 +107,13 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
         _position += step;
 
         // Stay a little above the ground even when diving.
-        float floor = Height(_position.X, _position.Z) + 2f;
+        float floor = _hills.Height(_position.X, _position.Z) + 2f;
         if (_position.Y < floor)
         {
             _position.Y = floor;
         }
 
-        UpdateChunks();
+        _chunks.Update(_position);
         _road.Update(time);
         if (actions.Pressed(Control.Flyover))
         {
@@ -172,21 +130,9 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
         view.Lights.Sun(new Vector3(0.5f, 0.8f, 0.3f), new Vector3(3.6f, 3.4f, 3.1f));
         view.Lights.Shadows(40f, 3);
         view.Effects.Finish(new PostSettings { Contrast = 0.08f, Saturation = 0.08f, Vignette = 0.25f });
-
-        // A chunk still being prepared on the loading thread is skipped rather than waited for.
-        foreach (var (key, chunk) in _chunks)
-        {
-            if (content.Models.IsReady(chunk.Model))
-            {
-                view.Model(DrawKey(key), chunk.Model, Matrix4x4.Identity);
-            }
-        }
-
+        _chunks.Draw(view);
         _road.Draw(view);
     }
-
-    /// <summary>Fourteen bits of each chunk coordinate, which keeps every key below the road's.</summary>
-    private static int DrawKey((int X, int Z) chunk) => ((chunk.X & 0x3FFF) << 14) | (chunk.Z & 0x3FFF);
 
     /// <summary>
     /// A rail for the flyover camera: it starts high and wide behind the cart, then swoops
@@ -211,175 +157,4 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
 
     private static Vector3 Forward(float yaw, float pitch) =>
         new(-MathF.Sin(yaw) * MathF.Cos(pitch), MathF.Sin(pitch), -MathF.Cos(yaw) * MathF.Cos(pitch));
-
-    private float Height(float x, float z)
-    {
-        float swell = 10f * MathF.Sin(x * 0.011f) * MathF.Cos(z * 0.009f);
-        float hills = (_ground.Layered(x * 0.0035f, z * 0.0035f, 5) - 0.45f) * 120f;
-        return swell + hills;
-    }
-
-    /// <summary>Loads chunks that came near the camera and unloads those it left well behind.</summary>
-    private void UpdateChunks()
-    {
-        int centerX = (int)MathF.Floor(_position.X / ChunkSize);
-        int centerZ = (int)MathF.Floor(_position.Z / ChunkSize);
-
-        foreach (var key in _chunks.Keys)
-        {
-            if (Math.Max(Math.Abs(key.X - centerX), Math.Abs(key.Z - centerZ)) > UnloadRadius)
-            {
-                _leaving.Add(key);
-            }
-        }
-
-        foreach (var key in _leaving)
-        {
-            var chunk = _chunks[key];
-            _chunks.Remove(key);
-            content.Models.Unload(chunk.Model);
-            content.Unload(chunk.Splat);
-        }
-
-        _leaving.Clear();
-
-        for (int z = centerZ - LoadRadius; z <= centerZ + LoadRadius; z++)
-        {
-            for (int x = centerX - LoadRadius; x <= centerX + LoadRadius; x++)
-            {
-                if (!_chunks.ContainsKey((x, z)))
-                {
-                    _chunks.Add((x, z), LoadChunk(x, z));
-                }
-            }
-        }
-    }
-
-    private Chunk LoadChunk(int chunkX, int chunkZ)
-    {
-        var splat = content.Texture(Splat(chunkX, chunkZ), TextureKind.Linear);
-        var surface = new Surface
-        {
-            Color = Vector3.One,
-            Roughness = 0.9f,
-            Shader = new SurfaceShader(_shader)
-            {
-                Parameters =
-                [
-                    new Vector4(SnowHeight, SnowFade, RockSteepness, RockFade),
-                    new Vector4(chunkX * ChunkSize, chunkZ * ChunkSize, 1f / ChunkSize, SplatSize),
-                ],
-                Textures = [splat],
-                Arrays = [_colors, _normals],
-            },
-        };
-        var model = content.Mesh(_field.Chunk(chunkX, chunkZ, ChunkQuads, surface, UvPerMetre));
-        return new Chunk(model, splat);
-    }
-
-    /// <summary>How grassy each spot of a chunk is: damp lowlands grow grass and dry ground stays sand.</summary>
-    private GeneratedTexture Splat(int chunkX, int chunkZ)
-    {
-        var pixels = new byte[SplatSize * SplatSize * 4];
-        for (int row = 0; row < SplatSize; row++)
-        {
-            for (int column = 0; column < SplatSize; column++)
-            {
-                // The edge texels sit on the chunk's edges, so neighbours agree there.
-                float x = (chunkX + column / (SplatSize - 1f)) * ChunkSize;
-                float z = (chunkZ + row / (SplatSize - 1f)) * ChunkSize;
-                float damp = _moisture.Layered(x * 0.01f, z * 0.01f, 3);
-                float low = 1f - Math.Clamp((Height(x, z) - 4f) / 14f, 0f, 1f);
-                float grassy = Math.Clamp((damp * 0.7f + low * 0.5f - 0.35f) * 3f, 0f, 1f);
-                int offset = (row * SplatSize + column) * 4;
-                pixels[offset] = (byte)(grassy * 255f);
-                pixels[offset + 1] = 0;
-                pixels[offset + 2] = 0;
-                pixels[offset + 3] = 255;
-            }
-        }
-
-        return new GeneratedTexture(SplatSize, pixels);
-    }
-
-    private static GeneratedTexture ColorLayer(RandomStream stream, Vector3 color, float grain)
-    {
-        var mottle = Tileable(stream, 4);
-        var pixels = new byte[LayerSize * LayerSize * 4];
-        for (int i = 0; i < LayerSize * LayerSize; i++)
-        {
-            float shade = (0.92f + mottle[i] * 0.16f) * (1f + stream.Between(-grain, grain));
-            pixels[i * 4] = Byte(color.X * shade);
-            pixels[i * 4 + 1] = Byte(color.Y * shade);
-            pixels[i * 4 + 2] = Byte(color.Z * shade);
-            pixels[i * 4 + 3] = 255;
-        }
-
-        return new GeneratedTexture(LayerSize, pixels);
-    }
-
-    /// <summary>A normal map of gentle random bumps, so each layer catches light its own way.</summary>
-    private static GeneratedTexture BumpLayer(RandomStream stream, float strength, int bumpsAcross)
-    {
-        var heights = Tileable(stream, bumpsAcross);
-        var pixels = new byte[LayerSize * LayerSize * 4];
-        for (int row = 0; row < LayerSize; row++)
-        {
-            for (int column = 0; column < LayerSize; column++)
-            {
-                float slopeX = heights[row * LayerSize + (column + 1) % LayerSize] - heights[row * LayerSize + (column + LayerSize - 1) % LayerSize];
-                float slopeY = heights[((row + 1) % LayerSize) * LayerSize + column] - heights[((row + LayerSize - 1) % LayerSize) * LayerSize + column];
-                var normal = Vector3.Normalize(new Vector3(-slopeX * strength * LayerSize, -slopeY * strength * LayerSize, 1f));
-                int offset = (row * LayerSize + column) * 4;
-                pixels[offset] = Byte(normal.X * 0.5f + 0.5f);
-                pixels[offset + 1] = Byte(normal.Y * 0.5f + 0.5f);
-                pixels[offset + 2] = Byte(normal.Z * 0.5f + 0.5f);
-                pixels[offset + 3] = 255;
-            }
-        }
-
-        return new GeneratedTexture(LayerSize, pixels);
-    }
-
-    /// <summary>
-    /// Smooth random values over the texture that wrap at its edges, so the tiles meet
-    /// without a seam. There are this many bumps across the texture.
-    /// </summary>
-    private static float[] Tileable(RandomStream stream, int cells)
-    {
-        var lattice = new float[cells * cells];
-        for (int i = 0; i < lattice.Length; i++)
-        {
-            lattice[i] = stream.Float();
-        }
-
-        var values = new float[LayerSize * LayerSize];
-        for (int row = 0; row < LayerSize; row++)
-        {
-            for (int column = 0; column < LayerSize; column++)
-            {
-                float x = column * cells / (float)LayerSize;
-                float y = row * cells / (float)LayerSize;
-                int cellX = (int)x;
-                int cellY = (int)y;
-                float fx = Smooth(x - cellX);
-                float fy = Smooth(y - cellY);
-                int nextX = (cellX + 1) % cells;
-                int nextY = (cellY + 1) % cells;
-                float top = Lerp(lattice[cellY * cells + cellX], lattice[cellY * cells + nextX], fx);
-                float bottom = Lerp(lattice[nextY * cells + cellX], lattice[nextY * cells + nextX], fx);
-                values[row * LayerSize + column] = Lerp(top, bottom, fy);
-            }
-        }
-
-        return values;
-    }
-
-    private static float Smooth(float t) => t * t * (3f - 2f * t);
-
-    private static float Lerp(float a, float b, float t) => a + (b - a) * t;
-
-    private static byte Byte(float value) => (byte)MathF.Round(Math.Clamp(value, 0f, 1f) * 255f);
-
-    private readonly record struct Chunk(ModelRef Model, TextureRef Splat);
 }
