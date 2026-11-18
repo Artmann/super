@@ -419,21 +419,19 @@ public class BakeIdentityTests
             ChunkModelIds("west", Matrix4x4.Identity, Matrix4x4.CreateTranslation(1.5f, 0f, 0f), bounds));
     }
 
-    private ulong[] ChunkModelIds(string name, Matrix4x4 chunk, Matrix4x4 transform, BakeSphere[] bounds)
-    {
-        var view = new View();
-        view.Begin(0f);
-        view.Indirect.BakedChunk(name, chunk, ChunkMin, ChunkMax);
-        view.Model(1, ModelRef.Cube, transform, new ModelOptions { Static = true });
-        return Dressed(view, Fresh(), bounds: bounds).Select(part => part.BakeId).ToArray();
-    }
+    private ulong[] ChunkModelIds(string name, Matrix4x4 chunk, Matrix4x4 transform, BakeSphere[] bounds) =>
+        Dressed(StaticCubeInChunk(name, chunk, transform), Fresh(), bounds: bounds).Select(part => part.BakeId).ToArray();
 
-    private ulong ChunkId(Matrix4x4 chunk, Matrix4x4 transform, string name = "cottage")
+    private ulong ChunkId(Matrix4x4 chunk, Matrix4x4 transform, string name = "cottage") =>
+        Assert.Single(Dressed(StaticCubeInChunk(name, chunk, transform), Fresh())).BakeId;
+
+    // A frame with one baked chunk and one static cube.
+    private static View StaticCubeInChunk(string name, Matrix4x4 chunk, Matrix4x4 transform)
     {
         var view = new View();
         view.Begin(0f);
         view.Indirect.BakedChunk(name, chunk, ChunkMin, ChunkMax);
         view.Model(1, ModelRef.Cube, transform, new ModelOptions { Static = true });
-        return Assert.Single(Dressed(view, Fresh())).BakeId;
+        return view;
     }
 }
