@@ -159,7 +159,7 @@ public sealed partial class Physics
 
     private static void CheckFinite(Vector3 value, string name)
     {
-        if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) || !float.IsFinite(value.Z))
+        if (!Numbers.IsFinite(value))
         {
             throw new ArgumentOutOfRangeException(name, value, $"The {name} must be finite.");
         }

@@ -106,7 +106,7 @@ public sealed partial class Physics : ITickHook, IDisposable
         get => _system.Gravity;
         set
         {
-            if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) || !float.IsFinite(value.Z))
+            if (!Numbers.IsFinite(value))
             {
                 throw new ArgumentOutOfRangeException(nameof(value), value, "Gravity must be finite.");
             }
@@ -135,7 +135,7 @@ public sealed partial class Physics : ITickHook, IDisposable
     public void Step(float seconds)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!(seconds >= 0f) || !float.IsFinite(seconds))
+        if (!Numbers.IsZeroOrMore(seconds))
         {
             throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "A step must be a finite number of seconds, 0 or more.");
         }
