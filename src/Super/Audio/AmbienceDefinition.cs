@@ -44,77 +44,85 @@ internal static class AmbienceReader
                 throw Mistake(path, "must hold one JSON object with layers and scattered.");
             }
 
-            string folder = FolderOf(path);
-            var layers = new List<Layer>();
-            if (root.TryGetProperty("layers", out JsonElement layerList))
-            {
-                int i = 0;
-                foreach (JsonElement layer in Items(path, layerList, "layers"))
-                {
-                    string place = $"layers[{i++}]";
-                    string file = RequireString(path, layer, "file", place);
-                    float volume = layer.TryGetProperty("volume", out JsonElement v) ? Number(path, v, $"{place}.volume") : 1f;
-                    if (volume < 0)
-                    {
-                        throw Mistake(path, $"{place}.volume is {Text(volume)}, but it can't be below 0.");
-                    }
-
-                    layers.Add(new Layer(Clip(path, folder, file, loadClip), volume));
-                }
-            }
-
-            var scattered = new List<Scattered>();
-            if (root.TryGetProperty("scattered", out JsonElement scatteredList))
-            {
-                int i = 0;
-                foreach (JsonElement entry in Items(path, scatteredList, "scattered"))
-                {
-                    string place = $"scattered[{i++}]";
-                    var clips = new List<SoundClip>();
-                    if (!entry.TryGetProperty("files", out JsonElement files))
-                    {
-                        throw Mistake(path, $"{place} has no files.");
-                    }
-
-                    foreach (JsonElement file in Items(path, files, $"{place}.files"))
-                    {
-                        if (file.ValueKind != JsonValueKind.String)
-                        {
-                            throw Mistake(path, $"{place}.files must hold file names.");
-                        }
-
-                        clips.Add(Clip(path, folder, file.GetString()!, loadClip));
-                    }
-
-                    if (clips.Count == 0)
-                    {
-                        throw Mistake(path, $"{place}.files is empty, so there is nothing to play.");
-                    }
-
-                    (float minSeconds, float maxSeconds) = Range(path, entry, "every", place, required: true);
-                    if (minSeconds <= 0)
-                    {
-                        throw Mistake(path, $"{place}.every starts at {Text(minSeconds)}, but it must be above 0.");
-                    }
-
-                    (float minVolume, float maxVolume) = Range(path, entry, "volume", place, required: false);
-                    if (minVolume < 0)
-                    {
-                        throw Mistake(path, $"{place}.volume starts at {Text(minVolume)}, but it can't be below 0.");
-                    }
-
-                    float pitch = entry.TryGetProperty("pitchVariation", out JsonElement p) ? Number(path, p, $"{place}.pitchVariation") : 0f;
-                    if (!(pitch >= 0 && pitch < 1))
-                    {
-                        throw Mistake(path, $"{place}.pitchVariation is {Text(pitch)}, but it must be from 0 up to, but not including, 1.");
-                    }
-
-                    scattered.Add(new Scattered([.. clips], minSeconds, maxSeconds, minVolume, maxVolume, pitch));
-                }
-            }
-
-            return new AmbienceDefinition([.. layers], [.. scattered]);
+            Func<string, SoundClip> clipAt = file => Clip(path, FolderOf(path), file, loadClip);
+            Layer[] layers = ReadList(path, root, "layers", (layer, place) => ReadLayer(path, layer, place, clipAt));
+            Scattered[] scattered = ReadList(path, root, "scattered", (entry, place) => ReadScattered(path, entry, place, clipAt));
+            return new AmbienceDefinition(layers, scattered);
         }
+    }
+
+    /// <summary>Reads each item of the optional list <paramref name="name"/>, naming it as name[index] in errors.</summary>
+    private static T[] ReadList<T>(string path, JsonElement root, string name, Func<JsonElement, string, T> read)
+    {
+        if (!root.TryGetProperty(name, out JsonElement list))
+        {
+            return [];
+        }
+
+        return [.. Items(path, list, name).Select((item, i) => read(item, $"{name}[{i}]"))];
+    }
+
+    private static Layer ReadLayer(string path, JsonElement layer, string place, Func<string, SoundClip> clipAt)
+    {
+        string file = RequireString(path, layer, "file", place);
+        float volume = layer.TryGetProperty("volume", out JsonElement v) ? Number(path, v, $"{place}.volume") : 1f;
+        if (volume < 0)
+        {
+            throw Mistake(path, $"{place}.volume is {Text(volume)}, but it can't be below 0.");
+        }
+
+        return new Layer(clipAt(file), volume);
+    }
+
+    private static Scattered ReadScattered(string path, JsonElement entry, string place, Func<string, SoundClip> clipAt)
+    {
+        SoundClip[] clips = ReadClips(path, entry, place, clipAt);
+
+        (float minSeconds, float maxSeconds) = Range(path, entry, "every", place, required: true);
+        if (minSeconds <= 0)
+        {
+            throw Mistake(path, $"{place}.every starts at {Text(minSeconds)}, but it must be above 0.");
+        }
+
+        (float minVolume, float maxVolume) = Range(path, entry, "volume", place, required: false);
+        if (minVolume < 0)
+        {
+            throw Mistake(path, $"{place}.volume starts at {Text(minVolume)}, but it can't be below 0.");
+        }
+
+        float pitch = entry.TryGetProperty("pitchVariation", out JsonElement p) ? Number(path, p, $"{place}.pitchVariation") : 0f;
+        if (!(pitch >= 0 && pitch < 1))
+        {
+            throw Mistake(path, $"{place}.pitchVariation is {Text(pitch)}, but it must be from 0 up to, but not including, 1.");
+        }
+
+        return new Scattered(clips, minSeconds, maxSeconds, minVolume, maxVolume, pitch);
+    }
+
+    private static SoundClip[] ReadClips(string path, JsonElement entry, string place, Func<string, SoundClip> clipAt)
+    {
+        if (!entry.TryGetProperty("files", out JsonElement files))
+        {
+            throw Mistake(path, $"{place} has no files.");
+        }
+
+        var clips = new List<SoundClip>();
+        foreach (JsonElement file in Items(path, files, $"{place}.files"))
+        {
+            if (file.ValueKind != JsonValueKind.String)
+            {
+                throw Mistake(path, $"{place}.files must hold file names.");
+            }
+
+            clips.Add(clipAt(file.GetString()!));
+        }
+
+        if (clips.Count == 0)
+        {
+            throw Mistake(path, $"{place}.files is empty, so there is nothing to play.");
+        }
+
+        return [.. clips];
     }
 
     private static (float Min, float Max) Range(string path, JsonElement entry, string name, string place, bool required)
