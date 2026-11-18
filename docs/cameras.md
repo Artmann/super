@@ -56,10 +56,10 @@ leave those clicks alone.
 
 ## Camera helpers
 
-Six helpers cover the usual kinds of game. They all work the same way: keep one in your
-game, step it once a tick in `Update`, and draw `At(view.Blend)` so it moves smoothly at
-any frame rate. `Current` is the camera as of the last tick, which is the one to pass to
-`input.Mouse.Ray`.
+Six helpers cover the usual kinds of game. They all work the same way, and share it
+through the `CameraRig` base class: keep one in your game, step it once a tick in
+`Update`, and draw `At(view.Blend)` so it moves smoothly at any frame rate. `Current` is
+the camera as of the last tick, which is the one to pass to `input.Mouse.Ray`.
 
 | Helper | For |
 | --- | --- |

@@ -194,10 +194,8 @@ public readonly record struct Ray(Vector3 Origin, Vector3 Direction)
 }
 
 /// <summary>Circles a target at a distance, for looking around something. Keep one in your game.</summary>
-public sealed class OrbitCamera
+public sealed class OrbitCamera : CameraRig
 {
-    private bool _placed;
-
     /// <summary>The angle around the target, in radians.</summary>
     public float Yaw { get; set; }
 
@@ -212,42 +210,25 @@ public sealed class OrbitCamera
 
     public float FieldOfView { get; set; } = MathF.PI / 4f;
 
-    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
-    public float WideAs { get; set; }
-
-    /// <summary>The camera on the tick before this one.</summary>
-    public Camera Previous { get; private set; }
-
-    public Camera Current { get; private set; }
-
-    /// <summary>Turns by these angles in radians, as in <c>orbit.Turn(input.MouseDelta * 0.005f)</c>.</summary>
+    /// <summary>Turns by these angles in radians, as in <c>orbit.Turn(input.Mouse.Delta * 0.005f)</c>.</summary>
     public void Turn(Vector2 angles)
     {
         Yaw -= angles.X;
         Pitch = Math.Clamp(Pitch + angles.Y, -CameraTurn.PitchLimit, CameraTurn.PitchLimit);
     }
 
-    /// <summary>Moves in by this many wheel notches, as in <c>orbit.Zoom(input.Scroll)</c>.</summary>
+    /// <summary>Moves in by this many wheel notches, as in <c>orbit.Zoom(input.Mouse.Scroll)</c>.</summary>
     public void Zoom(float notches) => Distance = Math.Clamp(Distance * MathF.Pow(CameraTurn.ZoomStep, notches), MinDistance, MaxDistance);
 
     /// <summary>Call once a tick, after turning and zooming.</summary>
-    public void Update(Vector3 target)
-    {
-        var next = new Camera(target + CameraTurn.Behind(Yaw, Pitch) * Distance, target, FieldOfView) { WideAs = WideAs };
-        Previous = _placed ? Current : next;
-        Current = next;
-        _placed = true;
-    }
-
-    /// <summary>The camera between the last two ticks, as in <c>view.Camera(orbit.At(view.Blend))</c>.</summary>
-    public Camera At(float blend) => Camera.Lerp(Previous, Current, blend);
+    public void Update(Vector3 target) =>
+        ShowNext(new Camera(target + CameraTurn.Behind(Yaw, Pitch) * Distance, target, FieldOfView));
 }
 
 /// <summary>Trails behind a target at a fixed offset, for following a character. Keep one in your game.</summary>
-public sealed class FollowCamera
+public sealed class FollowCamera : CameraRig
 {
     private Vector3 _target;
-    private bool _placed;
 
     /// <summary>Where the camera sits, from the target.</summary>
     public Vector3 Offset { get; set; } = new(0f, 5f, 8f);
@@ -257,27 +238,10 @@ public sealed class FollowCamera
 
     public float FieldOfView { get; set; } = MathF.PI / 4f;
 
-    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
-    public float WideAs { get; set; }
-
-    /// <summary>The camera on the tick before this one.</summary>
-    public Camera Previous { get; private set; }
-
-    public Camera Current { get; private set; }
-
     /// <summary>Call once a tick with where the target is now.</summary>
     public void Update(Vector3 target, float seconds)
     {
-        _target = _placed && Lag > 0f ? Vector3.Lerp(target, _target, MathF.Exp(-seconds / Lag)) : target;
-        var next = new Camera(_target + Offset, _target, FieldOfView) { WideAs = WideAs };
-        Previous = _placed ? Current : next;
-        Current = next;
-        _placed = true;
+        _target = IsPlaced && Lag > 0f ? Vector3.Lerp(target, _target, MathF.Exp(-seconds / Lag)) : target;
+        ShowNext(new Camera(_target + Offset, _target, FieldOfView));
     }
-
-    /// <summary>Skips the trailing on the next update, for when the target teleports.</summary>
-    public void Jump() => _placed = false;
-
-    /// <summary>The camera between the last two ticks, as in <c>view.Camera(follow.At(view.Blend))</c>.</summary>
-    public Camera At(float blend) => Camera.Lerp(Previous, Current, blend);
 }

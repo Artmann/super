@@ -12,8 +12,8 @@ public sealed class States<TState> : IStateMachine
     private static readonly EqualityComparer<TState> Same = EqualityComparer<TState>.Default;
 
     private readonly StateChanges _changes;
-    private readonly Dictionary<TState, List<Action>> _enter = [];
-    private readonly Dictionary<TState, List<Action>> _exit = [];
+    private readonly StateCallbacks<TState> _enter = new();
+    private readonly StateCallbacks<TState> _exit = new();
 
     // What the next change does, and the state it goes to. See "Lifecycle state in engine code" in docs/design.md.
     private Pending _pending = Pending.Start;
@@ -91,10 +91,10 @@ public sealed class States<TState> : IStateMachine
     }
 
     /// <summary>Adds something to run on entering a state. Use it to build what the state needs.</summary>
-    public void OnEnter(TState state, Action enter) => Add(_enter, state, enter);
+    public void OnEnter(TState state, Action enter) => _enter.Add(state, enter);
 
     /// <summary>Adds something to run on leaving a state, while everything in it is still there.</summary>
-    public void OnExit(TState state, Action exit) => Add(_exit, state, exit);
+    public void OnExit(TState state, Action exit) => _exit.Add(state, exit);
 
     void IStateMachine.Change(IStateHook[] hooks)
     {
@@ -127,7 +127,7 @@ public sealed class States<TState> : IStateMachine
 
     private void Exit(IStateHook[] hooks)
     {
-        Run(_exit, Current);
+        _exit.Run(Current);
         foreach (var hook in hooks)
         {
             hook.Exited(Current);
@@ -139,27 +139,35 @@ public sealed class States<TState> : IStateMachine
     private void Enter(TState state, IStateHook[] hooks)
     {
         Current = state;
-        Run(_enter, state);
+        _enter.Run(state);
         foreach (var hook in hooks)
         {
             hook.Entered();
         }
     }
+}
 
-    private static void Add(Dictionary<TState, List<Action>> callbacks, TState state, Action callback)
+/// <summary>The callbacks a state machine runs for each state on one side of a change: on entering, or on leaving.</summary>
+internal sealed class StateCallbacks<TState>
+    where TState : struct, Enum
+{
+    private readonly Dictionary<TState, List<Action>> _callbacks = [];
+
+    public void Add(TState state, Action callback)
     {
-        if (!callbacks.TryGetValue(state, out var list))
+        if (!_callbacks.TryGetValue(state, out var list))
         {
             list = [];
-            callbacks[state] = list;
+            _callbacks[state] = list;
         }
 
         list.Add(callback);
     }
 
-    private static void Run(Dictionary<TState, List<Action>> callbacks, TState state)
+    /// <summary>Runs the state's callbacks in the order they were added, including any added while running.</summary>
+    public void Run(TState state)
     {
-        if (!callbacks.TryGetValue(state, out var list))
+        if (!_callbacks.TryGetValue(state, out var list))
         {
             return;
         }

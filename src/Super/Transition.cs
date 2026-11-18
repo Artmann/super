@@ -138,30 +138,6 @@ public sealed class Transition
         return Ease.Apply(Easing, through);
     }
 
-    internal Rendition.TransitionStyle Style => Kind switch
-    {
-        TransitionKind.Fade => Rendition.TransitionStyle.Fade,
-        TransitionKind.Dissolve => Rendition.TransitionStyle.Dissolve,
-        TransitionKind.Wipe => Rendition.TransitionStyle.Wipe,
-        TransitionKind.Iris => Rendition.TransitionStyle.Iris,
-        _ => Rendition.TransitionStyle.None,
-    };
-
-    /// <summary>Which way the wipe travels on screen, with y down.</summary>
-    internal Vector2 DirectionVector => Direction switch
-    {
-        WipeDirection.Left => -Vector2.UnitX,
-        WipeDirection.Down => Vector2.UnitY,
-        WipeDirection.Up => -Vector2.UnitY,
-        _ => Vector2.UnitX,
-    };
-
-    /// <summary>The fade's colour as light, which is what the screen mixes in.</summary>
-    internal Vector3 LinearColor => new(ToLinear(Color.R), ToLinear(Color.G), ToLinear(Color.B));
-
-    private static float ToLinear(float srgb) =>
-        srgb <= 0.04045f ? srgb / 12.92f : MathF.Pow((srgb + 0.055f) / 1.055f, 2.4f);
-
     private static void CheckSoftness(float softness)
     {
         if (!(softness >= 0f) || !float.IsFinite(softness))
