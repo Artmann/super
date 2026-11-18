@@ -193,7 +193,6 @@ sealed class ToGradientNode(Node input, float angle) : Node(1, input)
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
     {
         var size = context.Size;
-        var count = size * size;
         var islands = inputs[0];
         var radians = angle * (MathF.PI / 180f);
 
@@ -201,25 +200,66 @@ sealed class ToGradientNode(Node input, float angle) : Node(1, input)
         var dx = DMath.Cos(radians);
         var dy = -DMath.Sin(radians);
 
-        // Each island is walked from its first pixel in row order, counting steps across the edges as steps, so a
-        // pixel's place is measured from that start and an island over an edge is one unbroken box. Serial, and in a
-        // fixed order, so the result never depends on the thread count.
-        var placeX = new int[count];
-        var placeY = new int[count];
-        var seen = new bool[count];
-        var queue = new int[count];
-        var low = new List<(int X, int Y)>();
-        var high = new List<(int X, int Y)>();
+        var places = IslandPlaces.Walk(islands, size);
 
-        for (var start = 0; start < count; start++)
+        context.Rows(y =>
         {
-            var number = (int)islands[start];
-
-            if (number < 0 || seen[start])
+            for (var i = y * size; i < (y + 1) * size; i++)
             {
-                continue;
+                output[i] = places.Along(i, (int)islands[i], dx, dy);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Each pixel's place in its island, and each island's box around those places. Each island is walked from its
+    /// first pixel in row order, counting steps across the edges as steps, so a pixel's place is measured from that
+    /// start and an island over an edge is one unbroken box. Serial, and in a fixed order, so the result never depends
+    /// on the thread count.
+    /// </summary>
+    sealed class IslandPlaces
+    {
+        // The four steps to a pixel's neighbours: right, left, down and up.
+        static readonly int[] StepX = [1, -1, 0, 0];
+        static readonly int[] StepY = [0, 0, 1, -1];
+
+        readonly int[] placeX;
+        readonly int[] placeY;
+        readonly List<(int X, int Y)> low = [];
+        readonly List<(int X, int Y)> high = [];
+
+        IslandPlaces(int count)
+        {
+            placeX = new int[count];
+            placeY = new int[count];
+        }
+
+        public static IslandPlaces Walk(float[] islands, int size)
+        {
+            var count = size * size;
+            var places = new IslandPlaces(count);
+            var seen = new bool[count];
+            var queue = new int[count];
+
+            for (var start = 0; start < count; start++)
+            {
+                if ((int)islands[start] < 0 || seen[start])
+                {
+                    continue;
+                }
+
+                // Island numbers count up in order of first pixel, which is the order walked here.
+                var box = places.WalkIsland(start, islands, size, seen, queue);
+                places.low.Add((box.MinX, box.MinY));
+                places.high.Add((box.MaxX, box.MaxY));
             }
 
+            return places;
+        }
+
+        (int MinX, int MinY, int MaxX, int MaxY) WalkIsland(int start, float[] islands, int size, bool[] seen, int[] queue)
+        {
+            var number = (int)islands[start];
             var box = (MinX: 0, MinY: 0, MaxX: 0, MaxY: 0);
             var head = 0;
             var tail = 0;
@@ -237,9 +277,7 @@ sealed class ToGradientNode(Node input, float angle) : Node(1, input)
 
                 for (var step = 0; step < 4; step++)
                 {
-                    var sx = step == 0 ? 1 : step == 1 ? -1 : 0;
-                    var sy = step == 2 ? 1 : step == 3 ? -1 : 0;
-                    var next = Sampling.Wrap(y + sy, size) * size + Sampling.Wrap(x + sx, size);
+                    var next = Sampling.Wrap(y + StepY[step], size) * size + Sampling.Wrap(x + StepX[step], size);
 
                     if (seen[next] || (int)islands[next] != number)
                     {
@@ -247,46 +285,36 @@ sealed class ToGradientNode(Node input, float angle) : Node(1, input)
                     }
 
                     seen[next] = true;
-                    placeX[next] = placeX[at] + sx;
-                    placeY[next] = placeY[at] + sy;
+                    placeX[next] = placeX[at] + StepX[step];
+                    placeY[next] = placeY[at] + StepY[step];
                     queue[tail++] = next;
                 }
             }
 
-            // Island numbers count up in order of first pixel, which is the order walked here.
-            low.Add((box.MinX, box.MinY));
-            high.Add((box.MaxX, box.MaxY));
+            return box;
         }
 
-        context.Rows(y =>
+        /// <summary>How far pixel <paramref name="i"/> lies along the direction across its island's box, from 0 to 1. Background is 0.</summary>
+        public float Along(int i, int number, float dx, float dy)
         {
-            for (var i = y * size; i < (y + 1) * size; i++)
+            if (number < 0)
             {
-                var number = (int)islands[i];
-
-                if (number < 0)
-                {
-                    output[i] = 0f;
-
-                    continue;
-                }
-
-                var width = high[number].X - low[number].X;
-                var height = high[number].Y - low[number].Y;
-                var smallest = MathF.Min(0f, dx * width) + MathF.Min(0f, dy * height);
-                var range = MathF.Abs(dx) * width + MathF.Abs(dy) * height;
-
-                if (!(range > 0f))
-                {
-                    output[i] = 0f;
-
-                    continue;
-                }
-
-                var along = dx * (placeX[i] - low[number].X) + dy * (placeY[i] - low[number].Y);
-
-                output[i] = Math.Clamp((along - smallest) / range, 0f, 1f);
+                return 0f;
             }
-        });
+
+            var width = high[number].X - low[number].X;
+            var height = high[number].Y - low[number].Y;
+            var smallest = MathF.Min(0f, dx * width) + MathF.Min(0f, dy * height);
+            var range = MathF.Abs(dx) * width + MathF.Abs(dy) * height;
+
+            if (!(range > 0f))
+            {
+                return 0f;
+            }
+
+            var along = dx * (placeX[i] - low[number].X) + dy * (placeY[i] - low[number].Y);
+
+            return Math.Clamp((along - smallest) / range, 0f, 1f);
+        }
     }
 }

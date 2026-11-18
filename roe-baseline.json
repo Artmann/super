@@ -627,12 +627,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Materials.ToGradientNode.Evaluate",
-      "file": "src/Super.Materials/FloodFill.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.OpenAlSpeakers.Open",
       "file": "src/Super/Audio/DeviceOutput.cs",
       "metric": 12
@@ -1170,12 +1164,6 @@
       "name": "Super.Materials.SplatterNode.Evaluate",
       "file": "src/Super.Materials/Transform.cs",
       "metric": 20
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.ToGradientNode.Evaluate",
-      "file": "src/Super.Materials/FloodFill.cs",
-      "metric": 40
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2496,12 +2484,6 @@
       "name": "Super.Materials.SplatterNode.Evaluate",
       "file": "src/Super.Materials/Transform.cs",
       "metric": 64
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.ToGradientNode.Evaluate",
-      "file": "src/Super.Materials/FloodFill.cs",
-      "metric": 98
     },
     {
       "kind": "long-method",
