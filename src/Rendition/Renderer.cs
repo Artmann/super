@@ -55,12 +55,10 @@ public sealed unsafe class Renderer : IDisposable
     private readonly TraceScene? _traceScene;
     private readonly TraceDebugPass? _traceDebugPass;
 
-    // Whether this frame shows the trace debug view, which leaves out what would change its colours.
-    private bool _traceView;
     private readonly ProbeDebugPass _probeDebugPass;
 
-    // Whether this frame shows the probe debug view: the lit scene with a sphere at every light probe.
-    private bool _probeView;
+    // What this frame leaves out, and the debug view it shows.
+    private readonly FrameSwitches _switches = new();
     private readonly EnvironmentSky _sky;
     private readonly ReflectionProbes _probes;
 
@@ -97,7 +95,7 @@ public sealed unsafe class Renderer : IDisposable
     // The camera's view as SelectDraws made it, which decides whose depth the G-buffer pass draws first.
     private DetailView _cameraView;
 
-    private DetailView? DepthFirstView => _off.HasFlag(RenderEffects.DepthFirst) ? null : _cameraView;
+    private DetailView? DepthFirstView => _switches.Off.HasFlag(RenderEffects.DepthFirst) ? null : _cameraView;
     private readonly TransparentPass _transparentPass;
     private readonly ParticlePass _particlePass;
     private readonly DecalPass _decalPass;
@@ -140,14 +138,6 @@ public sealed unsafe class Renderer : IDisposable
     private float _previousTime;
     private readonly MotionHistory _motion = new();
 
-    // The effects this frame leaves out, and whether tonemapping and bloom are bound to the
-    // anti-aliased image or, with anti-aliasing left out, straight to the lit one.
-    private RenderEffects _off;
-
-    /// <summary>What the trace debug view leaves out, so its colours reach the screen as they were traced.</summary>
-    private const RenderEffects TraceViewOff =
-        RenderEffects.AntiAliasing | RenderEffects.Bloom | RenderEffects.DepthOfField | RenderEffects.AutoExposure;
-
     /// <summary>OFF_DEBUG_VIEW in common.glsl: tonemapping and the finish pass pass colours through untouched.</summary>
     private const int DebugViewBit = 1 << 30;
 
@@ -160,9 +150,8 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The effects the shaders read through <c>frame.off</c>, an <c>int</c>. The renderer leaves out the rest itself.</summary>
     private const RenderEffects ShadedEffects = (RenderEffects)0xFFFF_FFFFL;
 
-    // How far the frame's wind can move each material's vertices, which culling adds to the bounds.
-    private WindReach _windReach;
-    private FadeRules _fadeRules;
+    // Whether tonemapping and bloom are bound to the anti-aliased image or, with anti-aliasing left out, straight to
+    // the lit one.
     private bool _readsAntiAliased = true;
 
     // The upscaler asked for, the one it comes to once FSR's library is looked for, and whether FSR draws the
@@ -1168,7 +1157,7 @@ public sealed unsafe class Renderer : IDisposable
     private void ManageProbeStorage()
     {
         bool atlasesChanged;
-        if (_off.HasFlag(RenderEffects.LightProbes) || !LightProbes.Volume.Supported)
+        if (_switches.Off.HasFlag(RenderEffects.LightProbes) || !LightProbes.Volume.Supported)
         {
             atlasesChanged = LightProbes.Release();
             LightProbes.InUse = false;
@@ -1190,8 +1179,8 @@ public sealed unsafe class Renderer : IDisposable
     /// are, and plans the probes' sun shadow map. Returns how many instances the work will draw.
     /// </summary>
     private int PlanProbes(in FrameView view, ReadOnlySpan<DrawItem> draws) =>
-        LightProbes.Plan(view, draws, DrawnLocalLights(view),
-            new ProbePlanInputs(ProbeLightingKey(view, _sky.Version, _off), ShadowSun(view), _frameNumber));
+        LightProbes.Plan(view, draws, _switches.DrawnLocalLights(view),
+            new ProbePlanInputs(ProbeLightingKey(view, _sky.Version, _switches.Off), _switches.ShadowSun(view), _frameNumber));
 
     /// <summary>
     /// Takes the reflection probe at the front of the line for this frame's capture, when there is one and reflections
@@ -1207,7 +1196,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _reflectionCaptureSlot = -1;
-        if (_off.HasFlag(RenderEffects.Reflections) || !_reflectionCapture.Supported
+        if (_switches.Off.HasFlag(RenderEffects.Reflections) || !_reflectionCapture.Supported
             || !_probes.TakeNext(out int slot, out var probe))
         {
             return 0;
@@ -1215,29 +1204,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _reflectionCaptureSlot = slot;
         _reflectionCaptureProbe = probe;
-        return _reflectionCapture.Plan(draws, probe, view, ShadowSun(view), _frameNumber);
-    }
-
-    /// <summary>
-    /// The direction towards the sun that casts this frame's shadow, or null when none does or sun shadows are off.
-    /// </summary>
-    private Vector3? ShadowSun(in FrameView view)
-    {
-        if (view.Shadows.Radius <= 0f || _off.HasFlag(RenderEffects.SunShadows))
-        {
-            return null;
-        }
-
-        int lights = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
-        for (int i = 0; i < lights; i++)
-        {
-            if (view.Lights[i].CastsShadow)
-            {
-                return view.Lights[i].Direction;
-            }
-        }
-
-        return null;
+        return _reflectionCapture.Plan(draws, probe, view, _switches.ShadowSun(view), _frameNumber);
     }
 
     /// <summary>
@@ -1496,10 +1463,10 @@ public sealed unsafe class Renderer : IDisposable
             return; // Minimized: there is nothing to present to.
         }
 
-        var viewOff = DebugViewOff(view);
+        var viewOff = _switches.TakeDebugView(view, _tracing is not null, _context.Abilities.NoTraceReason);
         KeepTargets(view, viewOff);
         TakeEffects(view, viewOff);
-        bool antiAliased = !_off.HasFlag(RenderEffects.AntiAliasing);
+        bool antiAliased = !_switches.Off.HasFlag(RenderEffects.AntiAliasing);
         KeepDisplaySource(antiAliased);
 
         CheckDraws(view, draws);
@@ -1526,25 +1493,6 @@ public sealed unsafe class Renderer : IDisposable
         Submit(frame, cmd, renderFinished);
         Present(view, imageIndex, renderFinished);
         _ring.MoveToNextSlot();
-    }
-
-    /// <summary>
-    /// Takes the view's debug view, and throws when it is the trace view on a GPU that can't trace. Returns the effects
-    /// the view leaves out: the trace debug view shows colours as they are, so nothing that blends, blurs or brightens
-    /// them runs.
-    /// </summary>
-    private RenderEffects DebugViewOff(in FrameView view)
-    {
-        bool traceView = view.Picture.DebugView == DebugView.Trace;
-        if (traceView && _tracing is null)
-        {
-            throw new InvalidOperationException(
-                $"The trace debug view needs a GPU that can trace rays, and this one can't ({_context.Abilities.NoTraceReason}).");
-        }
-
-        _traceView = traceView;
-        _probeView = view.Picture.DebugView == DebugView.Probes;
-        return _traceView ? view.Off | TraceViewOff : view.Off;
     }
 
     /// <summary>
@@ -1603,12 +1551,9 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void TakeEffects(in FrameView view, RenderEffects viewOff)
     {
-        // Metering is left out of the shaders unless the view asked for it, so the fixed exposure stays as it was.
-        _off = Exposure.ShaderOff(view.Picture.Post, viewOff & RenderEffects.All);
-        _windReach = new WindReach(Wind.Strength(view.Weather.Wind, _off), _resources.Materials.SwayOf);
-        _fadeRules = new FadeRules(view.CameraPosition, !_off.HasFlag(RenderEffects.Fades), _resources.Materials.FadeOf);
+        _switches.Take(view, viewOff, _resources.Materials);
         KeepVolumetricTargets(view);
-        _depthOfField = DepthOfFieldConstants.For(view.Picture.Post, _off, (int)_gBuffer.Extent.Width);
+        _depthOfField = DepthOfFieldConstants.For(view.Picture.Post, _switches.Off, (int)_gBuffer.Extent.Width);
     }
 
     /// <summary>Points bloom, tonemapping, the meter and depth of field at the anti-aliased image or the lit one.</summary>
@@ -1769,7 +1714,7 @@ public sealed unsafe class Renderer : IDisposable
             _casterBounds = new Vector4[draws.Length * 2];
         }
 
-        int casters = DrawSelection.Bounds(draws, _meshStore.DetailSlots, _casterBounds, _windReach);
+        int casters = DrawSelection.Bounds(draws, _meshStore.DetailSlots, _casterBounds, _switches.WindReach);
         bool castsShadow = WriteUniforms(frame, view, camera.Previous, camera.Shift, _casterBounds.AsSpan(0, casters));
         _uniformFrame = _ring.Index;
         FrameSlots.WriteBones(frame, view.Bones);
@@ -1831,7 +1776,7 @@ public sealed unsafe class Renderer : IDisposable
         // One top-level structure a frame, shared by the trace debug view and the traced probe updates, made only on
         // a frame that traces something.
         TopLevelStructure? traced = null;
-        if (_traceView || LightProbes.TracesBatch)
+        if (_switches.TraceView || LightProbes.TracesBatch)
         {
             // After the uploads, so a mesh made this frame is traced this frame. From here until the submit below,
             // nothing may destroy or change a material: see RayTracing.TopLevel.
@@ -1854,7 +1799,7 @@ public sealed unsafe class Renderer : IDisposable
 
         // Worked out here, just before the frame is recorded, so a frame that is never drawn doesn't move the clock.
         _exposureStep = _exposureClock.Next(
-            !_off.HasFlag(RenderEffects.AutoExposure), view.Time, Exposure.Speed(view.Picture.Post.AdaptationSpeed));
+            !_switches.Off.HasFlag(RenderEffects.AutoExposure), view.Time, Exposure.Speed(view.Picture.Post.AdaptationSpeed));
         RecordFrame(cmd, frame.Set, imageIndex, new FrameDraws(draws.Camera, draws.Scene, traced), overlayQuads);
         _gpuTimer.End(cmd);
         _api.EndCommandBuffer(cmd).Check();
@@ -1924,15 +1869,6 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
-    /// <summary>
-    /// How many pixels a simpler model may stray by in a view that allows <paramref name="error"/> at a mesh detail of 1,
-    /// or 0, full detail, with <see cref="RenderEffects.SimplerModels"/> off.
-    /// </summary>
-    private float DetailError(float error) => _off.HasFlag(RenderEffects.SimplerModels) ? 0f : error / MeshDetailScale;
-
-    /// <summary>Whether views leave out what they can't see, which <see cref="RenderEffects.Culling"/> off stops.</summary>
-    private bool Culls => !_off.HasFlag(RenderEffects.Culling);
-
     /// <summary>Leaves out what each pass can't see, and swaps in simpler models where nobody will notice.</summary>
     private (int Camera, int Shadows) SelectDraws(
         in FrameView view, in Matrix4x4 viewProjection, ReadOnlySpan<DrawItem> draws, bool castsShadow)
@@ -1948,7 +1884,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, (int)_gBuffer.Extent.Height);
-        var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, DetailError(CameraDetailError), cull: Culls);
+        var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, _switches.DetailError(CameraDetailError, MeshDetailScale), cull: _switches.Culls);
         _cameraView = camera;
         int cameraCount = SelectCameraDraws(camera, draws);
         int shadowCount = 0;
@@ -1973,7 +1909,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         if (!_frameBakes.Relight.Active)
         {
-            return DrawSelection.Select(camera, draws, _meshStore.DetailSlots, _cameraDraws, _windReach, fades: _fadeRules);
+            return DrawSelection.Select(camera, draws, _meshStore.DetailSlots, _cameraDraws, _switches.WindReach, fades: _switches.FadeRules);
         }
 
         if (_cameraSources.Length < _cameraDraws.Length)
@@ -1982,7 +1918,7 @@ public sealed unsafe class Renderer : IDisposable
             _cameraChunks = new int[_cameraDraws.Length];
         }
 
-        int cameraCount = DrawSelection.Select(camera, draws, _meshStore.DetailSlots, _cameraDraws, _windReach, _cameraSources, _fadeRules);
+        int cameraCount = DrawSelection.Select(camera, draws, _meshStore.DetailSlots, _cameraDraws, _switches.WindReach, _cameraSources, _switches.FadeRules);
         for (int i = 0; i < cameraCount; i++)
         {
             _cameraChunks[i] = _frameBakes.Relight.DrawChunks[_cameraSources[i]];
@@ -1999,8 +1935,8 @@ public sealed unsafe class Renderer : IDisposable
         {
             float texelsPerUnit = _shadowPass.Resolution / (2f * ShadowCascades.CascadeRadius(view.Shadows, cascade));
             var shadow = new DetailView(
-                _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, DetailError(ShadowDetailError), cull: Culls);
-            _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _meshStore.DetailSlots, _shadowDraws[cascade], _windReach, fades: _fadeRules);
+                _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, _switches.DetailError(ShadowDetailError, MeshDetailScale), cull: _switches.Culls);
+            _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _meshStore.DetailSlots, _shadowDraws[cascade], _switches.WindReach, fades: _switches.FadeRules);
             shadowCount += _shadowCounts[cascade];
         }
 
@@ -2025,7 +1961,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void PrepareDecals(in FrameView view)
     {
-        ReadOnlySpan<DecalDraw> decals = _off.HasFlag(RenderEffects.Decals) ? [] : view.Extras.Decals;
+        ReadOnlySpan<DecalDraw> decals = _switches.Off.HasFlag(RenderEffects.Decals) ? [] : view.Extras.Decals;
         for (int i = 0; i < decals.Length; i++)
         {
             if (!_resources.Materials.IsLive(decals[i].Material))
@@ -2054,7 +1990,7 @@ public sealed unsafe class Renderer : IDisposable
             Up = new Vector4(up, 0f),
             Forward = new Vector4(forward, 0f),
         };
-        ReadOnlySpan<Particle> particles = _off.HasFlag(RenderEffects.Particles) ? [] : view.Extras.Particles;
+        ReadOnlySpan<Particle> particles = _switches.Off.HasFlag(RenderEffects.Particles) ? [] : view.Extras.Particles;
         _particleCount = _particlePass.Upload(_ring.Index, particles, view.CameraPosition, forward);
         _transparentView = TransparentView.From(view.View, view.Projection);
     }
@@ -2079,8 +2015,8 @@ public sealed unsafe class Renderer : IDisposable
 
             ref readonly var view = ref tiles[tile];
             var shadow = new DetailView(
-                view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, DetailError(ShadowDetailError), far: true, cull: Culls);
-            int count = DrawSelection.Select(shadow, draws, _meshStore.DetailSlots, _tileDraws.AsSpan(total), _windReach, fades: _fadeRules);
+                view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, _switches.DetailError(ShadowDetailError, MeshDetailScale), far: true, cull: _switches.Culls);
+            int count = DrawSelection.Select(shadow, draws, _meshStore.DetailSlots, _tileDraws.AsSpan(total), _switches.WindReach, fades: _switches.FadeRules);
             _tileRanges[tile] = (total, count);
             total += count;
         }
@@ -2244,8 +2180,8 @@ public sealed unsafe class Renderer : IDisposable
             _taaPass.Record(cmd, targets.Picture.Resolved.View, targets.Extent, taaSets);
             RecordHistoryCopy(cmd, targets.Picture.Resolved.Image, drawnJustNow: true);
         }
-        else if (!_off.HasFlag(RenderEffects.Reflections)
-            || (_off & (RenderEffects.AmbientOcclusion | RenderEffects.ScreenBounce)) == 0)
+        else if (!_switches.Off.HasFlag(RenderEffects.Reflections)
+            || (_switches.Off & (RenderEffects.AmbientOcclusion | RenderEffects.ScreenBounce)) == 0)
         {
             RecordHistoryCopy(cmd, targets.Hdr.Image, drawnJustNow: false);
         }
@@ -2271,7 +2207,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _gpuTimer.Mark(cmd);
 
-        if (_off.HasFlag(RenderEffects.Bloom))
+        if (_switches.Off.HasFlag(RenderEffects.Bloom))
         {
             _bloomPass.RecordSkipped(cmd);
         }
@@ -2414,16 +2350,16 @@ public sealed unsafe class Renderer : IDisposable
         RecordGBuffer(cmd, targets, frameSet, draws.Camera, instances);
         _gpuTimer.Mark(cmd);
 
-        _occlusion.Record(cmd, targets, frameSet, _off, _gpuTimer);
+        _occlusion.Record(cmd, targets, frameSet, _switches.Off, _gpuTimer);
 
-        if (_traceView && draws.Traced is { } scene)
+        if (_switches.TraceView && draws.Traced is { } scene)
         {
             RecordTraceView(cmd, targets, frameSet, scene);
             return;
         }
 
-        _lighting.RecordReflections(cmd, targets, frameSet, _off, _gpuTimer);
-        _lighting.RecordLighting(cmd, targets, frameSet, _off, _gpuTimer);
+        _lighting.RecordReflections(cmd, targets, frameSet, _switches.Off, _gpuTimer);
+        _lighting.RecordLighting(cmd, targets, frameSet, _switches.Off, _gpuTimer);
         RecordTransparent(cmd, targets, frameSet, draws.Camera, instances);
     }
 
@@ -2612,10 +2548,10 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
             AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
         _transparentPass.Record(cmd, targets, new SceneGeometry(draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances),
-            new TransparentFrame(frameSet, _transparentView, _windReach), new ParticleDraws(_particlePass, _ring.Index, _particleCount, _particleCamera));
+            new TransparentFrame(frameSet, _transparentView, _switches.WindReach), new ParticleDraws(_particlePass, _ring.Index, _particleCount, _particleCamera));
 
         // With the probes off there are no spheres, and no atlases to read.
-        if (_probeView && LightProbes.InUse)
+        if (_switches.ProbeView && LightProbes.InUse)
         {
             uint spheres = (uint)LightProbes.Batch.Cascades.Layout(0).Total;
             if (LightProbes.Batch.Grid is { } grid)
@@ -2779,10 +2715,10 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->CountBlock.Time = view.Time;
         uniforms->CountBlock.PreviousTime = historyValid ? _previousTime : view.Time;
         bool castsShadow = WriteSuns(uniforms, view, casters);
-        uniforms->CountBlock.Off = unchecked((int)(_off & ShadedEffects & ~RenderEffects.DepthFirst))
-            | (_off.HasFlag(RenderEffects.Fades) ? FadesOffBit : 0)
-            | (_traceView ? DebugViewBit : 0);
-        uniforms->CountBlock.MipBias = _off.HasFlag(RenderEffects.AntiAliasing) ? 0f
+        uniforms->CountBlock.Off = unchecked((int)(_switches.Off & ShadedEffects & ~RenderEffects.DepthFirst))
+            | (_switches.Off.HasFlag(RenderEffects.Fades) ? FadesOffBit : 0)
+            | (_switches.TraceView ? DebugViewBit : 0);
+        uniforms->CountBlock.MipBias = _switches.Off.HasFlag(RenderEffects.AntiAliasing) ? 0f
             : _upscaling ? FsrMipBias(_gBuffer.Extent.Width, _gBuffer.Picture.Display.Width)
             : TemporalMipBias;
         _sunShadowsDrawn = castsShadow;
@@ -2813,19 +2749,19 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The picture's grade and the view's haze, occlusion, outlines, fog, puddles and wind.</summary>
     private void WriteEffects(FrameUniforms* uniforms, in FrameView view, Vector2 shift, bool historyValid)
     {
-        var post = PostGrade.Without(view.Picture.Post, _off);
+        var post = PostGrade.Without(view.Picture.Post, _switches.Off);
         uniforms->GradeBlock.Grade= new Vector4(MathF.Pow(2f, post.Exposure), 1f + post.Contrast, 1f + post.Saturation, post.Vignette);
         uniforms->GradeBlock.Finish = new Vector4(post.Sharpen, post.Grain, shift.X, shift.Y);
         (uniforms->GradeBlock.Lift, uniforms->GradeBlock.Gain) = PostGrade.Tint(post);
         uniforms->ToneBlock.WhiteBalance = PostGrade.WhiteBalance(post.Temperature, post.Tint);
         uniforms->ToneBlock.Curve = PostGrade.Curve(post);
         (uniforms->GradeBlock.HazeOrigin, uniforms->GradeBlock.HazeColor) = Haze.Pack(view.CameraPosition, view.Background.FadeOrigin, view.Background.FadeColor);
-        uniforms->Occlusion = Occlusion.Pack(view.ScreenSpace.Occlusion, view.ScreenSpace.Bounce, _off, historyValid);
+        uniforms->Occlusion = Occlusion.Pack(view.ScreenSpace.Occlusion, view.ScreenSpace.Bounce, _switches.Off, historyValid);
         (uniforms->OutlineBlock.Outline, uniforms->OutlineBlock.OutlineFade) = Outlines.Pack(view.ScreenSpace.Outlines, _gBuffer.Extent.Width / (float)Math.Max(view.Width, 1));
-        uniforms->SkyBlock.Fog= Fog.Pack(view.Weather.Fog, _off, underwater: Underwater(view));
+        uniforms->SkyBlock.Fog= Fog.Pack(view.Weather.Fog, _switches.Off, underwater: _switches.Underwater(view));
         WriteVolumetric(uniforms, view, historyValid);
-        uniforms->WeatherBlock.Puddles = Puddles.Pack(view.Weather.Puddles, _off);
-        uniforms->WeatherBlock.Wind = Wind.Pack(view.Weather.Wind, _off);
+        uniforms->WeatherBlock.Puddles = Puddles.Pack(view.Weather.Puddles, _switches.Off);
+        uniforms->WeatherBlock.Wind = Wind.Pack(view.Weather.Wind, _switches.Off);
     }
 
     /// <summary>Where the live light probes are: the fixed grid's box and the cascades round the camera.</summary>
@@ -2907,14 +2843,14 @@ public sealed unsafe class Renderer : IDisposable
 
         // The physical sky's air between the eye and far surfaces; see SkyModel.AirShows for where it shows.
         (uniforms->AirBlock.AirExtinction, uniforms->AirBlock.AirSun) = Atmosphere.Air(
-            sky.Turbidity, sky.Direction, view.Environment.Intensity, SkyModel.AirShows(view, _off));
-        (uniforms->AirBlock.Moon, uniforms->AirBlock.MoonRadiance, uniforms->AirBlock.Stars) = SkyModel.Night(view, sky.Direction, _off);
+            sky.Turbidity, sky.Direction, view.Environment.Intensity, SkyModel.AirShows(view, _switches.Off));
+        (uniforms->AirBlock.Moon, uniforms->AirBlock.MoonRadiance, uniforms->AirBlock.Stars) = SkyModel.Night(view, sky.Direction, _switches.Off);
 
         // Moving points two texels of the first cascade off their surface stops them
         // shadowing themselves. The lighting pass works this out per cascade itself.
         float normalOffset = view.Shadows.Radius * 4f / _shadowPass.Resolution;
         // A fade from 0 to 0 is none: the shaders fade only where the end lies past the start.
-        bool haze = !_off.HasFlag(RenderEffects.Haze);
+        bool haze = !_switches.Off.HasFlag(RenderEffects.Haze);
         uniforms->Parameters = new Vector4(
             haze ? view.Background.FadeStart : 0f, haze ? view.Background.FadeEnd : 0f, view.Shadows.LightAngle, normalOffset);
     }
@@ -2922,7 +2858,7 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The water the camera is under, or none above it.</summary>
     private void WriteWater(FrameUniforms* uniforms, in FrameView view)
     {
-        var water = Underwater(view) ? view.Weather.Water : default;
+        var water = _switches.Underwater(view) ? view.Weather.Water : default;
         uniforms->WaterBlock.WaterAbsorption = new Vector4(water.Absorption, water.Absorption != Vector3.Zero ? 1f : 0f);
         uniforms->WaterBlock.WaterShallow = new Vector4(water.ShallowColor, water.SurfaceHeight);
         uniforms->WaterBlock.WaterDeep = new Vector4(water.DeepColor, water.ShaftStrength);
@@ -2944,11 +2880,11 @@ public sealed unsafe class Renderer : IDisposable
         {
             ref readonly var light = ref view.Lights[i];
             var direction = Vector3.Normalize(light.Direction);
-            bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f && !_off.HasFlag(RenderEffects.SunShadows);
+            bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f && !_switches.Off.HasFlag(RenderEffects.SunShadows);
             if (casts)
             {
                 uniforms->ShadowBlock.ShadowRadii = FitCascades(view, direction, casters, out uniforms->ShadowBlock.ShadowFade, out uniforms->ShadowBlock.ShadowDepthScales);
-                uniforms->ShadowBlock.ShadowFade.W = ShadowCascades.ContactLength(view.Shadows, _off);
+                uniforms->ShadowBlock.ShadowFade.W = ShadowCascades.ContactLength(view.Shadows, _switches.Off);
                 for (int cascade = 0; cascade < _shadowCascades; cascade++)
                 {
                     uniforms->CameraBlock.ShadowMatrices[cascade] = _shadowMatrices[cascade];
@@ -2970,20 +2906,13 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// The point and spot lights the frame draws: none while <see cref="RenderEffects.LocalLights"/> is off. Bakes
-    /// keep reading the view's own, so the switch never makes a bake stale.
-    /// </summary>
-    private ReadOnlySpan<LocalLight> DrawnLocalLights(in FrameView view) =>
-        _off.HasFlag(RenderEffects.LocalLights) ? [] : view.LocalLights;
-
-    /// <summary>
     /// Fills the volumetric fog's part of the frame block and writes the fog volumes it draws, and decides whether
     /// this frame draws the fog at all.
     /// </summary>
     private void WriteVolumetric(FrameUniforms* uniforms, in FrameView view, bool historyValid)
     {
         var fogVolumes = FogVolumesOf(view);
-        var volumetric = VolumetricFog.Pack(view.Weather.Fog, fogVolumes.Length, _off, UnderwaterReach(view));
+        var volumetric = VolumetricFog.Pack(view.Weather.Fog, fogVolumes.Length, _switches.Off, _switches.UnderwaterReach(view));
         if (!_volumetricFog.HasTargets)
         {
             volumetric = Vector4.Zero;
@@ -3010,7 +2939,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private ReadOnlySpan<FogVolumeDraw> FogVolumesOf(in FrameView view)
     {
-        var volumes = _off.HasFlag(RenderEffects.FogVolumes) ? [] : view.Extras.FogVolumes;
+        var volumes = _switches.Off.HasFlag(RenderEffects.FogVolumes) ? [] : view.Extras.FogVolumes;
         if (volumes.Length > FogVolumeBatch.MaxVolumes)
         {
             throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
@@ -3033,14 +2962,14 @@ public sealed unsafe class Renderer : IDisposable
     {
         int width = (int)_gBuffer.Extent.Width;
         int height = (int)_gBuffer.Extent.Height;
-        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Weather.Fog, FogVolumesOf(view).Length, _off, UnderwaterReach(view)).X > 0f)
+        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Weather.Fog, FogVolumesOf(view).Length, _switches.Off, _switches.UnderwaterReach(view)).X > 0f)
         {
             // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
             _context.WaitIdle();
             _volumetricFog.SetSize(width, height, VolumetricFogCellSize, VolumetricFogSlices);
             WriteTargetDescriptors();
         }
-        else if (_volumetricFog.HasTargets && VolumetricFog.CanFreeTargets(_off, UnderwaterReach(view)))
+        else if (_volumetricFog.HasTargets && VolumetricFog.CanFreeTargets(_switches.Off, _switches.UnderwaterReach(view)))
         {
             // Switched off, the volumes are freed, and made again with no history if it's switched back on.
             // Frames in flight still read them. Flipping the switch is rare.
@@ -3058,12 +2987,6 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
-    /// <summary>Whether the camera is under the view's water, which it never is while <see cref="RenderEffects.Underwater"/> is off.</summary>
-    private bool Underwater(in FrameView view) =>
-        view.Weather.Water.Absorption != Vector3.Zero && !_off.HasFlag(RenderEffects.Underwater);
-
-    /// <summary>How far the volumetric fog reaches under water, the shafts' distance, or null above water.</summary>
-    private float? UnderwaterReach(in FrameView view) => Underwater(view) ? view.Weather.Water.ShaftDistance : null;
 
     /// <summary>
     /// Picks the point and spot lights the view needs and their shadow tiles, and writes
@@ -3078,11 +3001,11 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _localLights.Prepare(
-            DrawnLocalLights(view),
+            _switches.DrawnLocalLights(view),
             (view.View, view.Projection, (int)_gBuffer.Extent.Height),
             new Span<GpuLocalLight>(frame.Lights.Mapped, LocalLight.MaxPerFrame),
             new Span<GpuShadowTile>(frame.ShadowTiles.Mapped, LocalLights.MaxTiles),
-            shadows: !_off.HasFlag(RenderEffects.LightShadows),
+            shadows: !_switches.Off.HasFlag(RenderEffects.LightShadows),
             maskChannels: _frameBakes.MaskSlots.Channels,
             cover: _probes.Order.Count > 0 ? (_probes.Order.NearDepth, _probes.Order.FarDepth) : null);
         _tileCount = _localLights.TileCount;
