@@ -800,9 +800,26 @@ vertices whose heaviest weight is that joint, in the joint's own space (the vert
 `InverseBind`). The cooker measures it with `Skeleton.WithBounds` after the vertices are moved
 to rest and normalized, and ragdolls size their shapes from it. A skeleton made in code has none.
 
-The `.rmodel` format is version 14 and the model cook version 24, with the material graphs'
+The `.rmodel` format is version 15 and the model cook version 25, with the material graphs'
 version folded in. Their history is in the comments on `ModelData.Version` and
 `ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
+
+Each clip carries its events after its frames: a name, a from and a to in seconds (equal for a
+moment) and a joint name, empty for none. `ClipEventSettings.Attach` checks the sidecar's `events`
+against the clips and skeleton once the clips are read, and adds them to their clips; a bad event
+fails the cook alongside the material problems. At run time `Rig` keeps a `ClipEventTable` per
+clip, with the cooked events and those from `Rig.Event`, the joint each names, and marks sorted by
+time (an end before a moment before a begin at the same time). Each `Animator` has an
+`EventTracker`. In `Advance`, before anything moves, `SweepStates` sweeps the stretch of clip the
+fading-out state and then the current state move through on the tick, using the heavier clip of
+each and going lap by lap for loops; then `SweepAction` sweeps each playing action from where it
+was. A mark counts when it lies after the start and at or before the end, so a tick ending on it
+counts it once, and an action's first tick counts its start too. Passed marks go to `TickEvents`
+with their fraction of the tick and the number of the sweep that found them, and `Finish` sorts
+them by fraction, then sweep, then arrival. Windows are open per source: `Finish` ends any whose
+source stopped counting or playing and begins any a source came to count inside, so begins and
+ends stay paired. Joints are read from the finished pose, and the events go into a reused array,
+so reading them doesn't allocate.
 
 A material rule's `shader`, `shaderParameters` and `shaderTextures` are written after the
 materials as `ModelData.MaterialShaders`, empty or one entry (or none) per material, by name: the

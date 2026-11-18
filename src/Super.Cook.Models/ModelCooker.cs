@@ -50,9 +50,9 @@ public sealed class ModelCooker : ICooker
     // whole. 20: every model has a second UV set fit for a lightmap, its own when it's usable and an unwrapped one when
     // it isn't. 21: a rig's vertices are in its rest pose. 22: skeletons keep the bounds of what each joint moves.
     // 23: materials take an occlusion texture, the glTF file's or a rule's, on either UV set. 24: a rule's toon and
-    // outline. The
+    // outline. 25: clips carry their events. The
     // graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 24);
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 25);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -423,6 +423,8 @@ public sealed class ModelCooker : ICooker
             }
         }
 
+        var eventProblems = ClipEventSettings.Attach(settings.Events, clips, skeleton);
+
         for (int i = 0; i < materials.Count; i++)
         {
             if ((materials[i].Flags & MaterialFlags.Foliage) != 0 && RuleFor(settings, materialNames[i])?.Foliage?.Crown != false)
@@ -471,10 +473,10 @@ public sealed class ModelCooker : ICooker
         var problems = parts.Select(part => part.Material).Distinct().Order()
             .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i) ?? SubsurfaceProblem(model.Materials[i]) ?? FoliageProblem(model.Materials[i])))
             .Where(entry => entry.Problem is not null)
-            .ToList();
-        foreach (var (materialName, problem) in problems)
+            .Select(entry => $"material {entry.Name}: {entry.Problem}").Concat(eventProblems).ToList();
+        foreach (string problem in problems)
         {
-            output.Error($"{prefix}material {materialName}: {problem}");
+            output.Error(prefix + problem);
         }
 
         if (problems.Count > 0)

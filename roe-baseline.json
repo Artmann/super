@@ -1709,7 +1709,7 @@
       "kind": "long-method",
       "name": "Rendition.ModelData.WriteTo",
       "file": "src/Rendition/ModelData.cs",
-      "metric": 84
+      "metric": 81
     },
     {
       "kind": "long-method",
@@ -2375,7 +2375,7 @@
       "kind": "long-method",
       "name": "Super.Cook.Models.ModelCooker.CookOne",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 328
+      "metric": 330
     },
     {
       "kind": "long-method",
@@ -3455,7 +3455,7 @@
       "kind": "large-file",
       "name": "src/Super.Cook.Models/ModelCooker.cs",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 1928
+      "metric": 1930
     },
     {
       "kind": "large-file",
@@ -3713,7 +3713,7 @@
       "kind": "large-type",
       "name": "Super.Animator",
       "file": "src/Super/Animation/Animator.cs",
-      "metric": 39
+      "metric": 43
     },
     {
       "kind": "large-type",
@@ -3875,7 +3875,7 @@
       "kind": "large-type",
       "name": "Super.Rig",
       "file": "src/Super/Animation/Rig.cs",
-      "metric": 22
+      "metric": 26
     },
     {
       "kind": "large-type",
@@ -4183,6 +4183,7 @@
         "Super.ContentSchema",
         "Super.ContentValidator",
         "Super.CookedFolder",
+        "Super.EventTracker",
         "Super.HeldJoints",
         "Super.ICatalog",
         "Super.Keys",
@@ -4195,6 +4196,7 @@
         "Super.Shapes",
         "Super.SkeletonSpace",
         "Super.StateDefinition",
+        "Super.TickEvents",
         "Super.Ui.Button",
         "Super.Ui.ClickModifier",
         "Super.Ui.Container",

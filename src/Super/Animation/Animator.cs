@@ -14,6 +14,7 @@ namespace Super;
 public sealed class Animator
 {
     private readonly AnimationControllerBase _controller;
+    private readonly EventTracker _events;
     private ActionPlay[] _actions;
 
     private int _state;
@@ -37,6 +38,7 @@ public sealed class Animator
         _controller = controller;
         _state = state;
         _actions = new ActionPlay[controller.ActionCount];
+        _events = new EventTracker(controller);
         Pose = new AnimationPose(controller.Rig);
         controller.GetState(state);
         Rebuild();
@@ -104,6 +106,24 @@ public sealed class Animator
             throw new ArgumentException($"The rig has no joint called {name}. It has: {string.Join(", ", Rig.Skeleton.Names)}.", nameof(name));
         }
 
+        return JointInModel(joint);
+    }
+
+    /// <summary>
+    /// What the clips passed on the last tick: moments, and windows opening and closing, in
+    /// the order they happened. Read it in Update; it holds until the next tick and allocates
+    /// nothing. A loop passes its moments every time round, and a long tick reports every one
+    /// it skipped. Cross-fading states count while their share is at least
+    /// <see cref="AnimationControllerBase.EventThreshold"/>, and a blended state's events come
+    /// from its heavier clip, so a walk and a run in step don't both step.
+    /// </summary>
+    public ReadOnlySpan<AnimationEvent> Events => _events.Events;
+
+    /// <summary>Whether a window with this name is open now in any clip that counts, such as a hitbox mid-swing.</summary>
+    public bool IsActive(string name) => _events.IsActive(name);
+
+    internal Matrix4x4 JointInModel(int joint)
+    {
         var skeleton = Rig.Skeleton;
         if (!_jointsFresh || _joints is null || _jointsVersion != Pose.Version)
         {
@@ -235,7 +255,7 @@ public sealed class Animator
 
         RootMotion = Rig.RootJoint >= 0 ? TravelOver(seconds) : Vector3.Zero;
         seconds *= _speed;
-
+        _events.SweepStates(_state, _parameter, _phase, _outgoing, seconds);
         _phase = AdvancePhase(_controller.GetState(_state), _parameter, _phase, seconds);
         if (_outgoing is { } outgoing)
         {
@@ -245,9 +265,17 @@ public sealed class Animator
                 : outgoing with { Phase = AdvancePhase(_controller.GetState(outgoing.From), outgoing.Parameter, outgoing.Phase, seconds), Seconds = faded };
         }
 
+        AdvanceActions(seconds);
+        Rebuild();
+        _events.Finish(this);
+    }
+
+    private void AdvanceActions(float seconds)
+    {
         for (int i = 0; i < _actions.Length; i++)
         {
             ref var play = ref _actions[i];
+            bool fresh = play.PreviousTime < 0f;
             play.PreviousTime = play.Time;
             if (!play.Playing)
             {
@@ -256,13 +284,12 @@ public sealed class Animator
 
             var action = _controller.GetAction(i);
             play.Time += seconds * action.Speed;
+            _events.SweepAction(i, action.Clip, play.PreviousTime, play.Time, fresh);
             if (play.Time >= Rig.Clips[action.Clip].Duration)
             {
                 play.Playing = false;
             }
         }
-
-        Rebuild();
     }
 
     /// <summary>
@@ -308,21 +335,13 @@ public sealed class Animator
 
     private float AdvancePhase(StateDefinition state, float parameter, float phase, float seconds)
     {
-        float duration = CycleSeconds(state, parameter);
-        if (duration <= 0f)
+        if (state.Motion.CycleSeconds(parameter) <= 0f)
         {
             return 0f;
         }
 
-        phase += seconds * state.Speed / duration;
+        phase += state.Cycles(parameter, seconds);
         return phase - MathF.Floor(phase);
-    }
-
-    /// <summary>How long one cycle of the state takes at speed 1: the clips' durations mixed as they are.</summary>
-    private float CycleSeconds(StateDefinition state, float parameter)
-    {
-        var (first, second, towards) = state.Motion.Pick(parameter);
-        return (1f - towards) * Rig.Clips[first].Duration + towards * Rig.Clips[second].Duration;
     }
 
     private void Rebuild()
@@ -376,7 +395,7 @@ public sealed class Animator
     private void AddStateClip(StateDefinition state, float parameter, int clip, float phase, float amount)
     {
         float clipDuration = Rig.Clips[clip].Duration;
-        float cycle = CycleSeconds(state, parameter);
+        float cycle = state.Motion.CycleSeconds(parameter);
         float speed = cycle > 0f ? state.Speed * _speed * clipDuration / cycle : 0f;
         Pose.Add(new PoseLayer(clip, phase * clipDuration, speed, amount, Loops: true, Mask: null));
     }
@@ -402,5 +421,5 @@ public sealed class Animator
     private record struct ActionPlay(bool Playing, float Time, float PreviousTime);
 
     /// <summary>The state blending out: where its cycle is, and how long it has been fading.</summary>
-    private readonly record struct Outgoing(int From, float Parameter, float Phase, float Seconds);
+    internal readonly record struct Outgoing(int From, float Parameter, float Phase, float Seconds);
 }

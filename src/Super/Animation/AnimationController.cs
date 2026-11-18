@@ -95,6 +95,28 @@ public abstract class AnimationControllerBase
     /// <summary>How long a change of state takes to blend from the old clip to the new, in seconds.</summary>
     public float CrossFadeSeconds { get; set; } = 0.2f;
 
+    /// <summary>
+    /// How much of the pose a state must have for its clip's events to count, from 0 to 1.
+    /// At the default of 0.5, while a walk cross-fades into an idle, the walk's footsteps
+    /// stop once the idle has more than half. At 0 every state with any share counts.
+    /// Actions count in full however far they've faded in.
+    /// </summary>
+    public float EventThreshold
+    {
+        get => _eventThreshold;
+        set
+        {
+            if (!(value >= 0f && value <= 1f))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "The event threshold must be from 0 to 1.");
+            }
+
+            _eventThreshold = value;
+        }
+    }
+
+    private float _eventThreshold = 0.5f;
+
     internal Type StateType { get; }
 
     internal Type ActionType { get; }
@@ -124,6 +146,14 @@ public abstract class AnimationControllerBase
     }
 }
 
-internal sealed record StateDefinition(Motion Motion, float Speed);
+internal sealed record StateDefinition(Motion Motion, float Speed)
+{
+    /// <summary>How many cycles this much time plays at this parameter, unwrapped, so a long tick can pass several.</summary>
+    public float Cycles(float parameter, float seconds)
+    {
+        float cycle = Motion.CycleSeconds(parameter);
+        return cycle > 0f ? seconds * Speed / cycle : 0f;
+    }
+}
 
 internal sealed record ActionDefinition(int Clip, BoneMask? Mask, float FadeSeconds, float Speed);

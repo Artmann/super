@@ -2134,7 +2134,8 @@ material bark: transparent materials can't use a surface shader yet.
 
 A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
 from other files of the same rig, such as Mixamo's:
-`"animations": [{ "file": "walk.fbx", "name": "Walk" }]`. See [Animation](animation.md).
+`"animations": [{ "file": "walk.fbx", "name": "Walk" }]`, and `events` marks moments in them,
+such as `"events": [{ "clip": "Walk", "time": 0.3, "name": "step" }]`. See [Animation](animation.md#events).
 
 A colour passed when drawing a model tints it and keeps its textures, so one tree model
 can be drawn in many autumn shades at no extra cost.

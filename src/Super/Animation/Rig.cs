@@ -30,7 +30,18 @@ public sealed class Rig
 
         Skeleton = skeleton;
         Clips = clips;
+        _events = new ClipEventTable[clips.Count];
+        for (int i = 0; i < clips.Count; i++)
+        {
+            _events[i] = new ClipEventTable();
+            foreach (var clipEvent in clips[i].Events)
+            {
+                _events[i].Add(clipEvent, Skeleton);
+            }
+        }
     }
+
+    private readonly ClipEventTable[] _events;
 
     public Skeleton Skeleton { get; }
 
@@ -60,6 +71,45 @@ public sealed class Rig
     }
 
     public bool HasClip(string name) => _clipsByName.ContainsKey(name);
+
+    /// <summary>
+    /// Marks a moment in a clip, in seconds, such as a foot landing. An animator playing the
+    /// clip reports it in <see cref="Animator.Events"/> on the tick it passes it, every time
+    /// round a loop. Name a <paramref name="joint"/> to be told where it is then, such as the foot.
+    /// </summary>
+    public void Event(ClipRef clip, string name, float at, string? joint = null) => Event(clip, name, at, at, joint);
+
+    /// <summary>
+    /// Marks a window in a clip, from one time to another in seconds, such as when a sword's
+    /// hitbox is live. An animator reports when it begins and ends, and
+    /// <see cref="Animator.IsActive"/> says whether it's open now.
+    /// </summary>
+    public void Event(ClipRef clip, string name, float from, float to, string? joint = null)
+    {
+        Check(clip);
+        if (string.IsNullOrEmpty(name))
+        {
+            throw new ArgumentException("An event needs a name.", nameof(name));
+        }
+
+        float duration = Clips[clip.Index].Duration;
+        if (!(from >= 0f) || !(to <= duration) || !(from <= to))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(from), $"Event {name} runs from {from} to {to} seconds, but clip {Clips[clip.Index].Name} lasts {duration}, and the start can't come after the end.");
+        }
+
+        _events[clip.Index].Add(new ClipEvent(name, from, to, joint), Skeleton);
+    }
+
+    /// <summary>The moments and windows marked in a clip, from its cooked file and from <see cref="Event(ClipRef, string, float, string?)"/>.</summary>
+    public IReadOnlyList<ClipEvent> Events(ClipRef clip)
+    {
+        Check(clip);
+        return _events[clip.Index].Events;
+    }
+
+    internal ClipEventTable EventTable(int clip) => _events[clip];
 
     /// <summary>
     /// The joints with these names and every joint under them, so an action on the
@@ -356,5 +406,12 @@ public sealed class Motion
 
         int last = Points[^1].Clip;
         return (last, last, 0f);
+    }
+
+    /// <summary>How long one cycle takes at speed 1: the clips' durations mixed as they are at this parameter.</summary>
+    internal float CycleSeconds(float parameter)
+    {
+        var (first, second, towards) = Pick(parameter);
+        return (1f - towards) * Rig.Clips[first].Duration + towards * Rig.Clips[second].Duration;
     }
 }
