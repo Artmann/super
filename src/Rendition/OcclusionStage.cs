@@ -53,24 +53,24 @@ internal sealed unsafe class OcclusionStage : IDisposable
     {
         if (off.HasFlag(RenderEffects.AmbientOcclusion))
         {
-            targets.OcclusionHistoryReady = false;
-            _api.Transition(cmd, targets.AoBlurred.Image, ImageAspectFlags.ColorBit,
+            targets.Occlusion.HistoryReady = false;
+            _api.Transition(cmd, targets.Occlusion.AoBlurred.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
-            _api.Transition(cmd, targets.BounceBlurred.Image, ImageAspectFlags.ColorBit,
+            _api.Transition(cmd, targets.Occlusion.BounceBlurred.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
             timer.Mark(cmd);
             timer.Mark(cmd);
             return;
         }
 
-        var extent = targets.AoExtent;
-        int scale = targets.Occlusion == OcclusionResolution.Full ? 1 : 2;
+        var extent = targets.Occlusion.Extent;
+        int scale = targets.Occlusion.Resolution == OcclusionResolution.Full ? 1 : 2;
         ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
-        _api.BeginColorTarget(cmd, targets.Ao.Image);
-        _api.BeginColorTarget(cmd, targets.Bounce.Image);
-        _aoPass.Record(cmd, [targets.Ao.View, targets.Bounce.View], extent, aoSets, new ReadOnlySpan<byte>(&scale, sizeof(int)));
-        _api.EndColorTarget(cmd, targets.Ao.Image);
-        _api.EndColorTarget(cmd, targets.Bounce.Image);
+        _api.BeginColorTarget(cmd, targets.Occlusion.Ao.Image);
+        _api.BeginColorTarget(cmd, targets.Occlusion.Bounce.Image);
+        _aoPass.Record(cmd, [targets.Occlusion.Ao.View, targets.Occlusion.Bounce.View], extent, aoSets, new ReadOnlySpan<byte>(&scale, sizeof(int)));
+        _api.EndColorTarget(cmd, targets.Occlusion.Ao.Image);
+        _api.EndColorTarget(cmd, targets.Occlusion.Bounce.Image);
         timer.Mark(cmd);
 
         // Averaged with the frames before, where there are any to keep, and that average kept for the next frame.
@@ -80,12 +80,12 @@ internal sealed unsafe class OcclusionStage : IDisposable
             RecordAverage(cmd, targets, frameSet, scale);
         }
 
-        targets.OcclusionHistoryReady = averaged;
+        targets.Occlusion.HistoryReady = averaged;
 
         // Blurred across into a second pair of images, then down into the pair the lighting reads.
         var across = averaged ? _aoSteadyAcrossSet : _aoAcrossSet;
-        RecordBlur(cmd, [targets.AoAcross, targets.BounceAcross], [frameSet, across], new AoBlurStep(1, 0, scale), extent);
-        RecordBlur(cmd, [targets.AoBlurred, targets.BounceBlurred], [frameSet, _aoDownSet], new AoBlurStep(0, 1, scale), extent);
+        RecordBlur(cmd, [targets.Occlusion.AoAcross, targets.Occlusion.BounceAcross], [frameSet, across], new AoBlurStep(1, 0, scale), extent);
+        RecordBlur(cmd, [targets.Occlusion.AoBlurred, targets.Occlusion.BounceBlurred], [frameSet, _aoDownSet], new AoBlurStep(0, 1, scale), extent);
         timer.Mark(cmd);
     }
 
@@ -96,23 +96,23 @@ internal sealed unsafe class OcclusionStage : IDisposable
     /// </summary>
     private void RecordAverage(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, int scale)
     {
-        if (!targets.OcclusionHistoryReady)
+        if (!targets.Occlusion.HistoryReady)
         {
             // The pass binds the history even before there is any.
-            _api.Transition(cmd, targets.AoHistory.Image, ImageAspectFlags.ColorBit,
+            _api.Transition(cmd, targets.Occlusion.AoHistory.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
-            _api.Transition(cmd, targets.BounceHistory.Image, ImageAspectFlags.ColorBit,
+            _api.Transition(cmd, targets.Occlusion.BounceHistory.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
         }
 
-        var extent = targets.AoExtent;
-        var steady = new AoSteadyConstants(scale, targets.OcclusionHistoryReady ? 1 : 0);
-        _api.BeginColorTarget(cmd, targets.AoSteady.Image);
-        _api.BeginColorTarget(cmd, targets.BounceSteady.Image);
-        _aoSteadyPass.Record(cmd, [targets.AoSteady.View, targets.BounceSteady.View], extent, [frameSet, _aoSteadySet],
+        var extent = targets.Occlusion.Extent;
+        var steady = new AoSteadyConstants(scale, targets.Occlusion.HistoryReady ? 1 : 0);
+        _api.BeginColorTarget(cmd, targets.Occlusion.AoSteady.Image);
+        _api.BeginColorTarget(cmd, targets.Occlusion.BounceSteady.Image);
+        _aoSteadyPass.Record(cmd, [targets.Occlusion.AoSteady.View, targets.Occlusion.BounceSteady.View], extent, [frameSet, _aoSteadySet],
             new ReadOnlySpan<byte>(&steady, sizeof(AoSteadyConstants)));
-        _copier.RecordCopy(cmd, targets.AoSteady.Image, targets.AoHistory.Image, extent, drawnJustNow: true);
-        _copier.RecordCopy(cmd, targets.BounceSteady.Image, targets.BounceHistory.Image, extent, drawnJustNow: true);
+        _copier.RecordCopy(cmd, targets.Occlusion.AoSteady.Image, targets.Occlusion.AoHistory.Image, extent, drawnJustNow: true);
+        _copier.RecordCopy(cmd, targets.Occlusion.BounceSteady.Image, targets.Occlusion.BounceHistory.Image, extent, drawnJustNow: true);
     }
 
     /// <summary>
@@ -135,34 +135,34 @@ internal sealed unsafe class OcclusionStage : IDisposable
     public void WriteSets(GBuffer targets, DescriptorImageInfo depth, DescriptorImageInfo normal, DescriptorImageInfo shadowDepth)
     {
         var sampler = _kit.NearestSampler;
-        ImageSets.Write(_context,_aoSet, [depth, normal, shadowDepth, new(_kit.LinearSampler, targets.History.View, ImageLayout.ShaderReadOnlyOptimal)]);
+        ImageSets.Write(_context,_aoSet, [depth, normal, shadowDepth, new(_kit.LinearSampler, targets.Picture.History.View, ImageLayout.ShaderReadOnlyOptimal)]);
         ImageSets.Write(_context,_aoAcrossSet,
         [
-            new(sampler, targets.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(sampler, targets.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(sampler, targets.Occlusion.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(sampler, targets.Occlusion.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
             normal,
         ]);
         ImageSets.Write(_context,_aoSteadySet,
         [
-            new(sampler, targets.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(sampler, targets.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(sampler, targets.AoHistory.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(sampler, targets.BounceHistory.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(sampler, targets.Occlusion.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(sampler, targets.Occlusion.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(sampler, targets.Occlusion.AoHistory.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(sampler, targets.Occlusion.BounceHistory.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
             new(sampler, targets.Motion.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         ImageSets.Write(_context,_aoSteadyAcrossSet,
         [
-            new(sampler, targets.AoSteady.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(sampler, targets.BounceSteady.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(sampler, targets.Occlusion.AoSteady.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(sampler, targets.Occlusion.BounceSteady.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
             normal,
         ]);
         ImageSets.Write(_context,_aoDownSet,
         [
-            new(sampler, targets.AoAcross.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(sampler, targets.BounceAcross.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(sampler, targets.Occlusion.AoAcross.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(sampler, targets.Occlusion.BounceAcross.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
             normal,
         ]);

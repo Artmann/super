@@ -54,7 +54,7 @@ internal sealed unsafe class LightingStage : IDisposable
     /// </summary>
     public void RecordReflections(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, RenderEffects off, GpuTimer timer)
     {
-        if (!targets.HistoryReady || (off & (RenderEffects.Reflections | RenderEffects.Specular)) != 0)
+        if (!targets.Picture.HistoryReady || (off & (RenderEffects.Reflections | RenderEffects.Specular)) != 0)
         {
             _api.Transition(cmd, targets.Traced.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
@@ -123,15 +123,15 @@ internal sealed unsafe class LightingStage : IDisposable
             new(environment.Sampler, environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
             new(environment.Sampler, environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
             new(nearest, targets.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(nearest, targets.AoBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, targets.History.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(nearest, targets.Occlusion.AoBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.LinearSampler, targets.Picture.History.View, ImageLayout.ShaderReadOnlyOptimal),
             new(environment.Sampler, _sources.ReflectionProbes.Cubes.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_kit.LinearSampler, volume.IrradianceView, ImageLayout.General),
             new(_kit.LinearSampler, volume.DepthView, ImageLayout.General),
             new(nearest, targets.Baked.View, ImageLayout.ShaderReadOnlyOptimal),
             new(nearest, targets.Mask.View, ImageLayout.ShaderReadOnlyOptimal),
             new(nearest, targets.Traced.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(nearest, targets.BounceBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(nearest, targets.Occlusion.BounceBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
             new(environment.Sampler, environment.Background, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         ImageSets.Write(_context, _reflectionSet,
@@ -139,7 +139,7 @@ internal sealed unsafe class LightingStage : IDisposable
             depth,
             normal,
             new(nearest, targets.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, targets.History.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.LinearSampler, targets.Picture.History.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         ImageSets.Write(_context, _scatterAcrossSet, [new(nearest, targets.Scatter.View, ImageLayout.ShaderReadOnlyOptimal), depth]);
         ImageSets.Write(_context, _scatterDownSet, [new(nearest, targets.ScatterBlurred.View, ImageLayout.ShaderReadOnlyOptimal), depth]);

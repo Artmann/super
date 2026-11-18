@@ -66,16 +66,15 @@ internal sealed unsafe class SkySh : IDisposable
     public void Record(CommandBuffer cmd)
     {
         var api = _context.Api;
-        Barrier(cmd,
-            PipelineStageFlags2.VertexShaderBit | PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderStorageReadBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit);
+        const PipelineStageFlags2 readers = PipelineStageFlags2.VertexShaderBit | PipelineStageFlags2.FragmentShaderBit;
+        api.MemoryBarrier(cmd,
+            (readers, AccessFlags2.ShaderStorageReadBit), (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
         var set = _set;
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipeline);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
         api.CmdDispatch(cmd, 1, 1, 1);
-        Barrier(cmd,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.VertexShaderBit | PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderStorageReadBit);
+        api.MemoryBarrier(cmd,
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit), (readers, AccessFlags2.ShaderStorageReadBit));
     }
 
     /// <summary>Projects the sky now and waits, then reads the coefficients back. Stalls the GPU, so for tests.</summary>
@@ -84,8 +83,8 @@ internal sealed unsafe class SkySh : IDisposable
         _context.SubmitAndWait(cmd =>
         {
             Record(cmd);
-            Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-                PipelineStageFlags2.HostBit, AccessFlags2.HostReadBit);
+            _context.Api.MemoryBarrier(cmd,
+                (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit), (PipelineStageFlags2.HostBit, AccessFlags2.HostReadBit));
         });
         return new ReadOnlySpan<Vector4>(_buffer.Mapped, 4).ToArray();
     }
@@ -98,26 +97,5 @@ internal sealed unsafe class SkySh : IDisposable
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
         _buffer.Dispose();
-    }
-
-    private void Barrier(
-        CommandBuffer cmd, PipelineStageFlags2 sourceStage, AccessFlags2 sourceAccess, PipelineStageFlags2 destinationStage,
-        AccessFlags2 destinationAccess)
-    {
-        var barrier = new MemoryBarrier2
-        {
-            SType = StructureType.MemoryBarrier2,
-            SrcStageMask = sourceStage,
-            SrcAccessMask = sourceAccess,
-            DstStageMask = destinationStage,
-            DstAccessMask = destinationAccess,
-        };
-        var dependency = new DependencyInfo
-        {
-            SType = StructureType.DependencyInfo,
-            MemoryBarrierCount = 1,
-            PMemoryBarriers = &barrier,
-        };
-        _context.Api.CmdPipelineBarrier2(cmd, &dependency);
     }
 }

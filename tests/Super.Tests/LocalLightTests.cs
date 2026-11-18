@@ -236,7 +236,7 @@ public class LocalLightTests
     public void A_tile_sees_its_face_of_the_cube_with_near_at_one_and_the_range_at_zero()
     {
         var eye = new Vector3(1f, 2f, 3f);
-        var matrix = LocalLights.TileMatrix(eye, Vector3.UnitX, Vector3.UnitY, 1f, 5f);
+        var matrix = ShadowTileAtlas.TileMatrix(eye, Vector3.UnitX, Vector3.UnitY, 1f, 5f);
 
         static Vector3 Ndc(Vector4 clip) => new(clip.X / clip.W, clip.Y / clip.W, clip.Z / clip.W);
         var ahead = Ndc(Vector4.Transform(new Vector4(eye + new Vector3(2f, 0f, 0f), 1f), matrix));
@@ -291,7 +291,7 @@ public class LocalLightTests
         int SizeAt(float distance)
         {
             LocalLight[] lights = [Point(7, new Vector3(0f, 0f, -distance), 1f)];
-            prepared.Prepare(lights, LookingDownZ, Perspective, Height, gpu, tiles);
+            prepared.Prepare(lights, (LookingDownZ, Perspective, Height), gpu, tiles);
             return prepared.Tiles[0].Size;
         }
 
@@ -302,7 +302,7 @@ public class LocalLightTests
         // Halfway back, it's still as sharp as it was, though a light arriving there wouldn't be.
         var fresh = new LocalLights();
         LocalLight[] halfway = [Point(8, new Vector3(0f, 0f, -6f), 1f)];
-        fresh.Prepare(halfway, LookingDownZ, Perspective, Height, gpu, tiles);
+        fresh.Prepare(halfway, (LookingDownZ, Perspective, Height), gpu, tiles);
         Assert.True(fresh.Tiles[0].Size < near, "the test needs a distance where a new light gets a smaller tile");
         Assert.Equal(near, SizeAt(6f));
     }
@@ -422,7 +422,7 @@ public class LocalLightTests
         var prepared = new LocalLights();
         var gpu = new GpuLocalLight[LocalLight.MaxPerFrame];
         var tiles = new GpuShadowTile[LocalLights.MaxTiles];
-        prepared.Prepare(lights, LookingDownZ, Perspective, Height, gpu, tiles, shadows, maskChannels);
+        prepared.Prepare(lights, (LookingDownZ, Perspective, Height), gpu, tiles, shadows, maskChannels);
         return (prepared, gpu, tiles);
     }
 }
