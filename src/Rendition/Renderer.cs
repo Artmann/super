@@ -54,14 +54,12 @@ public sealed unsafe class Renderer : IDisposable
     private readonly TraceScene? _traceScene;
     private readonly TraceDebugPass? _traceDebugPass;
 
-    private readonly ProbeDebugPass _probeDebugPass;
-
     // What this frame leaves out, and the debug view it shows.
     private readonly FrameSwitches _switches = new();
     private readonly EnvironmentSky _sky;
     private readonly ReflectionProbes _probes;
 
-    private readonly VolumetricFogVolume _volumetricFog;
+    private readonly FogStage _fog;
 
     // The reflection probe this frame captures, or -1 for none, and where it's placed.
     private readonly ReflectionCapturePass _reflectionCapture;
@@ -84,42 +82,28 @@ public sealed unsafe class Renderer : IDisposable
     private readonly HistoryCopier _copier;
     private readonly OcclusionStage _occlusion;
     private readonly LightingStage _lighting;
-    private readonly DescriptorSet _taaSet;
-    private readonly DescriptorSet _tonemapSet;
-    private readonly DescriptorSet _finishSet;
 
     private readonly ShadowPass _shadowPass;
-    private readonly GBufferPass _gBufferPass;
+
+    // The G-buffer and the decals, and what blends over the lit image.
+    private readonly OpaqueStage _opaque;
+    private readonly BlendStage _blend;
 
     // The camera's view as SelectDraws made it, which decides whose depth the G-buffer pass draws first.
     private DetailView _cameraView;
 
     private DetailView? DepthFirstView => _switches.Off.HasFlag(RenderEffects.DepthFirst) ? null : _cameraView;
-    private readonly TransparentPass _transparentPass;
-    private readonly ParticlePass _particlePass;
-    private readonly DecalPass _decalPass;
-    private ParticlePass.CameraConstants _particleCamera;
-    private TransparentView _transparentView;
-    private int _particleCount;
-    private readonly FullscreenPass _taaPass;
-    private readonly DepthOfFieldPass _depthOfFieldPass;
-    private DepthOfFieldConstants? _depthOfField;
-    private readonly BloomPass _bloomPass;
-    private readonly FullscreenPass _tonemapPass;
-    private readonly ExposureMeter _exposureMeter;
-    private readonly ExposureClock _exposureClock = new();
-    private ExposureStep? _exposureStep;
-    private readonly FullscreenPass _finishPass;
-    private readonly OverlayPass _overlayPass;
-    private readonly DescriptorSet _overlaySet;
+
+    // From the lit image to the window: anti-aliasing, the lens, bloom and tonemapping, the held picture, and the finish.
+    private readonly ResolveStage _resolve;
+    private readonly PostStage _post;
+    private readonly HeldPicture _held;
+    private readonly FinishStage _finish;
     private readonly GpuTimer _gpuTimer;
     private readonly GpuWorkCounter? _gpuWork;
-    private GpuTexture? _overlayAtlas;
 
     private Swapchain _swapchain;
     private GBuffer _gBuffer;
-    private GpuBuffer? _capture;
-    private bool _captureRecorded;
     private int _frameNumber;
 
     /// <summary>The number the next frame drawn gets, which picks its frame of the dither's noise. For tests.</summary>
@@ -161,14 +145,6 @@ public sealed unsafe class Renderer : IDisposable
     private readonly FsrPass _fsrPass;
     private FsrFrame _fsrFrame;
 
-    // Whether the frame being recorded draws the volumetric fog.
-    private bool _volumetricDrawn;
-
-    // Moving between pictures: what the frame asks for, and which hold the held picture belongs to.
-    // Whether the held picture and the last finished frame exist yet is on the targets.
-    private TransitionConstants _transition;
-    private int _transitionHold;
-    private int _heldNumber;
 
     /// <summary>Vulkan validation messages so far. Always zero when validation is off.</summary>
     public int ValidationErrors => _context.Validation?.Errors ?? 0;
@@ -482,40 +458,28 @@ public sealed unsafe class Renderer : IDisposable
             new LightProbes.Sources(_resources, _tracing, captureScene, _ring, probeVolume));
         ProbeTests = new ProbeTestHooks(_context, LightProbes, _kit, () => _frames[_uniformFrame].Set, WriteTargetDescriptors);
 
-        _volumetricFog = new VolumetricFogVolume(_context, _kit.FrameSetLayout, _kit.LinearSampler);
+        _fog = new FogStage(_context, _kit, _switches);
 
         _copier = new HistoryCopier(_api);
         _occlusion = new OcclusionStage(_context, _kit, _copier);
         _lighting = new LightingStage(_context, _kit,
             new LightingStage.Sources(_resources, _sky.Map, _probes, probeVolume, _shadowPass));
-        _taaSet = _kit.NewSet(_kit.FourTextureLayout);
-        _tonemapSet = _kit.NewSet(_kit.TwoTextureLayout);
-        _finishSet = _kit.NewSet(_kit.TwoTextureLayout);
-        _overlaySet = _kit.NewSet(_kit.OneTextureLayout);
-        _bloomPass = new BloomPass(_context, _kit.LinearSampler, _gBuffer.Picture.Resolved.View, _gBuffer.Picture.Display);
-        _particlePass = new ParticlePass(_context, _kit.FrameSetLayout, FrameRing.Count);
-        _decalPass = new DecalPass(_context, _kit.FrameSetLayout, _resources, FrameRing.Count);
-        _transparentPass = new TransparentPass(_context, _kit.FrameSetLayout, _resources, _sky.Map, _probes);
-        _probeDebugPass = new ProbeDebugPass(_context, _kit.FrameSetLayout, _kit.LightingSetLayout);
-        _exposureMeter = new ExposureMeter(_context, _kit.NearestSampler);
-        _fsrPass = new FsrPass(_context, _kit.NearestSampler, _kit.FrameSetLayout, _exposureMeter.SetLayout);
-        _depthOfFieldPass = new DepthOfFieldPass(_context, _kit.NearestSampler, _kit.LinearSampler, _kit.FrameSetLayout);
-        _depthOfFieldPass.SetTargets(DisplaySource, _gBuffer.Depth.View, _gBuffer.Extent);
-        WriteTargetDescriptors();
-
-        _gBufferPass = new GBufferPass(_context, _kit.FrameSetLayout, _resources);
-        _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_kit.FrameSetLayout, _kit.FourTextureLayout]);
-        _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat,
-            [_kit.FrameSetLayout, _kit.TwoTextureLayout, _exposureMeter.SetLayout]);
-        _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_kit.FrameSetLayout, _kit.TwoTextureLayout], TransitionConstants.Size);
-        _overlayPass = new OverlayPass(_context, _swapchain.Format, _kit.OneTextureLayout, _resources, FrameRing.Count);
         // Counting each pass's shaders needs a device feature; without it the frame is only timed.
         _gpuWork = _context.Abilities.PipelineStatistics ? new GpuWorkCounter(_context, FrameRing.Count, GpuTimer.FramePasses) : null;
         _gpuTimer = new GpuTimer(_context, FrameRing.Count, counter: _gpuWork);
+        _resolve = new ResolveStage(_context, _kit, _copier);
+        _post = new PostStage(_context, _kit, _gpuTimer, _gBuffer, DisplaySource);
+        _held = new HeldPicture(_api);
+        _finish = new FinishStage(_context, _kit, _ring, _gpuTimer, (_swapchain.Format, _resources));
+        _blend = new BlendStage(_context, _kit, (_ring, _gpuTimer, _meshStore), (_resources, _sky.Map, _probes), _switches);
+        _opaque = new OpaqueStage(_context, _kit, _ring, _meshStore, (_resources, _switches));
+        _fsrPass = new FsrPass(_context, _kit.NearestSampler, _kit.FrameSetLayout, _post.Meter.SetLayout);
+        WriteTargetDescriptors();
+
         _areaInputs = new AreaInputs(_meshStore.PartBounds, () => EnvironmentHash);
         var spaceBake = new SpaceBake(_readableBakes, data => CreateTexture(data, TextureEdges.Clamp), DestroyTexture);
         _frameBakes = new FrameBakes(_readableBakes, _chunkPool, _retired, _areaInputs, spaceBake);
-        BakeJobs = new BakeJobs(_context, new PreparedBakers(_context, _sky.Map,() => new Baker(_context, this)),
+        BakeJobs = new BakeJobs(_context, new PreparedBakers(_context, _sky.Map, () => new Baker(_context, this)),
             _meshStore, _resources, _areaInputs);
         BackgroundBakes = new BackgroundBakes(_context, _ring, _retired, BakeJobs,
             new BackgroundBakes.BakeWants(_frameBakes.Resolver, _readableBakes, _areaInputs.Lights));
@@ -972,13 +936,7 @@ public sealed unsafe class Renderer : IDisposable
     /// Replaces the image that <see cref="FrameExtras.Overlay"/> quads read from. Only its
     /// alpha is used. Waits for the GPU, so it isn't for every frame.
     /// </summary>
-    public void SetOverlayAtlas(TextureData data)
-    {
-        _context.WaitIdle();
-        _overlayAtlas?.Dispose();
-        _overlayAtlas = new GpuTexture(_context, data);
-        WriteImages(_overlaySet, [new(_kit.LinearSampler, _overlayAtlas.View, ImageLayout.ShaderReadOnlyOptimal)]);
-    }
+    public void SetOverlayAtlas(TextureData data) => _finish.SetOverlayAtlas(data);
 
     /// <summary>
     /// Adds a reflection probe, so surfaces in its box reflect what is really there, and puts it in line for its first
@@ -1001,7 +959,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             // The array grew, so the lighting and glass read the new one.
             WriteTargetDescriptors();
-            _transparentPass.WriteProbes(_sky.Map.Sampler, _probes.Cubes.View);
+            _blend.WriteProbes(_sky.Map.Sampler, _probes.Cubes.View);
         }
 
         return handle;
@@ -1224,7 +1182,7 @@ public sealed unsafe class Renderer : IDisposable
             throw new ArgumentException("This is not compiled SPIR-V code.", nameof(spirv));
         }
 
-        return _gBufferPass.AddShader(spirv, name);
+        return _opaque.Pass.AddShader(spirv, name);
     }
 
     /// <summary>
@@ -1285,7 +1243,7 @@ public sealed unsafe class Renderer : IDisposable
     // Throws for a surface shader that doesn't exist, or on a transparent material, which can't use one yet.
     private void ValidateShader(in Material material, SurfaceShaderHandle shader)
     {
-        if (shader.Index <= 0 || shader.Index >= _gBufferPass.ShaderCount)
+        if (shader.Index <= 0 || shader.Index >= _opaque.Pass.ShaderCount)
         {
             throw new ArgumentException("The material's shader does not exist.", nameof(material));
         }
@@ -1514,7 +1472,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void CheckDraws(in FrameView view, ReadOnlySpan<DrawItem> draws)
     {
-        PrepareDecals(view);
+        _opaque.PrepareDecals(view);
         BakeIds.CheckStaticDraws(draws);
         BakeFiles.CheckChunks(view.Baked.Chunks);
     }
@@ -1534,8 +1492,12 @@ public sealed unsafe class Renderer : IDisposable
     private void TakeEffects(in FrameView view, RenderEffects viewOff)
     {
         _switches.Take(view, viewOff, _resources.Materials);
-        KeepVolumetricTargets(view);
-        _depthOfField = DepthOfFieldConstants.For(view.Picture.Post, _switches.Off, (int)_gBuffer.Extent.Width);
+        if (_fog.KeepTargets(view, _gBuffer.Extent, (VolumetricFogCellSize, VolumetricFogSlices)))
+        {
+            WriteTargetDescriptors();
+        }
+
+        _post.TakeLens(view, _switches.Off, (int)_gBuffer.Extent.Width);
     }
 
     /// <summary>Points bloom, tonemapping, the meter and depth of field at the anti-aliased image or the lit one.</summary>
@@ -1549,14 +1511,7 @@ public sealed unsafe class Renderer : IDisposable
         // Frames in flight still read the sets being rewritten. Changing this is rare.
         _context.WaitIdle();
         _readsAntiAliased = antiAliased;
-        _bloomPass.SetSource(DisplaySource);
-        WriteImages(_tonemapSet,
-        [
-            new(_kit.NearestSampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
-        _exposureMeter.SetSource(DisplaySource, _gBuffer.Picture.Display);
-        _depthOfFieldPass.SetSource(DisplaySource, _gBuffer.Depth.View);
+        _post.SetSource(DisplaySource, _gBuffer);
     }
 
     /// <summary>
@@ -1705,8 +1660,7 @@ public sealed unsafe class Renderer : IDisposable
         _previousViewProjection = camera.ViewProjection;
         _previousTime = view.Time;
         _frameNumber++;
-        _transition = TransitionConstants.From(view.Picture.Transition);
-        _transitionHold = view.Picture.Transition.Hold;
+        _held.Take(view.Picture.Transition);
         var (cameraCount, shadowCount) = SelectDraws(view, camera.ViewProjection, draws, castsShadow);
         int tileDrawCount = _localShadows.Select(draws, MeshDetailScale);
         _frames.ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
@@ -1765,10 +1719,10 @@ public sealed unsafe class Renderer : IDisposable
             traced = _tracing!.TopLevel(cmd, _traceScene!.Collect(draws.Scene));
         }
 
-        int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_ring.Index, view.Extras.Overlay);
-        UploadParticles(view);
+        int overlayQuads = _finish.UploadOverlay(view.Extras.Overlay);
+        _blend.Upload(view);
 
-        _decalPass.Upload(_ring.Index);
+        _opaque.UploadDecals();
         if (timed)
         {
             _gpuTimer.Begin(cmd, _ring.Index);
@@ -1780,8 +1734,7 @@ public sealed unsafe class Renderer : IDisposable
         _gpuTimer.Mark(cmd);
 
         // Worked out here, just before the frame is recorded, so a frame that is never drawn doesn't move the clock.
-        _exposureStep = _exposureClock.Next(
-            !_switches.Off.HasFlag(RenderEffects.AutoExposure), view.Time, Exposure.Speed(view.Picture.Post.AdaptationSpeed));
+        _post.StepExposure(view, _switches.Off);
         RecordFrame(cmd, frame.Set, imageIndex, new FrameDraws(draws.Camera, draws.Scene, traced), overlayQuads);
         _gpuTimer.End(cmd);
         _api.EndCommandBuffer(cmd).Check();
@@ -1899,45 +1852,6 @@ public sealed unsafe class Renderer : IDisposable
         return cameraCount;
     }
 
-    /// <summary>
-    /// Checks and packs the view's decals, or none when they're switched off. Throws for a decal
-    /// that can't be drawn: too many, a box that can't be inverted, a weight outside 0 to 1 or a material that doesn't exist.
-    /// </summary>
-    private void PrepareDecals(in FrameView view)
-    {
-        ReadOnlySpan<DecalDraw> decals = _switches.Off.HasFlag(RenderEffects.Decals) ? [] : view.Extras.Decals;
-        for (int i = 0; i < decals.Length; i++)
-        {
-            if (!_resources.Materials.IsLive(decals[i].Material))
-            {
-                throw new ArgumentException(
-                    string.Create(CultureInfo.InvariantCulture, $"Decal {i}'s material does not exist."), nameof(view));
-            }
-        }
-
-        _decalPass.Prepare(decals);
-    }
-
-    /// <summary>
-    /// Sorts this frame's particles into their buffer and keeps the camera's axes, which
-    /// turn each one to face the screen. The view matrix holds them in its columns.
-    /// </summary>
-    private void UploadParticles(in FrameView view)
-    {
-        ref readonly var m = ref view.View;
-        var right = new Vector3(m.M11, m.M21, m.M31);
-        var up = new Vector3(m.M12, m.M22, m.M32);
-        var forward = -new Vector3(m.M13, m.M23, m.M33);
-        _particleCamera = new ParticlePass.CameraConstants
-        {
-            Right = new Vector4(right, 0f),
-            Up = new Vector4(up, 0f),
-            Forward = new Vector4(forward, 0f),
-        };
-        ReadOnlySpan<Particle> particles = _switches.Off.HasFlag(RenderEffects.Particles) ? [] : view.Extras.Particles;
-        _particleCount = _particlePass.Upload(_ring.Index, particles, view.CameraPosition, forward);
-        _transparentView = TransparentView.From(view.View, view.Projection);
-    }
 
 
     public byte[] Capture(in FrameView view, ReadOnlySpan<DrawItem> draws, out int width, out int height)
@@ -1952,8 +1866,8 @@ public sealed unsafe class Renderer : IDisposable
         int size = width * height * 4;
         using var capture = GpuBuffer.CreateHostVisible(_context, (ulong)size, BufferUsageFlags.TransferDstBit);
 
-        _capture = capture;
-        _captureRecorded = false;
+        _finish.Capture = capture;
+        _finish.CaptureRecorded = false;
         try
         {
             Render(view, draws);
@@ -1962,12 +1876,12 @@ public sealed unsafe class Renderer : IDisposable
         {
             // A frame that throws, such as for a draw it can't make, must not leave the next frame copying into the
             // buffer the using frees.
-            _capture = null;
+            _finish.Capture = null;
         }
 
         _context.WaitIdle();
 
-        if (!_captureRecorded)
+        if (!_finish.CaptureRecorded)
         {
             throw new InvalidOperationException("The window changed while capturing, so no frame was rendered.");
         }
@@ -2013,22 +1927,14 @@ public sealed unsafe class Renderer : IDisposable
         _tracing?.Dispose();
         _gpuTimer.Dispose();
         BackgroundBakes.Dispose();
-        _overlayPass.Dispose();
-        _overlayAtlas?.Dispose();
-        _finishPass.Dispose();
-        _tonemapPass.Dispose();
+        _finish.Dispose();
         _fsrPass.Dispose();
-        _exposureMeter.Dispose();
-        _depthOfFieldPass.Dispose();
-        _bloomPass.Dispose();
-        _taaPass.Dispose();
-        _transparentPass.Dispose();
-        _probeDebugPass.Dispose();
-        _particlePass.Dispose();
-        _decalPass.Dispose();
+        _post.Dispose();
+        _resolve.Dispose();
+        _blend.Dispose();
         _lighting.Dispose();
         _occlusion.Dispose();
-        _gBufferPass.Dispose();
+        _opaque.Dispose();
         _shadowPass.Dispose();
         _localShadows.Dispose();
         DisposeProbesAndSky();
@@ -2038,7 +1944,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         _probes.Dispose();
         LightProbes.Dispose();
-        _volumetricFog.Dispose();
+        _fog.Dispose();
         _reflectionCapture.Dispose();
         _sky.Dispose();
     }
@@ -2048,185 +1954,14 @@ public sealed unsafe class Renderer : IDisposable
         var targets = _gBuffer;
 
         // Ldr still holds the last frame, so it's kept before this frame draws over it.
-        if (_transitionHold != _heldNumber || !targets.Picture.HeldReady)
-        {
-            RecordHold(cmd, targets, copyLastFrame: _transitionHold != _heldNumber && targets.Picture.LdrReady);
-            _heldNumber = _transitionHold;
-        }
-
+        _held.Record(cmd, targets);
         RecordScene(cmd, frameSet, draws);
-        RecordResolve(cmd, frameSet, targets);
+        var display = (_readsAntiAliased, _switches.Off);
+        _resolve.Record(cmd, frameSet, targets, _upscaling ? (_fsrPass, _fsrFrame, _post.Meter.Set) : null, display);
         _gpuTimer.Mark(cmd);
-        RecordPost(cmd, frameSet, targets);
-        RecordFinish(cmd, frameSet, imageIndex, overlayQuads);
+        _post.Record(cmd, frameSet, targets, display);
+        _finish.Record(cmd, frameSet, (_swapchain, imageIndex), (targets, _held.Transition), overlayQuads);
     }
-
-    /// <summary>
-    /// Anti-aliases or upscales the lit image, and keeps the frame for the next one. Anti-aliasing blends in the last
-    /// frame, and reflections and the screen bounce read it, so it's kept for the next while any wants it. Without
-    /// anti-aliasing the lit image is the frame.
-    /// </summary>
-    private void RecordResolve(CommandBuffer cmd, DescriptorSet frameSet, GBuffer targets)
-    {
-        // FSR keeps its own history, at the window's size, so reflections get the lit image. It's kept every frame,
-        // so the last frame's camera and motion stay known to FSR whether reflections are on or not.
-        if (_upscaling)
-        {
-            RecordHistoryCopy(cmd, targets.Hdr.Image, drawnJustNow: false);
-            _fsrPass.Record(cmd, (frameSet, _exposureMeter.Set), (targets.Hdr.Image, targets.Depth.Image, targets.Picture.Resolved.Image), _fsrFrame);
-        }
-        else if (_readsAntiAliased)
-        {
-            ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
-            _api.BeginColorTarget(cmd, targets.Picture.Resolved.Image);
-            _taaPass.Record(cmd, targets.Picture.Resolved.View, targets.Extent, taaSets);
-            RecordHistoryCopy(cmd, targets.Picture.Resolved.Image, drawnJustNow: true);
-        }
-        else if (!_switches.Off.HasFlag(RenderEffects.Reflections)
-            || (_switches.Off & (RenderEffects.AmbientOcclusion | RenderEffects.ScreenBounce)) == 0)
-        {
-            RecordHistoryCopy(cmd, targets.Hdr.Image, drawnJustNow: false);
-        }
-        else
-        {
-            targets.Picture.HistoryReady = false;
-        }
-    }
-
-    /// <summary>Blurs what is out of focus, adds bloom, meters the exposure and tonemaps the picture into Ldr.</summary>
-    private void RecordPost(CommandBuffer cmd, DescriptorSet frameSet, GBuffer targets)
-    {
-        // The picture's size from anti-aliasing on: the scene's, or the window's once FSR has rebuilt it.
-        var extent = targets.Picture.Display;
-
-        // After the history is kept, so anti-aliasing and reflections next frame see the scene sharp. Bloom
-        // and the meter read the blurred picture. Probe captures never come here, so they stay sharp.
-        if (_depthOfField is { } lens)
-        {
-            var source = _readsAntiAliased ? targets.Picture.Resolved : targets.Hdr;
-            _depthOfFieldPass.Record(cmd, frameSet, (source.Image, source.View, extent), lens);
-        }
-
-        _gpuTimer.Mark(cmd);
-
-        if (_switches.Off.HasFlag(RenderEffects.Bloom))
-        {
-            _bloomPass.RecordSkipped(cmd);
-        }
-        else
-        {
-            _bloomPass.Record(cmd);
-        }
-
-        _gpuTimer.Mark(cmd);
-
-        // Metered from the lit frame before bloom. Its time counts towards the tonemap's.
-        if (_exposureStep is { } exposureStep)
-        {
-            _exposureMeter.Record(cmd, exposureStep);
-        }
-
-        ReadOnlySpan<DescriptorSet> tonemapSets = [frameSet, _tonemapSet, _exposureMeter.Set];
-        _api.BeginColorTarget(cmd, targets.Picture.Ldr.Image);
-        _tonemapPass.Record(cmd, targets.Picture.Ldr.View, extent, tonemapSets);
-        _api.EndColorTarget(cmd, targets.Picture.Ldr.Image);
-        _gpuTimer.Mark(cmd);
-    }
-
-    /// <summary>
-    /// Draws the picture into the swapchain image at the window's size, with the transition and the overlay over it,
-    /// and leaves the image to present, or copies it out for a capture.
-    /// </summary>
-    private void RecordFinish(CommandBuffer cmd, DescriptorSet frameSet, uint imageIndex, int overlayQuads)
-    {
-        var extent = _gBuffer.Picture.Display;
-        var swapchainImage = _swapchain.Images[imageIndex];
-        _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, ColorStage, AccessFlags2.None, ColorStage, ColorWrite);
-
-        // From here on the picture is the window's size, which the scene may not be.
-        var window = _swapchain.Extent;
-        ReadOnlySpan<DescriptorSet> finishSets = [frameSet, _finishSet];
-        var transition = _transition;
-        transition.Style.Z = extent.Width != window.Width || extent.Height != window.Height ? 1f : 0f;
-        _finishPass.Record(cmd, _swapchain.Views[imageIndex], window, finishSets,
-            new ReadOnlySpan<byte>(&transition, (int)TransitionConstants.Size));
-        _gBuffer.Picture.LdrReady = true;
-        _gpuTimer.Mark(cmd);
-
-        if (overlayQuads > 0)
-        {
-            _overlayPass.Record(cmd, (_swapchain.Views[imageIndex], window), _overlaySet, _ring.Index, overlayQuads);
-        }
-
-        _gpuTimer.Mark(cmd);
-
-        if (_capture is not null)
-        {
-            RecordCapture(cmd, swapchainImage, window, _capture);
-            return;
-        }
-
-        _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr, ColorStage, ColorWrite,
-            PipelineStageFlags2.None, AccessFlags2.None);
-    }
-
-    /// <summary>
-    /// Keeps the last finished frame for a dissolve or wipe to show over the new ones,
-    /// or black if there is none yet. Leaves both images ready to sample.
-    /// </summary>
-    private void RecordHold(CommandBuffer cmd, GBuffer targets, bool copyLastFrame)
-    {
-        // The finish pass sampled both in the frame before.
-        _api.Transition(cmd, targets.Picture.Held.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, SampledAccess,
-            PipelineStageFlags2.CopyBit | PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit);
-
-        if (copyLastFrame)
-        {
-            _api.Transition(cmd, targets.Picture.Ldr.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal, SampledStage, SampledAccess,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
-
-            var region = new ImageCopy
-            {
-                SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-                DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-                Extent = new Extent3D(targets.Picture.Display.Width, targets.Picture.Display.Height, 1),
-            };
-            _api.CmdCopyImage(cmd, targets.Picture.Ldr.Image, ImageLayout.TransferSrcOptimal,
-                targets.Picture.Held.Image, ImageLayout.TransferDstOptimal, 1, &region);
-
-            // Tonemapping waits on the fragment stage before it writes Ldr, which comes after this.
-            _api.Transition(cmd, targets.Picture.Ldr.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit, SampledStage, AccessFlags2.None);
-        }
-        else
-        {
-            var black = new ClearColorValue(0f, 0f, 0f, 1f);
-            var range = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1);
-            _api.CmdClearColorImage(cmd, targets.Picture.Held.Image, ImageLayout.TransferDstOptimal, &black, 1, &range);
-        }
-
-        _api.Transition(cmd, targets.Picture.Held.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.CopyBit | PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
-            SampledStage, SampledAccess);
-        targets.Picture.HeldReady = true;
-    }
-
-    /// <summary>
-    /// Keeps this frame for the next one, and leaves it ready to sample. The frame is still
-    /// a target when it was <paramref name="drawnJustNow"/>, and already ready to sample when not.
-    /// </summary>
-    private void RecordHistoryCopy(CommandBuffer cmd, Image frame, bool drawnJustNow)
-    {
-        _copier.RecordCopy(cmd, frame, _gBuffer.Picture.History.Image, _gBuffer.Extent, drawnJustNow);
-        _gBuffer.Picture.HistoryReady = true;
-    }
-
 
     /// <summary>
     /// Draws and lights the frame's scene into the HDR target. Its shadow draws were picked per cascade by
@@ -2249,7 +1984,7 @@ public sealed unsafe class Renderer : IDisposable
         _localShadows.RecordTiles(cmd, frameSet, instances);
         _gpuTimer.Mark(cmd);
         RecordLightSetup(cmd, frameSet, draws, instances);
-        RecordGBuffer(cmd, targets, frameSet, draws.Camera, instances);
+        _opaque.Record(cmd, targets, frameSet, draws.Camera, new OpaqueInputs(instances, _frameBakes, _sky.Sh, _motion, _cameraChunks, DepthFirstView));
         _gpuTimer.Mark(cmd);
 
         _occlusion.Record(cmd, targets, frameSet, _switches.Off, _gpuTimer);
@@ -2262,7 +1997,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _lighting.RecordReflections(cmd, targets, frameSet, _switches.Off, _gpuTimer);
         _lighting.RecordLighting(cmd, targets, frameSet, _switches.Off, _gpuTimer);
-        RecordTransparent(cmd, targets, frameSet, draws.Camera, instances);
+        _blend.Record(cmd, targets, frameSet, draws.Camera, (instances, LightProbes, _lighting.LightingSet));
     }
 
     /// <summary>
@@ -2287,79 +2022,9 @@ public sealed unsafe class Renderer : IDisposable
         _gpuTimer.Mark(cmd);
 
         // The fog's air needs the shadow maps and the light lists, and the lighting pass needs the fog.
-        if (_volumetricDrawn)
-        {
-            _volumetricFog.Record(cmd, frameSet);
-        }
+        _fog.Record(cmd, frameSet);
 
         _gpuTimer.Mark(cmd);
-    }
-
-    /// <summary>
-    /// Draws the camera's opaque draws and the decals into the G-buffer, and leaves it ready to sample. Draws that
-    /// don't take decals, such as characters, are drawn after them, over what they laid.
-    /// </summary>
-    private void RecordGBuffer(
-        CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, InstanceBuffer instances)
-    {
-        ReadOnlySpan<Image> colors =
-            [targets.BaseColor.Image, targets.Normal.Image, targets.Emissive.Image, targets.Motion.Image, targets.Baked.Image, targets.Mask.Image];
-        foreach (var color in colors)
-        {
-            _api.Transition(cmd, color, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
-        }
-
-        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, DepthStages, AccessFlags2.DepthStencilAttachmentReadBit, DepthStages,
-            DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
-
-        bool depthTarget = RecordOpaque(cmd, targets, frameSet, draws, instances);
-        foreach (var color in colors)
-        {
-            _api.Transition(cmd, color, ImageAspectFlags.ColorBit,
-                ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
-        }
-
-        if (depthTarget)
-        {
-            _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
-        }
-    }
-
-    /// <summary>
-    /// Draws the opaque draws and the decals, with what the draws read: where they stood last frame, the space's
-    /// lightmaps and, for the camera's draws, which know their chunk, a relit chunk's bake. Returns whether depth is
-    /// still a target: the decals leave it ready to read, unless draws came after them.
-    /// </summary>
-    private bool RecordOpaque(
-        CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, InstanceBuffer instances)
-    {
-        // A chunk's bake is relit by the frame's sky and suns: its sky is projected first, for writeBaked.
-        if (_frameBakes.Relight.Active)
-        {
-            _sky.Sh.Record(cmd);
-            instances.Chunks = _cameraChunks;
-            instances.ChunkLightmaps = _frameBakes.Relight.Lightmaps;
-        }
-
-        instances.History = _motion;
-        instances.Lightmaps = _frameBakes.SpaceLightmaps;
-        bool late = _decalPass.Count > 0 && SceneDraws.AnyIn(draws, _resources, ScenePass.OpaqueAfterDecals);
-        _gBufferPass.Record(cmd, targets, frameSet, new SceneGeometry(draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances),
-            late ? ScenePass.OpaqueTakingDecals : ScenePass.Opaque, DepthFirstView);
-        bool decalsDrawn = RecordDecals(cmd, targets, frameSet);
-        if (late)
-        {
-            RecordAfterDecals(cmd, targets, frameSet, draws, instances);
-        }
-
-        instances.History = null;
-        instances.Lightmaps = null;
-        instances.Chunks = null;
-        instances.ChunkLightmaps = null;
-        return !decalsDrawn || late;
     }
 
     /// <summary>
@@ -2379,138 +2044,6 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Blends glass and particles over the lit image, furthest first, and the probe debug view's spheres over
-    /// everything. Depth is read-only throughout: glass tests against it, and both read it to see what's behind them.
-    /// </summary>
-    private void RecordTransparent(
-        CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, InstanceBuffer instances)
-    {
-        _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
-            AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
-        _transparentPass.Record(cmd, targets, new SceneGeometry(draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances),
-            new TransparentFrame(frameSet, _transparentView, _switches.WindReach), new ParticleDraws(_particlePass, _ring.Index, _particleCount, _particleCamera));
-
-        // With the probes off there are no spheres, and no atlases to read.
-        if (_switches.ProbeView && LightProbes.InUse)
-        {
-            uint spheres = (uint)LightProbes.Batch.Cascades.Layout(0).Total;
-            if (LightProbes.Batch.Grid is { } grid)
-            {
-                var (x, y, z) = ProbeGrid.Counts(grid);
-                spheres += (uint)(x * y * z);
-            }
-
-            _probeDebugPass.Record(cmd, targets, frameSet, _lighting.LightingSet, spheres);
-        }
-
-        _api.EndColorTarget(cmd, targets.Hdr.Image);
-        _gpuTimer.Mark(cmd);
-    }
-
-    /// <summary>
-    /// Lays the prepared decals onto the G-buffer just drawn, and returns whether there were any.
-    /// They read the normal target while writing it, so it is copied first and they read the copy.
-    /// Depth is left ready to sample, the base colour and normal targets ready to draw into.
-    /// </summary>
-    private bool RecordDecals(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet)
-    {
-        if (_decalPass.Count == 0)
-        {
-            return false;
-        }
-
-        const PipelineStageFlags2 copy = PipelineStageFlags2.CopyBit;
-        _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal, ColorStage, ColorWrite, copy, AccessFlags2.TransferReadBit);
-        _api.Transition(cmd, targets.NormalCopy.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, SampledAccess, copy, AccessFlags2.TransferWriteBit);
-        var region = new ImageCopy
-        {
-            SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-            DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-            Extent = new Extent3D(targets.Extent.Width, targets.Extent.Height, 1),
-        };
-        _api.CmdCopyImage(cmd, targets.Normal.Image, ImageLayout.TransferSrcOptimal,
-            targets.NormalCopy.Image, ImageLayout.TransferDstOptimal, 1, &region);
-        _api.Transition(cmd, targets.NormalCopy.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal, copy, AccessFlags2.TransferWriteBit, SampledStage, SampledAccess);
-        // The decals load the normals and blend over them, so the change of layout must land before
-        // that read as well as before their writes.
-        _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal, copy, AccessFlags2.TransferReadBit, ColorStage,
-            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-
-        // The colour blends over what the opaque pass wrote.
-        _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
-
-        _decalPass.Record(cmd, targets, frameSet, _ring.Index);
-        return true;
-    }
-
-    /// <summary>
-    /// Draws what doesn't take decals over the G-buffer the decals were laid on. The decals read depth and wrote the
-    /// colour and normals, so depth goes back to being drawn into, and the draws wait for the decals' writes.
-    /// </summary>
-    private void RecordAfterDecals(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, InstanceBuffer instances)
-    {
-        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
-            DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
-        _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-        _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-        _gBufferPass.Record(cmd, targets, frameSet, new SceneGeometry(draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances), ScenePass.OpaqueAfterDecals);
-    }
-
-    /// <summary>Copies the finished frame into a buffer the CPU can read, then readies it for display.</summary>
-    private void RecordCapture(CommandBuffer cmd, Image swapchainImage, Extent2D extent, GpuBuffer capture)
-    {
-        _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal,
-            PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
-
-        var region = new BufferImageCopy
-        {
-            ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-            ImageExtent = new Extent3D(extent.Width, extent.Height, 1),
-        };
-        _api.CmdCopyImageToBuffer(cmd, swapchainImage, ImageLayout.TransferSrcOptimal, capture.Handle, 1, &region);
-
-        var hostBarrier = new MemoryBarrier2
-        {
-            SType = StructureType.MemoryBarrier2,
-            SrcStageMask = PipelineStageFlags2.CopyBit,
-            SrcAccessMask = AccessFlags2.TransferWriteBit,
-            DstStageMask = PipelineStageFlags2.HostBit,
-            DstAccessMask = AccessFlags2.HostReadBit,
-        };
-        var dependency = new DependencyInfo
-        {
-            SType = StructureType.DependencyInfo,
-            MemoryBarrierCount = 1,
-            PMemoryBarriers = &hostBarrier,
-        };
-        _api.CmdPipelineBarrier2(cmd, &dependency);
-
-        _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.PresentSrcKhr,
-            PipelineStageFlags2.CopyBit, AccessFlags2.None, PipelineStageFlags2.None, AccessFlags2.None);
-        _captureRecorded = true;
-    }
-
-    /// <summary>
     /// Writes the frame's uniforms, with the camera's view shifted by <paramref name="shift"/>, and last frame's.
     /// Returns whether a light casts a shadow this frame.
     /// </summary>
@@ -2526,7 +2059,7 @@ public sealed unsafe class Renderer : IDisposable
         WriteLightProbes(uniforms, view);
         WriteBakedProbes(uniforms);
         WriteSky(uniforms, view);
-        WriteWater(uniforms, view);
+        _fog.WriteWater(uniforms, view);
 
         uniforms->CountBlock.Time = view.Time;
         uniforms->CountBlock.PreviousTime = historyValid ? _previousTime : view.Time;
@@ -2574,7 +2107,7 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->Occlusion = Occlusion.Pack(view.ScreenSpace.Occlusion, view.ScreenSpace.Bounce, _switches.Off, historyValid);
         (uniforms->OutlineBlock.Outline, uniforms->OutlineBlock.OutlineFade) = Outlines.Pack(view.ScreenSpace.Outlines, _gBuffer.Extent.Width / (float)Math.Max(view.Width, 1));
         uniforms->SkyBlock.Fog= Fog.Pack(view.Weather.Fog, _switches.Off, underwater: _switches.Underwater(view));
-        WriteVolumetric(uniforms, view, historyValid);
+        _fog.Write(uniforms, view, historyValid, (VolumetricFogCellSize, VolumetricFogSlices));
         uniforms->WeatherBlock.Puddles = Puddles.Pack(view.Weather.Puddles, _switches.Off);
         uniforms->WeatherBlock.Wind = Wind.Pack(view.Weather.Wind, _switches.Off);
     }
@@ -2670,97 +2203,6 @@ public sealed unsafe class Renderer : IDisposable
             haze ? view.Background.FadeStart : 0f, haze ? view.Background.FadeEnd : 0f, view.Shadows.LightAngle, normalOffset);
     }
 
-    /// <summary>The water the camera is under, or none above it.</summary>
-    private void WriteWater(FrameUniforms* uniforms, in FrameView view)
-    {
-        var water = _switches.Underwater(view) ? view.Weather.Water : default;
-        uniforms->WaterBlock.WaterAbsorption = new Vector4(water.Absorption, water.Absorption != Vector3.Zero ? 1f : 0f);
-        uniforms->WaterBlock.WaterShallow = new Vector4(water.ShallowColor, water.SurfaceHeight);
-        uniforms->WaterBlock.WaterDeep = new Vector4(water.DeepColor, water.ShaftStrength);
-        uniforms->WaterBlock.WaterLight = new Vector4(water.CausticStrength, water.CausticScale, water.ShaftDistance, 0f);
-    }
-
-    /// <summary>
-    /// Fills the volumetric fog's part of the frame block and writes the fog volumes it draws, and decides whether
-    /// this frame draws the fog at all.
-    /// </summary>
-    private void WriteVolumetric(FrameUniforms* uniforms, in FrameView view, bool historyValid)
-    {
-        var fogVolumes = FogVolumesOf(view);
-        var volumetric = VolumetricFog.Pack(view.Weather.Fog, fogVolumes.Length, _switches.Off, _switches.UnderwaterReach(view));
-        if (!_volumetricFog.HasTargets)
-        {
-            volumetric = Vector4.Zero;
-        }
-
-        volumetric.W = historyValid && _volumetricFog.HistoryReady ? 1f : 0f;
-        uniforms->WeatherBlock.Volumetric = volumetric;
-        _volumetricDrawn = volumetric.X > 0f;
-        uniforms->WeatherBlock.VolumetricGrid = new Vector4(VolumetricFogSlices, VolumetricFogCellSize, _volumetricDrawn ? fogVolumes.Length : 0, 0f);
-        if (_volumetricDrawn)
-        {
-            _volumetricFog.WriteFogVolumes(fogVolumes);
-        }
-        else
-        {
-            // A frame without the fog leaves nothing for the next to carry on from.
-            _volumetricFog.Skip();
-        }
-    }
-
-    /// <summary>
-    /// The view's fog volumes, or none when they're switched off. Throws for too many, or for one that can't be
-    /// drawn, as <see cref="FogVolumeBatch.Check"/> says.
-    /// </summary>
-    private ReadOnlySpan<FogVolumeDraw> FogVolumesOf(in FrameView view)
-    {
-        var volumes = _switches.Off.HasFlag(RenderEffects.FogVolumes) ? [] : view.Extras.FogVolumes;
-        if (volumes.Length > FogVolumeBatch.MaxVolumes)
-        {
-            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
-                $"A frame can draw at most {FogVolumeBatch.MaxVolumes} fog volumes, but it was given {volumes.Length}."), nameof(view));
-        }
-
-        foreach (ref readonly var volume in volumes)
-        {
-            FogVolumeBatch.Check(volume.Shape, volume.Transform, volume.Settings);
-        }
-
-        return volumes;
-    }
-
-    /// <summary>
-    /// Makes the volumetric fog's volumes the first time a frame draws it, frees them while it's switched off, and
-    /// remakes them when the cell size or slice count changes. Each waits for the GPU, which is rare.
-    /// </summary>
-    private void KeepVolumetricTargets(in FrameView view)
-    {
-        int width = (int)_gBuffer.Extent.Width;
-        int height = (int)_gBuffer.Extent.Height;
-        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Weather.Fog, FogVolumesOf(view).Length, _switches.Off, _switches.UnderwaterReach(view)).X > 0f)
-        {
-            // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
-            _context.WaitIdle();
-            _volumetricFog.SetSize(width, height, VolumetricFogCellSize, VolumetricFogSlices);
-            WriteTargetDescriptors();
-        }
-        else if (_volumetricFog.HasTargets && VolumetricFog.CanFreeTargets(_switches.Off, _switches.UnderwaterReach(view)))
-        {
-            // Switched off, the volumes are freed, and made again with no history if it's switched back on.
-            // Frames in flight still read them. Flipping the switch is rare.
-            _context.WaitIdle();
-            _volumetricFog.Release();
-            WriteTargetDescriptors();
-        }
-        else if (_volumetricFog.HasTargets
-            && _volumetricFog.Size != VolumetricFog.GridSize(width, height, VolumetricFogCellSize, VolumetricFogSlices))
-        {
-            // A new cell size or slice count remakes the grid, with no history. Frames in flight still read the old one.
-            _context.WaitIdle();
-            _volumetricFog.SetSize(width, height, VolumetricFogCellSize, VolumetricFogSlices);
-            WriteTargetDescriptors();
-        }
-    }
 
 
     /// <summary>What tonemapping and bloom read: the anti-aliased image, or the lit one when anti-aliasing is left out.</summary>
@@ -2821,12 +2263,8 @@ public sealed unsafe class Renderer : IDisposable
             _fsrPass.Release();
         }
 
-        _bloomPass.Resize(DisplaySource, _gBuffer.Picture.Display);
-        _depthOfFieldPass.SetTargets(DisplaySource, _gBuffer.Depth.View, _gBuffer.Extent);
-        if (_volumetricFog.HasTargets)
-        {
-            _volumetricFog.SetSize((int)_gBuffer.Extent.Width, (int)_gBuffer.Extent.Height, VolumetricFogCellSize, VolumetricFogSlices);
-        }
+        _post.Resize(DisplaySource, _gBuffer);
+        _fog.Resize(_gBuffer.Extent, (VolumetricFogCellSize, VolumetricFogSlices));
 
         WriteTargetDescriptors();
     }
@@ -2862,7 +2300,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         var depth = new DescriptorImageInfo(_kit.NearestSampler, _gBuffer.Depth.View, ImageLayout.ShaderReadOnlyOptimal);
         var normal = new DescriptorImageInfo(_kit.NearestSampler, _gBuffer.Normal.View, ImageLayout.ShaderReadOnlyOptimal);
-        _decalPass.WriteTargets(depth, new DescriptorImageInfo(_kit.NearestSampler, _gBuffer.NormalCopy.View, ImageLayout.ShaderReadOnlyOptimal));
+        _opaque.WriteTargets(_gBuffer, depth, _kit.NearestSampler);
 
         var shadowDepth = new DescriptorImageInfo(_kit.NearestSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal);
         _occlusion.WriteSets(_gBuffer, depth, normal, shadowDepth);
@@ -2880,49 +2318,21 @@ public sealed unsafe class Renderer : IDisposable
             new(_sky.Map.Sampler, _sky.Map.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
             _kit.ShadowSampler);
 
-        // Glass and particles read depth while it's also attached for glass to test against.
-        var testedDepth = new DescriptorImageInfo(_kit.NearestSampler, _gBuffer.Depth.View, ImageLayout.DepthReadOnlyOptimal);
-        _transparentPass.WriteTargets(new(_kit.MipSampler, _gBuffer.SceneColor.View, ImageLayout.ShaderReadOnlyOptimal), testedDepth);
-
-        _particlePass.WriteTargets(
-            testedDepth,
-            new(_kit.ShadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sky.Map.Sampler, _sky.Map.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sky.Map.Sampler, _sky.Map.Reflections, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sky.Map.Sampler, _sky.Map.Background, ImageLayout.ShaderReadOnlyOptimal));
+        _blend.WriteTargets(_gBuffer, _shadowPass.Target.View, _sky.Map);
     }
 
     // From anti-aliasing to the window: anti-aliasing, tonemapping, the meter and the finish, and the volumetric fog.
     private void WriteDisplaySets()
     {
-        // Glass has just used depth for testing, and it stays in that layout.
-        WriteImages(_taaSet,
-        [
-            new(_kit.NearestSampler, _gBuffer.Hdr.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, _gBuffer.Picture.History.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.Depth.View, ImageLayout.DepthReadOnlyOptimal),
-            new(_kit.NearestSampler, _gBuffer.Motion.View, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
-        WriteImages(_tonemapSet,
-        [
-            new(_kit.NearestSampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
-        _exposureMeter.SetSource(DisplaySource, _gBuffer.Picture.Display);
-        WriteImages(_finishSet,
-        [
-            new(_kit.LinearSampler, _gBuffer.Picture.Ldr.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, _gBuffer.Picture.Held.View, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
+        _resolve.WriteSet(_gBuffer);
+        _post.WriteSets(DisplaySource, _gBuffer);
+        _finish.WriteSet(_gBuffer);
 
-        _volumetricFog.SetSources(
+        _fog.SetSources(
             new(_kit.ShadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sky.Map.Sampler, _sky.Map.Background, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, LightProbes.Volume.IrradianceView, ImageLayout.General),
-            new(_kit.LinearSampler, LightProbes.Volume.DepthView, ImageLayout.General));
-        _frames.WriteVolumetric(_volumetricFog.Result);
+            (new(_kit.LinearSampler, LightProbes.Volume.IrradianceView, ImageLayout.General),
+            new(_kit.LinearSampler, LightProbes.Volume.DepthView, ImageLayout.General)));
+        _frames.WriteVolumetric(_fog.Result);
     }
-
-    private void WriteImages(DescriptorSet set, ReadOnlySpan<DescriptorImageInfo> images) =>
-        ImageSets.Write(_context, set, images);
 }
