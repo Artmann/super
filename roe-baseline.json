@@ -405,60 +405,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.BakeMasks",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.CookOne",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 51
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.GraphRuns.RunAhead",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.GraphsWanted",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.ImportMaterial",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 39
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.ImportShader",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.Layer",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.LightmapUv",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 26
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.ModelCooker.TrackOwnFiles",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 12
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Cook.Models.RigImporter.RigImporter",
       "file": "src/Super.Cook.Models/RigImporter.cs",
       "metric": 19
@@ -882,42 +828,6 @@
       "name": "Super.Cook.Models.MaskBaker.Dilate",
       "file": "src/Super.Cook.Models/MaskBaker.cs",
       "metric": 30
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.ModelCooker.BakeMasks",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 32
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.ModelCooker.CookOne",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 95
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.ModelCooker.ImportMaterial",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 52
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.ModelCooker.ImportShader",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 25
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.ModelCooker.LightmapUv",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 47
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Cook.Models.ModelCooker.TrackOwnFiles",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 20
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2001,42 +1911,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Cook.Models.ModelCooker.BakeMasks",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 120
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.ModelCooker.CookOne",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 330
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.ModelCooker.GraphRuns.RunAhead",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 72
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.ModelCooker.ImportMaterial",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 155
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.ModelCooker.ImportShader",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 81
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Cook.Models.ModelCooker.LightmapUv",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 140
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Cook.Models.ModelTextures.Add",
       "file": "src/Super.Cook.Models/ModelTextures.cs",
       "metric": 42
@@ -2745,18 +2619,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Super.Cook.Models.ModelCooker.BakeMasks",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 9
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Super.Cook.Models.ModelCooker.LightmapUv",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 8
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Super.Cook.Models.ModelTextures.MakeShared",
       "file": "src/Super.Cook.Models/ModelTextures.cs",
       "metric": 7
@@ -2940,12 +2802,6 @@
       "name": "src/Rendition/Vulkan/RayTracing.cs",
       "file": "src/Rendition/Vulkan/RayTracing.cs",
       "metric": 775
-    },
-    {
-      "kind": "large-file",
-      "name": "src/Super.Cook.Models/ModelCooker.cs",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 1930
     },
     {
       "kind": "large-file",
@@ -3258,12 +3114,6 @@
       "name": "Super.Cook.Models.MaterialRule",
       "file": "src/Super.Cook.Models/ImportSettings.cs",
       "metric": 45
-    },
-    {
-      "kind": "large-type",
-      "name": "Super.Cook.Models.ModelCooker",
-      "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 56
     },
     {
       "kind": "large-type",

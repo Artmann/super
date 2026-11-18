@@ -423,4 +423,28 @@ public sealed class MaskBakerTests : IDisposable
 
         Assert.Contains("material bark: wear color is a colour as a picker shows it, each number from 0 to 1, not 2.", error);
     }
+
+    [Fact]
+    public void A_layer_color_of_two_numbers_fails_the_cook()
+    {
+        string src = Folder("""
+            { "match": "bark", "bakeMasks": true, "wear": { "color": [0.5, 0.5], "amount": 0.5 } }
+            """, uvs2: [0.1f, 0.1f, 0.9f, 0.1f, 0.1f, 0.9f]);
+
+        string error = ErrorOf(Cook(src).Result);
+
+        Assert.Contains("material bark: wear color needs three numbers, red, green and blue.", error);
+    }
+
+    [Fact]
+    public void A_layer_roughness_below_zero_fails_the_cook()
+    {
+        string src = Folder("""
+            { "match": "bark", "bakeMasks": true, "dirt": { "color": [0, 0, 0], "amount": 0.5, "roughness": -0.25 } }
+            """, uvs2: [0.1f, 0.1f, 0.9f, 0.1f, 0.1f, 0.9f]);
+
+        string error = ErrorOf(Cook(src).Result);
+
+        Assert.Contains("material bark: dirt roughness must be from 0 to 1, not -0.25.", error);
+    }
 }

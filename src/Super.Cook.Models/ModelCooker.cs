@@ -1,15 +1,9 @@
-using System.Globalization;
-using System.Numerics;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Rendition;
 using Super.Cook.Materials;
-using Silk.NET.Assimp;
-using Assimp = Silk.NET.Assimp.Assimp;
-using Skeleton = Rendition.Skeleton;
 
 namespace Super.Cook.Models;
 
@@ -22,16 +16,11 @@ namespace Super.Cook.Models;
 /// </summary>
 public sealed class ModelCooker : ICooker
 {
-    // How many times detail textures repeat for each repeat of the others, unless a rule or a detail graph says.
-    private const float DefaultDetailScale = 8f;
-
     private static readonly JsonSerializerOptions SettingsOptions = new()
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         PropertyNameCaseInsensitive = true,
     };
-
-    private static readonly Lazy<Assimp> Api = new(Assimp.GetApi);
 
     public string Id => "model";
 
@@ -103,37 +92,51 @@ public sealed class ModelCooker : ICooker
         string extension = Path.GetExtension(input.Name).ToLowerInvariant();
         if (extension == ".gltf")
         {
-            JsonNode? gltf;
-            try
-            {
-                gltf = JsonNode.Parse(input.Bytes);
-            }
-            catch (JsonException)
-            {
-                return; // Assimp says what's wrong with it.
-            }
-
-            if (gltf?["buffers"] is JsonArray buffers)
-            {
-                foreach (var buffer in buffers)
-                {
-                    if (buffer?["uri"] is JsonValue value && value.TryGetValue(out string? uri)
-                        && !uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        input.Track(Uri.UnescapeDataString(uri));
-                    }
-                }
-            }
+            TrackGltfBuffers(input);
         }
         else if (extension == ".obj")
         {
-            foreach (string line in Encoding.UTF8.GetString(input.Bytes).Split('\n'))
+            TrackObjLibraries(input);
+        }
+    }
+
+    // A glTF file's buffers that are files of their own, not data inside it.
+    private static void TrackGltfBuffers(CookInput input)
+    {
+        JsonNode? gltf;
+        try
+        {
+            gltf = JsonNode.Parse(input.Bytes);
+        }
+        catch (JsonException)
+        {
+            return; // Assimp says what's wrong with it.
+        }
+
+        if (gltf?["buffers"] is not JsonArray buffers)
+        {
+            return;
+        }
+
+        foreach (var buffer in buffers)
+        {
+            if (buffer?["uri"] is JsonValue value && value.TryGetValue(out string? uri)
+                && !uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
             {
-                string trimmed = line.Trim();
-                if (trimmed.StartsWith("mtllib ", StringComparison.Ordinal) || trimmed.StartsWith("mtllib\t", StringComparison.Ordinal))
-                {
-                    input.Track(trimmed["mtllib".Length..].Trim());
-                }
+                input.Track(Uri.UnescapeDataString(uri));
+            }
+        }
+    }
+
+    // An OBJ file's material libraries.
+    private static void TrackObjLibraries(CookInput input)
+    {
+        foreach (string line in Encoding.UTF8.GetString(input.Bytes).Split('\n'))
+        {
+            string trimmed = line.Trim();
+            if (trimmed.StartsWith("mtllib ", StringComparison.Ordinal) || trimmed.StartsWith("mtllib\t", StringComparison.Ordinal))
+            {
+                input.Track(trimmed["mtllib".Length..].Trim());
             }
         }
     }
@@ -168,880 +171,48 @@ public sealed class ModelCooker : ICooker
     }
 
     /// <returns>The cooked bytes, or null when it failed and said why through <paramref name="output"/>.</returns>
-    private static unsafe byte[]? CookOne(CookInput input, CookOutput output, ImportSettings settings, string prefix, GraphRuns graphs)
+    private static byte[]? CookOne(CookInput input, CookOutput output, ImportSettings settings, string prefix, GraphRuns graphs)
     {
-        string modelPath = input.FullPath!;
-        string sourceDirectory = Path.GetDirectoryName(modelPath)!;
-        bool isGltf = Path.GetExtension(modelPath).ToLowerInvariant() is ".glb" or ".gltf";
-        foreach (var source in settings.Animations)
+        bool isGltf = Path.GetExtension(input.FullPath!).ToLowerInvariant() is ".glb" or ".gltf";
+        var cook = new ModelCook(input, output, prefix, settings, new ModelTextures(input, output, prefix), graphs, isGltf);
+        if (ModelReader.Read(cook) is not { } read)
         {
-            input.Track(source.File);
+            return null;
         }
 
-        var textures = new ModelTextures(input, output, prefix);
-        var context = new MaterialContext(settings, textures, graphs, output, prefix, isGltf);
-        var vertices = new List<Vertex>();
-        var indices = new List<uint>();
-        var parts = new List<ModelPart>();
-        var meshNames = new List<string>();
-        var materials = new List<ModelMaterial>();
-        var materialNames = new List<string>();
-        var shaders = new List<ModelMaterialShader?>();
-        var occlusions = new List<WantedOcclusion?>();
-        var toons = new List<ModelMaterialToon?>();
-
-        // The width in metres of each material's graph, or 0 for a material without one.
-        var graphWidths = new List<float>();
-
-        // Each mesh's material and the run of vertices it added.
-        var meshVertices = new List<(int Material, int First, int Count)>();
-
-        // For each material, how many of the meshes placed with it have a second UV set of their own, and how many don't.
-        var uv2Meshes = new Dictionary<int, (int With, int Without)>();
-
-        Skeleton? skeleton = null;
-        var clips = new List<AnimationClip>();
-        Vertex[] vertexArray;
-
-        var assimp = Api.Value;
-        const PostProcessSteps steps = PostProcessSteps.Triangulate
-            | PostProcessSteps.JoinIdenticalVertices
-            | PostProcessSteps.GenerateSmoothNormals
-            | PostProcessSteps.CalculateTangentSpace
-            | PostProcessSteps.FlipUVs;
-
-        Scene* scene;
-        using (input.Time("assimp import"))
-        {
-            scene = Import(assimp, modelPath, steps);
-        }
-
-        try
-        {
-            if (scene == null || scene->MRootNode == null)
-            {
-                output.Error($"{prefix}Could not read {input.Name}: {assimp.GetErrorStringS()}");
-                return null;
-            }
-
-            // A rigged model keeps its node tree, since the joints live there. A static one is
-            // flattened into a single mesh space, which merges the meshes that share a material. With
-            // keepMeshes it keeps its node tree instead, and each mesh is placed by its node, so every
-            // mesh stays its own part with its name.
-            RigImporter? rig = null;
-            if (RigImporter.HasBones(scene))
-            {
-                rig = RigImporter.Read(scene, message => output.Warning(prefix + message));
-            }
-            else
-            {
-                if (settings.Node is { } keep)
-                {
-                    int kept = KeepNodes(scene->MRootNode, keep, false);
-                    if (kept == 0)
-                    {
-                        output.Error($"{prefix}No node with meshes has \"{keep}\" in its name.");
-                        return null;
-                    }
-                }
-
-                if (!settings.KeepMeshes)
-                {
-                    // On failure Assimp has already freed the scene.
-                    using (input.Time("assimp flatten"))
-                    {
-                        scene = assimp.ApplyPostProcessing(scene, (uint)PostProcessSteps.PreTransformVertices);
-                    }
-
-                    if (scene == null)
-                    {
-                        output.Error($"{prefix}Could not flatten {input.Name}: {assimp.GetErrorStringS()}");
-                        return null;
-                    }
-                }
-            }
-
-            // Only a placed mesh keeps its name. A merged part has no single mesh to name it after.
-            bool named = rig is not null || settings.KeepMeshes;
-
-            // glTF materials refer to images stored inside the file as "*0", "*1" and so on, while
-            // FBX materials use the image's original file name, so each is stored under both.
-            for (uint i = 0; i < scene->MNumTextures; i++)
-            {
-                var embedded = scene->MTextures[i];
-                if (embedded->MHeight == 0) // A height of 0 means the width is the size of an encoded image.
-                {
-                    byte[] encoded = new ReadOnlySpan<byte>(embedded->PcData, (int)embedded->MWidth).ToArray();
-                    textures.AddEmbedded($"*{i}", encoded);
-                    string original = embedded->MFilename.AsString;
-                    if (original.Length > 0)
-                    {
-                        textures.AddEmbedded(Path.GetFileName(original.Replace('\\', '/')), encoded);
-                    }
-                }
-            }
-
-            // The graphs run at once first, since one graph alone leaves cores idle while it does its serial steps. The
-            // materials then take their runs in order, so problems come out as if each ran its own.
-            graphs.RunAhead(GraphsWanted(assimp, scene, settings));
-            for (uint i = 0; i < scene->MNumMaterials; i++)
-            {
-                var material = ImportMaterial(assimp, scene->MMaterials[i], context, out string materialName, out float graphWidth);
-                occlusions.Add(OcclusionWanted(assimp, scene->MMaterials[i], materialName, context));
-                toons.Add(ImportToon(materialName, context));
-                textures.WidenRoughness(material.SurfaceTexture, material.NormalTexture);
-                materials.Add(material);
-                materialNames.Add(materialName);
-                graphWidths.Add(graphWidth);
-                shaders.Add(RuleFor(settings, materialName) is { } rule ? ImportShader(rule, materialName, input, output, prefix) : null);
-            }
-
-            foreach (var (m, world, node) in Placements(scene, rig is null && settings.KeepMeshes))
-            {
-                var mesh = scene->MMeshes[m];
-                meshVertices.Add(((int)mesh->MMaterialIndex, vertices.Count, (int)mesh->MNumVertices));
-                // Without UVs every texel read lands on one corner. A material with no textures doesn't care.
-                if (mesh->MTextureCoords[0] == null && SamplesTexture(materials[(int)mesh->MMaterialIndex]))
-                {
-                    output.Warning($"{prefix}mesh {m} ({mesh->MName.AsString}) has no UVs; using a flat tangent frame");
-                }
-
-                // A mirroring placement turns the tangent frame over, so its sign flips.
-                var normals = NormalMatrix(world);
-                bool mirrored = world.GetDeterminant() < 0f;
-                uint baseVertex = (uint)vertices.Count;
-                float graphWidth = graphWidths[(int)mesh->MMaterialIndex];
-                var uvs2 = mesh->MTextureCoords[1];
-                uv2Meshes.TryGetValue((int)mesh->MMaterialIndex, out var uv2Count);
-                uv2Meshes[(int)mesh->MMaterialIndex] = uvs2 == null
-                    ? (uv2Count.With, uv2Count.Without + 1)
-                    : (uv2Count.With + 1, uv2Count.Without);
-
-                for (uint v = 0; v < mesh->MNumVertices; v++)
-                {
-                    var normal = mesh->MNormals != null ? mesh->MNormals[v] : Vector3.UnitY;
-                    var uv = mesh->MTextureCoords[0] != null ? mesh->MTextureCoords[0][v] : Vector3.Zero;
-                    if (graphWidth > 0f)
-                    {
-                        uv = GraphUv(uv, graphWidth);
-                    }
-
-                    var tangent = new Vector4(Vector3.UnitX, 1f);
-                    if (mesh->MTangents != null && mesh->MBitangents != null)
-                    {
-                        float sign = Vector3.Dot(Vector3.Cross(normal, mesh->MTangents[v]), mesh->MBitangents[v]) < 0f ? -1f : 1f;
-                        tangent = new Vector4(mesh->MTangents[v], sign);
-                    }
-
-                    var direction = Vector3.TransformNormal(new Vector3(tangent.X, tangent.Y, tangent.Z), world);
-                    vertices.Add(new Vertex(
-                        Vector3.Transform(mesh->MVertices[v], world),
-                        Vector3.TransformNormal(normal, normals),
-                        new Vector4(direction, mirrored ? -tangent.W : tangent.W),
-                        new Vector2(uv.X, uv.Y))
-                    {
-                        Uv2 = uvs2 != null ? new Vector2(uvs2[v].X, uvs2[v].Y) : Vector2.Zero,
-                    });
-                }
-
-                rig?.Skin(mesh, (int)m, CollectionsMarshal.AsSpan(vertices).Slice((int)baseVertex, (int)mesh->MNumVertices));
-
-                uint firstIndex = (uint)indices.Count;
-                for (uint f = 0; f < mesh->MNumFaces; f++)
-                {
-                    var face = mesh->MFaces[f];
-                    if (face.MNumIndices != 3)
-                    {
-                        continue; // Stray points and lines survive triangulation.
-                    }
-
-                    indices.Add(baseVertex + face.MIndices[0]);
-                    indices.Add(baseVertex + face.MIndices[1]);
-                    indices.Add(baseVertex + face.MIndices[2]);
-                }
-
-                parts.Add(new ModelPart
-                {
-                    FirstIndex = firstIndex,
-                    IndexCount = (uint)indices.Count - firstIndex,
-                    Material = (int)mesh->MMaterialIndex,
-                });
-                if (named)
-                {
-                    meshNames.Add(MeshName(rig?.NodeOfMeshName((int)m) ?? node, mesh));
-                }
-            }
-
-            if (rig is not null)
-            {
-                for (uint a = 0; a < scene->MNumAnimations; a++)
-                {
-                    var animation = scene->MAnimations[a];
-                    string name = animation->MName.AsString is { Length: > 0 } own ? own : $"clip{a}";
-                    AddClip(clips, rig.ReadClip(animation, name));
-                }
-
-                foreach (var source in settings.Animations)
-                {
-                    string path = Path.Combine(sourceDirectory, source.File);
-                    var extra = Import(assimp, path, steps);
-                    if (extra == null)
-                    {
-                        output.Error($"{prefix}Could not read {source.File}: {assimp.GetErrorStringS()}");
-                        return null;
-                    }
-
-                    try
-                    {
-                        string baseName = source.Name ?? Path.GetFileNameWithoutExtension(source.File);
-                        for (uint a = 0; a < extra->MNumAnimations; a++)
-                        {
-                            string name = extra->MNumAnimations == 1 ? baseName : $"{baseName}{a + 1}";
-                            AddClip(clips, rig.ReadClip(extra->MAnimations[a], name, source.InPlace));
-                        }
-                    }
-                    finally
-                    {
-                        assimp.FreeScene(extra);
-                    }
-                }
-            }
-
-            // The turn, scale and centring go into the vertices, and for a rig into its skeleton
-            // too, so skinning lands in the same space.
-            vertexArray = vertices.ToArray();
-            rig?.MoveToRest(vertexArray);
-            var normalization = Normalization(vertexArray, settings.RotateY, settings.TargetLength, settings.KeepOrigin);
-            Apply(vertexArray, normalization);
-            skeleton = rig?.ToSkeleton(normalization).WithBounds(vertexArray);
-        }
-        finally
-        {
-            if (scene != null)
-            {
-                assimp.FreeScene(scene);
-            }
-        }
-
-        var eventProblems = ClipEventSettings.Attach(settings.Events, clips, skeleton);
-
-        for (int i = 0; i < materials.Count; i++)
-        {
-            if ((materials[i].Flags & MaterialFlags.Foliage) != 0 && RuleFor(settings, materialNames[i])?.Foliage?.Crown != false)
-            {
-                PointOutOfCrown(vertexArray, meshVertices.Where(mesh => mesh.Material == i));
-            }
-        }
+        var eventProblems = ClipEventSettings.Attach(settings.Events, read.Clips, read.Skeleton);
+        PointOutOfCrowns(cook, read);
 
         // Lighting and the masks both read the second UV set, so it's made usable before either. Each material is
         // checked and unwrapped on its own, the way its masks are baked.
-        if (LightmapUv(input, output, prefix, vertexArray, indices, parts, materialNames, uv2Meshes) is not { } lightmapped)
+        if (LightmapUvs.Make(cook, read.Vertices, read.Meshes, read.Materials.Names) is not { } lightmapped)
         {
             return null;
         }
 
-        vertexArray = lightmapped.Vertices;
-        int[] occlusion = AddOcclusion(context, materials, materialNames, occlusions, lightmapped.Made);
-
-        // It times its own phases: taking masks from the step cache, baking the rest, and keeping them.
-        var masks = BakeMasks(input, settings, output, prefix, vertexArray, indices, parts, materialNames, textures);
-
-        if (masks is null)
+        var materials = read.Materials;
+        int[] occlusion = MaterialExtras.AddOcclusion(cook, materials.Materials, materials.Names, materials.Occlusions, lightmapped.Made);
+        if (ModelMasks.Bake(cook, lightmapped.Vertices, read.Meshes, read.Materials.Names) is not { } masks)
         {
             return null;
         }
 
-        var model = new ModelData
-        {
-            Vertices = vertexArray,
-            Indices = indices.ToArray(),
-            Parts = parts.ToArray(),
-            MeshNames = meshNames.ToArray(),
-            Materials = materials.ToArray(),
-            MaterialShaders = shaders.Any(shader => shader is not null) ? shaders.ToArray() : [],
-            MaterialMasks = masks.Any(mask => mask is not null) ? masks : [],
-            MaterialOcclusion = occlusion,
-            MaterialToon = toons.Any(toon => toon is not null) ? toons.ToArray() : [],
-            Textures = textures.ToArray(),
-            Skeleton = skeleton,
-            Clips = clips.ToArray(),
-        };
-
-        // A cutoff that can't cut renders fine but wrong, and the renderer refuses a
-        // subsurface it can't store, so both stop the cook. Materials no part uses are
-        // never drawn, so they can't be wrong.
-        var problems = parts.Select(part => part.Material).Distinct().Order()
-            .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i) ?? SubsurfaceProblem(model.Materials[i]) ?? FoliageProblem(model.Materials[i])))
-            .Where(entry => entry.Problem is not null)
-            .Select(entry => $"material {entry.Name}: {entry.Problem}").Concat(eventProblems).ToList();
-        foreach (string problem in problems)
-        {
-            output.Error(prefix + problem);
-        }
-
-        if (problems.Count > 0)
-        {
-            return null;
-        }
-
-        // Last, since the checks above read the textures' pixels.
-        if (settings.CompressTextures)
-        {
-            // It times its own phases: taking textures from the step cache, compressing the rest, and keeping them.
-            var extra = masks.OfType<ModelMaterialMasks>().Select(mask => (mask.Texture, TextureFormat.Bc7))
-                .Concat(occlusion.Where(texture => texture >= 0).Select(texture => (texture, TextureFormat.Bc4)));
-            TextureCompression.Compress(model.Textures, model.Materials, extra, input, message => output.Warning(prefix + message));
-        }
-
-        using (input.Time("write model"))
-        {
-            // Textures go out as objects of their own, so models that share an image share one copy of it.
-            return model.ToBytes(texture => ModelTextures.Share(texture, output));
-        }
+        var model = ToModel(read, lightmapped.Vertices, masks, occlusion, cook.Textures);
+        return Check(cook, model, read.Materials.Names, eventProblems) ? Write(cook, model, masks, occlusion) : null;
     }
 
-    private const string LightmapUvStep = "lightmap-uv";
-
-    /// <summary>The note's reason for a material none of whose meshes has a second UV set.</summary>
-    private const string NoUv2 = "the file has none";
-
-    /// <summary>Names the code that unwraps and the kept bytes' layout, for the step cache's keys: <see cref="LightmapUnwrap.Version"/> and this cooker's code.</summary>
-    private static readonly string UnwrapVersion = LightmapUnwrap.Version + CodeId.Of(typeof(ModelCooker).Assembly).ToString("N");
-
-    /// <summary>
-    /// Gives every material's parts a second UV set fit for a lightmap. A material is the group the masks bake one mask
-    /// for, so each has its own 0 to 1, and two materials may overlap each other there. A material keeps the file's set
-    /// when it passes <see cref="LightmapUnwrap.Problem"/> for that material alone, and otherwise only that material is
-    /// unwrapped: at <see cref="LightmapUnwrap.ReferenceSize"/>, then twice and four times that when its charts don't
-    /// fit. A note says which materials got new ones, when they were unwrapped rather than recalled. Unwrapping splits
-    /// vertices where charts meet, so this returns the vertices to use and rewrites <paramref name="indices"/> in place,
-    /// keeping every part's triangles in their order. It also returns the materials whose set it made, unwrapped or
-    /// recalled. Null when a material can't be unwrapped, which was reported.
-    /// </summary>
-    private static (Vertex[] Vertices, HashSet<int> Made)? LightmapUv(
-        CookInput input, CookOutput output, string prefix, Vertex[] vertices, List<uint> indices, List<ModelPart> parts,
-        List<string> materialNames, Dictionary<int, (int With, int Without)> uv2Meshes)
+    // Foliage normals point out of their crown, unless the rule says crown: false.
+    private static void PointOutOfCrowns(ModelCook cook, ReadModel read)
     {
-        var groups = parts.Where(part => part.IndexCount > 0).Select(part => part.Material).Distinct().Order().ToList();
-        var made = new Dictionary<int, (Vertex[] Vertices, uint[] Indices)>();
-        var notes = new List<(int Material, string Reason)>();
-        foreach (int material in groups)
+        var (materials, names) = (read.Materials.Materials, read.Materials.Names);
+        for (int i = 0; i < materials.Count; i++)
         {
-            var (groupVertices, groupIndices) = Group(vertices, indices, parts, material);
-            if (groupIndices.Length == 0)
+            if ((materials[i].Flags & MaterialFlags.Foliage) != 0 && cook.RuleFor(names[i])?.Foliage?.Crown != false)
             {
-                continue;
+                PointOutOfCrown(read.Vertices, read.Meshes.Runs.Where(mesh => mesh.Material == i));
             }
-
-            var (with, without) = uv2Meshes.GetValueOrDefault(material);
-            string? reason = with == 0 ? NoUv2
-                : without > 0 ? $"{without} of its {with + without} meshes have none"
-                : null;
-            if (reason is null)
-            {
-                using (input.Time("check lightmap-uv"))
-                {
-                    var positions = groupVertices.Select(vertex => vertex.Position).ToArray();
-                    var uvs = groupVertices.Select(vertex => vertex.Uv2).ToArray();
-                    reason = LightmapUnwrap.Problem(positions, uvs, groupIndices);
-                }
-
-                if (reason is null)
-                {
-                    continue;
-                }
-            }
-
-            string? key = null;
-            if (input.HasStepCache)
-            {
-                using (input.Time("recall lightmap-uv"))
-                {
-                    key = UnwrapKey(groupVertices, groupIndices);
-                    if (input.Recall(LightmapUvStep, key) is { } kept && FromKept(kept, groupVertices, groupIndices.Length) is { } recalled)
-                    {
-                        made[material] = recalled;
-                        continue;
-                    }
-                }
-            }
-
-            (Vertex[] Vertices, uint[] Indices)? unwrapped = null;
-            using (input.Time("unwrap lightmap-uv"))
-            {
-                string? failure = null;
-                for (int size = LightmapUnwrap.ReferenceSize; size <= LightmapUnwrap.LargestSize && unwrapped is null; size *= 2)
-                {
-                    try
-                    {
-                        unwrapped = LightmapUnwrap.Unwrap(groupVertices, groupIndices, size);
-                    }
-                    catch (InvalidOperationException exception)
-                    {
-                        failure = exception.Message;
-                    }
-                }
-
-                if (unwrapped is null)
-                {
-                    output.Error($"{prefix}material {materialNames[material]}: {failure}");
-                    return null;
-                }
-            }
-
-            var (newVertices, newIndices) = unwrapped.Value;
-
-            // Each corner's new vertex is a copy of its old one with new second UVs, which is all the cache needs to make it again.
-            var remap = new uint[newVertices.Length];
-            for (int corner = 0; corner < groupIndices.Length; corner++)
-            {
-                remap[newIndices[corner]] = groupIndices[corner];
-            }
-
-            if (key is not null)
-            {
-                using (input.Time("keep lightmap-uv"))
-                {
-                    input.Keep(LightmapUvStep, key, ToKept(newVertices, remap, newIndices));
-                }
-            }
-
-            made[material] = (newVertices, newIndices);
-            notes.Add((material, reason));
-        }
-
-        Note(output, prefix, notes, groups.Count, materialNames);
-        if (made.Count == 0)
-        {
-            return (vertices, []);
-        }
-
-        // The materials kept hold on to their vertices, in their order, and the new ones follow, material by material.
-        var replaced = new bool[vertices.Length];
-        foreach (var part in parts.Where(part => made.ContainsKey(part.Material)))
-        {
-            for (int i = 0; i < part.IndexCount; i++)
-            {
-                replaced[indices[(int)part.FirstIndex + i]] = true;
-            }
-        }
-
-        var result = new List<Vertex>(vertices.Length);
-        var moved = new uint[vertices.Length];
-        for (int v = 0; v < vertices.Length; v++)
-        {
-            if (!replaced[v])
-            {
-                moved[v] = (uint)result.Count;
-                result.Add(vertices[v]);
-            }
-        }
-
-        for (int i = 0; i < indices.Count; i++)
-        {
-            if (!replaced[indices[i]])
-            {
-                indices[i] = moved[indices[i]];
-            }
-        }
-
-        foreach (var (material, (newVertices, newIndices)) in made.OrderBy(pair => pair.Key))
-        {
-            uint first = (uint)result.Count;
-            result.AddRange(newVertices);
-            int corner = 0;
-            foreach (var part in parts.Where(part => part.Material == material))
-            {
-                for (int i = 0; i < part.IndexCount; i++)
-                {
-                    indices[(int)part.FirstIndex + i] = first + newIndices[corner++];
-                }
-            }
-        }
-
-        return (result.ToArray(), made.Keys.ToHashSet());
-    }
-
-    /// <summary>One material's parts on their own: the vertices they use, in the model's order, and their indices into those, part after part.</summary>
-    private static (Vertex[] Vertices, uint[] Indices) Group(Vertex[] vertices, List<uint> indices, List<ModelPart> parts, int material)
-    {
-        var local = new Dictionary<uint, uint>();
-        var sources = new List<Vertex>();
-        var groupIndices = new List<uint>();
-        foreach (var part in parts.Where(part => part.Material == material))
-        {
-            for (int i = 0; i < part.IndexCount; i++)
-            {
-                uint index = indices[(int)part.FirstIndex + i];
-                if (!local.TryGetValue(index, out uint at))
-                {
-                    at = (uint)sources.Count;
-                    local.Add(index, at);
-                    sources.Add(vertices[index]);
-                }
-
-                groupIndices.Add(at);
-            }
-        }
-
-        return (sources.ToArray(), groupIndices.ToArray());
-    }
-
-    /// <summary>
-    /// Says which materials got a second UV set made for lighting, and why. A model of one material, or one whose every
-    /// material had none, gets one line with the reason alone. Otherwise the materials that had none share a line, and
-    /// each of the rest has its own.
-    /// </summary>
-    private static void Note(CookOutput output, string prefix, List<(int Material, string Reason)> notes, int groupCount, List<string> materialNames)
-    {
-        if (notes.Count == 0)
-        {
-            return;
-        }
-
-        const string made = "made a second UV set for lighting";
-        bool allNone = notes.Count == groupCount && notes.All(note => note.Reason == NoUv2);
-        if (groupCount == 1 || allNone)
-        {
-            output.Note($"{prefix}{made}: {notes[0].Reason}");
-            return;
-        }
-
-        var none = notes.Where(note => note.Reason == NoUv2).Select(note => materialNames[note.Material]).ToList();
-        if (none.Count == 1)
-        {
-            output.Note($"{prefix}{made}: material {none[0]} has none");
-        }
-        else if (none.Count > 1)
-        {
-            output.Note($"{prefix}{made}: materials {string.Join(", ", none.SkipLast(1))} and {none[^1]} have none");
-        }
-
-        foreach (var (material, reason) in notes.Where(note => note.Reason != NoUv2))
-        {
-            output.Note($"{prefix}material {materialNames[material]}: {made}: {reason}");
         }
     }
-
-    /// <summary>
-    /// The step cache's key for one material's unwrap: everything <see cref="LightmapUnwrap.Unwrap"/> reads, which is the
-    /// corners' positions and normals and the indices, with the unwrapper's and this cooker's builds and the largest page it may try.
-    /// </summary>
-    private static string UnwrapKey(Vertex[] vertices, uint[] indices)
-    {
-        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
-        hash.AppendData(BitConverter.GetBytes(vertices.Length));
-        foreach (var vertex in vertices)
-        {
-            var position = vertex.Position;
-            var normal = vertex.Normal;
-            hash.AppendData(MemoryMarshal.AsBytes(new ReadOnlySpan<Vector3>(in position)));
-            hash.AppendData(MemoryMarshal.AsBytes(new ReadOnlySpan<Vector3>(in normal)));
-        }
-
-        hash.AppendData(BitConverter.GetBytes(indices.Length));
-        hash.AppendData(MemoryMarshal.AsBytes(indices.AsSpan()));
-        return string.Join('|', UnwrapVersion, LightmapUnwrap.LargestSize.ToString(CultureInfo.InvariantCulture), Convert.ToHexString(hash.GetHashAndReset()));
-    }
-
-    // The kept bytes: the vertex and index counts, then for each new vertex the old vertex it copies, then each new
-    // vertex's second UVs, then the new indices. All of them count within the material, not the model.
-    private static byte[] ToKept(Vertex[] unwrapped, uint[] remap, uint[] unwrappedIndices)
-    {
-        var uvs = unwrapped.Select(vertex => vertex.Uv2).ToArray();
-        using var stream = new MemoryStream(8 + unwrapped.Length * 12 + unwrappedIndices.Length * 4);
-        stream.Write(BitConverter.GetBytes(unwrapped.Length));
-        stream.Write(BitConverter.GetBytes(unwrappedIndices.Length));
-        stream.Write(MemoryMarshal.AsBytes(remap.AsSpan()));
-        stream.Write(MemoryMarshal.AsBytes(uvs.AsSpan()));
-        stream.Write(MemoryMarshal.AsBytes(unwrappedIndices.AsSpan()));
-        return stream.ToArray();
-    }
-
-    // Makes a material's unwrapped vertices and indices again from kept bytes, or null when the bytes don't fit it.
-    private static (Vertex[] Vertices, uint[] Indices)? FromKept(byte[] kept, Vertex[] vertices, int indexCount)
-    {
-        if (kept.Length < 8)
-        {
-            return null;
-        }
-
-        int vertexCount = BitConverter.ToInt32(kept, 0);
-        if (vertexCount < 0 || BitConverter.ToInt32(kept, 4) != indexCount || kept.Length != 8 + (long)vertexCount * 12 + (long)indexCount * 4)
-        {
-            return null;
-        }
-
-        var remap = MemoryMarshal.Cast<byte, uint>(kept.AsSpan(8, vertexCount * 4));
-        var uvs = MemoryMarshal.Cast<byte, Vector2>(kept.AsSpan(8 + vertexCount * 4, vertexCount * 8));
-        var keptIndices = MemoryMarshal.Cast<byte, uint>(kept.AsSpan(8 + vertexCount * 12, indexCount * 4)).ToArray();
-        var unwrapped = new Vertex[vertexCount];
-        for (int i = 0; i < vertexCount; i++)
-        {
-            if (remap[i] >= vertices.Length)
-            {
-                return null;
-            }
-
-            unwrapped[i] = vertices[remap[i]] with { Uv2 = uvs[i] };
-        }
-
-        foreach (uint index in keptIndices)
-        {
-            if (index >= vertexCount)
-            {
-                return null;
-            }
-        }
-
-        return (unwrapped, keptIndices);
-    }
-
-    // Checks each used material's wear and dirt, and bakes the masks of those whose rule asks for them, laid out by the
-    // second UV set. The rest of the model shades them, so a barrel's foot is dark where it meets the deck. Null when
-    // something was wrong, which was reported.
-    private static ModelMaterialMasks?[]? BakeMasks(
-        CookInput input, ImportSettings settings, CookOutput output, string prefix, Vertex[] vertices, List<uint> indices, List<ModelPart> parts,
-        List<string> materialNames, ModelTextures textures)
-    {
-        var masks = new ModelMaterialMasks?[materialNames.Count];
-        bool failed = false;
-        Vector3[]? positions = null;
-        Vector2[]? uvs = null;
-        string? shape = null;
-        var bakes = new List<MaskBake>();
-        foreach (int material in parts.Select(part => part.Material).Distinct().Order())
-        {
-            string name = materialNames[material];
-            if (RuleFor(settings, name) is not { } rule)
-            {
-                continue;
-            }
-
-            void Error(string message)
-            {
-                output.Error($"{prefix}material {name}: {message}");
-                failed = true;
-            }
-
-            if (!rule.BakeMasks)
-            {
-                if (rule.Wear is not null || rule.Dirt is not null)
-                {
-                    Error("wear and dirt need bakeMasks, since they're laid by the masks it bakes.");
-                }
-
-                continue;
-            }
-
-            if (rule.Wear is null && rule.Dirt is null)
-            {
-                Error("bakeMasks bakes masks for wear and dirt, but the rule has neither.");
-                continue;
-            }
-
-            if (rule.Transparent)
-            {
-                output.Warning($"{prefix}material {name}: transparent materials don't show wear and dirt, so bakeMasks is ignored.");
-                continue;
-            }
-
-            if (Layer(rule.Wear, "wear", Error) is not { } wear || Layer(rule.Dirt, "dirt", Error) is not { } dirt)
-            {
-                continue;
-            }
-
-            positions ??= vertices.Select(vertex => vertex.Position).ToArray();
-            uvs ??= vertices.Select(vertex => vertex.Uv2).ToArray();
-            var (mesh, rest) = MaskMeshes(positions, uvs, parts, indices, material);
-            if (MaskBaker.Problem(mesh, MaskBaker.DefaultSize) is { } problem)
-            {
-                Error(problem + ".");
-                continue;
-            }
-
-            byte[]? rgba = null;
-            string? key = null;
-            if (input.HasStepCache)
-            {
-                using (input.Time("recall masks"))
-                {
-                    shape ??= MaskShape(positions, uvs);
-                    key = MaskKey(shape, mesh, rest);
-                    if (input.Recall(MaskStep, key) is { Length: MaskBaker.DefaultSize * MaskBaker.DefaultSize * 4 } kept)
-                    {
-                        rgba = kept;
-                    }
-                }
-            }
-
-            // The meshes aren't kept: each holds most of the model's indices, so they're made again when it bakes.
-            bakes.Add(new MaskBake(material, name, key, wear, dirt) { Rgba = rgba });
-        }
-
-        // The materials bake at once, since each bake has serial steps that leave cores idle. They're added in material
-        // order after, so the textures' order doesn't depend on which finished first. Nothing is baked when a material was
-        // wrong, since the model isn't cooked then.
-        List<MaskBake> toBake = failed ? [] : bakes.Where(bake => bake.Rgba is null).ToList();
-        Parallel.For(0, toBake.Count, new ParallelOptions { MaxDegreeOfParallelism = MasksAtOnce }, i =>
-        {
-            using (input.Time("bake masks"))
-            {
-                var (mesh, rest) = MaskMeshes(positions!, uvs!, parts, indices, toBake[i].Material);
-                BakePermits.Wait();
-                try
-                {
-                    toBake[i].Rgba = MaskBaker.Bake(mesh, MaskBaker.DefaultSize, rest).Rgba;
-                }
-                finally
-                {
-                    BakePermits.Release();
-                }
-
-                toBake[i].Baked = true;
-            }
-        });
-
-        foreach (var bake in bakes)
-        {
-            if (bake.Rgba is null)
-            {
-                continue;
-            }
-
-            if (bake.Baked && bake.Key is not null)
-            {
-                using (input.Time("keep masks"))
-                {
-                    input.Keep(MaskStep, bake.Key, bake.Rgba!);
-                }
-            }
-
-            int texture = textures.AddPixels($"{bake.Name}#mask", MaskBaker.DefaultSize, MaskBaker.DefaultSize, TextureKind.Linear, bake.Rgba!);
-            masks[bake.Material] = new ModelMaterialMasks(texture, bake.Wear, bake.Dirt);
-        }
-
-        return failed ? null : masks;
-    }
-
-    /// <summary>How many of a model's materials' masks bake at once. Each bake runs its texels in parallel already.</summary>
-    private const int MasksAtOnce = 4;
-
-    /// <summary>
-    /// How many masks bake at once in the process, whichever models they're for. A bake holds its own buffers at the mask
-    /// size and traces against the rest of the model, so this, not the number of workers, sets how much memory bakes take.
-    /// </summary>
-    internal static readonly int BakesAtOnce = Math.Clamp(Environment.ProcessorCount / 2, 2, 8);
-
-    private static readonly SemaphoreSlim BakePermits = new(BakesAtOnce);
-
-    /// <summary>
-    /// The mesh a material's masks are baked from, its own parts, and the rest of the model it traces against. Each part is
-    /// one of the model's meshes, and height is measured from each one's own foot.
-    /// </summary>
-    private static (MeshData Mesh, MeshData Others) MaskMeshes(Vector3[] positions, Vector2[] uvs, List<ModelPart> parts, List<uint> indices, int material)
-    {
-        var own = parts.Where(part => part.Material == material).ToList();
-        var mesh = new MeshData(
-            positions, uvs, IndicesOf(own, indices),
-            own.SelectMany((part, i) => Enumerable.Repeat(i, (int)part.IndexCount / 3)).ToArray());
-        var rest = new MeshData(positions, uvs, IndicesOf(parts.Where(part => part.Material != material), indices));
-        return (mesh, rest);
-    }
-
-    /// <summary>One material's masks: what they're laid with, and their pixels once recalled or baked.</summary>
-    private sealed record MaskBake(int Material, string Name, string? Key, MaterialLayer Wear, MaterialLayer Dirt)
-    {
-        public byte[]? Rgba { get; set; }
-
-        public bool Baked { get; set; }
-    }
-
-    private const string MaskStep = "mask";
-
-    /// <summary>
-    /// Names the code that bakes masks, for the step cache's keys: this library's code (<see cref="CodeId"/>), which holds
-    /// <see cref="MaskBaker"/>, and the size it bakes at.
-    /// </summary>
-    private static readonly string MaskVersion = string.Join(',',
-        CodeId.Of(typeof(MaskBaker).Assembly).ToString("N"),
-        MaskBaker.DefaultSize.ToString(CultureInfo.InvariantCulture));
-
-    /// <summary>The hash of the corners and second UVs every material's mask is baked from.</summary>
-    private static string MaskShape(Vector3[] positions, Vector2[] uvs)
-    {
-        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
-        hash.AppendData(BitConverter.GetBytes(positions.Length));
-        hash.AppendData(MemoryMarshal.AsBytes(positions.AsSpan()));
-        hash.AppendData(BitConverter.GetBytes(uvs.Length));
-        hash.AppendData(MemoryMarshal.AsBytes(uvs.AsSpan()));
-        return Convert.ToHexString(hash.GetHashAndReset());
-    }
-
-    /// <summary>The step cache's key for one material's masks: everything <see cref="MaskBaker.Bake"/> reads.</summary>
-    private static string MaskKey(string shape, MeshData mesh, MeshData rest)
-    {
-        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
-        foreach (int[]? list in new[] { mesh.Indices, mesh.Parts, rest.Indices, rest.Parts })
-        {
-            hash.AppendData(BitConverter.GetBytes(list?.Length ?? -1));
-            hash.AppendData(MemoryMarshal.AsBytes((list ?? []).AsSpan()));
-        }
-
-        return string.Join('|', MaskVersion, shape, Convert.ToHexString(hash.GetHashAndReset()));
-    }
-
-    private static int[] IndicesOf(IEnumerable<ModelPart> parts, List<uint> indices) =>
-        parts.SelectMany(part => Enumerable.Range((int)part.FirstIndex, (int)part.IndexCount).Select(i => (int)indices[i])).ToArray();
-
-    // A rule's wear or dirt as the renderer takes it: none is an amount of 0, and no roughness keeps the surface's.
-    // Null when it's wrong, which was reported.
-    private static MaterialLayer? Layer(LayerRule? rule, string name, Action<string> error)
-    {
-        if (rule is null)
-        {
-            return new MaterialLayer(Vector3.Zero, -1f, 0f);
-        }
-
-        string Number(float value) => value.ToString(CultureInfo.InvariantCulture);
-        if (rule.Color is not { Length: 3 } color)
-        {
-            error($"{name} color needs three numbers, red, green and blue.");
-            return null;
-        }
-
-        foreach (float c in color)
-        {
-            if (c < 0f || c > 1f)
-            {
-                error($"{name} color is a colour as a picker shows it, each number from 0 to 1, not {Number(c)}.");
-                return null;
-            }
-        }
-
-        if (rule.Amount < 0f || rule.Amount > 1f)
-        {
-            error($"{name} amount must be from 0 to 1, not {Number(rule.Amount)}.");
-            return null;
-        }
-
-        if (rule.Roughness is { } roughness && (roughness < 0f || roughness > 1f))
-        {
-            error($"{name} roughness must be from 0 to 1, not {Number(roughness)}.");
-            return null;
-        }
-
-        // The rule's colour is sRGB, as a colour picker shows it; the shader mixes in linear.
-        static float Linear(float c) => c <= 0.04045f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
-        return new MaterialLayer(new Vector3(Linear(color[0]), Linear(color[1]), Linear(color[2])), rule.Roughness ?? -1f, rule.Amount);
-    }
-
-    private static string? SubsurfaceProblem(in ModelMaterial material) =>
-        material.Subsurface.Problem(material.Clearcoat, material.Flags);
-
-    private static string? FoliageProblem(in ModelMaterial material) =>
-        ((material.Flags & MaterialFlags.Foliage) != 0 ? Rendition.Material.TranslucencyProblem(material.Translucency) : null)
-        ?? Rendition.Material.WindProblem(material.Wind);
 
     // Every mesh of one foliage material counts as one crown.
     private static void PointOutOfCrown(Vertex[] vertices, IEnumerable<(int Material, int First, int Count)> meshes)
@@ -1058,853 +229,73 @@ public sealed class ModelCooker : ICooker
         }
     }
 
-    private static unsafe Scene* Import(Assimp assimp, string path, PostProcessSteps steps)
+    private static ModelData ToModel(
+        ReadModel read, Vertex[] vertices, ModelMaterialMasks?[] masks, int[] occlusion, ModelTextures textures)
     {
-        // Mixamo FBX files otherwise sprout pivot nodes, which would break joint names
-        // between a character and its animation files.
-        var properties = assimp.CreatePropertyStore();
-        assimp.SetImportPropertyInteger(properties, "IMPORT_FBX_PRESERVE_PIVOTS", 0);
-        var scene = assimp.ImportFileExWithProperties(path, (uint)steps, null, properties);
-        assimp.ReleasePropertyStore(properties);
-        return scene;
-    }
-
-    private static bool SamplesTexture(ModelMaterial material)
-    {
-        return material.BaseColorTexture >= 0 || material.NormalTexture >= 0
-            || material.SurfaceTexture >= 0 || material.EmissiveTexture >= 0
-            || material.HeightTexture >= 0 || material.DetailColorTexture >= 0 || material.DetailNormalTexture >= 0;
-    }
-
-    private static void AddClip(List<AnimationClip> clips, AnimationClip? clip)
-    {
-        if (clip is null)
+        var (meshes, materials) = (read.Meshes, read.Materials);
+        return new ModelData
         {
-            return;
-        }
-
-        if (clips.Any(existing => existing.Name == clip.Name))
-        {
-            throw new InvalidDataException($"Two clips are called {clip.Name}. Give one a name in the settings file.");
-        }
-
-        clips.Add(clip);
-    }
-
-    // The meshes to cook, each with the transform that puts it in the model's space. With byNode, they
-    // come in the order the nodes hold them, and each is placed by its node. Otherwise every mesh is
-    // already in the model's space: a rig's meshes stay in their own space, since the rig importer
-    // places them and the joints move them, and a merged static scene was flattened by Assimp.
-    // Node is the name of the node holding the mesh when placed by node, and null otherwise.
-    private static unsafe List<(uint Mesh, Matrix4x4 World, string? Node)> Placements(Scene* scene, bool byNode)
-    {
-        var placed = new List<(uint Mesh, Matrix4x4 World, string? Node)>();
-        if (byNode)
-        {
-            Place(scene->MRootNode, Matrix4x4.Identity, placed);
-        }
-        else
-        {
-            for (uint m = 0; m < scene->MNumMeshes; m++)
-            {
-                placed.Add((m, Matrix4x4.Identity, null));
-            }
-        }
-
-        return placed;
-    }
-
-    private static unsafe void Place(Node* node, in Matrix4x4 parent, List<(uint Mesh, Matrix4x4 World, string? Node)> placed)
-    {
-        // Assimp stores matrices for column vectors; this engine multiplies row vectors.
-        var world = Matrix4x4.Transpose(node->MTransformation) * parent;
-        string name = node->MName.AsString;
-        for (uint i = 0; i < node->MNumMeshes; i++)
-        {
-            placed.Add((node->MMeshes[i], world, name));
-        }
-
-        for (uint c = 0; c < node->MNumChildren; c++)
-        {
-            Place(node->MChildren[c], world, placed);
-        }
-    }
-
-    // A part is named by the node that holds its mesh: that's the name an artist sees in the outliner,
-    // and it stays whole where Assimp splits a mesh with several materials into several meshes or
-    // suffixes their names. A node with no name falls back to the mesh's own name.
-    private static unsafe string MeshName(string? node, Mesh* mesh) =>
-        string.IsNullOrEmpty(node) ? mesh->MName.AsString : node;
-
-    // Normals keep pointing off the surface when a placement stretches it, so they use the inverse transpose.
-    private static Matrix4x4 NormalMatrix(in Matrix4x4 world) =>
-        Matrix4x4.Invert(world, out var inverse) ? Matrix4x4.Transpose(inverse) : Matrix4x4.Identity;
-
-    // Drops the meshes of every node outside the ones named, so flattening leaves them out.
-    // Returns how many nodes with meshes were kept.
-    private static unsafe int KeepNodes(Node* node, string keep, bool inside)
-    {
-        inside |= node->MName.AsString.Contains(keep, StringComparison.OrdinalIgnoreCase);
-        int kept = 0;
-        if (!inside)
-        {
-            node->MNumMeshes = 0;
-        }
-        else if (node->MNumMeshes > 0)
-        {
-            kept++;
-        }
-
-        for (uint i = 0; i < node->MNumChildren; i++)
-        {
-            kept += KeepNodes(node->MChildren[i], keep, inside);
-        }
-
-        return kept;
-    }
-
-    // The transform that turns the model by rotateY degrees around the vertical axis, scales
-    // it to real-world metres, centres it, and stands it on y = 0. The bounds are taken after
-    // the turn, so the model fits its target length the way it will face. With keepOrigin the
-    // turn and scale are about the file's own origin, and nothing is moved.
-    private static Matrix4x4 Normalization(Vertex[] vertices, float rotateY, float targetLength, bool keepOrigin)
-    {
-        var turn = Matrix4x4.CreateRotationY(rotateY * MathF.PI / 180f);
-        var min = new Vector3(float.MaxValue);
-        var max = new Vector3(float.MinValue);
-        foreach (ref readonly var vertex in vertices.AsSpan())
-        {
-            var turned = Vector3.Transform(vertex.Position, turn);
-            min = Vector3.Min(min, turned);
-            max = Vector3.Max(max, turned);
-        }
-
-        var size = max - min;
-        float scale = targetLength > 0f ? targetLength / MathF.Max(size.X, MathF.Max(size.Y, size.Z)) : 1f;
-        if (keepOrigin)
-        {
-            return turn * Matrix4x4.CreateScale(scale);
-        }
-
-        var center = (min + max) * 0.5f;
-        var shift = new Vector3(-center.X, -center.Y + size.Y * 0.5f, -center.Z);
-        return turn * Matrix4x4.CreateTranslation(shift) * Matrix4x4.CreateScale(scale);
-    }
-
-    private static void Apply(Vertex[] vertices, in Matrix4x4 transform)
-    {
-        foreach (ref var vertex in vertices.AsSpan())
-        {
-            vertex.Position = Vector3.Transform(vertex.Position, transform);
-            vertex.Normal = Vector3.Normalize(Vector3.TransformNormal(vertex.Normal, transform));
-            var tangent = Vector3.TransformNormal(new Vector3(vertex.Tangent.X, vertex.Tangent.Y, vertex.Tangent.Z), transform);
-            vertex.Tangent = new Vector4(Vector3.Normalize(tangent), vertex.Tangent.W);
-        }
-    }
-
-    // A graph's UVs are in metres, so they're divided by its width. FlipUVs has turned v upside down, so v is turned back
-    // first and again after. That keeps v running the way it did, and lines a tile's edge up with the file's own UV origin,
-    // so a brick wall laid out from its foot in Blender starts a row of bricks at its foot.
-    private static Vector3 GraphUv(Vector3 uv, float width)
-    {
-        return new Vector3(uv.X / width, 1f - (1f - uv.Y) / width, uv.Z);
-    }
-
-    private sealed record MaterialContext(
-        ImportSettings Settings, ModelTextures Textures, GraphRuns Graphs, CookOutput Output, string Prefix, bool IsGltf);
-
-    /// <summary>
-    /// A material's occlusion texture before it's cooked: its file, whether the second UV set reads it, and the
-    /// material when a rule named it, so a missing file stops the cook rather than warns.
-    /// </summary>
-    private sealed record WantedOcclusion(string File, bool OnUv2, string? NamedBy);
-
-    /// <summary>
-    /// The material rule's <c>toon</c>, with its ramp cooked as linear data, or null for none. Steps out of range, or a
-    /// rim that isn't three numbers of 0 or more, stop the cook.
-    /// </summary>
-    private static ModelMaterialToon? ImportToon(string materialName, MaterialContext context)
-    {
-        if (RuleFor(context.Settings, materialName)?.Toon is not { } rule)
-        {
-            return null;
-        }
-
-        void Error(string message) => context.Output.Error($"{context.Prefix}material {materialName}: {message}");
-        if (rule.Rim is { } rim && rim.Length != 3)
-        {
-            Error($"toon rim must be three numbers, red, green and blue, not {rim.Length}.");
-            return null;
-        }
-
-        var shading = new ToonShading { Steps = rule.Steps, Rim = rule.Rim is { } r ? new Vector3(r[0], r[1], r[2]) : Vector3.Zero };
-        if (shading.Problem() is { } problem)
-        {
-            Error(problem);
-            return null;
-        }
-
-        int ramp = context.Textures.Add(rule.Ramp, TextureKind.Linear, namedBy: materialName);
-        return new ModelMaterialToon(shading.Steps, ramp, shading.Rim);
-    }
-
-    /// <summary>
-    /// The occlusion texture a material wants: the rule's own, or else the one a glTF file links, which Assimp files as
-    /// its lightmap, unless the rule says <c>noOcclusionMap</c>. Null for none, or when the rule's UV set is wrong or
-    /// the file's is past the two the cook keeps, which was reported.
-    /// </summary>
-    private static unsafe WantedOcclusion? OcclusionWanted(
-        Assimp assimp, Silk.NET.Assimp.Material* source, string materialName, MaterialContext context)
-    {
-        var rule = RuleFor(context.Settings, materialName) ?? new MaterialRule();
-        string problemPrefix = $"{context.Prefix}material {materialName}: ";
-        if (rule.OcclusionUv is { } asked && asked is not (0 or 1))
-        {
-            context.Output.Error($"{problemPrefix}occlusionUv must be 0 or 1, not {asked}.");
-            return null;
-        }
-
-        uint linkedUv = 0;
-        string? linked = context.IsGltf && !rule.NoOcclusionMap ? GetTexture(assimp, source, TextureType.Lightmap, out linkedUv) : null;
-        if ((rule.Occlusion ?? linked) is not { } file)
-        {
-            return null;
-        }
-
-        uint uv = rule.OcclusionUv is { } set ? (uint)set : rule.Occlusion is null ? linkedUv : 0u;
-        if (uv > 1)
-        {
-            context.Output.Warning(
-                $"{problemPrefix}its occlusion texture is on TEXCOORD_{uv}, and the cook keeps only the first two UV sets, so it's left out.");
-            return null;
-        }
-
-        return new WantedOcclusion(file, uv == 1, rule.Occlusion is null ? null : materialName);
-    }
-
-    /// <summary>
-    /// Cooks each material's occlusion texture once the second UV set is settled, and returns each one's index, -1 for
-    /// none, or nothing when no material has one, as <see cref="ModelData.MaterialOcclusion"/> wants. A texture on that
-    /// set was painted for the file's own layout, so where the cook <paramref name="made"/> a new set for lighting it
-    /// would land in the wrong places, and it's left out with a warning.
-    /// </summary>
-    private static int[] AddOcclusion(
-        MaterialContext context, List<ModelMaterial> materials, List<string> materialNames, List<WantedOcclusion?> wanted,
-        HashSet<int> made)
-    {
-        var cooked = new int[materials.Count];
-        Array.Fill(cooked, -1);
-        for (int i = 0; i < materials.Count; i++)
-        {
-            if (wanted[i] is not { } occlusion)
-            {
-                continue;
-            }
-
-            if (occlusion.OnUv2 && made.Contains(i))
-            {
-                context.Output.Warning(
-                    $"{context.Prefix}material {materialNames[i]}: its occlusion texture is on the second UV set, which the cook made again for lighting, so it's left out. Give the model a second UV set that fits a lightmap, or put the occlusion on the first.");
-                continue;
-            }
-
-            int texture = context.Textures.Add(occlusion.File, TextureKind.Linear, namedBy: occlusion.NamedBy);
-            if (texture >= 0 && occlusion.OnUv2)
-            {
-                var material = materials[i];
-                material.Flags |= MaterialFlags.OcclusionOnUv2;
-                materials[i] = material;
-            }
-
-            cooked[i] = texture;
-        }
-
-        return cooked.Any(texture => texture >= 0) ? cooked : [];
-    }
-
-    /// <summary>One graph's images, packed into the pixels of its textures.</summary>
-    private sealed record GraphRun(string Key, int Size, float Width, float HeightDepth, MaterialPixels Pixels);
-
-    /// <summary>A material's graph, and the detail graph it runs when that graph works.</summary>
-    private sealed record WantedGraphs((string Path, int Size) Main, (string Path, int Size)? Detail);
-
-    /// <summary>
-    /// The graphs and detail graphs the materials will run, in material order, by the same rules <see cref="RunGraph"/> and
-    /// <see cref="RunDetailGraph"/> follow, so none runs that they wouldn't.
-    /// </summary>
-    private static unsafe List<WantedGraphs> GraphsWanted(Assimp assimp, Scene* scene, ImportSettings settings)
-    {
-        var wanted = new List<WantedGraphs>();
-        for (uint i = 0; i < scene->MNumMaterials; i++)
-        {
-            AssimpString name;
-            assimp.GetMaterialString(scene->MMaterials[i], Assimp.MaterialNameBase, 0, 0, &name);
-            if (RuleFor(settings, name.AsString) is not { Graph: { } path } rule
-                || rule.BaseColor is not null || rule.Normal is not null || rule.Surface is not null || rule.Alpha is not null)
-            {
-                continue;
-            }
-
-            int size = rule.GraphSize ?? MaterialGraphs.DefaultSize;
-            if (MaterialGraphs.SizeProblem("graphSize", size) is not null)
-            {
-                continue;
-            }
-
-            int detailSize = rule.DetailGraphSize ?? MaterialGraphs.DefaultSize;
-            bool withDetail = rule.DetailGraph is not null && rule.DetailColor is null && rule.DetailNormal is null
-                && MaterialGraphs.SizeProblem("detailGraphSize", detailSize) is null;
-            wanted.Add(new WantedGraphs((path, size), withDetail ? (rule.DetailGraph!, detailSize) : null));
-        }
-
-        return wanted;
-    }
-
-    /// <summary>The graphs a model's materials name, each run once per (path, size) however many materials or parts use it.</summary>
-    private sealed class GraphRuns(CookInput input)
-    {
-        /// <summary>
-        /// How many of a model's graphs run at once. Each already runs its nodes in parallel, so a few at once is enough
-        /// to fill the gaps, and each holds its float images while it runs, which at 4096 pixels are up to 256 MiB each.
-        /// </summary>
-        private const int AtOnce = 3;
-
-        private readonly Dictionary<string, GraphRun?> _runs = new(StringComparer.Ordinal);
-
-        /// <summary>Runs made by <see cref="RunAhead"/> that no material has asked for yet, with the errors they gave.</summary>
-        private readonly Dictionary<string, (PackedImages? Packed, List<string> Errors)> _ahead = new(StringComparer.Ordinal);
-
-        /// <summary>
-        /// Runs <paramref name="wanted"/> at once, before the materials ask for them one by one with <see cref="Run"/>. Their
-        /// errors wait until then, so they're reported by the material that asks first, in the order the materials come.
-        /// </summary>
-        public void RunAhead(IReadOnlyList<WantedGraphs> wanted)
-        {
-            string KeyOf((string Path, int Size) run) => $"{run.Path.Replace('\\', '/')}@{run.Size}";
-            bool Fresh((string Path, int Size) run) => !_runs.ContainsKey(KeyOf(run)) && !_ahead.ContainsKey(KeyOf(run));
-
-            int count = wanted
-                .SelectMany(item => item.Detail is { } detail ? new[] { item.Main, detail } : [item.Main])
-                .Where(Fresh)
-                .Select(KeyOf)
-                .Distinct(StringComparer.Ordinal)
-                .Count();
-            if (count < 2)
-            {
-                return;
-            }
-
-            // A graph two materials name runs once: the second waits for the first's.
-            var runs = new System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<(PackedImages? Packed, List<string> Errors)>>(StringComparer.Ordinal);
-            (PackedImages? Packed, List<string> Errors) Make((string Path, int Size) run)
-            {
-                string path = run.Path.Replace('\\', '/');
-                return runs.GetOrAdd(KeyOf(run), _ => new Lazy<(PackedImages?, List<string>)>(() =>
-                {
-                    var errors = new List<string>();
-                    var packed = MaterialGraphs.RunPacked(input, path, run.Size, message =>
-                    {
-                        lock (errors)
-                        {
-                            errors.Add(message);
-                        }
-                    });
-                    return (packed, errors);
-                })).Value;
-            }
-
-            // Each material's graphs, in the order the materials will ask for them. A detail graph only runs when its
-            // material's main graph worked, as it would when the material asked.
-            var failures = new Exception?[wanted.Count];
-            Parallel.For(0, wanted.Count, new ParallelOptions { MaxDegreeOfParallelism = AtOnce }, i =>
-            {
-                try
-                {
-                    if (!Fresh(wanted[i].Main))
-                    {
-                        return;
-                    }
-
-                    if (Make(wanted[i].Main).Packed is not null && wanted[i].Detail is { } detail && Fresh(detail))
-                    {
-                        Make(detail);
-                    }
-                }
-                catch (Exception exception)
-                {
-                    failures[i] = exception;
-                }
-            });
-
-            foreach (var (key, run) in runs)
-            {
-                if (run.IsValueCreated)
-                {
-                    _ahead[key] = run.Value;
-                }
-            }
-
-            // The first material's failure is the one the materials would have met asking one by one. The pipeline tells
-            // a locked file from other failures by the exception itself, so it's thrown as it was.
-            if (failures.FirstOrDefault(failure => failure is not null) is { } first)
-            {
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(first).Throw();
-            }
-        }
-
-        /// <returns>The run, or null after reporting why there is none to <paramref name="error"/>.</returns>
-        public GraphRun? Run(string path, int size, Action<string> error, Action<string> warning)
-        {
-            path = path.Replace('\\', '/');
-            string key = $"{path}@{size}";
-            if (_runs.TryGetValue(key, out var known))
-            {
-                return known;
-            }
-
-            PackedImages? made;
-            if (_ahead.Remove(key, out var ahead))
-            {
-                foreach (string message in ahead.Errors)
-                {
-                    error(message);
-                }
-
-                made = ahead.Packed;
-            }
-            else
-            {
-                made = MaterialGraphs.RunPacked(input, path, size, error);
-            }
-
-            GraphRun? run = null;
-            if (made is { } packed)
-            {
-                foreach (string part in packed.Pixels.NotNumbers)
-                {
-                    warning($"{path}: {part} has pixels that aren't numbers. They were written as 0.");
-                }
-
-                run = new GraphRun(key, packed.Size, packed.Width, packed.HeightDepth, packed.Pixels);
-            }
-
-            _runs[key] = run;
-            return run;
-        }
-    }
-
-    /// <returns>The detail graph's run, or null when the rule has none or it failed, which was reported.</returns>
-    private static GraphRun? RunDetailGraph(MaterialRule rule, string materialName, MaterialContext context)
-    {
-        if (rule.DetailGraph is not { } path)
-        {
-            return null;
-        }
-
-        void Error(string message) => context.Output.Error($"{context.Prefix}material {materialName}: {message}");
-
-        if (rule.Graph is null)
-        {
-            Error("detailGraph tiles at a size the main graph's width sets, so it needs a graph.");
-            return null;
-        }
-
-        if (rule.DetailColor is not null || rule.DetailNormal is not null)
-        {
-            Error("detailGraph makes the detail textures, so it can't be used with detailColor or detailNormal.");
-            return null;
-        }
-
-        int size = rule.DetailGraphSize ?? MaterialGraphs.DefaultSize;
-        if (MaterialGraphs.SizeProblem("detailGraphSize", size) is { } problem)
-        {
-            Error(problem);
-            return null;
-        }
-
-        return context.Graphs.Run(path, size, Error,
-            message => context.Output.Warning($"{context.Prefix}material {materialName}: {message}"));
-    }
-
-    /// <summary>
-    /// A detail graph's colour as a detail colour texture: grey, its brightness divided by the
-    /// average, so 128 is the average and the main graph's colour is kept on the whole.
-    /// </summary>
-    private static byte[] DetailColorPixels(byte[] color)
-    {
-        int count = color.Length / 4;
-        var brightness = new float[count];
-        double total = 0;
-        for (int i = 0; i < count; i++)
-        {
-            brightness[i] = 0.2126f * ToLinear(color[i * 4]) + 0.7152f * ToLinear(color[i * 4 + 1]) + 0.0722f * ToLinear(color[i * 4 + 2]);
-            total += brightness[i];
-        }
-
-        float average = (float)Math.Max(total / count, 1e-4);
-        var pixels = new byte[color.Length];
-        for (int i = 0; i < count; i++)
-        {
-            byte value = (byte)Math.Clamp((int)MathF.Round(brightness[i] / average * 128f), 0, 255);
-            pixels[i * 4] = value;
-            pixels[i * 4 + 1] = value;
-            pixels[i * 4 + 2] = value;
-            pixels[i * 4 + 3] = 255;
-        }
-
-        return pixels;
-
-        static float ToLinear(byte value)
-        {
-            float c = value / 255f;
-            return c <= 0.04045f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
-        }
-    }
-
-    /// <summary>A graph's colour with its opacity, from the surface's alpha, as alpha, and its surface with an alpha of 1.</summary>
-    private static (byte[] Color, byte[] Surface) OpacityInColor(MaterialPixels pixels)
-    {
-        byte[] color = (byte[])pixels.Color.Clone();
-        byte[] surface = (byte[])pixels.Surface.Clone();
-        for (int alpha = 3; alpha < color.Length; alpha += 4)
-        {
-            color[alpha] = surface[alpha];
-            surface[alpha] = 255;
-        }
-
-        return (color, surface);
-    }
-
-    /// <returns>
-    /// The surface shader a rule names, with its textures as their names in the cooked content, or null when it names
-    /// none or something about it is wrong, which was reported.
-    /// </returns>
-    private static ModelMaterialShader? ImportShader(MaterialRule rule, string materialName, CookInput input, CookOutput output, string prefix)
-    {
-        void Error(string message) => output.Error($"{prefix}material {materialName}: {message}");
-
-        float[][] parameters = rule.ShaderParameters ?? [];
-        string[] paths = rule.ShaderTextures ?? [];
-        if (rule.Shader is not { } name)
-        {
-            if (rule.ShaderParameters is not null || rule.ShaderTextures is not null)
-            {
-                Error("shaderParameters and shaderTextures are read by a shader, so they need one.");
-            }
-
-            return null;
-        }
-
-        bool wrong = false;
-        // The game reads shaders/<name>.frag.spv, so a name must stay inside that folder.
-        if (name.Length == 0 || name.Contains('/') || name.Contains('\\') || name.Contains(".."))
-        {
-            Error($"shader \"{name}\" must be the file name of a shader in the shaders folder, such as \"puddles\", with no /, \\ or \"..\".");
-            wrong = true;
-        }
-
-        if (rule.Transparent)
-        {
-            Error("transparent materials can't use a surface shader yet.");
-            wrong = true;
-        }
-
-        if (parameters.Length > ShaderParameters.Length)
-        {
-            Error($"shaderParameters has {parameters.Length} entries, but a surface shader takes at most {ShaderParameters.Length}.");
-            wrong = true;
-        }
-
-        var vectors = new Vector4[Math.Min(parameters.Length, ShaderParameters.Length)];
-        for (int i = 0; i < vectors.Length; i++)
-        {
-            float[] numbers = parameters[i] ?? [];
-            if (numbers.Length > 4)
-            {
-                Error($"shaderParameters[{i}] has {numbers.Length} numbers, but a parameter holds at most 4.");
-                wrong = true;
-                continue;
-            }
-
-            float At(int component) => component < numbers.Length ? numbers[component] : 0f;
-            vectors[i] = new Vector4(At(0), At(1), At(2), At(3));
-        }
-
-        if (paths.Length > ShaderTextures.Length)
-        {
-            Error($"shaderTextures has {paths.Length} entries, but a surface shader takes at most {ShaderTextures.Length}.");
-            wrong = true;
-        }
-
-        var names = new string[Math.Min(paths.Length, ShaderTextures.Length)];
-        for (int i = 0; i < names.Length; i++)
-        {
-            if (paths[i] is { } path && input.NameOf(path) is { } found)
-            {
-                // The game loads the texture by its name, so it must be cooked too, which Only can leave out.
-                if (input.IsPicked(found))
-                {
-                    names[i] = found;
-                }
-                else
-                {
-                    Error($"shaderTextures[{i}] {found} isn't cooked, because the source root's Only leaves it out. Pick it in Only too, such as \"{found}\".");
-                    wrong = true;
-                }
-            }
-            else
-            {
-                Error($"shaderTextures[{i}] {paths[i]} isn't in the source root.");
-                wrong = true;
-            }
-        }
-
-        return wrong ? null : new ModelMaterialShader(name, vectors, names);
-    }
-
-    /// <summary>The first rule whose <c>match</c> is in the material's name, or null when there is none.</summary>
-    private static MaterialRule? RuleFor(ImportSettings settings, string materialName) =>
-        settings.Materials.FirstOrDefault(rule => materialName.Contains(rule.Match, StringComparison.OrdinalIgnoreCase));
-
-    /// <returns>The graph's run, or null when the rule has no graph or it failed, which was reported.</returns>
-    private static GraphRun? RunGraph(MaterialRule rule, string materialName, MaterialContext context)
-    {
-        if (rule.Graph is not { } path)
-        {
-            return null;
-        }
-
-        void Error(string message) => context.Output.Error($"{context.Prefix}material {materialName}: {message}");
-
-        if (rule.BaseColor is not null || rule.Normal is not null || rule.Surface is not null || rule.Alpha is not null)
-        {
-            Error("graph makes the colour, normal and surface textures, so it can't be used with baseColor, normal, surface or alpha.");
-            return null;
-        }
-
-        int size = rule.GraphSize ?? MaterialGraphs.DefaultSize;
-        if (MaterialGraphs.SizeProblem("graphSize", size) is { } problem)
-        {
-            Error(problem);
-            return null;
-        }
-
-        return context.Graphs.Run(path, size, Error,
-            message => context.Output.Warning($"{context.Prefix}material {materialName}: {message}"));
-    }
-
-    private static unsafe ModelMaterial ImportMaterial(
-        Assimp assimp, Silk.NET.Assimp.Material* source, MaterialContext context, out string materialName, out float graphWidth)
-    {
-        var (settings, textures, isGltf) = (context.Settings, context.Textures, context.IsGltf);
-        AssimpString name;
-        assimp.GetMaterialString(source, Assimp.MaterialNameBase, 0, 0, &name);
-        materialName = name.AsString;
-
-        string? linkedColor = GetTexture(assimp, source, TextureType.Diffuse) ?? GetTexture(assimp, source, TextureType.BaseColor);
-        string? linkedNormal = GetTexture(assimp, source, TextureType.Normals) ?? GetTexture(assimp, source, TextureType.Height);
-
-        // Only glTF defines these values and the combined metal and roughness texture.
-        string? linkedSurface = isGltf
-            ? GetTexture(assimp, source, TextureType.Unknown) ?? GetTexture(assimp, source, TextureType.Metalness)
-            : null;
-        float[]? fileColor = isGltf ? GetFloats(assimp, source, "$clr.base", 4) : null;
-        float[]? fileMetallic = isGltf ? GetFloats(assimp, source, "$mat.metallicFactor", 1) : null;
-        float[]? fileRoughness = isGltf ? GetFloats(assimp, source, "$mat.roughnessFactor", 1) : null;
-        float? fileCutoff = isGltf ? GetGltfCutoff(assimp, source) : null;
-
-        var rule = RuleFor(settings, materialName);
-
-        // A texture the rule names must be there; one only the model file links to may not be.
-        string? named = rule is null ? null : materialName;
-        rule ??= new MaterialRule();
-        bool foliage = rule.Foliage is not null;
-        float translucency = rule.Foliage?.Translucency ?? 0f;
-        float wind = rule.Wind?.Sway ?? 0f;
-        var flags = (rule.TwoSided || foliage ? MaterialFlags.TwoSided : 0)
-            | (rule.Transparent ? MaterialFlags.Transparent : 0)
-            | (foliage ? MaterialFlags.Foliage : 0)
-            | (rule.DetailMask ? MaterialFlags.DetailMask : 0)
-            | (rule.WorldVariation ? MaterialFlags.WorldVariation : 0)
-            | (rule.Dithered ? MaterialFlags.Dithered : 0)
-            | (rule.Puddles ? MaterialFlags.Puddles : 0)
-            | (rule.Outline ? MaterialFlags.Outline : 0)
-            | (rule.NoDecals ? MaterialFlags.NoDecals : 0);
-        var emissive = rule.EmissiveColor is { Length: 3 } e
-            ? new Vector3(e[0], e[1], e[2])
-            : rule.Emissive != null ? Vector3.One : Vector3.Zero;
-
-        var graph = RunGraph(rule, materialName, context);
-        graphWidth = graph?.Width ?? 0f;
-        if (graph is not null)
-        {
-            // The graph's textures hold the colour, metalness and roughness, which these values multiply, so they're 1
-            // unless the rule says otherwise. The model file's own values were for its own textures.
-            int size = graph.Size;
-
-            // A cutoff reads the graph's opacity from the colour's alpha, so it's moved there from the surface's, which is
-            // left whole so the opacity isn't counted twice.
-            int colorTexture, surfaceTexture;
-            if (rule.AlphaCutoff is { } cutoff)
-            {
-                var (color, surface) = OpacityInColor(graph.Pixels);
-                colorTexture = textures.AddPixels(graph.Key + "#color-opacity", size, size, TextureKind.Color, color,
-                    alphaCutoff: TextureCutoff(cutoff, rule.Opacity));
-                surfaceTexture = textures.AddPixels(graph.Key + "#surface-opaque", size, size, TextureKind.Linear, surface);
-            }
-            else
-            {
-                colorTexture = textures.AddPixels(graph.Key + "#color", size, size, TextureKind.Color, graph.Pixels.Color);
-                surfaceTexture = textures.AddPixels(graph.Key + "#surface", size, size, TextureKind.Linear, graph.Pixels.Surface);
-            }
-
-            // The graph's own height map sinks its grooves in with parallax, unless the rule gives a height map.
-            float heightDepth = rule.HeightDepth ?? (rule.Height is null ? graph.HeightDepth : 0f);
-            int heightTexture = rule.Height is not null
-                ? textures.Add(rule.Height, TextureKind.Linear, namedBy: named)
-                : heightDepth > 0f
-                    ? textures.AddPixels(graph.Key + "#height", size, size, TextureKind.Linear, graph.Pixels.Height)
-                    : -1;
-
-            // A detail graph tiles at its own width, which sets how many times it repeats across the main graph.
-            var detail = RunDetailGraph(rule, materialName, context);
-            int detailColor = detail is null
-                ? textures.Add(rule.DetailColor, TextureKind.Linear, namedBy: named)
-                : textures.AddPixels(detail.Key + "#detail", detail.Size, detail.Size, TextureKind.Linear,
-                    DetailColorPixels(detail.Pixels.Color));
-            int detailNormal = detail is null
-                ? textures.Add(rule.DetailNormal, TextureKind.Linear, isNormalMap: true, namedBy: named)
-                : textures.AddPixels(detail.Key + "#normal", detail.Size, detail.Size, TextureKind.Linear,
-                    detail.Pixels.Normal, isNormalMap: true);
-            float detailScale = rule.DetailScale ?? (detail is null ? DefaultDetailScale : graph.Width / detail.Width);
-
-            return new ModelMaterial
-            {
-                BaseColor = rule.Color is { Length: 3 } gc ? new Vector4(gc[0], gc[1], gc[2], rule.Opacity) : new Vector4(1f, 1f, 1f, rule.Opacity),
-                Metallic = rule.Metallic ?? 1f,
-                Roughness = rule.Roughness ?? 1f,
-                AlphaCutoff = rule.AlphaCutoff ?? 0f,
-                BaseColorTexture = colorTexture,
-                NormalTexture = rule.NoNormalMap
-                    ? -1
-                    : textures.AddPixels(graph.Key + "#normal", size, size, TextureKind.Linear, graph.Pixels.Normal, isNormalMap: true),
-                SurfaceTexture = surfaceTexture,
-                Emissive = emissive,
-                EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
-                Clearcoat = rule.Clearcoat,
-                HeightTexture = heightTexture,
-                HeightDepth = heightDepth,
-                DetailColorTexture = detailColor,
-                DetailNormalTexture = detailNormal,
-                DetailScale = detailScale,
-                Flags = flags,
-                Ior = rule.Ior,
-                Subsurface = Subsurface(rule),
-                Translucency = translucency,
-                Wind = wind,
-            };
-        }
-
-        if (rule.Graph is null)
-        {
-            // Reports that a detail graph needs a main graph.
-            RunDetailGraph(rule, materialName, context);
-        }
-
-        var baseColor = rule.Color is { Length: 3 } c
-            ? new Vector4(c[0], c[1], c[2], rule.Opacity)
-            : fileColor is { } f ? new Vector4(f[0], f[1], f[2], f[3]) : new Vector4(1f, 1f, 1f, rule.Opacity);
-        float alphaCutoff = rule.AlphaCutoff ?? fileCutoff ?? 0f;
-        float textureCutoff = TextureCutoff(alphaCutoff, baseColor.W);
-        // When the colour and the surface both carry opacity, the shader cuts by their product, so the colour keeps
-        // the product's coverage and the surface is left whole.
-        var partner = rule.Surface is not null && textureCutoff > 0f
-            ? textures.CutoutPartner(rule.BaseColor ?? linkedColor, rule.Alpha, rule.Surface)
-            : null;
-        return new ModelMaterial
-        {
-            BaseColor = baseColor,
-            Metallic = rule.Metallic ?? fileMetallic?[0] ?? 0f,
-            Roughness = rule.Roughness ?? fileRoughness?[0] ?? 0.6f,
-            AlphaCutoff = alphaCutoff,
-            BaseColorTexture = textures.Add(rule.BaseColor ?? linkedColor, TextureKind.Color, alphaFile: rule.Alpha,
-                namedBy: rule.BaseColor is null ? null : named, alphaCutoff: textureCutoff, partner: partner),
-            NormalTexture = textures.Add(rule.NoNormalMap ? null : rule.Normal ?? linkedNormal, TextureKind.Linear, isNormalMap: true,
-                namedBy: rule.Normal is null ? null : named),
-            // A glTF surface map's alpha is always whole, so only a surface texture the rule names can carry opacity.
-            SurfaceTexture = rule.Surface is not null
-                ? textures.Add(rule.Surface, TextureKind.Linear, namedBy: named, alphaCutoff: partner is null ? textureCutoff : 0f)
-                : textures.Add(linkedSurface, TextureKind.Linear, isGltfSurface: true),
-            Emissive = emissive,
-            EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
-            Clearcoat = rule.Clearcoat,
-            HeightTexture = textures.Add(rule.Height, TextureKind.Linear, namedBy: named),
-            HeightDepth = rule.HeightDepth ?? 0f,
-            DetailColorTexture = textures.Add(rule.DetailColor, TextureKind.Linear, namedBy: named),
-            DetailNormalTexture = textures.Add(rule.DetailNormal, TextureKind.Linear, isNormalMap: true, namedBy: named),
-            DetailScale = rule.DetailScale ?? DefaultDetailScale,
-            Flags = flags,
-            Ior = rule.Ior,
-            Subsurface = Subsurface(rule),
-            Translucency = translucency,
-            Wind = wind,
+            Vertices = vertices,
+            Indices = meshes.Indices.ToArray(),
+            Parts = meshes.Parts.ToArray(),
+            MeshNames = meshes.MeshNames.ToArray(),
+            Materials = materials.Materials.ToArray(),
+            MaterialShaders = materials.Shaders.Any(shader => shader is not null) ? materials.Shaders.ToArray() : [],
+            MaterialMasks = masks.Any(mask => mask is not null) ? masks : [],
+            MaterialOcclusion = occlusion,
+            MaterialToon = materials.Toons.Any(toon => toon is not null) ? materials.Toons.ToArray() : [],
+            Textures = textures.ToArray(),
+            Skeleton = read.Skeleton,
+            Clips = read.Clips.ToArray(),
         };
     }
 
     /// <summary>
-    /// The cutoff as a texture's own alpha meets it: the shader cuts by the texture's alpha times the colour's
-    /// <paramref name="opacity"/>, so the texture's alpha must reach <paramref name="cutoff"/> over that. 0, for no
-    /// cutoff or for one the texture can't reach, leaves the texture's mips as the filter made them.
+    /// Reports what's wrong with the model, and says whether it's fine. A cutoff that can't cut renders fine but wrong,
+    /// and the renderer refuses a subsurface it can't store, so both stop the cook. Materials no part uses are never
+    /// drawn, so they can't be wrong.
     /// </summary>
-    internal static float TextureCutoff(float cutoff, float opacity) => TextureCompression.TextureCutoff(cutoff, opacity);
-
-    private static Subsurface Subsurface(MaterialRule rule) =>
-        rule.Subsurface is { } subsurface
-            ? new Subsurface
-            {
-                Radius = subsurface.Radius,
-                Color = subsurface.Color is { Length: 3 } spread ? new Vector3(spread[0], spread[1], spread[2]) : Vector3.Zero,
-                Transmission = subsurface.Transmission,
-            }
-            : default;
-
-    // glTF's MASK mode cuts out by alpha, at 0.5 unless the file says otherwise.
-    private static unsafe float? GetGltfCutoff(Assimp assimp, Silk.NET.Assimp.Material* material)
+    private static bool Check(ModelCook cook, ModelData model, List<string> materialNames, IReadOnlyList<string> eventProblems)
     {
-        AssimpString mode;
-        if (assimp.GetMaterialString(material, "$mat.gltf.alphaMode", 0, 0, &mode) != Return.Success
-            || mode.AsString != "MASK")
+        var problems = model.Parts.Select(part => part.Material).Distinct().Order()
+            .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i) ?? SubsurfaceProblem(model.Materials[i]) ?? FoliageProblem(model.Materials[i])))
+            .Where(entry => entry.Problem is not null)
+            .Select(entry => $"material {entry.Name}: {entry.Problem}").Concat(eventProblems).ToList();
+        foreach (string problem in problems)
         {
-            return null;
+            cook.Error(problem);
         }
 
-        return GetFloats(assimp, material, "$mat.gltf.alphaCutoff", 1)?[0] ?? 0.5f;
+        return problems.Count == 0;
     }
 
-    private static unsafe float[]? GetFloats(Assimp assimp, Silk.NET.Assimp.Material* material, string key, uint count)
+    /// <summary>
+    /// The model's bytes, with its textures compressed when the settings ask. That comes last, since the checks read the
+    /// textures' pixels.
+    /// </summary>
+    private static byte[] Write(ModelCook cook, ModelData model, ModelMaterialMasks?[] masks, int[] occlusion)
     {
-        var values = new float[count];
-        uint read = count;
-        fixed (float* pointer = values)
+        if (cook.Settings.CompressTextures)
         {
-            return assimp.GetMaterialFloatArray(material, key, 0, 0, pointer, &read) == Return.Success && read == count
-                ? values
-                : null;
+            // It times its own phases: taking textures from the step cache, compressing the rest, and keeping them.
+            var extra = masks.OfType<ModelMaterialMasks>().Select(mask => (mask.Texture, TextureFormat.Bc7))
+                .Concat(occlusion.Where(texture => texture >= 0).Select(texture => (texture, TextureFormat.Bc4)));
+            TextureCompression.Compress(model.Textures, model.Materials, extra, cook.Input, cook.Warning);
+        }
+
+        using (cook.Input.Time("write model"))
+        {
+            // Textures go out as objects of their own, so models that share an image share one copy of it.
+            return model.ToBytes(texture => ModelTextures.Share(texture, cook.Output));
         }
     }
 
-    private static unsafe string? GetTexture(Assimp assimp, Silk.NET.Assimp.Material* material, TextureType type) =>
-        GetTexture(assimp, material, type, out _);
+    private static string? SubsurfaceProblem(in ModelMaterial material) =>
+        material.Subsurface.Problem(material.Clearcoat, material.Flags);
 
-    /// <summary>The texture's file name, or null for none, and in <paramref name="uv"/> the UV set it's read through.</summary>
-    private static unsafe string? GetTexture(Assimp assimp, Silk.NET.Assimp.Material* material, TextureType type, out uint uv)
-    {
-        AssimpString path;
-        uint set = 0;
-        var result = assimp.GetMaterialTexture(material, type, 0, &path, null, &set, null, null, null, null);
-        uv = set;
-        return result == Return.Success ? Path.GetFileName(path.AsString.Replace('\\', '/')) : null;
-    }
+    private static string? FoliageProblem(in ModelMaterial material) =>
+        ((material.Flags & MaterialFlags.Foliage) != 0 ? Rendition.Material.TranslucencyProblem(material.Translucency) : null)
+        ?? Rendition.Material.WindProblem(material.Wind);
 }
 
 /// <summary>Every cooker that ships with Super, the model cooker included.</summary>
