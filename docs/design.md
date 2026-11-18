@@ -38,7 +38,7 @@ the rest is not yet.
 | Global state | None | Many headless games can share one process |
 | Randomness | `GameRandom` with named streams from one seed | A new roll in one system doesn't disturb another |
 | Content | JSON read by `System.Text.Json` into records, loaded up front | No extra library, and data errors surface at load time |
-| Input sampling | Per-tick snapshot rolled before `Update`; a tap inside one tick is Down and Pressed now, Released next tick | The window polls faster than the game ticks, and a short tap must not vanish |
+| Input sampling | Per-tick snapshot rolled before `Update`; a tap inside one tick is Down and Pressed now, Released next tick. The window feeds keys to `Input`, the mouse to `MouseFeed` (where the interface takes its events first) and the gamepad to `GamepadInput.Polled`, and `Input.Roll` rolls all three | The window polls faster than the game ticks, and a short tap must not vanish |
 | Input reads | Only in `Update`; `Draw`, `Ui` and `Load` throw | The screen stays a function of state, so a seed replays the same |
 | Actions | The game's own enum, bound to a list of `Binding` values | Typed, no strings, and the list is plain data a settings screen can edit later |
 | Game states | `States<TEnum>`, checked with a plain `Is`, not systems registered per state | There's no scheduler, so the game's author keeps the order, and a check costs nothing |
