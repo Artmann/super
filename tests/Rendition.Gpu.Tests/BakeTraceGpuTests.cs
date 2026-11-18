@@ -429,7 +429,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         var error = Assert.Throws<InvalidOperationException>(
             () => gpu.Renderer.Bake(gpu.View(DebugView.None), [], new BakeSettings()));
 
-        Assert.Equal("Bake needs a baked space in the frame; call view.BakedLighting first.", error.Message);
+        Assert.Equal("Bake needs a baked space in the frame; call view.Indirect.BakedLighting first.", error.Message);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 

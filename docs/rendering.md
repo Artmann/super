@@ -850,7 +850,7 @@ File.WriteAllBytes("lighting/crypt.lightbake", bake);
 `Renderer.Bake` path traces the frame's space into a lightmap and its light probes, and returns
 the `.lightbake` file's bytes. It takes the same view and draws as `Render`, waits for the GPU,
 and draws nothing. A view without a space throws "Bake needs a baked space in the frame; call
-view.BakedLighting first." A space with more than 4,096 probes, which only a hand-made
+view.Indirect.BakedLighting first." A space with more than 4,096 probes, which only a hand-made
 `FrameView.BakedSpace` can have, throws with its name and count. The settings' `TexelsPerMetre`
 must be the space's, since no frame would find a bake at another density fresh; one that differs
 throws with both.
