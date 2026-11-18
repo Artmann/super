@@ -86,8 +86,8 @@ public class VolumetricFogTests
     {
         var fog = new FogSettings(0.004f, 1.5f, 0.15f, 0.6f);
 
-        Assert.Equal(RenderEffects.VolumetricFog, new Graphics { VolumetricFog = false }.Off);
-        Assert.False(Graphics.Fastest().VolumetricFog);
+        Assert.Equal(RenderEffects.VolumetricFog, GraphicsSwitches.Off(new Graphics { Atmosphere = { VolumetricFog = false } }));
+        Assert.False(Graphics.Fastest().Atmosphere.VolumetricFog);
 
         // On, the volume reaches 48 m, starts its slices at 1 m and scatters forwards.
         Assert.Equal(new Vector4(48f, 1f, 0.6f, 0f), VolumetricFog.Pack(fog, 0, RenderEffects.None, null));

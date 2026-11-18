@@ -164,8 +164,8 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
     private void UseLighting(Lighting lighting)
     {
         _lighting = lighting;
-        graphics.BakedLighting = lighting == Lighting.Baked;
-        graphics.LightProbes = lighting != Lighting.Direct;
+        graphics.Baking.BakedLighting = lighting == Lighting.Baked;
+        graphics.Lighting.LightProbes = lighting != Lighting.Direct;
     }
 
     public void Update(GameTime time)

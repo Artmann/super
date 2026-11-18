@@ -410,7 +410,7 @@ they fade with distance but miss the shafts of light. They're sorted with
 [glass](rendering.md#glass), so a puff in front of a pane covers it and one behind is
 seen through it. `Cached` keeps only
 models, so draw particles outside it. A frame holds at most 32,768 particles; more
-are dropped. `Graphics.Particles` turns them off, see [graphics settings](rendering.md#graphics-settings). The `Dust` example drops trees in a clearing.
+are dropped. `Graphics.Surfaces.Particles` turns them off, see [graphics settings](rendering.md#graphics-settings). The `Dust` example drops trees in a clearing.
 
 ## Decals
 
@@ -484,7 +484,7 @@ it stands in front, and the decals still land on the ground round it.
 
 ![Two crates in one tall stain decal: the left one takes decals, so the stain covers its lid too; the right one has NoDecals, so its lid keeps its wood colour while the floor round it is stained](media/decal-opt-out.webp)
 
-[`Graphics.Decals`](rendering.md#graphics-settings) turns them all off, and
+[`Graphics.Surfaces.Decals`](rendering.md#graphics-settings) turns them all off, and
 `Graphics.Fastest()` does too. The Courtyard lays its damp, the dirty water under its sill
 and the rust under its anchor plates as decals, and the gravel kicked off its path into the
 mud along both arms and round the barrel. D turns them off and on there.
@@ -549,8 +549,8 @@ A view refuses, with a message naming what's wrong:
 
 Fog volumes show only where the volumetric fog reaches, out to
 `FogSettings.VolumetricDistance`, and only while
-[`Graphics.VolumetricFog`](rendering.md#graphics-settings) is on.
-`Graphics.FogVolumes` turns them off on their own, and `Graphics.Fastest()` turns both off.
+[`Graphics.Atmosphere.VolumetricFog`](rendering.md#graphics-settings) is on.
+`Graphics.Atmosphere.FogVolumes` turns them off on their own, and `Graphics.Fastest()` turns both off.
 The grid's [cell size and slices](rendering.md#the-grids-cost) set how sharp their edges are.
 
 ## Planned

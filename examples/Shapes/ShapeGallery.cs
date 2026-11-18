@@ -55,7 +55,7 @@ public sealed class ShapeGallery(Content content, Input input, Graphics graphics
         _angle += MathF.Tau * TurnsPerSecond * time.TickSeconds;
         if (input.Pressed(Key.B))
         {
-            graphics.ScreenBounce = !graphics.ScreenBounce;
+            graphics.Lighting.ScreenBounce = !graphics.Lighting.ScreenBounce;
         }
     }
 

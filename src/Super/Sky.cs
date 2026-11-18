@@ -49,7 +49,7 @@ public struct SkySettings
     /// is a light summer morning over a yard. Near the camera, up to its
     /// <see cref="FogSettings.VolumetricDistance"/>, the fog is lit by what really reaches it:
     /// the sun falls through it in shafts beside the shadows, and point and spot lights glow
-    /// in it with halos. <see cref="Graphics.VolumetricFog"/> turns that off.
+    /// in it with halos. <see cref="GraphicsAtmosphere.VolumetricFog"/> turns that off.
     /// </summary>
     public FogSettings Fog;
 
@@ -59,7 +59,7 @@ public struct SkySettings
     /// round the sun, deepens overhead, reddens at sunset, fades to a faint glow at night, and
     /// shows the sun's disc, as wide as <c>View.Shadows</c>' sunSize. The sun's own light turns
     /// warm and dim as it sinks, and far surfaces fade into the air unless the view has a haze
-    /// of its own (<see cref="Graphics.AerialPerspective"/>). Zenith and Horizon are then not
+    /// of its own (<see cref="GraphicsAtmosphere.AerialPerspective"/>). Zenith and Horizon are then not
     /// used; Ground still colours what's below the horizon, lit by the sun and the sky. Zero,
     /// the default, keeps the gradient.
     /// </summary>
@@ -74,7 +74,7 @@ public struct SkySettings
 
     /// <summary>
     /// Leaves the stars out of a physical sky's night, as for an overcast one. They fade in as the sky darkens after
-    /// sunset; <see cref="Graphics.Stars"/> turns them off everywhere.
+    /// sunset; <see cref="GraphicsAtmosphere.Stars"/> turns them off everywhere.
     /// </summary>
     public bool HideStars;
 

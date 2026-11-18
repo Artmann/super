@@ -93,8 +93,8 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
     private void UseLighting(Lighting lighting)
     {
         _lighting = lighting;
-        graphics.BakedLighting = lighting == Lighting.Baked;
-        graphics.LightProbes = lighting != Lighting.Direct;
+        graphics.Baking.BakedLighting = lighting == Lighting.Baked;
+        graphics.Lighting.LightProbes = lighting != Lighting.Direct;
     }
 
     public void Update(GameTime time)

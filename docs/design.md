@@ -1202,7 +1202,7 @@ and up to four simpler versions, made while loading. Vertices that share a grid 
 face the same way merge into one of them, so a simpler version is only another index
 range, with no new vertices. Each frame, the camera and the shadow map each skip what
 they can't see and pick the simplest version that strays by at most 1 pixel on screen
-or 2 texels in the shadow map. `Renderer.MeshDetailScale` (`Graphics.MeshDetail`) divides
+or 2 texels in the shadow map. `Renderer.MeshDetailScale` (`Graphics.Drawing.MeshDetail`) divides
 both limits, so at 0.5 a version may stray twice as far. `DrawItem`s written by hand have neither, and always draw
 in full.
 
@@ -1242,7 +1242,7 @@ rebuilds the opaque scene's position behind the pixel from `sceneDepth`, as the 
 does, and scales the glass by the distance to it over the soft edge, clamped to 1. The sky
 (depth 0) is never near.
 
-`Graphics.Fades` is `RenderEffects.Fades` (bit 36). On the CPU, `FadeRules.Smooth` is off,
+`Graphics.Drawing.Fades` is `RenderEffects.Fades` (bit 36). On the CPU, `FadeRules.Smooth` is off,
 so a fade is a cut at its midpoint and no swap is cross-faded. The shaders learn of it
 through bit 29 of `frame.off` (`OFF_FADES`), which is free in the uniform because
 `DepthFirst`, the effect that owns bit 29, is only read on the CPU, so the renderer clears it
@@ -1339,7 +1339,7 @@ how far away the blocker is, then widens its sampling to match, by the sun's siz
 which area the shadow map covers through `FrameView.Shadows`. A smaller area gives
 sharper shadows, so the sample fits it to the model. A wide outdoor scene asks for up
 to four cascades, each a ball three times the radius of the one before.
-`Renderer.MaxShadowCascades` (`Graphics.ShadowCascades`) caps how many are drawn, keeping the
+`Renderer.MaxShadowCascades` (`Graphics.Shadowing.ShadowCascades`) caps how many are drawn, keeping the
 nearest, so a lower setting gives up the far shadows and keeps the near ones as sharp.
 
 `Renderer.FitCascades` lays the balls along the view. `ShadowPass.Spread` reads how far a
@@ -1366,7 +1366,7 @@ depth image, with its own culling and detail choice. Anything outside the last c
 depth as well as sideways, counts as lit.
 
 The image is `ShadowPass.Resolution` texels square, 2048 unless `RendererOptions.ShadowResolution`
-or `Renderer.ShadowResolution` (Super's `Graphics.ShadowResolution`) asks for 1024 or 4096.
+or `Renderer.ShadowResolution` (Super's `Graphics.Shadowing.ShadowResolution`) asks for 1024 or 4096.
 A change takes effect at the start of the next `Render`: the renderer waits for the device to
 go idle, `ShadowPass.Resize` replaces the image, and `WriteTargetDescriptors` points the AO,
 lighting and particle sets at it. That rewrite also drops a held transition picture, as a
@@ -1554,7 +1554,7 @@ view; a lookup texture of the true Ess would add that, and lift grazing angles a
 Both passes apply it to every light and to the environment reflection. The clearcoat layer
 isn't compensated, since at its fixed 0.06 roughness Ess is close to 1.
 `RenderEffects.MultiscatterSpecular` (bit 9, `OFF_MULTISCATTER_SPECULAR`) turns it off, from
-Super's `Graphics.MultiscatterSpecular`.
+Super's `Graphics.Lighting.MultiscatterSpecular`.
 
 ## Environment lighting
 
@@ -1812,7 +1812,7 @@ the lighting pass, and the shadow maps' barriers list the compute stage among th
 "Light clusters". At 1600×900 they take about 0.16 ms in the Courtyard. In the Crypt at
 1920×1080, with its floor mist and live probes, they take about 1.3 ms, of which about 0.5 ms
 is the probe light (0.8 ms with `RenderEffects.LightProbes` off), because its many lights make
-the inject pass work harder. The cost grows with the cell count, so a larger `Graphics.VolumetricFogCellSize`
+the inject pass work harder. The cost grows with the cell count, so a larger `Graphics.Atmosphere.VolumetricFogCellSize`
 or fewer `VolumetricFogSlices` is the first thing to try when the fog is slow, and with the number of
 fog volumes, as each cell sums every one.
 
@@ -2057,7 +2057,7 @@ fixed-grid probes: 64 × 64 tiles at `ProbeQuality.Low`, 84 × 83 at `Medium` an
 `High`. Both atlases and all five layers take about
 43 MB at Low, 73 MB at Medium and 172 MB at High, against 8.6 MB for the single fixed-grid atlas
 before. `EnsureStorage(quality)` makes them on the first frame with the probes on, and again,
-cleared, after `Renderer.ProbeQuality` (High by default, set from `Graphics.ProbeQuality`) changes; `Release()` frees them when
+cleared, after `Renderer.ProbeQuality` (High by default, set from `Graphics.Lighting.ProbeQuality`) changes; `Release()` frees them when
 `RenderEffects.LightProbes` is switched off. Each of the three waits for the device once, in
 `ManageProbeStorage` (through `LightProbes.Ensure` and `Release`, `src/Rendition/LightProbes.cs`) before the frame's fence. With the switch off nothing else is allocated
 and nothing is recorded, and switching it back on starts every probe uncaptured.
@@ -2252,7 +2252,7 @@ probes are clean. `LightProbes.UpdatesLastFrame` says how many were updated, and
 is public, is the scheduler's `Settled`, false while the probes are switched off and true on a
 GPU that can't run them. Super's `WindowFrames.Screenshot` renders on after its 48
 settle frames until `ProbesSettled`, at most `ScreenshotProbeFrames` (2,048) more, through
-`ExtraSettleFrames`, and prints how many it took or that it hit the cap; with `Graphics.LightProbes`
+`ExtraSettleFrames`, and prints how many it took or that it hit the cap; with `Graphics.Lighting.LightProbes`
 off it doesn't wait. A whole screenshot run renders without vsync, through
 `RendererSettings(…, takingShot: true)`, because nobody sees its frames and the count of frames, not
 the time, decides what the shot shows. That covers the last 120 ticks, which are drawn as they play,
@@ -3313,7 +3313,7 @@ over 4% of a band; a fixed softness, since derivatives aren't defined inside the
 which `continue`. A ramp is read at `arriving`, kept half a texel inside its ends. The spot is
 where GGX's distribution, scaled to 1 at its peak (`D * pi * alpha^2`), times the arriving
 light passes 0.5, faded out between roughness 0.65 and 0.75. A toon pixel takes the
-`Graphics.Specular` off path (no environment reflection, metal drawn in its colour, f0 0), and
+`Graphics.Lighting.Specular` off path (no environment reflection, metal drawn in its colour, f0 0), and
 its soft light is read for the normal (0, 1, 0), so the environment adds one flat colour.
 
 The outline is worked out in `lighting.frag` too, for marked pixels whose material has
@@ -4777,7 +4777,7 @@ makes the `BakeCache` just before `GameWindow.Run`, from the game's id, and hand
 through `GameWindow.BakeCache`, so the other runs neither bake nor read the cache. `WindowPlay.Run` turns baking on after the
 game goes live by calling `AutoBakeSwitch.TurnOn` (`src/Super/Rendering/AutoBakeSwitch.cs`), and `ApplyAutoBake`,
 called again before each frame is shown, works out the plan only when `AutoBakeSwitch.Changed` says
-`Graphics.BakeOnArrival` or `Graphics.BakeBudget` changed, since setting `Renderer.AutoBake` restarts the running bake.
+`Graphics.Baking.BakeOnArrival` or `Graphics.Baking.BakeBudget` changed, since setting `Renderer.AutoBake` restarts the running bake.
 Every other run leaves the switch off. The switch is tested on its own; that only `Run` turns it on, and that
 `SceneRenderer` starts `Renderer.BakeFadeSeconds` at 0 while `Run` sets 0.5, need a window and aren't tested.
 `AutoBakePolicy.For` (`src/Super/Rendering/AutoBakePolicy.cs`) makes the plan: null when the switch is off or the GPU

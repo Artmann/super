@@ -171,7 +171,7 @@ public sealed class ForestGame(
 
         if (input.Pressed(Key.V))
         {
-            graphics.VolumetricFog = !graphics.VolumetricFog;
+            graphics.Atmosphere.VolumetricFog = !graphics.Atmosphere.VolumetricFog;
         }
 
         CycleVolumes();

@@ -23,11 +23,11 @@ internal static class AutoBakePolicy
     /// <summary>Null when nothing should bake: the switch is off or the GPU can't trace.</summary>
     /// <param name="dev">The dev settings when running from source, or null when published.</param>
     /// <param name="canTrace">Whether the GPU can trace rays.</param>
-    /// <param name="graphics">The game's settings, for <see cref="Graphics.BakeOnArrival"/> and <see cref="Graphics.BakeBudget"/>.</param>
+    /// <param name="graphics">The game's settings, for <see cref="GraphicsBaking.BakeOnArrival"/> and <see cref="GraphicsBaking.BakeBudget"/>.</param>
     public static AutoBakePlan? For(DevSettings? dev, bool canTrace, Graphics graphics)
     {
         ArgumentNullException.ThrowIfNull(graphics);
-        if (!graphics.BakeOnArrival || !canTrace)
+        if (!graphics.Baking.BakeOnArrival || !canTrace)
         {
             return null;
         }
@@ -35,9 +35,9 @@ internal static class AutoBakePolicy
         if (dev is { Roots.Length: > 0 })
         {
             return new AutoBakePlan(
-                graphics.BakeBudget ?? SourceBudget, true, [BakeQuality.Preview, BakeQuality.Final], dev.Roots[0]);
+                graphics.Baking.BakeBudget ?? SourceBudget, true, [BakeQuality.Preview, BakeQuality.Final], dev.Roots[0]);
         }
 
-        return new AutoBakePlan(graphics.BakeBudget ?? PublishedBudget, false, [BakeQuality.Preview], null);
+        return new AutoBakePlan(graphics.Baking.BakeBudget ?? PublishedBudget, false, [BakeQuality.Preview], null);
     }
 }

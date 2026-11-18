@@ -256,10 +256,10 @@ public class ShadowCascadeTests
     [Fact]
     public void Contact_shadows_left_out_reach_the_renderer_as_no_length()
     {
-        var graphics = new Graphics { ContactShadows = false };
+        var graphics = new Graphics { Shadowing = { ContactShadows = false } };
         var shadows = new ShadowSettings { ContactLength = 0.4f };
 
-        Assert.Equal(0f, ShadowPass.ContactLength(shadows, graphics.Off));
+        Assert.Equal(0f, ShadowPass.ContactLength(shadows, GraphicsSwitches.Off(graphics)));
     }
 
     [Theory]

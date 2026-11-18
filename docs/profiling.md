@@ -88,7 +88,7 @@ costs nothing.
 
 "Light probes" in the GPU list is the time spent updating the
 [bounced light](rendering.md#bounced-light)'s probes: traced on a GPU that can, drawn otherwise.
-Lower `Graphics.ProbeQuality` to update fewer a frame, or turn `Graphics.LightProbes` off.
+Lower `Graphics.Lighting.ProbeQuality` to update fewer a frame, or turn `Graphics.Lighting.LightProbes` off.
 "Reflection probes" is the time spent photographing [reflection probes](rendering.md#reflections),
 one a frame at most, and blurring the photograph.
 

@@ -43,7 +43,7 @@ public class AutoBakePolicyTests
     [Fact]
     public void Switch_off_bakes_nothing()
     {
-        var graphics = new Graphics { BakeOnArrival = false };
+        var graphics = new Graphics { Baking = { BakeOnArrival = false } };
 
         Assert.Null(AutoBakePolicy.For(Dev, canTrace: true, graphics));
         Assert.Null(AutoBakePolicy.For(null, canTrace: true, graphics));
@@ -52,7 +52,7 @@ public class AutoBakePolicyTests
     [Fact]
     public void Budget_set_by_the_game_wins()
     {
-        var graphics = new Graphics { BakeBudget = 3f };
+        var graphics = new Graphics { Baking = { BakeBudget = 3f } };
 
         Assert.Equal(3f, AutoBakePolicy.For(Dev, canTrace: true, graphics)!.Budget);
         Assert.Equal(3f, AutoBakePolicy.For(null, canTrace: true, graphics)!.Budget);

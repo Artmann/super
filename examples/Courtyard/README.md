@@ -129,7 +129,7 @@ is the same point in the game, with Blender's z as y and its y as -z. That's how
 
 Press M to turn the materials off and on. Without them, the whole courtyard is plain grey
 clay, so you can judge the sunlight, the shadows and the shapes of the models without the
-textures in the way. It flips [`Graphics.Materials`](../../docs/rendering.md#graphics-settings).
+textures in the way. It flips [`Graphics.Surfaces.Materials`](../../docs/rendering.md#graphics-settings).
 The `plain` script presses M for a screenshot:
 
 ```
@@ -140,7 +140,7 @@ Press F to turn the fog off and on. The sky sets a light fog,
 `Fog = new FogSettings(Density: 0.004f, Height: -0.1f, Falloff: 0.15f, SunScatter: 0.6f)`, thickest
 on the ground, so the far wall and the window sit a touch back in the air behind the near
 flagstones. See [Fog](../../docs/rendering.md#fog). It flips
-[`Graphics.Fog`](../../docs/rendering.md#graphics-settings), and the `clear` script presses F
+[`Graphics.Atmosphere.Fog`](../../docs/rendering.md#graphics-settings), and the `clear` script presses F
 for a screenshot in clear air:
 
 ```
@@ -152,7 +152,7 @@ the default, the fog near the camera is lit through the sun's shadows. The court
 fog is light, so from the usual camera the difference is slight: the air in the sun is a
 touch milkier than in the shade. The lantern is too faint against the daylight to show a
 halo. Off, it is the plain height fog.
-It flips [`Graphics.VolumetricFog`](../../docs/rendering.md#graphics-settings), and the
+It flips [`Graphics.Atmosphere.VolumetricFog`](../../docs/rendering.md#graphics-settings), and the
 `plain-fog` script presses V for a screenshot with the plain fog:
 
 ```
@@ -161,7 +161,7 @@ dotnet run -c Release --project examples/Courtyard -- --script plain-fog --scree
 
 Press E to turn auto exposure off and on. Off, the finish's `Exposure = 1.15f` is a fixed
 exposure instead of compensation on what the camera metered. It flips
-[`Graphics.AutoExposure`](../../docs/rendering.md#graphics-settings), and the `fixed` script
+[`Graphics.Picture.AutoExposure`](../../docs/rendering.md#graphics-settings), and the `fixed` script
 presses E for a screenshot at the fixed exposure:
 
 ```

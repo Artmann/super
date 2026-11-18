@@ -96,31 +96,31 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
     public void Update(GameTime time)
     {
         // Sharper sun shadows for a picture wider than full HD, where the 2048 maps' texels would show.
-        graphics.ShadowResolution = input.ScreenSize.X > 1920f ? 4096 : 2048;
+        graphics.Shadowing.ShadowResolution = input.ScreenSize.X > 1920f ? 4096 : 2048;
 
         if (input.Pressed(Key.M))
         {
-            graphics.Materials = !graphics.Materials;
+            graphics.Surfaces.Materials = !graphics.Surfaces.Materials;
         }
 
         if (input.Pressed(Key.F))
         {
-            graphics.Fog = !graphics.Fog;
+            graphics.Atmosphere.Fog = !graphics.Atmosphere.Fog;
         }
 
         if (input.Pressed(Key.E))
         {
-            graphics.AutoExposure = !graphics.AutoExposure;
+            graphics.Picture.AutoExposure = !graphics.Picture.AutoExposure;
         }
 
         if (input.Pressed(Key.D))
         {
-            graphics.Decals = !graphics.Decals;
+            graphics.Surfaces.Decals = !graphics.Surfaces.Decals;
         }
 
         if (input.Pressed(Key.V))
         {
-            graphics.VolumetricFog = !graphics.VolumetricFog;
+            graphics.Atmosphere.VolumetricFog = !graphics.Atmosphere.VolumetricFog;
         }
     }
 

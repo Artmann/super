@@ -38,7 +38,7 @@ public sealed class BakeOnArrivalGlueTests : IDisposable
         var auto = new AutoBakeSwitch();
 
         Assert.False(auto.Changed(graphics));
-        graphics.BakeBudget = 2f;
+        graphics.Baking.BakeBudget = 2f;
         Assert.False(auto.Changed(graphics));
         Assert.False(auto.IsOn);
 
@@ -58,21 +58,21 @@ public sealed class BakeOnArrivalGlueTests : IDisposable
         Assert.False(auto.Changed(graphics));
 
         // Other settings don't start the bake queue again.
-        graphics.Vsync = false;
-        graphics.MaxFramesPerSecond = 30;
+        graphics.Screen.Vsync = false;
+        graphics.Screen.MaxFramesPerSecond = 30;
         Assert.False(auto.Changed(graphics));
 
-        graphics.BakeBudget = 2f;
+        graphics.Baking.BakeBudget = 2f;
         Assert.True(auto.Changed(graphics));
         Assert.False(auto.Changed(graphics));
 
-        graphics.BakeOnArrival = false;
+        graphics.Baking.BakeOnArrival = false;
         Assert.True(auto.Changed(graphics));
         Assert.False(auto.Changed(graphics));
 
         // Back to the first pair is a change from the last one applied.
-        graphics.BakeOnArrival = true;
-        graphics.BakeBudget = null;
+        graphics.Baking.BakeOnArrival = true;
+        graphics.Baking.BakeBudget = null;
         Assert.True(auto.Changed(graphics));
     }
 

@@ -18,8 +18,8 @@ public class VolumetricFogGridTests
     {
         var graphics = new Graphics();
 
-        Assert.Equal(8, graphics.VolumetricFogCellSize);
-        Assert.Equal(64, graphics.VolumetricFogSlices);
+        Assert.Equal(8, graphics.Atmosphere.VolumetricFogCellSize);
+        Assert.Equal(64, graphics.Atmosphere.VolumetricFogSlices);
     }
 
     [Theory]
@@ -27,7 +27,7 @@ public class VolumetricFogGridTests
     [InlineData(33)]
     public void Cell_size_outside_4_to_32_is_refused(int cellSize)
     {
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { VolumetricFogCellSize = cellSize });
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { Atmosphere = { VolumetricFogCellSize = cellSize } });
 
         Assert.StartsWith("A volumetric fog cell can be from 4 to 32 pixels across.", error.Message);
         Assert.Equal("value", error.ParamName);
@@ -38,7 +38,7 @@ public class VolumetricFogGridTests
     [InlineData(129)]
     public void Slices_outside_16_to_128_is_refused(int slices)
     {
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { VolumetricFogSlices = slices });
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { Atmosphere = { VolumetricFogSlices = slices } });
 
         Assert.StartsWith("The volumetric fog can have from 16 to 128 slices.", error.Message);
         Assert.Equal("value", error.ParamName);
@@ -47,15 +47,15 @@ public class VolumetricFogGridTests
     [Fact]
     public void Ultra_cuts_the_fog_into_128_slices()
     {
-        Assert.Equal(128, Graphics.For(GraphicsQuality.Ultra).VolumetricFogSlices);
-        Assert.Equal(64, Graphics.For(GraphicsQuality.High).VolumetricFogSlices);
-        Assert.Equal(8, Graphics.For(GraphicsQuality.Ultra).VolumetricFogCellSize);
+        Assert.Equal(128, Graphics.For(GraphicsQuality.Ultra).Atmosphere.VolumetricFogSlices);
+        Assert.Equal(64, Graphics.For(GraphicsQuality.High).Atmosphere.VolumetricFogSlices);
+        Assert.Equal(8, Graphics.For(GraphicsQuality.Ultra).Atmosphere.VolumetricFogCellSize);
     }
 
     [Fact]
     public void The_renderer_is_told_the_grid()
     {
-        var graphics = new Graphics { VolumetricFogCellSize = 16, VolumetricFogSlices = 32 };
+        var graphics = new Graphics { Atmosphere = { VolumetricFogCellSize = 16, VolumetricFogSlices = 32 } };
 
         var settings = WindowFrames.RendererSettings(graphics, hidden: false);
 
