@@ -861,12 +861,6 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.DistanceTransform.Squared",
-      "file": "src/Super.Materials/Distance.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Super.Mixer.Mix",
       "file": "src/Super/Audio/Mixer.cs",
       "metric": 16
@@ -1979,18 +1973,6 @@
       "kind": "long-method",
       "name": "Super.Materials.DMath.LogD",
       "file": "src/Super.Materials/DMath.cs",
-      "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.DistanceTransform.Line.Run",
-      "file": "src/Super.Materials/Distance.cs",
-      "metric": 47
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.DistanceTransform.Squared",
-      "file": "src/Super.Materials/Distance.cs",
       "metric": 49
     },
     {
