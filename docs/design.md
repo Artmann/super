@@ -25,7 +25,7 @@ the rest is not yet.
 | Interface code | CPU only, in `Super.Ui`. Rendition only sees textured quads | Layout and text run for real in headless tests, and Rendition stays usable alone |
 | Interface mouse | Two speeds: hover, press and scrolling follow the mouse each frame, while clicks and drops queue and run just before `Update` | Ticks are too slow to feel right under a cursor, but anything that changes game state has to land on a tick for a seed to replay |
 | Interface clipping | Per pixel in `overlay.frag`, each quad carrying a rounded clip rectangle, not scissor rectangles | One draw call, draw order kept, and rounded corners clip what's inside them |
-| Interface scale | Layout runs in units, the screen divided by `UiTree.Scale`, and `UiTree.Add` multiplies each quad into pixels. `GlyphAtlas` rasterises, measures and wraps at the size in pixels and hands lengths back in units. `UiPointer` divides the mouse by the scale | Text stays sharp instead of stretched, measuring and drawing wrap at the same words, and no view has to know about the scale |
+| Interface scale | Layout runs in units, the screen divided by `UiTree.Scale`, and `UiDrawList` multiplies each quad into pixels. `GlyphAtlas` measures and draws text at the size in pixels and hands lengths back in units, with `UiFontFace` drawing characters into the `UiGlyphSheet` image and `UiLineBreaker` wrapping lines. `UiPointer` divides the mouse by the scale | Text stays sharp instead of stretched, measuring and drawing wrap at the same words, and no view has to know about the scale |
 | Interface box | Background, border, radius, opacity and margin written side by side merge into one box. Padding and frame go by order | It reads like CSS, where these never depend on order, and `UiNode` only sees one box |
 | Hierarchy | Flat, with attachment by transform or bone | Colony and dungeon games have thousands of independent things and little nesting |
 | Cameras | A `Camera` is a plain value the game keeps, since picking happens in `Update` and showing in `Draw` | Input can only be read in `Update`, so the camera can't belong to `Draw` alone |
@@ -106,7 +106,7 @@ only public one. Engine code uses one of two shapes instead:
 - States that carry data are a small closed set of types, such as a sealed record for each,
   matched with `switch` patterns, so each state holds exactly what it needs. This allocates
   on each change, which is fine for things that change a few times a second at most, such
-  as a click or a new bake. `UiPointer` holds its gestures this way, `Renderer` its
+  as a click or a new bake. `UiGestures` holds the mouse's gestures this way, `Renderer` its
   running background bake, and `GameHost` what stopped the game: an Update that threw
   still draws the world, a Draw that threw shows only the error.
 
@@ -117,12 +117,31 @@ a nullable record struct, which costs nothing per change, since every character 
 often: null means no cross-fade is running.
 
 When two lifecycles can overlap, each gets its own field instead of one state for every
-combination. `UiPointer` keeps what the left button holds (a click or a scroll bar's thumb)
+combination. `UiGestures` keeps what the left button holds (a click or a scroll bar's thumb)
 apart from a drag, which can be on any button, so a right drag can run while a left click
 stays held on something else.
 
 Each change of state is one assignment, in a method named for the change. Code that runs per
 sample or per draw keeps an enum on the object and decides once per block, not per item.
+
+## Interface internals
+
+The interface code in `src/Super/Ui` splits into small parts with one job each:
+
+- `UiTree` keeps the root node and the two overlay nodes (the drag preview and the
+  tooltip), and runs layout when something changed.
+- `UiNode` is one place in the tree. `UiChildren` pairs a node's new child views with its
+  old children. `UiBodyHooks` holds a component's states and the states its last Body
+  read: a `State<T>` tells each reader's hooks when it changes. A scroll view's position
+  is a `UiScrollState` on its node, and `UiSizeMemo` keeps a node's last few measurements.
+- Views draw into a `UiDrawList`, which holds the quads, the shown text and which quads are
+  images. Its `UiDrawNesting` keeps the clips and opacities that wrap what's drawn now.
+- `GlyphAtlas` measures and draws text. `UiFontFace` is one font at one size and draws its
+  characters into the shared `UiGlyphSheet`, and `UiLineBreaker` wraps lines and cuts them
+  at a line limit.
+- `UiPointer` routes mouse events between the interface and the game. `UiGestures` keeps
+  what the buttons hold and drag, `UiHover` how things under the cursor look, and
+  `UiScrolling` moves scroll views. `UiScrollBar` is where a scroll view's bar and thumb are.
 
 ## Audio mixer
 

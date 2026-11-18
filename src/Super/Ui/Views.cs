@@ -17,10 +17,11 @@ public sealed record Text(string Content) : PrimitiveView
     {
     }
 
-    internal override void Emit(UiNode node, UiTree tree)
+    internal override void Emit(UiNode node, UiDrawList draw)
     {
-        tree.AddText(tree.Atlas.Shown(Content, node.Style, node.Frame.Width), node.Frame, node.Style);
-        tree.Atlas.Draw(tree, Content, node.Style, node.Frame);
+        var atlas = node.Tree.Atlas;
+        draw.AddText(atlas.Shown(Content, node.Style, node.Frame.Width), node.Frame, node.Style);
+        atlas.Draw(draw, Content, node.Style, node.Frame);
     }
 }
 
@@ -361,29 +362,29 @@ internal sealed record BoxModifier(UiView Child) : Modifier(Child)
 
     internal override UiRect? ClipArea(UiNode node) => Clips ? BoxOf(node) : null;
 
-    internal override void Emit(UiNode node, UiTree tree)
+    internal override void Emit(UiNode node, UiDrawList draw)
     {
-        tree.PushOpacity(Alpha);
+        draw.Nesting.PushOpacity(Alpha);
         var box = BoxOf(node);
         if (Fill is not null || BorderWidth > 0f)
         {
-            tree.AddBox(box, Fill, Radius, BorderWidth, BorderColor);
+            draw.AddBox(box, Fill, Radius, BorderWidth, BorderColor);
         }
 
         if (Clips)
         {
-            tree.PushClip(box, Radius);
+            draw.Nesting.PushClip(box, Radius);
         }
     }
 
-    internal override void EmitAfter(UiNode node, UiTree tree)
+    internal override void EmitAfter(UiNode node, UiDrawList draw)
     {
         if (Clips)
         {
-            tree.PopClip();
+            draw.Nesting.PopClip();
         }
 
-        tree.PopOpacity();
+        draw.Nesting.PopOpacity();
     }
 }
 
