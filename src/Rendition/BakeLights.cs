@@ -68,9 +68,11 @@ internal static class BakeLights
         in FrameView view, BakedSpace space, SpaceBakeLights lights, List<int> unassigned)
     {
         var locals = view.LocalLights;
-        var sunChannels = new int[view.Lights.Length];
-        var localChannels = new int[locals.Length];
-        ShadowMaskChannels.Assign(space, lights.SunsForMask, lights.LocalsForMask, sunChannels, localChannels, unassigned);
+        var assigned = ShadowMaskChannels.Assign(space, lights.SunsForMask, lights.LocalsForMask);
+        var sunChannels = assigned.Suns;
+        var localChannels = assigned.Lights;
+        unassigned.Clear();
+        unassigned.AddRange(assigned.Unassigned);
         var bakeLights = CollectionsMarshal.AsSpan(lights.Lights);
         var channels = new List<(int LightKey, int Channel)>();
         for (int i = 0; i < sunChannels.Length; i++)

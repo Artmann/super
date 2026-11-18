@@ -16,9 +16,6 @@ public static class BakeInputHash
     // Spans up to this many ids are sorted on the stack (2 KiB); longer ones in a pooled array.
     private const int StackLimit = 256;
 
-    [ThreadStatic]
-    private static StableHasher? _hasher;
-
     /// <summary>
     /// A Mixed or Baked light, as seen from its baked area. <paramref name="area"/> is where the area stands: the
     /// identity for a space, and the chunk's own rigid transform for a chunk. The light is taken into the area with
@@ -79,15 +76,14 @@ public static class BakeInputHash
     }
 
     /// <summary>
-    /// A space's inputs. <paramref name="bakeIds"/> are its static draws' ids and <paramref name="lights"/> its lights'
-    /// <see cref="Light"/> hashes, in any order; neither span is changed. <paramref name="sun"/> is the sun's
-    /// <see cref="Sun"/> hash, or null when the space has none. <paramref name="placedChunks"/> holds a
-    /// <see cref="PlacedChunk"/> hash, in any order, for each chunk that owns some of those draws: their ids are
+    /// A space's inputs. <paramref name="bakeIds"/> are its static draws' ids, in any order; the span isn't changed.
+    /// <paramref name="lights"/> is the <see cref="SpaceLights"/> hash of its lights and sun. <paramref name="placedChunks"/>
+    /// holds a <see cref="PlacedChunk"/> hash, in any order, for each chunk that owns some of those draws: their ids are
     /// relative to the chunk, so only this says where they stand.
     /// </summary>
     public static BakeInputs Space(
-        ReadOnlySpan<ulong> bakeIds, ReadOnlySpan<ulong> lights, BakedSpace space, ulong environment, ulong? sun,
-        BakeSettings settings, ReadOnlySpan<ulong> placedChunks = default)
+        ReadOnlySpan<ulong> bakeIds, ulong lights, BakedSpace space, ulong environment, BakeSettings settings,
+        ReadOnlySpan<ulong> placedChunks = default)
     {
         var hasher = Hasher();
         AddSorted(hasher, bakeIds);
@@ -95,6 +91,21 @@ public static class BakeInputHash
         ulong draws = hasher.Finish();
 
         hasher = Hasher();
+        AddSettings(hasher, 0, settings);
+        hasher.Add(space.ProbeSpacing);
+        hasher.Add(space.Min);
+        hasher.Add(space.Max);
+        return new BakeInputs(draws, lights, environment, hasher.Finish());
+    }
+
+    /// <summary>
+    /// The lights part of a space's <see cref="Space"/> inputs. <paramref name="lights"/> are its lights'
+    /// <see cref="Light"/> hashes, in any order; the span isn't changed. <paramref name="sun"/> is the sun's
+    /// <see cref="Sun"/> hash, or null when the space has none.
+    /// </summary>
+    public static ulong SpaceLights(ReadOnlySpan<ulong> lights, ulong? sun)
+    {
+        var hasher = Hasher();
         AddSorted(hasher, lights);
         if (sun is { } sunHash)
         {
@@ -106,14 +117,7 @@ public static class BakeInputHash
             hasher.Add(0);
         }
 
-        ulong lightHash = hasher.Finish();
-
-        hasher = Hasher();
-        AddSettings(hasher, 0, settings);
-        hasher.Add(space.ProbeSpacing);
-        hasher.Add(space.Min);
-        hasher.Add(space.Max);
-        return new BakeInputs(draws, lightHash, environment, hasher.Finish());
+        return hasher.Finish();
     }
 
     /// <summary>
@@ -141,13 +145,7 @@ public static class BakeInputHash
     public static ulong PlacedChunk(in BakedChunk chunk, ulong chunkDraws) =>
         Hasher().Add(chunk.Transform).Add(chunkDraws).Finish();
 
-    /// <summary>This thread's hasher, started again, so hashing makes no garbage after the first call.</summary>
-    internal static StableHasher Hasher()
-    {
-        var hasher = _hasher ??= new StableHasher();
-        hasher.Reset();
-        return hasher;
-    }
+    private static StableHasher Hasher() => StableHasher.ForThread();
 
     private static void AddSettings(StableHasher hasher, int kind, BakeSettings settings)
     {

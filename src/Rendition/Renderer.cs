@@ -882,7 +882,7 @@ public sealed unsafe class Renderer : IDisposable
     /// last frame drawn. It follows what they hold, so setting the same environment again gives the same hash. See
     /// "Is the bake fresh?" in docs/design.md.
     /// </summary>
-    public ulong EnvironmentHash => BakeInputHash.Hasher()
+    public ulong EnvironmentHash => StableHasher.ForThread()
         .Add(_environmentContent)
         .Add(_bakedSky.Turbidity)
         .Add(_bakedSky.Image is { } image ? _skyImages[image.Index].Content : 0UL)

@@ -11,15 +11,12 @@ public class ShadowMaskChannelsTests
     private static LocalLight Point(int key, float x, LightMode mode = LightMode.Mixed, float range = 5f, float z = 10f) =>
         new() { Key = key, Position = new Vector3(x, 1f, z), Range = range, Mode = mode };
 
-    private static (int[] Suns, int[] Lights, List<int> Unassigned) Run(
+    private static (int[] Suns, int[] Lights, int[] Unassigned) Run(
         DirectionalLight[] suns, LocalLight[] lights)
     {
-        var sunChannels = new int[suns.Length];
-        var lightChannels = new int[lights.Length];
-        var unassigned = new List<int>();
-        ShadowMaskChannels.Assign(Hall, suns, lights, sunChannels, lightChannels, unassigned);
+        var assigned = ShadowMaskChannels.Assign(Hall, suns, lights);
 
-        return (sunChannels, lightChannels, unassigned);
+        return (assigned.Suns, assigned.Lights, assigned.Unassigned);
     }
 
     [Fact]
@@ -135,15 +132,6 @@ public class ShadowMaskChannelsTests
             Assert.Equal([1, 2, 3, -1, 1, 1], byKey.Values);
             Assert.Equal([40], unassigned);
         }
-    }
-
-    [Fact]
-    public void A_channel_list_that_is_too_short_throws_and_says_so()
-    {
-        var error = Assert.Throws<ArgumentException>(() => ShadowMaskChannels.Assign(
-            Hall, [], [Point(1, 10f), Point(2, 11f)], [], new int[1], new List<int>()));
-
-        Assert.Contains("lightChannels holds 1 entries for 2 lights", error.Message);
     }
 
     // A chunk whose own box is 20 by 5 by 20, standing under the given transform.

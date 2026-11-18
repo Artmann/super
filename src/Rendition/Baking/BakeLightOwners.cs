@@ -125,7 +125,7 @@ internal sealed class BakeLightOwners
         }
 
         _spaceSuns.Sort();
-        var hasher = BakeInputHash.Hasher().Add(_spaceSuns.Count);
+        var hasher = StableHasher.ForThread().Add(_spaceSuns.Count);
         foreach (ulong sun in _spaceSuns)
         {
             hasher.Add(sun);

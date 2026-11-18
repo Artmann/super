@@ -13,31 +13,20 @@ public static class ShadowMaskChannels
     public const int Count = 4;
 
     /// <summary>
-    /// Fills <paramref name="sunChannels"/> and <paramref name="lightChannels"/> with a channel from 0 to
-    /// <see cref="Count"/> - 1 for each light that gets one, and -1 for a light that doesn't. Only a Mixed light takes
-    /// a channel, and a local light only when it is in the space's box, as <see cref="BakeAreas.OwnerOfLight"/> reads
-    /// it. The first Mixed sun takes channel 0; any other Mixed sun gets none. A local light that is Mixed and in the
-    /// space but finds every channel taken by an overlapping light keeps real-time shadows only, and its
-    /// <see cref="LocalLight.Key"/> is added to <paramref name="unassigned"/>, in ascending order, after clearing it.
-    /// The result depends on the keys, not on the order of <paramref name="lights"/>, unless two lights share a key.
+    /// Gives each of <paramref name="suns"/> and <paramref name="lights"/> a channel from 0 to <see cref="Count"/> - 1,
+    /// or -1 for a light that gets none. Only a Mixed light takes a channel, and a local light only when it is in the
+    /// space's box, as <see cref="BakeAreas.OwnerOfLight"/> reads it. The first Mixed sun takes channel 0; any other
+    /// Mixed sun gets none. A local light that is Mixed and in the space but finds every channel taken by an
+    /// overlapping light keeps real-time shadows only, and its <see cref="LocalLight.Key"/> is in
+    /// <see cref="SpaceMaskChannels.Unassigned"/>, in ascending order. The result depends on the keys, not on the order
+    /// of <paramref name="lights"/>, unless two lights share a key.
     /// </summary>
-    public static void Assign(BakedSpace space, ReadOnlySpan<DirectionalLight> suns, ReadOnlySpan<LocalLight> lights,
-        Span<int> sunChannels, Span<int> lightChannels, List<int> unassigned)
+    public static SpaceMaskChannels Assign(
+        BakedSpace space, ReadOnlySpan<DirectionalLight> suns, ReadOnlySpan<LocalLight> lights)
     {
-        ArgumentNullException.ThrowIfNull(unassigned);
-        if (sunChannels.Length < suns.Length)
-        {
-            throw new ArgumentException(
-                $"sunChannels holds {sunChannels.Length} entries for {suns.Length} suns.", nameof(sunChannels));
-        }
-
-        if (lightChannels.Length < lights.Length)
-        {
-            throw new ArgumentException(
-                $"lightChannels holds {lightChannels.Length} entries for {lights.Length} lights.", nameof(lightChannels));
-        }
-
-        unassigned.Clear();
+        var sunChannels = new int[suns.Length];
+        var lightChannels = new int[lights.Length];
+        var unassigned = new List<int>();
         var firstFree = AssignSuns(suns, sunChannels);
 
         // Each member is its key and its index, so sorting goes by key and a shared key falls back to the index.
@@ -54,6 +43,7 @@ public static class ShadowMaskChannels
 
         members.Sort((a, b) => a.Key != b.Key ? a.Key.CompareTo(b.Key) : a.Index.CompareTo(b.Index));
         Colour(lights, members, firstFree, lightChannels, unassigned);
+        return new SpaceMaskChannels(sunChannels, lightChannels, [.. unassigned]);
     }
 
     // The first Mixed sun takes channel 0 and every other sun none. Returns the first channel left for local lights.
@@ -169,3 +159,10 @@ public static class ShadowMaskChannels
         return -1;
     }
 }
+
+/// <summary>
+/// The shadow mask channels <see cref="ShadowMaskChannels.Assign"/> gave a space's lights: one for each sun and each
+/// local light, in the order given, -1 for a light with none, and the keys of the local lights that wanted one but
+/// found none free, ascending.
+/// </summary>
+public sealed record SpaceMaskChannels(int[] Suns, int[] Lights, int[] Unassigned);

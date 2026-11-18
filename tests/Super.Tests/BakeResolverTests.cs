@@ -266,7 +266,7 @@ public sealed class BakeResolverTests
 
         // And it's the same hash a bake made at that density is saved with.
         Assert.Equal(
-            BakeInputHash.Space([], [], denseCourtyard, 42, null, new BakeSettings(40)).Settings,
+            BakeInputHash.Space([], BakeInputHash.SpaceLights([], null), denseCourtyard, 42, new BakeSettings(40)).Settings,
             Space(denseCourtyard, Room).Settings);
     }
 

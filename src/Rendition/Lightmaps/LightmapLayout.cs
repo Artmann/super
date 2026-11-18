@@ -78,43 +78,16 @@ public sealed class LightmapLayout
         ReadOnlySpan<DrawItem> draws, Func<MeshHandle, uint, uint, float> meshArea, BakeSettings settings,
         Func<MaterialHandle, bool> getsLightmap)
     {
-        var layout = new LightmapLayout();
         var (groups, drawGroup) = GroupDraws(draws, meshArea, getsLightmap);
-
         foreach (var group in groups)
         {
             group.Side = SideOf(group.Area, settings.TexelsPerMetre);
         }
 
-        var order = Enumerable.Range(0, groups.Count).OrderByDescending(i => groups[i].Side).ThenBy(i => i).ToList();
-        for (int page = 0; page < MaxPages && order.Count > 0; page++)
-        {
-            int fits = Fit(order, groups, out var positions);
-            for (int i = 0; i < fits; i++)
-            {
-                var group = groups[order[i]];
-                group.Placed = true;
-                group.Rect = new LightmapRect(
-                    page,
-                    new Vector2((float)group.Side / PageSize),
-                    new Vector2((float)positions[i].X / PageSize, (float)positions[i].Y / PageSize));
-            }
-
-            order.RemoveRange(0, fits);
-            layout.Pages = page + 1;
-        }
-
+        var layout = new LightmapLayout { Pages = SquarePacking.PackPages(groups, PageSize, MaxPages) };
         foreach (var (bakeId, index) in drawGroup)
         {
-            if (groups[index].Placed)
-            {
-                layout._draws.Add((bakeId, groups[index].Rect));
-                layout._byId[bakeId] = groups[index].Rect;
-            }
-            else
-            {
-                layout._left.Add(bakeId);
-            }
+            layout.AddDraw(bakeId, groups[index].Rect);
         }
 
         return layout;
@@ -130,77 +103,22 @@ public sealed class LightmapLayout
     /// </summary>
     public static LightmapLayout Single(ReadOnlySpan<LightmapChart> charts, int texelsPerMetre)
     {
-        var layout = new LightmapLayout { PageSide = MinSinglePageSide };
-        var groups = new List<Group>(charts.Length);
+        if (charts.Length == 0)
+        {
+            return new LightmapLayout { PageSide = MinSinglePageSide };
+        }
+
+        var squares = new List<LightmapSquare>(charts.Length);
         foreach (var chart in charts)
         {
-            groups.Add(new Group { Side = SideOf(chart.Area, texelsPerMetre) });
+            squares.Add(new LightmapSquare { Side = SideOf(chart.Area, texelsPerMetre) });
         }
 
-        var order = Enumerable.Range(0, groups.Count).OrderByDescending(i => groups[i].Side).ThenBy(i => i).ToList();
-        if (order.Count == 0)
-        {
-            return layout;
-        }
-
-        var positions = Array.Empty<(int X, int Y)>();
-        var fits = 0;
-        for (int side = MinSinglePageSide; side <= PageSize; side *= 2)
-        {
-            fits = Fit(order, groups, side, out positions);
-            layout.PageSide = side;
-            if (fits == order.Count)
-            {
-                break;
-            }
-        }
-
-        // Single has no next page, so a chart the prefix left out is tried again beside the ones kept, in the order
-        // given by size and then by index, and stays if everything still packs.
-        if (fits < order.Count)
-        {
-            var kept = order.GetRange(0, fits);
-            for (int j = fits; j < order.Count; j++)
-            {
-                kept.Add(order[j]);
-                var sizes = kept.Select(i => (groups[i].Side, groups[i].Side)).ToArray();
-                var trial = new (int X, int Y)[sizes.Length];
-                if (SkylinePacker.TryPack(sizes, layout.PageSide, layout.PageSide, LightmapUnwrap.Gutter, trial))
-                {
-                    positions = trial;
-                }
-                else
-                {
-                    kept.RemoveAt(kept.Count - 1);
-                }
-            }
-
-            order = kept;
-            fits = kept.Count;
-        }
-
-        for (int i = 0; i < fits; i++)
-        {
-            var group = groups[order[i]];
-            group.Placed = true;
-            group.Rect = new LightmapRect(
-                0,
-                new Vector2((float)group.Side / layout.PageSide),
-                new Vector2((float)positions[i].X / layout.PageSide, (float)positions[i].Y / layout.PageSide));
-        }
-
-        layout.Pages = 1;
+        int side = SquarePacking.PackOnePage(squares, MinSinglePageSide, PageSize);
+        var layout = new LightmapLayout { PageSide = side, Pages = 1 };
         for (int i = 0; i < charts.Length; i++)
         {
-            if (groups[i].Placed)
-            {
-                layout._draws.Add((charts[i].BakeId, groups[i].Rect));
-                layout._byId[charts[i].BakeId] = groups[i].Rect;
-            }
-            else
-            {
-                layout._left.Add(charts[i].BakeId);
-            }
+            layout.AddDraw(charts[i].BakeId, squares[i].Rect);
         }
 
         return layout;
@@ -227,15 +145,7 @@ public sealed class LightmapLayout
         var layout = new LightmapLayout { PageSide = single.PageSide, Pages = single.Pages };
         foreach (var (bakeId, index) in drawGroup)
         {
-            if (single.TryGet(groups[index].FirstId, out var rect))
-            {
-                layout._draws.Add((bakeId, rect));
-                layout._byId[bakeId] = rect;
-            }
-            else
-            {
-                layout._left.Add(bakeId);
-            }
+            layout.AddDraw(bakeId, single.TryGet(groups[index].FirstId, out var rect) ? rect : null);
         }
 
         return layout;
@@ -252,12 +162,24 @@ public sealed class LightmapLayout
         var layout = new LightmapLayout { Pages = Pages };
         foreach (var (bakeId, rect) in _draws)
         {
-            var moved = rect with { Scale = rect.Scale * scale, Offset = rect.Offset * scale };
-            layout._draws.Add((bakeId, moved));
-            layout._byId[bakeId] = moved;
+            layout.AddDraw(bakeId, rect with { Scale = rect.Scale * scale, Offset = rect.Offset * scale });
         }
 
         return layout;
+    }
+
+    // Adds a draw with its rectangle, or to Left when it has none.
+    private void AddDraw(ulong bakeId, LightmapRect? rect)
+    {
+        if (rect is { } placed)
+        {
+            _draws.Add((bakeId, placed));
+            _byId[bakeId] = placed;
+        }
+        else
+        {
+            _left.Add(bakeId);
+        }
     }
 
     /// <summary>
@@ -294,11 +216,11 @@ public sealed class LightmapLayout
     }
 
     // The draws that get a lightmap, grouped into the rectangles they share: one instance, in one place, with one material.
-    private static (List<Group> Groups, List<(ulong BakeId, int Group)> DrawGroup) GroupDraws(
+    private static (List<LightmapSquare> Groups, List<(ulong BakeId, int Group)> DrawGroup) GroupDraws(
         ReadOnlySpan<DrawItem> draws, Func<MeshHandle, uint, uint, float> meshArea, Func<MaterialHandle, bool> getsLightmap)
     {
         var groupOf = new Dictionary<(ulong Instance, Matrix4x4 Transform, MaterialHandle Material), int>();
-        var groups = new List<Group>();
+        var groups = new List<LightmapSquare>();
         var drawGroup = new List<(ulong BakeId, int Group)>();
         var seen = new HashSet<ulong>();
 
@@ -316,7 +238,7 @@ public sealed class LightmapLayout
             {
                 index = groups.Count;
                 groupOf[key] = index;
-                groups.Add(new Group { Area = area, Mesh = draw.Mesh, FirstId = draw.BakeId });
+                groups.Add(new LightmapSquare { Area = area, Mesh = draw.Mesh, FirstId = draw.BakeId });
             }
             else
             {
@@ -337,52 +259,6 @@ public sealed class LightmapLayout
         return (groups, drawGroup);
     }
 
-    // The most groups, from the front of the order, that fit one page together. The packer takes all or nothing, so this
-    // tries all of them and then bisects on how many.
-    private static int Fit(List<int> order, List<Group> groups, out (int X, int Y)[] positions)
-    {
-        return Fit(order, groups, PageSize, out positions);
-    }
-
-    private static int Fit(List<int> order, List<Group> groups, int pageSide, out (int X, int Y)[] positions)
-    {
-        var sizes = new (int Width, int Height)[order.Count];
-        for (int i = 0; i < sizes.Length; i++)
-        {
-            sizes[i] = (groups[order[i]].Side, groups[order[i]].Side);
-        }
-
-        positions = new (int X, int Y)[sizes.Length];
-        if (SkylinePacker.TryPack(sizes, pageSide, pageSide, LightmapUnwrap.Gutter, positions))
-        {
-            return sizes.Length;
-        }
-
-        // On a full page one rectangle always fits, since MaxSide is under it. On a smaller one the first may not.
-        if (!SkylinePacker.TryPack(sizes.AsSpan(0, 1), pageSide, pageSide, LightmapUnwrap.Gutter, positions))
-        {
-            return 0;
-        }
-
-        int low = 1;
-        int high = sizes.Length - 1;
-        while (low < high)
-        {
-            int middle = (low + high + 1) / 2;
-            if (SkylinePacker.TryPack(sizes.AsSpan(0, middle), pageSide, pageSide, LightmapUnwrap.Gutter, positions))
-            {
-                low = middle;
-            }
-            else
-            {
-                high = middle - 1;
-            }
-        }
-
-        SkylinePacker.TryPack(sizes.AsSpan(0, low), pageSide, pageSide, LightmapUnwrap.Gutter, positions);
-        return low;
-    }
-
     private static int SideOf(float area, int texelsPerMetre)
     {
         if (!float.IsFinite(area) || area <= 0f)
@@ -399,14 +275,4 @@ public sealed class LightmapLayout
         (double)m.M11 * ((double)m.M22 * m.M33 - (double)m.M23 * m.M32)
         - (double)m.M12 * ((double)m.M21 * m.M33 - (double)m.M23 * m.M31)
         + (double)m.M13 * ((double)m.M21 * m.M32 - (double)m.M22 * m.M31);
-
-    private sealed class Group
-    {
-        public float Area;
-        public MeshHandle Mesh;
-        public ulong FirstId;
-        public int Side;
-        public bool Placed;
-        public LightmapRect Rect;
-    }
 }

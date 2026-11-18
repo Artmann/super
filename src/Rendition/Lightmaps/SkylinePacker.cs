@@ -23,16 +23,7 @@ public static class SkylinePacker
         int gutter,
         Span<(int X, int Y)> positions)
     {
-        if (pageWidth <= 0 || pageHeight <= 0)
-        {
-            throw new ArgumentException($"The page must have an area, not {pageWidth}x{pageHeight}.");
-        }
-
-        if (gutter < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(gutter), gutter, "The gutter can't be negative.");
-        }
-
+        CheckPage(pageWidth, pageHeight, gutter);
         if (positions.Length < rectangles.Length)
         {
             throw new ArgumentException(
@@ -43,6 +34,40 @@ public static class SkylinePacker
         // Every rectangle takes its gutter along its right and bottom sides, and the page
         // gets the same extra, so rectangles at the page's right and bottom edges have
         // none to spare.
+        var (widths, heights) = Padded(rectangles, gutter);
+        var skyline = new Skyline(pageWidth + gutter, pageHeight + gutter, rectangles.Length);
+        foreach (var index in TallestFirst(widths, heights))
+        {
+            var w = widths[index];
+            var h = heights[index];
+            if (!skyline.TryFind(w, h, out var x, out var y))
+            {
+                return false;
+            }
+
+            positions[index] = (x, y);
+            skyline.Raise(x, w, y + h);
+        }
+
+        return true;
+    }
+
+    private static void CheckPage(int pageWidth, int pageHeight, int gutter)
+    {
+        if (pageWidth <= 0 || pageHeight <= 0)
+        {
+            throw new ArgumentException($"The page must have an area, not {pageWidth}x{pageHeight}.");
+        }
+
+        if (gutter < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(gutter), gutter, "The gutter can't be negative.");
+        }
+    }
+
+    // Each rectangle's width and height with the gutter added.
+    private static (int[] Widths, int[] Heights) Padded(ReadOnlySpan<(int Width, int Height)> rectangles, int gutter)
+    {
         var count = rectangles.Length;
         var widths = new int[count];
         var heights = new int[count];
@@ -59,11 +84,14 @@ public static class SkylinePacker
             heights[i] = rectangles[i].Height + gutter;
         }
 
-        var width = pageWidth + gutter;
-        var height = pageHeight + gutter;
+        return (widths, heights);
+    }
 
-        var order = new int[count];
-        for (var i = 0; i < count; i++)
+    // The rectangles' indices, tallest first, then widest, then by index.
+    private static int[] TallestFirst(int[] widths, int[] heights)
+    {
+        var order = new int[widths.Length];
+        for (var i = 0; i < order.Length; i++)
         {
             order[i] = i;
         }
@@ -82,34 +110,31 @@ public static class SkylinePacker
 
             return a.CompareTo(b);
         });
+        return order;
+    }
 
-        var skyline = new List<Step>(count + 2) { new(0, 0, width) };
-        var next = new List<Step>(count + 2);
+    private readonly record struct Step(int X, int Y, int Width);
 
-        foreach (var index in order)
+    /// <summary>The page's top edge so far, as steps from left to right, on a page of the given size.</summary>
+    private sealed class Skyline(int width, int height, int rectangles)
+    {
+        private List<Step> _steps = new(rectangles + 2) { new(0, 0, width) };
+        private List<Step> _next = new(rectangles + 2);
+
+        /// <summary>The lowest, then leftmost, place a rectangle of <paramref name="w"/> by <paramref name="h"/> fits.</summary>
+        public bool TryFind(int w, int h, out int bestX, out int bestY)
         {
-            var w = widths[index];
-            var h = heights[index];
-
-            var bestX = 0;
-            var bestY = int.MaxValue;
-            for (var start = 0; start < skyline.Count; start++)
+            bestX = 0;
+            bestY = int.MaxValue;
+            for (var start = 0; start < _steps.Count; start++)
             {
-                var x = skyline[start].X;
+                var x = _steps[start].X;
                 if (x + w > width)
                 {
                     break;
                 }
 
-                // It rests on the highest step it spans.
-                var y = 0;
-                var covered = 0;
-                for (var step = start; covered < w; step++)
-                {
-                    y = Math.Max(y, skyline[step].Y);
-                    covered += skyline[step].Width;
-                }
-
+                var y = RestingHeight(start, w);
                 if (y + h <= height && y < bestY)
                 {
                     bestX = x;
@@ -117,87 +142,74 @@ public static class SkylinePacker
                 }
             }
 
-            if (bestY == int.MaxValue)
-            {
-                return false;
-            }
-
-            positions[index] = (bestX, bestY);
-            Raise(skyline, next, bestX, w, bestY + h);
-            (skyline, next) = (next, skyline);
+            return bestY != int.MaxValue;
         }
 
-        return true;
-    }
-
-    /// <summary>
-    /// Writes into <paramref name="result"/> the skyline with a new step from
-    /// <paramref name="x"/> across <paramref name="width"/> at <paramref name="y"/>,
-    /// trimming the steps it covers and joining neighbours at the same height.
-    /// </summary>
-    private static void Raise(List<Step> skyline, List<Step> result, int x, int width, int y)
-    {
-        result.Clear();
-
-        var right = x + width;
-        var placed = false;
-
-        foreach (var step in skyline)
+        // A rectangle w wide from step start rests on the highest step it spans.
+        private int RestingHeight(int start, int w)
         {
-            var stepRight = step.X + step.Width;
-            if (stepRight <= x)
+            var y = 0;
+            var covered = 0;
+            for (var step = start; covered < w; step++)
             {
-                Add(result, step);
-                continue;
+                y = Math.Max(y, _steps[step].Y);
+                covered += _steps[step].Width;
             }
 
-            if (step.X >= right)
+            return y;
+        }
+
+        /// <summary>
+        /// Puts a new step from <paramref name="x"/> across <paramref name="w"/> at <paramref name="y"/>, trimming the
+        /// steps it covers and joining neighbours at the same height.
+        /// </summary>
+        public void Raise(int x, int w, int y)
+        {
+            _next.Clear();
+
+            // The steps wholly left of the new one, then whatever of the next sticks out on its left.
+            var i = 0;
+            for (; i < _steps.Count && _steps[i].X + _steps[i].Width <= x; i++)
             {
-                if (!placed)
+                Add(_steps[i]);
+            }
+
+            if (i < _steps.Count && _steps[i].X < x)
+            {
+                Add(new Step(_steps[i].X, _steps[i].Y, x - _steps[i].X));
+            }
+
+            Add(new Step(x, y, w));
+
+            // Steps wholly under the new one go; one sticking out on its right keeps that part, and the rest stay.
+            var right = x + w;
+            for (; i < _steps.Count; i++)
+            {
+                var step = _steps[i];
+                var stepRight = step.X + step.Width;
+                if (step.X >= right)
                 {
-                    Add(result, new Step(x, y, width));
-                    placed = true;
+                    Add(step);
                 }
-
-                Add(result, step);
-                continue;
+                else if (stepRight > right)
+                {
+                    Add(new Step(right, step.Y, stepRight - right));
+                }
             }
 
-            // It overlaps the new step, so keep whatever sticks out on either side.
-            if (step.X < x)
-            {
-                Add(result, new Step(step.X, step.Y, x - step.X));
-            }
-
-            if (!placed)
-            {
-                Add(result, new Step(x, y, width));
-                placed = true;
-            }
-
-            if (stepRight > right)
-            {
-                Add(result, new Step(right, step.Y, stepRight - right));
-            }
+            (_steps, _next) = (_next, _steps);
         }
 
-        if (!placed)
+        private void Add(Step step)
         {
-            Add(result, new Step(x, y, width));
+            if (_next.Count > 0 && _next[^1].Y == step.Y)
+            {
+                var last = _next[^1];
+                _next[^1] = last with { Width = last.Width + step.Width };
+                return;
+            }
+
+            _next.Add(step);
         }
     }
-
-    private static void Add(List<Step> steps, Step step)
-    {
-        if (steps.Count > 0 && steps[^1].Y == step.Y)
-        {
-            var last = steps[^1];
-            steps[^1] = last with { Width = last.Width + step.Width };
-            return;
-        }
-
-        steps.Add(step);
-    }
-
-    private readonly record struct Step(int X, int Y, int Width);
 }

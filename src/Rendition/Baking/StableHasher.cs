@@ -17,7 +17,18 @@ public sealed class StableHasher
     /// <summary>The size floats are rounded to before hashing, a tenth of a millimetre. Matrix elements use it too.</summary>
     public const float Step = 1e-4f;
 
+    [ThreadStatic]
+    private static StableHasher? _forThread;
+
     private readonly XxHash64 _hash = new(0);
+
+    /// <summary>This thread's own hasher, started again, so hashing makes no garbage after the first call.</summary>
+    internal static StableHasher ForThread()
+    {
+        var hasher = _forThread ??= new StableHasher();
+        hasher.Reset();
+        return hasher;
+    }
 
     public StableHasher Add(int value)
     {

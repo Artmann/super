@@ -2533,7 +2533,9 @@ room for only one on a page. Draws whose squares are not placed after 8 pages ar
 the draw's 0 to 1 covers the square itself and the gutter lies outside it. The bisection
 assumes a smaller prefix fits whenever a bigger one does, which the skyline mostly keeps; when
 it doesn't, a page is left a little emptier. Nothing fills one page's gaps with smaller
-squares from later ones.
+squares from later ones. The packing itself is `SquarePacking`
+(`src/Rendition/Lightmaps/SquarePacking.cs`), which places `LightmapSquare`s, one per
+rectangle, for both `Build` and `Single`.
 
 A chunk's lightmap is one page of its own size, from `LightmapLayout.Single`. It takes
 `LightmapChart`s (a bake id and an area in square metres) and the density, and gives each the
@@ -4268,10 +4270,11 @@ and that chunk's own `Draws`. The ids of a chunk's draws are relative to the chu
 this, moving a chunk, or swapping where two chunks stand, would leave the space's hash as it
 was though its light now falls differently.
 `Lights` is the count and the light hashes in ascending order, and for a space then 1 and the
-sun's hash, or 0 when it has no sun. Sorting makes the hash the same whatever order the draws
+sun's hash, or 0 when it has no sun. For a space it comes from `BakeInputHash.SpaceLights(lights,
+sun)`, which the caller hands to `BakeInputHash.Space`. Sorting makes the hash the same whatever order the draws
 and lights come in. It sorts a copy, on the stack for up to 256 values and in an array from
 `ArrayPool<ulong>.Shared` past that, so the caller's spans are untouched and a warm frame
-allocates nothing. Hashing uses one `StableHasher` per thread.
+allocates nothing. Hashing uses one `StableHasher` per thread, `StableHasher.ForThread`.
 
 `BakeInputHash.Light(light, area)` hashes a Mixed or Baked light; Realtime lights are never
 part of a bake, so they are never passed in. `area` is where the light's baked area stands:
@@ -4660,8 +4663,8 @@ and keeps what it had (`ShadowMaskGpuTests`).
 ### Shadow mask channels
 
 `ShadowMaskChannels.Assign` (`src/Rendition/Baking/ShadowMaskChannels.cs`) says which of a
-space's four mask channels each Mixed light writes. It puts -1 in every slot first, which means
-no channel. The first Mixed sun takes channel 0, and any other sun gets none. A local light is
+space's four mask channels each Mixed light writes, and returns them as a `SpaceMaskChannels`:
+one channel for each sun and each local light, in the order given, where -1 means no channel. The first Mixed sun takes channel 0, and any other sun gets none. A local light is
 a member when it is Mixed and `BakeAreas.OwnerOfLight` says the space holds its position, the
 same rule that puts it in the space's hash, so a light the bake doesn't hold has no mask. This
 covers lights that cast shadows and lights with no shadow tile alike, since a light with no
@@ -4669,8 +4672,7 @@ tile is shadowed by the mask alone. Members are sorted by (`Key`, index in the f
 coloured greedily: each takes the lowest channel, from 1 when a sun has 0, that no earlier
 member with an overlapping range has taken. Two ranges overlap when the distance between the
 lights is less than the sum of their ranges. A member with no channel left is skipped by the
-lights after it, and its `Key` is added to `unassigned` (cleared first, in ascending order) for
-the bake report. Keys make the result the same whatever order the frame lists the lights
+lights after it, and its `Key` goes in `Unassigned` (in ascending order) for the bake report. Keys make the result the same whatever order the frame lists the lights
 in; two lights sharing a key are told apart by index, which is the one case where order shows.
 
 `ShadowMaskChannels.AssignChunk` does the same for a chunk, with three differences. A chunk has

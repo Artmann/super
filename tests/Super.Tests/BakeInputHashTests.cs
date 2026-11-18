@@ -11,6 +11,9 @@ public class BakeInputHashTests
     private static readonly ulong[] Draws = [0x8000_0000_0000_0005, 0x8000_0000_0000_0001, 0x8000_0000_0000_0009];
     private static readonly ulong[] Lights = [7, 2, 11];
 
+    // Lights with a sun whose hash is 5, as most space hashes here use.
+    private static readonly ulong LightsAndSun = BakeInputHash.SpaceLights(Lights, 5);
+
     [Fact]
     public void Mixed_light_hash_ignores_colour()
     {
@@ -155,8 +158,9 @@ public class BakeInputHashTests
         var reversedLights = lights.Reverse().ToArray();
         var keptDraws = draws.ToArray();
 
-        var space = BakeInputHash.Space(draws, lights, Crypt, 42, 5, new BakeSettings());
-        var reversedSpace = BakeInputHash.Space(reversedDraws, reversedLights, Crypt, 42, 5, new BakeSettings());
+        var space = BakeInputHash.Space(draws, BakeInputHash.SpaceLights(lights, 5), Crypt, 42, new BakeSettings());
+        var reversedSpace = BakeInputHash.Space(
+            reversedDraws, BakeInputHash.SpaceLights(reversedLights, 5), Crypt, 42, new BakeSettings());
         var chunk = BakeInputHash.Chunk(draws, lights, House, new BakeSettings());
         var reversedChunk = BakeInputHash.Chunk(reversedDraws, reversedLights, House, new BakeSettings());
 
@@ -246,8 +250,9 @@ public class BakeInputHashTests
                 throw new ArgumentException(change);
         }
 
-        var before = BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, new BakeSettings());
-        var after = BakeInputHash.Space(Draws, Lights, space, environment, sun, new BakeSettings());
+        var before = BakeInputHash.Space(Draws, LightsAndSun, Crypt, 42, new BakeSettings());
+        var after = BakeInputHash.Space(
+            Draws, BakeInputHash.SpaceLights(Lights, sun), space, environment, new BakeSettings());
 
         Assert.NotEqual(before.Combined, after.Combined);
         Assert.Equal([named], after.Changes(before));
@@ -256,8 +261,8 @@ public class BakeInputHashTests
     [Fact]
     public void Texel_density_changes_the_input_hash()
     {
-        var before = BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, new BakeSettings(20));
-        var after = BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, new BakeSettings(40));
+        var before = BakeInputHash.Space(Draws, LightsAndSun, Crypt, 42, new BakeSettings(20));
+        var after = BakeInputHash.Space(Draws, LightsAndSun, Crypt, 42, new BakeSettings(40));
 
         Assert.NotEqual(before.Settings, after.Settings);
         Assert.Equal(["settings"], after.Changes(before));
@@ -273,8 +278,8 @@ public class BakeInputHashTests
             BakeInputHash.Chunk(Draws, Lights, House, final),
             BakeInputHash.Chunk(Draws, Lights, House, preview));
         Assert.Equal(
-            BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, final).Settings,
-            BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, preview).Settings);
+            BakeInputHash.Space(Draws, LightsAndSun, Crypt, 42, final).Settings,
+            BakeInputHash.Space(Draws, LightsAndSun, Crypt, 42, preview).Settings);
     }
 
     [Fact]
@@ -287,15 +292,16 @@ public class BakeInputHashTests
             BakeInputHash.Chunk(Draws, Lights, House, filtered),
             BakeInputHash.Chunk(Draws, Lights, House, raw));
         Assert.Equal(
-            BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, filtered).Settings,
-            BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, raw).Settings);
+            BakeInputHash.Space(Draws, LightsAndSun, Crypt, 42, filtered).Settings,
+            BakeInputHash.Space(Draws, LightsAndSun, Crypt, 42, raw).Settings);
     }
 
     [Fact]
     public void Changes_names_every_part_that_moved()
     {
-        var before = BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, new BakeSettings());
-        var after = BakeInputHash.Space([.. Draws, 0x8000_0000_0000_0010], [.. Lights, 3], Crypt, 42, 5, new BakeSettings());
+        var before = BakeInputHash.Space(Draws, LightsAndSun, Crypt, 42, new BakeSettings());
+        var after = BakeInputHash.Space(
+            [.. Draws, 0x8000_0000_0000_0010], BakeInputHash.SpaceLights([.. Lights, 3], 5), Crypt, 42, new BakeSettings());
 
         Assert.Equal(["draws", "lights"], after.Changes(before));
         Assert.Empty(before.Changes(before));
@@ -309,7 +315,7 @@ public class BakeInputHashTests
         // environment as given, and settings (0 for a space, texels per metre, baker version, probe spacing,
         // min, max), then Combined over the four in that order. Reordering any of them, or changing the baker
         // version, fails here; such a change makes every saved bake stale, so it must be on purpose.
-        var inputs = BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, new BakeSettings());
+        var inputs = BakeInputHash.Space(Draws, LightsAndSun, Crypt, 42, new BakeSettings());
 
         Assert.Equal(0x5DB0_88DE_032B_1289ul, inputs.Combined);
     }
@@ -321,7 +327,7 @@ public class BakeInputHashTests
         ulong lightHash = BakeInputHash.Light(light, Matrix4x4.Identity);
         ulong sunHash = BakeInputHash.Sun(Sun(LightMode.Baked));
         var space = Crypt with { ProbeSpacing = 0.5f };
-        return BakeInputHash.Space(Draws, [lightHash], space, 42, sunHash, new BakeSettings()).Combined;
+        return BakeInputHash.Space(Draws, BakeInputHash.SpaceLights([lightHash], sunHash), space, 42, new BakeSettings()).Combined;
     }
 
     // The light is given in the chunk's own space, placed in the world by the chunk's transform, and handed to the
