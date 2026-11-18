@@ -27,7 +27,7 @@ internal sealed class FileHashes(string folder)
     /// </summary>
     public string? Input(SourceFile file, string name)
     {
-        string? resolved = CookInput.ResolveName(file.Name, name);
+        string? resolved = SourcePaths.ResolveName(file.Name, name);
         return resolved is null ? Unresolvable : Of(file.Root, resolved);
     }
 

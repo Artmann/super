@@ -206,61 +206,74 @@ public static class CacheFolder
     internal static CacheTrim Trim(string folder, long limit, CacheUsage usage, DateTime now)
     {
         RefuseContent(folder);
-        var entries = List(folder);
-        DateTime started = usage.Started;
-        long size = 0;
-        long used = 0;
-        int deleted = 0;
-        long freed = 0;
+        var tally = new Tally();
         var candidates = new List<Entry>();
-        foreach (var entry in entries)
+        foreach (var entry in List(folder))
         {
-            if (!entry.Ours)
+            if (!entry.Ours || DeleteStaleTemp(entry, now, tally))
             {
                 continue;
             }
 
-            if (entry.IsTemp && now - entry.LastWriteUtc > StaleTemp)
-            {
-                if (TryDelete(entry.Path))
-                {
-                    deleted++;
-                    freed += entry.Size;
-                    continue;
-                }
-            }
-
-            size += entry.Size;
+            tally.Size += entry.Size;
             if (usage.Contains(entry.Path))
             {
-                used += entry.Size;
+                tally.Used += entry.Size;
             }
-            else if (!entry.IsTemp && entry.LastWriteUtc < started && Array.IndexOf(Evictable, entry.Part.Split('/')[0]) >= 0)
+            else if (!entry.IsTemp && entry.LastWriteUtc < usage.Started && Array.IndexOf(Evictable, entry.Part.Split('/')[0]) >= 0)
             {
                 candidates.Add(entry);
             }
         }
 
-        if (limit > 0 && size > limit)
+        if (limit > 0 && tally.Size > limit)
         {
-            candidates.Sort(EvictionOrder);
-            foreach (var entry in candidates)
-            {
-                if (size <= limit)
-                {
-                    break;
-                }
-
-                if (TryDelete(entry.Path))
-                {
-                    size -= entry.Size;
-                    deleted++;
-                    freed += entry.Size;
-                }
-            }
+            Evict(candidates, limit, tally);
         }
 
-        return new CacheTrim(size, limit, deleted, freed, used);
+        return new CacheTrim(tally.Size, limit, tally.Deleted, tally.Freed, tally.Used);
+    }
+
+    /// <summary>What a trim has counted so far: the bytes it keeps, of them the bytes the cook used, and what it deleted.</summary>
+    private sealed class Tally
+    {
+        public long Size;
+        public long Used;
+        public int Deleted;
+        public long Freed;
+    }
+
+    /// <summary>Deletes <paramref name="entry"/> when it's a temp file older than <see cref="StaleTemp"/>. True when it did.</summary>
+    private static bool DeleteStaleTemp(Entry entry, DateTime now, Tally tally)
+    {
+        if (!entry.IsTemp || now - entry.LastWriteUtc <= StaleTemp || !TryDelete(entry.Path))
+        {
+            return false;
+        }
+
+        tally.Deleted++;
+        tally.Freed += entry.Size;
+        return true;
+    }
+
+    /// <summary>Deletes <paramref name="candidates"/> in <see cref="EvictionOrder"/> until the cache is no bigger than <paramref name="limit"/>.</summary>
+    private static void Evict(List<Entry> candidates, long limit, Tally tally)
+    {
+        candidates.Sort(EvictionOrder);
+        foreach (var entry in candidates)
+        {
+            if (tally.Size <= limit)
+            {
+                break;
+            }
+
+            if (TryDelete(entry.Path))
+            {
+                tally.Size -= entry.Size;
+                tally.Deleted++;
+                tally.Freed += entry.Size;
+            }
+        }
     }
 
     /// <summary>

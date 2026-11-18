@@ -170,48 +170,58 @@ public static class Sources
         var byName = new Dictionary<string, SourceFile>(StringComparer.Ordinal);
         foreach (var root in roots)
         {
-            var names = root.Files().ToList();
-            var all = new HashSet<string>(names, StringComparer.Ordinal);
-            var unmatched = new HashSet<string>(root.Only, StringComparer.Ordinal);
-            foreach (string name in names)
-            {
-                if (IsSidecar(name))
-                {
-                    string target = name[..^".cook.json".Length];
-                    if (!all.Contains(target))
-                    {
-                        // A warning, so a clone without sources that stay out of git, such as licensed models, still builds.
-                        problems.Add(new CookProblem(Describe(root, name), null,
-                            $"No source file {target}; skipped.", false));
-                    }
-
-                    continue;
-                }
-
-                if (!IsAsset(name) || !Picked(root.Only, name, unmatched))
-                {
-                    continue;
-                }
-
-                if (byName.TryGetValue(name, out var first))
-                {
-                    problems.Add(new CookProblem(Describe(root, name), null,
-                        $"{name} is in two roots, {first.Describe()} and {Describe(root, name)}. A name must come from one place.", true));
-                    continue;
-                }
-
-                byName[name] = new SourceFile(root, name);
-            }
-
-            // A pattern that picks nothing is most likely a typo, and the asset it meant is missing at run time.
-            foreach (string pattern in root.Only.Where(unmatched.Contains))
-            {
-                problems.Add(new CookProblem(root.Label, null, $"Only \"{pattern}\" matches no source in this root.", false));
-            }
+            GatherRoot(root, byName, problems);
         }
 
         var files = byName.Values.OrderBy(file => file.Name, StringComparer.Ordinal).ToList();
         return (files, problems);
+    }
+
+    /// <summary>
+    /// Adds one root's assets to <paramref name="byName"/>, and its mistakes to <paramref name="problems"/>: a sidecar
+    /// without its source, a name another root has too, and an Only pattern that picks nothing.
+    /// </summary>
+    private static void GatherRoot(ISourceRoot root, Dictionary<string, SourceFile> byName, List<CookProblem> problems)
+    {
+        var names = root.Files().ToList();
+        var all = new HashSet<string>(names, StringComparer.Ordinal);
+        var unmatched = new HashSet<string>(root.Only, StringComparer.Ordinal);
+        foreach (string name in names)
+        {
+            if (IsSidecar(name))
+            {
+                string target = name[..^".cook.json".Length];
+                if (!all.Contains(target))
+                {
+                    // A warning, so a clone without sources that stay out of git, such as licensed models, still builds.
+                    problems.Add(new CookProblem(Describe(root, name), null,
+                        $"No source file {target}; skipped.", false));
+                }
+            }
+            else if (IsAsset(name) && Picked(root.Only, name, unmatched))
+            {
+                AddOnce(new SourceFile(root, name), byName, problems);
+            }
+        }
+
+        // A pattern that picks nothing is most likely a typo, and the asset it meant is missing at run time.
+        foreach (string pattern in root.Only.Where(unmatched.Contains))
+        {
+            problems.Add(new CookProblem(root.Label, null, $"Only \"{pattern}\" matches no source in this root.", false));
+        }
+    }
+
+    /// <summary>Adds a source to <paramref name="byName"/>, or, when an earlier root has its name, reports both.</summary>
+    private static void AddOnce(SourceFile file, Dictionary<string, SourceFile> byName, List<CookProblem> problems)
+    {
+        if (byName.TryGetValue(file.Name, out var first))
+        {
+            problems.Add(new CookProblem(file.Describe(), null,
+                $"{file.Name} is in two roots, {first.Describe()} and {file.Describe()}. A name must come from one place.", true));
+            return;
+        }
+
+        byName[file.Name] = file;
     }
 
     internal static string Describe(ISourceRoot root, string name)

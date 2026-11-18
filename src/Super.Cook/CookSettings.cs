@@ -56,36 +56,16 @@ public sealed class CookSettings
     {
         bool cook = true;
         var settings = new JsonObject();
-
-        string[] parts = file.Name.Split('/');
-        string folder = "";
-        for (int depth = 0; depth < parts.Length; depth++)
+        foreach (var rule in MatchingRules(file))
         {
-            if (_rules.TryGetValue((file.Root, folder + "cook.json"), out var rules))
+            if (rule.Cook is { } on)
             {
-                string relative = string.Join('/', parts.Skip(depth));
-                foreach (var rule in rules)
-                {
-                    if (!Glob.Matches(rule.Match, relative))
-                    {
-                        continue;
-                    }
-
-                    if (rule.Cook is { } on)
-                    {
-                        cook = on;
-                    }
-
-                    if (rule.Cookers.TryGetValue(cookerId, out var values))
-                    {
-                        Overlay(settings, values);
-                    }
-                }
+                cook = on;
             }
 
-            if (depth < parts.Length - 1)
+            if (rule.Cookers.TryGetValue(cookerId, out var values))
             {
-                folder += parts[depth] + "/";
+                Overlay(settings, values);
             }
         }
 
@@ -95,6 +75,32 @@ public sealed class CookSettings
         }
 
         return (cook, settings);
+    }
+
+    /// <summary>
+    /// The rules whose glob matches <paramref name="file"/>, from the root's <c>cook.json</c> down to the one in the file's
+    /// folder, each file's rules in their order. Each glob matches the file's path from that <c>cook.json</c>'s folder.
+    /// </summary>
+    private IEnumerable<Rule> MatchingRules(SourceFile file)
+    {
+        string[] parts = file.Name.Split('/');
+        string folder = "";
+        for (int depth = 0; depth < parts.Length; depth++)
+        {
+            if (_rules.TryGetValue((file.Root, folder + "cook.json"), out var rules))
+            {
+                string relative = string.Join('/', parts.Skip(depth));
+                foreach (var rule in rules.Where(rule => Glob.Matches(rule.Match, relative)))
+                {
+                    yield return rule;
+                }
+            }
+
+            if (depth < parts.Length - 1)
+            {
+                folder += parts[depth] + "/";
+            }
+        }
     }
 
     private void LoadRules(ISourceRoot root, string name)
@@ -120,49 +126,73 @@ public sealed class CookSettings
 
         foreach (var node in array)
         {
-            if (node is not JsonObject rule || rule["match"] is not JsonValue matchValue || !matchValue.TryGetValue<string>(out var match))
+            if (ReadRule(where, node) is { } rule)
             {
-                Report(where, null, "A rule needs a \"match\" glob.");
+                rules.Add(rule);
+            }
+        }
+    }
+
+    /// <summary>One rule of a <c>cook.json</c>, or null when it has no <c>match</c> glob. A key that's wrong is reported and left out.</summary>
+    private Rule? ReadRule(string where, JsonNode? node)
+    {
+        if (node is not JsonObject rule || rule["match"] is not JsonValue matchValue || !matchValue.TryGetValue<string>(out var match))
+        {
+            Report(where, null, "A rule needs a \"match\" glob.");
+            return null;
+        }
+
+        bool? cook = null;
+        var cookers = new Dictionary<string, JsonObject>();
+        foreach (var (key, value) in rule)
+        {
+            if (key == "match")
+            {
                 continue;
             }
 
-            bool? cook = null;
-            var cookers = new Dictionary<string, JsonObject>();
-            foreach (var (key, value) in rule)
+            if (key == "cook")
             {
-                if (key == "match")
-                {
-                    continue;
-                }
-
-                if (key == "cook")
-                {
-                    if (value is JsonValue flag && flag.TryGetValue<bool>(out bool on))
-                    {
-                        cook = on;
-                    }
-                    else
-                    {
-                        Report(where, null, $"\"cook\" in the rule \"{match}\" must be true or false.");
-                    }
-                }
-                else if (!_cookerIds.Contains(key))
-                {
-                    Report(where, null,
-                        $"Unknown key \"{key}\" in the rule \"{match}\". Expected match, cook or one of: {string.Join(", ", _cookerIds.Order(StringComparer.Ordinal))}.");
-                }
-                else if (value is JsonObject values)
-                {
-                    cookers[key] = values;
-                }
-                else
-                {
-                    Report(where, null, $"\"{key}\" in the rule \"{match}\" must be an object.");
-                }
+                cook = ReadCook(where, match, value) ?? cook;
             }
-
-            rules.Add(new Rule(match, cook, cookers));
+            else if (ReadCookerSettings(where, match, key, value) is { } values)
+            {
+                cookers[key] = values;
+            }
         }
+
+        return new Rule(match, cook, cookers);
+    }
+
+    /// <summary>A rule's <c>cook</c>, or null, reported, when it isn't true or false.</summary>
+    private bool? ReadCook(string where, string match, JsonNode? value)
+    {
+        if (value is JsonValue flag && flag.TryGetValue<bool>(out bool on))
+        {
+            return on;
+        }
+
+        Report(where, null, $"\"cook\" in the rule \"{match}\" must be true or false.");
+        return null;
+    }
+
+    /// <summary>A rule's settings for the cooker <paramref name="key"/>, or null, reported, when there's no such cooker or they aren't an object.</summary>
+    private JsonObject? ReadCookerSettings(string where, string match, string key, JsonNode? value)
+    {
+        if (!_cookerIds.Contains(key))
+        {
+            Report(where, null,
+                $"Unknown key \"{key}\" in the rule \"{match}\". Expected match, cook or one of: {string.Join(", ", _cookerIds.Order(StringComparer.Ordinal))}.");
+            return null;
+        }
+
+        if (value is JsonObject values)
+        {
+            return values;
+        }
+
+        Report(where, null, $"\"{key}\" in the rule \"{match}\" must be an object.");
+        return null;
     }
 
     private void LoadSidecar(ISourceRoot root, string name)

@@ -60,43 +60,57 @@ public sealed record CookReport(
             yield return Trim.Describe();
         }
 
+        foreach (string line in PhaseTotals())
+        {
+            yield return line;
+        }
+
+        foreach (string line in Slowest(slowest))
+        {
+            yield return line;
+        }
+
+        foreach (string line in MissCounts())
+        {
+            yield return line;
+        }
+    }
+
+    /// <summary>The time in each phase over every source, longest first, under a heading. Nothing when no phase ran.</summary>
+    private List<string> PhaseTotals()
+    {
         var phases = Files
             .SelectMany(file => file.Phases)
             .GroupBy(phase => phase.Phase, StringComparer.Ordinal)
             .Select(group => (Phase: group.Key, Elapsed: group.Aggregate(TimeSpan.Zero, (sum, phase) => sum + phase.Elapsed)))
             .OrderByDescending(phase => phase.Elapsed)
             .ToList();
-        if (phases.Count > 0)
-        {
-            yield return "Time in each phase, added up over every source (more than the wall clock when cooking in parallel):";
-            foreach (var (phase, elapsed) in phases)
-            {
-                yield return Invariant($"  {phase,-28} {Seconds(elapsed),9}");
-            }
-        }
+        return phases.Count == 0
+            ? []
+            : ["Time in each phase, added up over every source (more than the wall clock when cooking in parallel):",
+                .. phases.Select(phase => Invariant($"  {phase.Phase,-28} {Seconds(phase.Elapsed),9}"))];
+    }
 
-        var cooked = Files.Where(file => file.Outcome != CookOutcome.FromCache).OrderByDescending(file => file.Elapsed).Take(slowest).ToList();
-        if (cooked.Count > 0)
-        {
-            yield return Invariant($"Slowest {cooked.Count} cooked:");
-            foreach (var file in cooked)
-            {
-                yield return Invariant($"  {Seconds(file.Elapsed),9}  {Megabytes(file.OutputBytes),9}  {file.Name}");
-            }
-        }
+    /// <summary>The <paramref name="count"/> slowest sources that weren't taken from the cache, under a heading.</summary>
+    private List<string> Slowest(int count)
+    {
+        var cooked = Files.Where(file => file.Outcome != CookOutcome.FromCache).OrderByDescending(file => file.Elapsed).Take(count).ToList();
+        return cooked.Count == 0
+            ? []
+            : [Invariant($"Slowest {cooked.Count} cooked:"),
+                .. cooked.Select(file => Invariant($"  {Seconds(file.Elapsed),9}  {Megabytes(file.OutputBytes),9}  {file.Name}"))];
+    }
 
+    /// <summary>How many sources missed the cache for each kind of reason, most first, under a heading.</summary>
+    private List<string> MissCounts()
+    {
         var misses = Files.Where(file => file.Miss is not null)
             .GroupBy(file => MissKind(file.Miss!), StringComparer.Ordinal)
             .OrderByDescending(group => group.Count())
             .ToList();
-        if (misses.Count > 0)
-        {
-            yield return "Why sources weren't taken from the cache:";
-            foreach (var group in misses)
-            {
-                yield return Invariant($"  {group.Count(),5}  {group.Key}");
-            }
-        }
+        return misses.Count == 0
+            ? []
+            : ["Why sources weren't taken from the cache:", .. misses.Select(group => Invariant($"  {group.Count(),5}  {group.Key}"))];
     }
 
     /// <summary>One line per source, for <c>--verbose</c>.</summary>
