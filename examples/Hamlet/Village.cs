@@ -195,6 +195,24 @@ internal sealed class Village
 
     private void Place(RandomStream random, Kinds kinds)
     {
+        var plans = Plans(random, kinds);
+
+        // One well in the middle, where the lanes meet.
+        Add(random, kinds.Well, Matrix4x4.CreateRotationY(random.Angle()));
+
+        // Spots along every path on both sides, tried in a random order.
+        var spots = Spots();
+        random.Shuffle(spots);
+        var lanePoints = PathPoints();
+        foreach (var plan in plans)
+        {
+            PlaceAtFirstSpot(random, plan, spots, lanePoints);
+        }
+    }
+
+    /// <summary>Every building but the middle well, in a random order.</summary>
+    private List<BuildingPlan> Plans(RandomStream random, Kinds kinds)
+    {
         // A handful of furniture layouts for this seed, shared by its cottages.
         int[] layouts = [.. Enumerable.Range(0, CottageLayout.All.Length)];
         random.Shuffle(layouts);
@@ -222,11 +240,12 @@ internal sealed class Village
         }
 
         random.Shuffle(plans);
+        return plans;
+    }
 
-        // One well in the middle, where the lanes meet.
-        Add(random, kinds.Well, Matrix4x4.CreateRotationY(random.Angle()));
-
-        // Spots along every path on both sides, tried in a random order.
+    /// <summary>Spots every 4.5 metres along each path, on both sides. The lanes keep clear of the ring at both ends.</summary>
+    private List<(Spline Path, float Distance, float Side)> Spots()
+    {
         var spots = new List<(Spline Path, float Distance, float Side)>();
         foreach (var path in _paths)
         {
@@ -238,25 +257,26 @@ internal sealed class Village
             }
         }
 
-        random.Shuffle(spots);
-        var lanePoints = PathPoints();
-        foreach (var plan in plans)
+        return spots;
+    }
+
+    /// <summary>Builds the plan at the first spot it fits, facing the path, and takes that spot.</summary>
+    private void PlaceAtFirstSpot(RandomStream random, BuildingPlan plan, List<(Spline Path, float Distance, float Side)> spots, List<Vector3> lanePoints)
+    {
+        for (int i = 0; i < spots.Count; i++)
         {
-            for (int i = 0; i < spots.Count; i++)
+            var (path, distance, side) = spots[i];
+            var pose = path.FrameAtDistance(distance);
+            var along = Vector3.Normalize(new Vector3(pose.Forward.X, 0f, pose.Forward.Z));
+            var outward = new Vector3(along.Z, 0f, -along.X) * side;
+            var origin = pose.Position + outward * (PathHalfWidth + 0.8f + plan.Max.Z);
+            float yaw = MathF.Atan2(-outward.X, -outward.Z) + random.Between(-0.18f, 0.18f);
+            var placement = Matrix4x4.CreateRotationY(yaw) * Matrix4x4.CreateTranslation(origin);
+            if (Fits(plan, placement, lanePoints))
             {
-                var (path, distance, side) = spots[i];
-                var pose = path.FrameAtDistance(distance);
-                var along = Vector3.Normalize(new Vector3(pose.Forward.X, 0f, pose.Forward.Z));
-                var outward = new Vector3(along.Z, 0f, -along.X) * side;
-                var origin = pose.Position + outward * (PathHalfWidth + 0.8f + plan.Max.Z);
-                float yaw = MathF.Atan2(-outward.X, -outward.Z) + random.Between(-0.18f, 0.18f);
-                var placement = Matrix4x4.CreateRotationY(yaw) * Matrix4x4.CreateTranslation(origin);
-                if (Fits(plan, placement, lanePoints))
-                {
-                    spots.RemoveAt(i);
-                    Add(random, plan, placement);
-                    break;
-                }
+                spots.RemoveAt(i);
+                Add(random, plan, placement);
+                return;
             }
         }
     }
