@@ -35,7 +35,7 @@ public sealed class ModelCookerTests : IDisposable
     {
         var entry = store.Manifest.Assets[name];
         Assert.Equal(ContentKind.Model, entry.Kind);
-        return ModelData.Read(new MemoryStream(store.Get(entry.Hash)), name, hash =>
+        return ModelFile.Read(new MemoryStream(store.Get(entry.Hash)), name, hash =>
         {
             // Every texture a model points to must be listed, or committing a folder would prune it.
             Assert.Contains(hash, store.Manifest.Objects);
@@ -497,7 +497,7 @@ public sealed class ModelCookerTests : IDisposable
         byte[] alone = ModelCookers.StandAlone(store, store.Manifest.Assets["a.gltf"].Hash, "a.gltf");
 
         // No resolver is given, so this fails unless every texture is inside.
-        var model = ModelData.Read(new MemoryStream(alone), "a.rmodel");
+        var model = ModelFile.Read(new MemoryStream(alone), "a.rmodel");
         Assert.Equal(new byte[] { 200, 255, 0, 255, 100, 255, 0, 128 }, Assert.Single(model.Textures).Mips[0]);
     }
 

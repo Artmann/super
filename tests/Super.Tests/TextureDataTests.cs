@@ -176,7 +176,7 @@ public class TextureDataTests
             ],
         };
 
-        var read = ModelData.Read(new MemoryStream(model.ToBytes()), "a.model");
+        var read = ModelFile.Read(new MemoryStream(model.ToBytes()), "a.model");
 
         Assert.Equal([TextureFormat.Bc5, TextureFormat.Bc4], read.Textures.Select(t => t.Format));
     }

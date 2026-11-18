@@ -77,7 +77,7 @@ public sealed class AlphaCoverageTests : IDisposable
 
     private static TextureData Colour(MemoryStore store)
     {
-        var model = ModelData.Read(new MemoryStream(store.Get(store.Manifest.Assets["a.gltf"].Hash)), "a.gltf",
+        var model = ModelFile.Read(new MemoryStream(store.Get(store.Manifest.Assets["a.gltf"].Hash)), "a.gltf",
             hash => TextureData.Read(new MemoryStream(store.Get(hash)), hash));
         return model.Textures[model.Materials[Assert.Single(model.Parts).Material].BaseColorTexture];
     }
@@ -154,7 +154,7 @@ public sealed class AlphaCoverageTests : IDisposable
         Rule(src, ", \"surface\": \"surface.png\", \"alphaCutoff\": 0.5");
 
         var store = Cook(src);
-        var model = ModelData.Read(new MemoryStream(store.Get(store.Manifest.Assets["a.gltf"].Hash)), "a.gltf",
+        var model = ModelFile.Read(new MemoryStream(store.Get(store.Manifest.Assets["a.gltf"].Hash)), "a.gltf",
             hash => TextureData.Read(new MemoryStream(store.Get(hash)), hash));
         var material = model.Materials[Assert.Single(model.Parts).Material];
         var colour = model.Textures[material.BaseColorTexture];

@@ -88,7 +88,7 @@ public sealed class SharedTextureTests : IDisposable
     {
         byte[] bytes = Model(Texture(10)).ToBytes(_ => new string('a', 64));
 
-        var exception = Assert.Throws<InvalidDataException>(() => ModelData.Read(new MemoryStream(bytes), "hero.rmodel"));
+        var exception = Assert.Throws<InvalidDataException>(() => ModelFile.Read(new MemoryStream(bytes), "hero.rmodel"));
 
         Assert.Equal("hero.rmodel keeps its textures in the cooked content beside it, so read it through Content, or cook it with super-cook file.",
             exception.Message);
@@ -123,7 +123,7 @@ public sealed class SharedTextureTests : IDisposable
         Assert.Equal(0, bytes[form]);
         bytes[form] = 7;
 
-        var exception = Assert.Throws<InvalidDataException>(() => ModelData.Read(new MemoryStream(bytes), "hero.rmodel"));
+        var exception = Assert.Throws<InvalidDataException>(() => ModelFile.Read(new MemoryStream(bytes), "hero.rmodel"));
 
         Assert.Equal("hero.rmodel is damaged: texture 0 has the unknown form 7. Cook it again.", exception.Message);
     }

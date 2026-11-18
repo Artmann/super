@@ -310,7 +310,7 @@ public static class ModelCookers
     public static byte[] StandAlone(ICookedStore store, string hash, string name)
     {
         using var stream = new MemoryStream(store.Get(hash), writable: false);
-        var model = ModelData.Read(stream, name, texture =>
+        var model = ModelFile.Read(stream, name, texture =>
         {
             using var bytes = new MemoryStream(store.Get(texture), writable: false);
             return TextureData.Read(bytes, $"{name}: texture {texture}");

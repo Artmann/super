@@ -723,7 +723,7 @@ time, so it's written and hashed again, though equal bytes still make one stored
 outside the folder. The GPU still gets a copy of a shared texture per model, since
 `Renderer` frees textures with their model; sharing them there needs reference counts.
 `super-cook file` writes a model with its textures inside (`ModelCookers.StandAlone`), since a
-file on its own has no store to find them in, and `ModelData.Read` without a texture
+file on its own has no store to find them in, and `ModelFile.Read` without a texture
 resolver refuses a model that names them by hash.
 
 **Models.** `Super.Cook.Models` reads FBX, glTF and OBJ with Assimp at cook time and writes
@@ -836,8 +836,8 @@ transform by hand: points by the transform, normals by its inverse transpose, an
 sign flips for a mirroring transform. Each mesh then stays its own named part, and its own
 draw call. `ModelData.ToBytes` refuses a name count that isn't zero or the part count, so a
 model with no names writes none. The names are the first thing after the header in the
-`.rmodel`, before the rig, so `ModelData.ReadMeshNames` and `ContentModels.Meshes` read them without
-the geometry, and `ModelData.ReadRig` reads them on its way to the rig, so `Content.Rig` hands
+`.rmodel`, before the rig, so `ModelFile.ReadMeshNames` and `ContentModels.Meshes` read them without
+the geometry, and `ModelFile.ReadRig` reads them on its way to the rig, so `Content.Rig` hands
 them to `ContentModels.RememberMeshNames`. `ContentModels` caches each model's names by index and
 drops them when the model is unloaded.
 
@@ -4249,7 +4249,7 @@ it until the model is unloaded or the content reloads. It starts with a kind:
 - 0, a built-in shape: its name, such as `cube` or `sphere`.
 - 1, a cooked model: `IContentFiles.HashOf(name)`, the SHA-256 of its cooked bytes.
   `CookedFolder` gives the hash the manifest already keeps, without reading the file; other
-  `IContentFiles` hash `Read(name)`. The model is read once more (`ModelData.Read`, with its
+  `IContentFiles` hash `Read(name)`. The model is read once more (`ModelFile.Read`, with its
   by-hash textures left undecoded) for what it names rather than holds: each material shader's
   name, the SHA-256 of its SPIR-V, and each shader texture's name and `HashOf`. A texture the
   model keeps by hash is already in the model file's bytes.

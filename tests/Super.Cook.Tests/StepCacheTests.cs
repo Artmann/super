@@ -185,7 +185,7 @@ public sealed class StepCacheTests : IDisposable
 
     private static ModelData Model(MemoryStore store)
     {
-        return ModelData.Read(new MemoryStream(store.Get(store.Manifest.Assets["models/a.gltf"].Hash)), "models/a.gltf",
+        return ModelFile.Read(new MemoryStream(store.Get(store.Manifest.Assets["models/a.gltf"].Hash)), "models/a.gltf",
             hash => TextureData.Read(new MemoryStream(store.Get(hash)), hash));
     }
 

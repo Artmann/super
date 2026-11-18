@@ -90,12 +90,12 @@ public sealed class ToonCookTests : IDisposable
         byte[] without = Make([]).ToBytes();
         byte[] with = Make([null, new ModelMaterialToon(4, 0, new Vector3(0.5f, 0.25f, 0f))]).ToBytes();
 
-        var read = ModelData.Read(new MemoryStream(with), "a.model");
+        var read = ModelFile.Read(new MemoryStream(with), "a.model");
 
         Assert.Null(read.ToonOf(0));
         Assert.Equal(new ModelMaterialToon(4, 0, new Vector3(0.5f, 0.25f, 0f)), read.ToonOf(1));
         Assert.Equal(without, with[..without.Length]);
-        Assert.Empty(ModelData.Read(new MemoryStream(without), "a.model").MaterialToon);
+        Assert.Empty(ModelFile.Read(new MemoryStream(without), "a.model").MaterialToon);
     }
 
     private string Folder(string? rule)
@@ -122,7 +122,7 @@ public sealed class ToonCookTests : IDisposable
     private static ModelData Model(MemoryStore store)
     {
         var entry = store.Manifest.Assets["quads.gltf"];
-        return ModelData.Read(new MemoryStream(store.Get(entry.Hash)), "quads.gltf",
+        return ModelFile.Read(new MemoryStream(store.Get(entry.Hash)), "quads.gltf",
             hash => TextureData.Read(new MemoryStream(store.Get(hash)), hash));
     }
 }

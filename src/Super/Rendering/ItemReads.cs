@@ -70,7 +70,7 @@ internal static class ItemReads
     internal static ModelData LoadModel(string name, IContentFiles files)
     {
         using var stream = files.Open(name);
-        return ModelData.Read(stream, name, hash =>
+        return ModelFile.Read(stream, name, hash =>
         {
             using var texture = files.OpenObject(hash);
             return TextureData.Read(texture, $"{name}: texture {hash}");

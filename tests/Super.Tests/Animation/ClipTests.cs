@@ -156,7 +156,7 @@ public class ClipTests
                 Clips = [TestRig.Move()],
             }.Write(path);
 
-            var (skeleton, clips) = ModelData.ReadRig(path);
+            var (skeleton, clips) = ModelFile.ReadRig(path);
 
             Assert.NotNull(skeleton);
             Assert.Equal([TestRig.Root, TestRig.Child], skeleton.Names);
@@ -168,7 +168,7 @@ public class ClipTests
             Assert.Equal(2f, clip.Duration);
             Assert.Equal(4f, clip.Frames[4].Position.X);
 
-            var model = ModelData.Read(path);
+            var model = ModelFile.Read(path);
             Assert.Equal(1u, model.Vertices[0].Joints & 0xFF);
             Assert.Equal(255u, model.Vertices[0].Weights & 0xFF);
             Assert.Null(skeleton.Bounds);
@@ -221,7 +221,7 @@ public class ClipTests
                 Skeleton = TestRig.Skeleton().WithBounds([vertex]),
             }.Write(path);
 
-            var (skeleton, _) = ModelData.ReadRig(path);
+            var (skeleton, _) = ModelFile.ReadRig(path);
 
             Assert.NotNull(skeleton?.Bounds);
             Assert.True(skeleton.Bounds[0].IsEmpty);

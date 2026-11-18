@@ -331,7 +331,7 @@ public sealed class MaskBakerTests : IDisposable
         var (result, store) = Cook(src);
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        var model = ModelData.Read(new MemoryStream(ModelCookers.StandAlone(store, store.Manifest.Assets["models/a.gltf"].Hash, "models/a.gltf")), "models/a.gltf");
+        var model = ModelFile.Read(new MemoryStream(ModelCookers.StandAlone(store, store.Manifest.Assets["models/a.gltf"].Hash, "models/a.gltf")), "models/a.gltf");
         var mask = model.MaskOf(Assert.Single(model.Parts).Material);
         Assert.NotNull(mask);
         Assert.Equal(MaskBaker.DefaultSize, model.Textures[mask.Texture].Width);
@@ -367,7 +367,7 @@ public sealed class MaskBakerTests : IDisposable
         Assert.Equal(
             ["made a second UV set for lighting: Triangles 0 and 1 overlap at texel (51, 51)."],
             result.Notes.Select(note => note.Message));
-        var model = ModelData.Read(new MemoryStream(ModelCookers.StandAlone(store, store.Manifest.Assets["models/a.gltf"].Hash, "models/a.gltf")), "models/a.gltf");
+        var model = ModelFile.Read(new MemoryStream(ModelCookers.StandAlone(store, store.Manifest.Assets["models/a.gltf"].Hash, "models/a.gltf")), "models/a.gltf");
         Assert.NotNull(model.MaskOf(model.Parts[0].Material));
     }
 
@@ -384,7 +384,7 @@ public sealed class MaskBakerTests : IDisposable
         var warning = Assert.Single(result.Problems);
         Assert.False(warning.IsError);
         Assert.Contains("material bark: transparent materials don't show wear and dirt, so bakeMasks is ignored.", warning.Message);
-        var model = ModelData.Read(new MemoryStream(ModelCookers.StandAlone(store, store.Manifest.Assets["models/a.gltf"].Hash, "models/a.gltf")), "models/a.gltf");
+        var model = ModelFile.Read(new MemoryStream(ModelCookers.StandAlone(store, store.Manifest.Assets["models/a.gltf"].Hash, "models/a.gltf")), "models/a.gltf");
         Assert.Null(model.MaskOf(Assert.Single(model.Parts).Material));
     }
 

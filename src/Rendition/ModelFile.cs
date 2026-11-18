@@ -1,193 +1,170 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Rendition;
 
-/// <summary>Writes and reads the pieces of a <c>.rmodel</c> file. <see cref="ModelData"/> puts them in order.</summary>
-internal static class ModelFile
+/// <summary>Reads and writes <c>.rmodel</c> files, the cooked form of a <see cref="ModelData"/>.</summary>
+public static class ModelFile
 {
-    private const byte TextureInside = 0;
-    private const byte TextureByHash = 1;
+    private const uint Magic = 0x4C444D52; // "RMDL"
+    // 4: materials gained Subsurface. 5: height and detail textures. 6: materials gained Ior. 7: part names sit at the front.
+    // 8: a texture is either inside the file or named by the hash of an object of its own. 9: textures say their format.
+    // 10: material shaders. 11: vertices gained Uv2, and materials masks. 12: masks lost their height.
+    // 13: materials gained Translucency and Wind. 14: skeletons gained the bounds of the vertices each joint moves.
+    // 15: clips carry their events.
+    private const int Version = 16;
 
-    public static void WriteArray<T>(BinaryWriter writer, T[] items) where T : unmanaged
+    // Marks the optional sections after the textures, which a model without them leaves out, so its bytes, and the bake
+    // ids made from them, stay as they were before the section existed. The end of the stream ends the file.
+    private const byte OcclusionSection = 1;
+    private const byte ToonSection = 2;
+
+    public static ModelData Read(string path)
     {
-        writer.Write(items.Length);
-        writer.Write(MemoryMarshal.AsBytes(items.AsSpan()));
+        using var stream = new BufferedStream(File.OpenRead(path), 1 << 20);
+        return Read(stream, path);
     }
 
-    public static T[] ReadArray<T>(BinaryReader reader) where T : unmanaged
+    /// <summary>Reads a model from <paramref name="stream"/>, which is left open. <paramref name="name"/> is only for messages.</summary>
+    /// <param name="texture">
+    /// Finds a texture the model keeps elsewhere, by the name <see cref="ModelData.ToBytes(Func{TextureData, string}?)"/>
+    /// gave it. Null when the model must have every texture inside.
+    /// </param>
+    public static ModelData Read(Stream stream, string name, Func<string, TextureData>? texture = null)
     {
-        var items = new T[reader.ReadInt32()];
-        reader.BaseStream.ReadExactly(MemoryMarshal.AsBytes(items.AsSpan()));
-        return items;
-    }
-
-    public static void WriteNames(BinaryWriter writer, string[] names)
-    {
-        writer.Write(names.Length);
-        foreach (string name in names)
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        ReadHeader(reader, name);
+        string[] meshNames = ModelFileParts.ReadNames(reader);
+        var (skeleton, clips) = ModelFileParts.ReadRig(reader);
+        var vertices = ModelFileParts.ReadArray<Vertex>(reader);
+        var indices = ModelFileParts.ReadArray<uint>(reader);
+        var parts = ModelFileParts.ReadArray<ModelPart>(reader);
+        var materials = ModelFileParts.ReadArray<ModelMaterial>(reader);
+        var shaders = ModelFileParts.ReadShaders(reader);
+        var masks = ModelFileParts.ReadMasks(reader);
+        var textures = ModelFileParts.ReadTextures(reader, name, texture);
+        var (occlusion, toon) = ReadSections(stream, reader, name);
+        return new ModelData
         {
-            writer.Write(name);
+            Vertices = vertices,
+            Indices = indices,
+            Parts = parts,
+            Materials = materials,
+            MaterialShaders = shaders,
+            MaterialMasks = masks,
+            MaterialOcclusion = occlusion,
+            MaterialToon = toon,
+            Textures = textures,
+            Skeleton = skeleton,
+            Clips = clips,
+            MeshNames = meshNames,
+        };
+    }
+
+    /// <summary>Reads only the skeleton and clips, which sit at the front of the file, so it's quick.</summary>
+    public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(string path)
+    {
+        using var stream = new BufferedStream(File.OpenRead(path), 1 << 16);
+        return ReadRig(stream, path);
+    }
+
+    /// <summary>Reads only the skeleton and clips from <paramref name="stream"/>, which is left open. <paramref name="name"/> is only for messages.</summary>
+    public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(Stream stream, string name) =>
+        ReadRig(stream, name, out _);
+
+    /// <summary>
+    /// Reads only the skeleton and clips, and the mesh names that sit before them, from
+    /// <paramref name="stream"/>, which is left open. <paramref name="name"/> is only for messages.
+    /// </summary>
+    public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(Stream stream, string name, out string[] meshNames)
+    {
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        ReadHeader(reader, name);
+        meshNames = ModelFileParts.ReadNames(reader);
+        return ModelFileParts.ReadRig(reader);
+    }
+
+    /// <summary>
+    /// Reads only the mesh names, which sit at the very front of the file, so a game can pick
+    /// meshes without reading the rig or the geometry. <paramref name="name"/> is only for messages.
+    /// </summary>
+    public static string[] ReadMeshNames(Stream stream, string name)
+    {
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        ReadHeader(reader, name);
+        return ModelFileParts.ReadNames(reader);
+    }
+
+    /// <summary>Writes the whole file. <see cref="ModelData.ToBytes"/> checks the model first.</summary>
+    internal static void WriteTo(BinaryWriter writer, ModelData model, Func<TextureData, string>? share)
+    {
+        writer.Write(Magic);
+        writer.Write(Version);
+
+        // Part names, then the rig, come first, so a game can read either without the geometry and textures.
+        ModelFileParts.WriteNames(writer, model.MeshNames);
+        ModelFileParts.WriteRig(writer, model.Skeleton, model.Clips);
+        ModelFileParts.WriteArray(writer, model.Vertices);
+        ModelFileParts.WriteArray(writer, model.Indices);
+        ModelFileParts.WriteArray(writer, model.Parts);
+        ModelFileParts.WriteArray(writer, model.Materials);
+        ModelFileParts.WriteShaders(writer, model.MaterialShaders);
+        ModelFileParts.WriteMasks(writer, model.MaterialMasks);
+        ModelFileParts.WriteTextures(writer, model.Textures, share);
+        WriteSections(writer, model);
+    }
+
+    // The optional sections after the textures, each only when a material has what it holds, so a model without them
+    // writes nothing here.
+    private static void WriteSections(BinaryWriter writer, ModelData model)
+    {
+        if (model.MaterialOcclusion.Length != 0)
+        {
+            writer.Write(OcclusionSection);
+            ModelFileParts.WriteArray(writer, model.MaterialOcclusion);
+        }
+
+        if (model.MaterialToon.Length != 0)
+        {
+            writer.Write(ToonSection);
+            ModelFileParts.WriteArray(writer, model.MaterialToon.Select(toon => toon is { } t ? new StoredToon(t.Steps, t.Ramp, t.Rim) : default).ToArray());
         }
     }
 
-    public static string[] ReadNames(BinaryReader reader)
+    // The optional sections, until the stream ends.
+    private static (int[] Occlusion, ModelMaterialToon?[] Toon) ReadSections(Stream stream, BinaryReader reader, string name)
     {
-        var names = new string[reader.ReadInt32()];
-        for (int i = 0; i < names.Length; i++)
+        int[] occlusion = [];
+        ModelMaterialToon?[] toon = [];
+        for (int section = stream.ReadByte(); section != -1; section = stream.ReadByte())
         {
-            names[i] = reader.ReadString();
-        }
-
-        return names;
-    }
-
-    public static void WriteRig(BinaryWriter writer, Skeleton? skeleton, AnimationClip[] clips)
-    {
-        writer.Write(skeleton is not null);
-        if (skeleton is not null)
-        {
-            WriteNames(writer, skeleton.Names);
-            WriteArray(writer, skeleton.Parents);
-            WriteArray(writer, skeleton.Rest);
-            WriteArray(writer, skeleton.InverseBind);
-            WriteArray(writer, new[] { skeleton.RootTransform });
-            WriteArray(writer, skeleton.Bounds ?? []);
-        }
-
-        writer.Write(clips.Length);
-        foreach (var clip in clips)
-        {
-            clip.Write(writer);
-        }
-    }
-
-    public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(BinaryReader reader)
-    {
-        Skeleton? skeleton = null;
-        if (reader.ReadBoolean())
-        {
-            var names = ReadNames(reader);
-            var parents = ReadArray<int>(reader);
-            var rest = ReadArray<JointPose>(reader);
-            var inverseBind = ReadArray<Matrix4x4>(reader);
-            var root = ReadArray<Matrix4x4>(reader)[0];
-            var bounds = ReadArray<JointBounds>(reader);
-            skeleton = new Skeleton(names, parents, rest, inverseBind, root, bounds.Length == names.Length ? bounds : null);
-        }
-
-        var clips = new AnimationClip[reader.ReadInt32()];
-        for (int i = 0; i < clips.Length; i++)
-        {
-            clips[i] = AnimationClip.Read(reader);
-        }
-
-        return (skeleton, clips);
-    }
-
-    public static void WriteShaders(BinaryWriter writer, ModelMaterialShader?[] shaders)
-    {
-        writer.Write(shaders.Length);
-        foreach (var shader in shaders)
-        {
-            writer.Write(shader is not null);
-            if (shader is not null)
+            if (section == OcclusionSection)
             {
-                writer.Write(shader.Name);
-                WriteArray(writer, shader.Parameters);
-                WriteNames(writer, shader.Textures);
+                occlusion = ModelFileParts.ReadArray<int>(reader);
             }
-        }
-    }
-
-    public static ModelMaterialShader?[] ReadShaders(BinaryReader reader)
-    {
-        var shaders = new ModelMaterialShader?[reader.ReadInt32()];
-        for (int i = 0; i < shaders.Length; i++)
-        {
-            if (reader.ReadBoolean())
+            else if (section == ToonSection)
             {
-                string shaderName = reader.ReadString();
-                var parameters = ReadArray<Vector4>(reader);
-                shaders[i] = new ModelMaterialShader(shaderName, parameters, ReadNames(reader));
-            }
-        }
-
-        return shaders;
-    }
-
-    public static void WriteMasks(BinaryWriter writer, ModelMaterialMasks?[] materialMasks)
-    {
-        writer.Write(materialMasks.Length);
-        foreach (var masks in materialMasks)
-        {
-            writer.Write(masks is not null);
-            if (masks is not null)
-            {
-                writer.Write(masks.Texture);
-                WriteArray(writer, new[] { masks.Wear, masks.Dirt });
-            }
-        }
-    }
-
-    public static ModelMaterialMasks?[] ReadMasks(BinaryReader reader)
-    {
-        var masks = new ModelMaterialMasks?[reader.ReadInt32()];
-        for (int i = 0; i < masks.Length; i++)
-        {
-            if (reader.ReadBoolean())
-            {
-                int maskTexture = reader.ReadInt32();
-                var layers = ReadArray<MaterialLayer>(reader);
-                masks[i] = new ModelMaterialMasks(maskTexture, layers[0], layers[1]);
-            }
-        }
-
-        return masks;
-    }
-
-    /// <summary>Writes each texture inside the file, or, with <paramref name="share"/>, the name it is kept under.</summary>
-    public static void WriteTextures(BinaryWriter writer, TextureData[] textures, Func<TextureData, string>? share)
-    {
-        writer.Write(textures.Length);
-        foreach (var texture in textures)
-        {
-            if (share is null)
-            {
-                writer.Write(TextureInside);
-                texture.WriteBody(writer);
+                toon = [.. ModelFileParts.ReadArray<StoredToon>(reader).Select(s => s.Steps > 0 ? new ModelMaterialToon(s.Steps, s.Ramp, s.Rim) : (ModelMaterialToon?)null)];
             }
             else
             {
-                writer.Write(TextureByHash);
-                writer.Write(share(texture));
+                throw new InvalidDataException($"{name} is damaged: it has the unknown section {section} after its textures. Cook it again.");
             }
         }
+
+        return (occlusion, toon);
     }
 
-    /// <summary>Reads the textures, finding those kept elsewhere with <paramref name="texture"/>.</summary>
-    public static TextureData[] ReadTextures(BinaryReader reader, string name, Func<string, TextureData>? texture)
-    {
-        var textures = new TextureData[reader.ReadInt32()];
-        for (int i = 0; i < textures.Length; i++)
-        {
-            byte form = reader.ReadByte();
-            if (form == TextureInside)
-            {
-                textures[i] = TextureData.ReadBody(reader);
-            }
-            else if (form == TextureByHash)
-            {
-                string reference = reader.ReadString();
-                textures[i] = texture?.Invoke(reference) ?? throw new InvalidDataException(
-                    $"{name} keeps its textures in the cooked content beside it, so read it through Content, or cook it with super-cook file.");
-            }
-            else
-            {
-                throw new InvalidDataException($"{name} is damaged: texture {i} has the unknown form {form}. Cook it again.");
-            }
-        }
+    // A material's toon settings as the file keeps them, with 0 steps for a material that isn't toon.
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly record struct StoredToon(int Steps, int Ramp, Vector3 Rim);
 
-        return textures;
+    private static void ReadHeader(BinaryReader reader, string name)
+    {
+        if (reader.ReadUInt32() != Magic || reader.ReadInt32() != Version)
+        {
+            throw new InvalidDataException($"{name} is not a current model file. Cook it again.");
+        }
     }
 }
