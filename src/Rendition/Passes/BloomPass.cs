@@ -4,6 +4,51 @@ using Rendition.Vulkan;
 namespace Rendition.Passes;
 
 /// <summary>
+/// Bloom's targets: each step down halves the size, and each step up but the last has a target the size of the step
+/// down it matches.
+/// </summary>
+internal sealed class BloomLevels : IDisposable
+{
+    public BloomLevels(VulkanContext context, Extent2D extent, int levels)
+    {
+        Down = new RenderTarget[levels];
+        Up = new RenderTarget[levels - 1];
+        Extents = new Extent2D[levels];
+        for (int i = 0; i < levels; i++)
+        {
+            Extents[i] = new Extent2D(Math.Max(extent.Width >> (i + 1), 1), Math.Max(extent.Height >> (i + 1), 1));
+            Down[i] = Create(context, Extents[i]);
+            if (i < levels - 1)
+            {
+                Up[i] = Create(context, Extents[i]);
+            }
+        }
+    }
+
+    public RenderTarget[] Down { get; }
+
+    public RenderTarget[] Up { get; }
+
+    public Extent2D[] Extents { get; }
+
+    public void Dispose()
+    {
+        foreach (var target in Down)
+        {
+            target.Dispose();
+        }
+
+        foreach (var target in Up)
+        {
+            target.Dispose();
+        }
+    }
+
+    private static RenderTarget Create(VulkanContext context, Extent2D extent) =>
+        new(context, GBuffer.HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+}
+
+/// <summary>
 /// The soft glow around bright things. It shrinks the image step by step and adds the
 /// steps back together, which gives a wide blur for little work.
 /// </summary>
@@ -19,11 +64,9 @@ internal sealed unsafe class BloomPass : IDisposable
     private readonly FullscreenPass _upPass;
     private readonly DescriptorSet[] _downSets = new DescriptorSet[Levels];
     private readonly DescriptorSet[] _upSets = new DescriptorSet[Levels - 1];
-    private readonly RenderTarget[] _down = new RenderTarget[Levels];
-    private readonly RenderTarget[] _up = new RenderTarget[Levels - 1];
-    private readonly Extent2D[] _extents = new Extent2D[Levels];
+    private BloomLevels _levels;
 
-    public ImageView Result => _up[0].View;
+    public ImageView Result => _levels.Up[0].View;
 
     public BloomPass(VulkanContext context, Sampler sampler, ImageView hdr, Extent2D extent)
     {
@@ -56,14 +99,16 @@ internal sealed unsafe class BloomPass : IDisposable
         _downPass = new FullscreenPass(context, "bloom_down.frag", GBuffer.HdrFormat, [_setLayout]);
         _upPass = new FullscreenPass(context, "bloom_up.frag", GBuffer.HdrFormat, [_setLayout]);
 
-        CreateTargets(hdr, extent);
+        _levels = new BloomLevels(context, extent, Levels);
+        WriteSets(hdr);
     }
 
     /// <summary>Remakes the targets for a new window size.</summary>
     public void Resize(ImageView hdr, Extent2D extent)
     {
-        DestroyTargets();
-        CreateTargets(hdr, extent);
+        _levels.Dispose();
+        _levels = new BloomLevels(_context, extent, Levels);
+        WriteSets(hdr);
     }
 
     /// <summary>Reads a different HDR image from the next frame on. Frames still in flight must have finished.</summary>
@@ -74,7 +119,7 @@ internal sealed unsafe class BloomPass : IDisposable
     /// still binds it, so it's made ready to sample.
     /// </summary>
     public void RecordSkipped(CommandBuffer cmd) =>
-        _context.Api.Transition(cmd, _up[0].Image, ImageAspectFlags.ColorBit,
+        _context.Api.Transition(cmd, _levels.Up[0].Image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
             PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit);
@@ -83,68 +128,46 @@ internal sealed unsafe class BloomPass : IDisposable
     public void Record(CommandBuffer cmd)
     {
         var api = _context.Api;
+        var (down, up, extents) = (_levels.Down, _levels.Up, _levels.Extents);
 
         for (int i = 0; i < Levels; i++)
         {
-            api.BeginColorTarget(cmd, _down[i].Image);
-            _downPass.Record(cmd, _down[i].View, _extents[i], _downSets.AsSpan(i, 1));
-            api.EndColorTarget(cmd, _down[i].Image);
+            api.BeginColorTarget(cmd, down[i].Image);
+            _downPass.Record(cmd, down[i].View, extents[i], _downSets.AsSpan(i, 1));
+            api.EndColorTarget(cmd, down[i].Image);
         }
 
         for (int i = Levels - 2; i >= 0; i--)
         {
-            api.BeginColorTarget(cmd, _up[i].Image);
-            _upPass.Record(cmd, _up[i].View, _extents[i], _upSets.AsSpan(i, 1));
-            api.EndColorTarget(cmd, _up[i].Image);
+            api.BeginColorTarget(cmd, up[i].Image);
+            _upPass.Record(cmd, up[i].View, extents[i], _upSets.AsSpan(i, 1));
+            api.EndColorTarget(cmd, up[i].Image);
         }
     }
 
     public void Dispose()
     {
-        DestroyTargets();
+        _levels.Dispose();
         _upPass.Dispose();
         _downPass.Dispose();
         _context.Api.DestroyDescriptorPool(_context.Device, _pool, null);
         _context.Api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
     }
 
-    private void CreateTargets(ImageView hdr, Extent2D extent)
+    // Points each step down at the one before it, the first at the HDR image, and each step up at its own level and
+    // the one below.
+    private void WriteSets(ImageView hdr)
     {
+        var (down, up) = (_levels.Down, _levels.Up);
         for (int i = 0; i < Levels; i++)
         {
-            _extents[i] = new Extent2D(Math.Max(extent.Width >> (i + 1), 1), Math.Max(extent.Height >> (i + 1), 1));
-            _down[i] = CreateTarget(_extents[i]);
-            if (i < Levels - 1)
-            {
-                _up[i] = CreateTarget(_extents[i]);
-            }
-        }
-
-        for (int i = 0; i < Levels; i++)
-        {
-            var source = i == 0 ? hdr : _down[i - 1].View;
+            var source = i == 0 ? hdr : down[i - 1].View;
             WriteSet(_downSets[i], source, source);
         }
 
         for (int i = 0; i < Levels - 1; i++)
         {
-            WriteSet(_upSets[i], _down[i].View, i == Levels - 2 ? _down[i + 1].View : _up[i + 1].View);
-        }
-    }
-
-    private RenderTarget CreateTarget(Extent2D extent) =>
-        new(_context, GBuffer.HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
-
-    private void DestroyTargets()
-    {
-        foreach (var target in _down)
-        {
-            target.Dispose();
-        }
-
-        foreach (var target in _up)
-        {
-            target.Dispose();
+            WriteSet(_upSets[i], down[i].View, i == Levels - 2 ? down[i + 1].View : up[i + 1].View);
         }
     }
 
