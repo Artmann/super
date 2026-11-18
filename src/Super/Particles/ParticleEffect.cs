@@ -75,7 +75,7 @@ public sealed class ParticleEffect
         {
             var layer = _layers[i];
             uint seed = ParticleHash.Mix(unchecked(keySeed + (uint)i * 0x27D4EB2Fu));
-            layer.Emitter.Emit(seed, age - layer.Delay, transform, layer.Offset, stretch, into);
+            layer.Emitter.Emit(seed, age - layer.Delay, new ParticlePlacement(transform, layer.Offset, stretch), into);
         }
     }
 
