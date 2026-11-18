@@ -1,7 +1,6 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Globalization;
-using System.IO.Compression;
 using System.Numerics;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -102,7 +101,7 @@ public static class MaterialGraphs
         using (input.Time("recall graph runs"))
         {
             key = RunKey(input, relativePath, size);
-            if (input.StepResults.HasCache && key is not null && input.StepResults.Recall(RunStep, key) is { } kept && ReadKept(input, folder, kept) is { } packed)
+            if (input.StepResults.HasCache && key is not null && input.StepResults.Recall(RunStep, key) is { } kept && KeptGraphRuns.Read(input, folder, kept) is { } packed)
             {
                 return packed;
             }
@@ -153,7 +152,7 @@ public static class MaterialGraphs
         {
             using (input.Time("keep graph runs"))
             {
-                input.StepResults.Keep(RunStep, key, WriteKept(made.Packed, reads));
+                input.StepResults.Keep(RunStep, key, KeptGraphRuns.Write(made.Packed, reads));
             }
         }
     }
@@ -194,7 +193,7 @@ public static class MaterialGraphs
 
             return string.Join('|',
                 Version.ToString(CultureInfo.InvariantCulture),
-                KeptFormat.ToString(CultureInfo.InvariantCulture),
+                KeptGraphRuns.Format.ToString(CultureInfo.InvariantCulture),
                 size.ToString(CultureInfo.InvariantCulture),
                 relativePath is null ? input.Name : RootName(input.Name, relativePath),
                 Convert.ToHexString(SHA256.HashData(bytes)),
@@ -208,188 +207,59 @@ public static class MaterialGraphs
 
     private const string RunStep = "graph-run";
 
-    // 1: the images read, then the packed pixels, with the height's red only.
-    // 2: the same, with the pixels as planes of differences, Brotli compressed.
-    private const int KeptFormat = 2;
-
-    /// <summary>
-    /// How hard a kept run's pixels are compressed. Over Courtyard's runs, quality 1 on planes of differences keeps 22% of
-    /// the bytes and takes about 0.15 s each way for a 2048 run, against seconds to run the graph again; higher qualities
-    /// save a few percent more for several times the time.
-    /// </summary>
-    private const int KeptQuality = 1;
-
-    private static byte[] WriteKept(PackedImages run, List<(string Path, byte[] Hash)> reads)
-    {
-        var pixels = run.Pixels;
-        var stream = new MemoryStream(pixels.Color.Length + 1024);
-        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
-        {
-            writer.Write(reads.Count);
-            foreach (var (path, hash) in reads.OrderBy(read => read.Path, StringComparer.Ordinal))
-            {
-                writer.Write(path);
-                writer.Write(hash);
-            }
-
-            writer.Write(run.Size);
-            writer.Write(run.Width);
-            writer.Write(run.HeightDepth);
-            writer.Write(pixels.NotNumbers.Count);
-            foreach (string part in pixels.NotNumbers)
-            {
-                writer.Write(part);
-            }
-
-        }
-
-        // Each channel on its own, as the difference from the pixel before, so the smooth images a graph makes turn into
-        // runs of small numbers that compress far better than the pixels do.
-        using (var brotli = new BrotliStream(stream, new BrotliCompressionOptions { Quality = KeptQuality }, leaveOpen: true))
-        {
-            var plane = new byte[pixels.Color.Length / 4];
-            foreach (byte[] image in (byte[][])[pixels.Color, pixels.Normal, pixels.Surface])
-            {
-                for (int channel = 0; channel < 4; channel++)
-                {
-                    WritePlane(brotli, plane, image, channel);
-                }
-            }
-
-            WritePlane(brotli, plane, pixels.Height, 0);
-        }
-
-        return stream.ToArray();
-    }
-
-    /// <summary>Writes one channel of an RGBA image, each byte as its difference from the one before it.</summary>
-    private static void WritePlane(Stream stream, byte[] plane, byte[] image, int channel)
-    {
-        byte previous = 0;
-        for (int i = 0, at = channel; i < plane.Length; i++, at += 4)
-        {
-            byte value = image[at];
-            plane[i] = (byte)(value - previous);
-            previous = value;
-        }
-
-        stream.Write(plane);
-    }
-
-    /// <summary>Reads one channel written by <see cref="WritePlane"/> into an RGBA image.</summary>
-    private static void ReadPlane(Stream stream, byte[] plane, byte[] image, int channel)
-    {
-        stream.ReadExactly(plane);
-        byte value = 0;
-        for (int i = 0, at = channel; i < plane.Length; i++, at += 4)
-        {
-            value += plane[i];
-            image[at] = value;
-        }
-    }
-
-    /// <returns>The kept run, or null when an image it read has changed or is gone, or the entry doesn't read.</returns>
-    private static PackedImages? ReadKept(CookInput input, string folder, byte[] kept)
-    {
-        try
-        {
-            using var reader = new BinaryReader(new MemoryStream(kept));
-            int count = reader.ReadInt32();
-            for (int i = 0; i < count; i++)
-            {
-                string path = reader.ReadString();
-                byte[] hash = reader.ReadBytes(32);
-
-                // Reading the image tracks it, as running the graph would.
-                if (!SHA256.HashData(input.Read(folder + path)).AsSpan().SequenceEqual(hash))
-                {
-                    return null;
-                }
-            }
-
-            int size = reader.ReadInt32();
-            float width = reader.ReadSingle();
-            float heightDepth = reader.ReadSingle();
-            var notNumbers = new string[reader.ReadInt32()];
-            for (int i = 0; i < notNumbers.Length; i++)
-            {
-                notNumbers[i] = reader.ReadString();
-            }
-
-            if (SizeProblem("size", size) is not null)
-            {
-                return null;
-            }
-
-            int length = size * size * 4;
-            var color = new byte[length];
-            var normal = new byte[length];
-            var surface = new byte[length];
-            var height = new byte[length];
-            try
-            {
-                using var brotli = new BrotliStream(reader.BaseStream, CompressionMode.Decompress, leaveOpen: true);
-                var plane = new byte[length / 4];
-                foreach (byte[] image in (byte[][])[color, normal, surface])
-                {
-                    for (int channel = 0; channel < 4; channel++)
-                    {
-                        ReadPlane(brotli, plane, image, channel);
-                    }
-                }
-
-                ReadPlane(brotli, plane, height, 0);
-                if (brotli.ReadByte() >= 0)
-                {
-                    return null;
-                }
-            }
-            catch (InvalidOperationException)
-            {
-                // BrotliStream says "Decoder ran into invalid data" this way, not with InvalidDataException.
-                return null;
-            }
-
-            for (int i = 0; i < length; i += 4)
-            {
-                height[i + 1] = height[i];
-                height[i + 2] = height[i];
-                height[i + 3] = 255;
-            }
-
-            return new PackedImages(size, width, heightDepth, new MaterialPixels(color, normal, surface, height, notNumbers));
-        }
-        catch (Exception exception) when (exception is EndOfStreamException or FileNotFoundException or OverflowException
-            or FormatException or InvalidDataException or IOException)
-        {
-            return null;
-        }
-    }
-
     /// <param name="path">The file's path from the source's folder, or null for the source itself.</param>
     private static MaterialImages? Run(
         CookInput input, string? path, byte[] bytes, int size, Action<string, int?> report, List<(string Path, byte[] Hash)>? reads = null)
     {
-        string fileName = path ?? input.Name;
-        string folder = path is null ? "" : path[..(path.LastIndexOf('/') + 1)];
+        var run = new GraphFileRun(input, path, report);
+        if (run.GraphBytes(bytes) is not { } graph)
+        {
+            return null;
+        }
+
+        var compiled = GraphCompiler.Compile(run.GraphName, graph, run.GraphError);
+        return compiled is null ? null : run.Execute(compiled, size, reads);
+    }
+
+    /// <summary>
+    /// One run of a graph file, or of a variant and the graph it names: which file it is, where its graph is, and how its
+    /// errors are told.
+    /// </summary>
+    private sealed class GraphFileRun(CookInput input, string? path, Action<string, int?> report)
+    {
+        private readonly string _fileName = path ?? input.Name;
+        private readonly string _folder = path is null ? "" : path[..(path.LastIndexOf('/') + 1)];
 
         // The graph's path from the source's folder, or null when the source is the graph. Its errors name it, since a
         // line in the graph means nothing in the file the error is filed under.
-        string? graphPath = path;
-        Variant? variant = null;
-        if (fileName.EndsWith(".material.json", StringComparison.OrdinalIgnoreCase))
+        private string? _graphPath = path;
+        private Variant? _variant;
+
+        /// <summary>The graph's name in the source root, which its compiler's messages start with.</summary>
+        public string GraphName => _graphPath is null ? input.Name : RootName(input.Name, _graphPath);
+
+        /// <summary>
+        /// The graph's code: <paramref name="bytes"/> for a graph, or the graph a variant names, read so a change to it
+        /// cooks the source again. Null after reporting why there is none.
+        /// </summary>
+        public byte[]? GraphBytes(byte[] bytes)
         {
-            variant = Variant.Read(fileName, bytes, message => report(message, null));
-            if (variant is null)
+            if (!_fileName.EndsWith(".material.json", StringComparison.OrdinalIgnoreCase))
+            {
+                return bytes;
+            }
+
+            _variant = Variant.Read(_fileName, bytes, message => report(message, null));
+            if (_variant is null)
             {
                 return null;
             }
 
-            // The graph's path is relative to the variant. Reading it makes a change to the graph cook the source again.
-            graphPath = folder + variant.Graph;
+            // The graph's path is relative to the variant.
+            _graphPath = _folder + _variant.Graph;
             try
             {
-                bytes = input.Read(graphPath);
+                return input.Read(_graphPath);
             }
             catch (FileNotFoundException exception)
             {
@@ -398,58 +268,55 @@ public static class MaterialGraphs
             }
         }
 
-        string graphName = graphPath is null ? input.Name : RootName(input.Name, graphPath);
-
-        void GraphError(string message, int? line)
+        /// <summary>Reports an error in the graph, by its path and line when the graph isn't the source itself.</summary>
+        public void GraphError(string message, int? line)
         {
-            if (graphPath is null)
+            if (_graphPath is null)
             {
                 report(message, line);
                 return;
             }
 
-            string own = graphName + ": ";
+            string own = GraphName + ": ";
             if (message.StartsWith(own, StringComparison.Ordinal))
             {
                 message = message[own.Length..];
             }
 
-            string where = line is { } number ? $"{graphPath} line {number.ToString(CultureInfo.InvariantCulture)}" : graphPath;
+            string where = line is { } number ? $"{_graphPath} line {number.ToString(CultureInfo.InvariantCulture)}" : _graphPath;
             report($"{where}: {message}", null);
         }
 
-        var compiled = GraphCompiler.Compile(graphName, bytes, GraphError);
-        if (compiled is null)
+        /// <summary>Makes the graph, sets a variant's values on it and runs it, or reports why it failed.</summary>
+        public MaterialImages? Execute(CompiledGraph compiled, int size, List<(string Path, byte[] Hash)>? reads)
         {
-            return null;
-        }
-
-        try
-        {
-            var graph = (MaterialGraph)Activator.CreateInstance(compiled.Type)!;
-            if (variant is not null && !variant.Apply(graph, fileName, message => report(message, null)))
-            {
-                return null;
-            }
-
-            SharedGraphRuns.CountRun();
-            RunPermits.Wait();
             try
             {
-                return GraphRunner.Run(graph, size, new CookImages(input, folder, reads));
+                var graph = (MaterialGraph)Activator.CreateInstance(compiled.Type)!;
+                if (_variant is not null && !_variant.Apply(graph, _fileName, message => report(message, null)))
+                {
+                    return null;
+                }
+
+                SharedGraphRuns.CountRun();
+                RunPermits.Wait();
+                try
+                {
+                    return GraphRunner.Run(graph, size, new CookImages(input, _folder, reads));
+                }
+                finally
+                {
+                    RunPermits.Release();
+                }
             }
-            finally
+            catch (Exception exception) when (exception is not OutOfMemoryException)
             {
-                RunPermits.Release();
+                var thrown = exception is TargetInvocationException { InnerException: { } inner } ? inner : exception;
+                // A cook error is one line. Some exceptions add more, such as the actual value of an argument.
+                string message = thrown.Message.Split('\n')[0].TrimEnd('\r');
+                GraphError(message, LineIn(thrown, compiled.Type.Assembly));
+                return null;
             }
-        }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
-        {
-            var thrown = exception is TargetInvocationException { InnerException: { } inner } ? inner : exception;
-            // A cook error is one line. Some exceptions add more, such as the actual value of an argument.
-            string message = thrown.Message.Split('\n')[0].TrimEnd('\r');
-            GraphError(message, LineIn(thrown, compiled.Type.Assembly));
-            return null;
         }
     }
 

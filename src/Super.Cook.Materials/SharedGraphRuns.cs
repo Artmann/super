@@ -82,12 +82,27 @@ internal static class SharedGraphRuns
         }
 
         var mine = new Slot();
+        var (claimed, shared) = Claim(key, input, folder, mine);
+        if (!claimed)
+        {
+            return shared ?? make();
+        }
+
+        return MakeAndShare(key, mine, make);
+    }
+
+    /// <summary>
+    /// Puts <paramref name="mine"/> under the key, unless a run is kept or being made there that this source can take:
+    /// then that run, or null when it failed, so this source makes its own without sharing it.
+    /// </summary>
+    private static (bool Claimed, Run? Shared) Claim(string key, CookInput input, string folder, Slot mine)
+    {
         while (true)
         {
             var slot = Slots.GetOrAdd(key, mine);
             if (ReferenceEquals(slot, mine))
             {
-                break;
+                return (true, null);
             }
 
             Run? shared;
@@ -96,24 +111,23 @@ internal static class SharedGraphRuns
                 shared = slot.Result.Task.GetAwaiter().GetResult();
             }
 
-            if (shared is null)
+            if (shared is null || SameImages(input, folder, shared))
             {
-                return make();
-            }
-
-            if (SameImages(input, folder, shared))
-            {
-                return shared;
+                return (false, shared);
             }
 
             // Made from other images. Unless another source has replaced it already, this source's run takes its place;
             // if one has, its run is checked in turn.
             if (Replace(key, slot, mine))
             {
-                break;
+                return (true, null);
             }
         }
+    }
 
+    /// <summary>Makes the run in the slot this source claimed, keeps it for later sources if it worked, and hands it to those waiting.</summary>
+    private static Run? MakeAndShare(string key, Slot mine, Func<Run?> make)
+    {
         Run? made = null;
         try
         {
@@ -202,30 +216,34 @@ internal static class SharedGraphRuns
             mine.Bytes = bytes;
             mine.Kept = ++_keptCount;
             _sharedBytes += bytes;
-            if (_sharedBytes <= max)
+            if (_sharedBytes > max)
             {
-                return true;
-            }
-
-            // The runs kept longest go first. One still being made isn't counted yet, so it's never dropped.
-            var finished = Slots
-                .Where(pair => !ReferenceEquals(pair.Value, mine) && pair.Value.Bytes > 0 && pair.Value.Result.Task.IsCompleted)
-                .OrderBy(pair => pair.Value.Kept)
-                .ToList();
-            foreach (var pair in finished)
-            {
-                if (_sharedBytes <= max)
-                {
-                    break;
-                }
-
-                if (Slots.TryRemove(pair))
-                {
-                    Uncount(pair.Value);
-                }
+                DropOldest(mine, max);
             }
 
             return true;
+        }
+    }
+
+    // Under the gate. The runs kept longest go first, until the rest fit. One still being made isn't counted yet, so
+    // it's never dropped.
+    private static void DropOldest(Slot mine, long max)
+    {
+        var finished = Slots
+            .Where(pair => !ReferenceEquals(pair.Value, mine) && pair.Value.Bytes > 0 && pair.Value.Result.Task.IsCompleted)
+            .OrderBy(pair => pair.Value.Kept)
+            .ToList();
+        foreach (var pair in finished)
+        {
+            if (_sharedBytes <= max)
+            {
+                break;
+            }
+
+            if (Slots.TryRemove(pair))
+            {
+                Uncount(pair.Value);
+            }
         }
     }
 
