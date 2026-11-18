@@ -135,12 +135,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Rendition.MaskSlots.Assign",
-      "file": "src/Rendition/Baking/MaskSlots.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.MeshDetail.Simplify",
       "file": "src/Rendition/MeshDetail.cs",
       "metric": 19
@@ -828,12 +822,6 @@
       "name": "Rendition.LightmapUnwrap.Unwrap",
       "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
       "metric": 25
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.MaskSlots.Assign",
-      "file": "src/Rendition/Baking/MaskSlots.cs",
-      "metric": 31
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1614,12 +1602,6 @@
       "name": "Rendition.LightmapUnwrap.UvCharts",
       "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
       "metric": 61
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.MaskSlots.Assign",
-      "file": "src/Rendition/Baking/MaskSlots.cs",
-      "metric": 71
     },
     {
       "kind": "long-method",
