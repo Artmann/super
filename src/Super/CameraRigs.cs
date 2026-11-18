@@ -28,14 +28,52 @@ internal static class CameraTurn
 }
 
 /// <summary>
+/// What every camera helper shares: the camera on this tick and the one before, and the
+/// blend between them for drawing. Each helper makes a new camera once a tick in its Update.
+/// </summary>
+public abstract class CameraRig
+{
+    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
+    public float WideAs { get; set; }
+
+    /// <summary>The camera on the tick before this one.</summary>
+    public Camera Previous { get; private set; }
+
+    public Camera Current { get; private set; }
+
+    /// <summary>Whether a camera has been shown since the start or the last <see cref="Jump"/>.</summary>
+    protected bool IsPlaced { get; private set; }
+
+    /// <summary>
+    /// Puts the camera straight in place on the next update, with no blend or trailing, for
+    /// when the target teleports or you set where it looks and want it there now.
+    /// </summary>
+    public void Jump() => IsPlaced = false;
+
+    /// <summary>The camera between the last two ticks, as in <c>view.Camera(rig.At(view.Blend))</c>.</summary>
+    public Camera At(float blend) => Camera.Lerp(Previous, Current, blend);
+
+    /// <summary>
+    /// Makes this tick's camera, kept as wide as <see cref="WideAs"/> asks. The first one,
+    /// and the first after a jump, is also the previous, so there's no blend to it.
+    /// </summary>
+    protected void ShowNext(Camera next)
+    {
+        next = next with { WideAs = WideAs };
+        Previous = IsPlaced ? Current : next;
+        Current = next;
+        IsPlaced = true;
+    }
+}
+
+/// <summary>
 /// A third-person camera on an arm behind its target, which shortens when something is in
 /// the way. Super doesn't know your walls, so test <see cref="Arm"/> against them and pass
 /// how far along it you hit something to <see cref="Update"/>. Keep one in your game.
 /// </summary>
-public sealed class BoomCamera
+public sealed class BoomCamera : CameraRig
 {
     private float _shown;
-    private bool _placed;
 
     /// <summary>The angle around the target, in radians.</summary>
     public float Yaw { get; set; }
@@ -64,29 +102,21 @@ public sealed class BoomCamera
 
     public float FieldOfView { get; set; } = MathF.PI / 4f;
 
-    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
-    public float WideAs { get; set; }
-
-    /// <summary>The camera on the tick before this one.</summary>
-    public Camera Previous { get; private set; }
-
-    public Camera Current { get; private set; }
-
-    /// <summary>Turns by these angles in radians, as in <c>boom.Turn(input.MouseDelta * 0.005f)</c>.</summary>
+    /// <summary>Turns by these angles in radians, as in <c>boom.Turn(input.Mouse.Delta * 0.005f)</c>.</summary>
     public void Turn(Vector2 angles)
     {
         Yaw -= angles.X;
         Pitch = Math.Clamp(Pitch + angles.Y, -CameraTurn.PitchLimit, CameraTurn.PitchLimit);
     }
 
-    /// <summary>Shortens the arm by this many wheel notches, as in <c>boom.Zoom(input.Scroll)</c>.</summary>
+    /// <summary>Shortens the arm by this many wheel notches, as in <c>boom.Zoom(input.Mouse.Scroll)</c>.</summary>
     public void Zoom(float notches) => Length = Math.Clamp(Length * MathF.Pow(CameraTurn.ZoomStep, notches), MinLength, MaxLength);
 
     /// <summary>Turns a stick into a direction on the ground, so forward goes where the camera faces.</summary>
     public Vector3 Walk(Vector2 stick) => CameraTurn.Walk(Yaw, stick);
 
     /// <summary>The line the arm runs along for a target, to test against your walls.</summary>
-    public Ray Arm(Vector3 target) => new(Start(target), CameraTurn.Behind(Yaw, Pitch));
+    public Ray Arm(Vector3 target) => new(target + Pivot + CameraTurn.Right(Yaw) * Shoulder, CameraTurn.Behind(Yaw, Pitch));
 
     /// <summary>Call once a tick, after turning. Pass how far along the arm something blocks it, if anything does.</summary>
     public void Update(Vector3 target, float seconds, float? blockedAt = null)
@@ -94,32 +124,19 @@ public sealed class BoomCamera
         float room = blockedAt is { } wall ? Math.Clamp(wall - Margin, MinLength, Length) : Length;
 
         // In at once, since slowly would show the inside of the wall. Out gently.
-        _shown = !_placed || room < _shown ? room : float.Lerp(room, _shown, CameraTurn.Remaining(seconds, ReturnLag));
+        _shown = !IsPlaced || room < _shown ? room : float.Lerp(room, _shown, CameraTurn.Remaining(seconds, ReturnLag));
 
         var arm = Arm(target);
-        var next = new Camera(arm.Origin + arm.Direction * _shown, arm.Origin, FieldOfView) { WideAs = WideAs };
-        Previous = _placed ? Current : next;
-        Current = next;
-        _placed = true;
+        ShowNext(new Camera(arm.Origin + arm.Direction * _shown, arm.Origin, FieldOfView));
     }
-
-    /// <summary>Puts the camera straight in place on the next update, for when the target teleports.</summary>
-    public void Jump() => _placed = false;
-
-    /// <summary>The camera between the last two ticks, as in <c>view.Camera(boom.At(view.Blend))</c>.</summary>
-    public Camera At(float blend) => Camera.Lerp(Previous, Current, blend);
-
-    private Vector3 Start(Vector3 target) => target + Pivot + CameraTurn.Right(Yaw) * Shoulder;
 }
 
 /// <summary>Looks out from a character's eyes. Keep one in your game.</summary>
-public sealed class FirstPersonCamera
+public sealed class FirstPersonCamera : CameraRig
 {
     // How far ahead the target sits. Shadows centre on the target, so this keeps the
     // sharpest of them where the player is looking.
     private const float LooksAhead = 4f;
-
-    private bool _placed;
 
     /// <summary>The angle turned left from facing -z, in radians.</summary>
     public float Yaw { get; set; }
@@ -132,15 +149,7 @@ public sealed class FirstPersonCamera
 
     public float FieldOfView { get; set; } = MathF.PI / 3f;
 
-    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
-    public float WideAs { get; set; }
-
-    /// <summary>The camera on the tick before this one.</summary>
-    public Camera Previous { get; private set; }
-
-    public Camera Current { get; private set; }
-
-    /// <summary>Turns by these angles in radians, as in <c>eyes.Turn(input.MouseDelta * 0.003f)</c>.</summary>
+    /// <summary>Turns by these angles in radians, as in <c>eyes.Turn(input.Mouse.Delta * 0.003f)</c>.</summary>
     public void Turn(Vector2 angles)
     {
         Yaw -= angles.X;
@@ -154,17 +163,8 @@ public sealed class FirstPersonCamera
     public void Update(Vector3 feet)
     {
         var eye = feet + Vector3.UnitY * EyeHeight;
-        var next = new Camera(eye, eye - CameraTurn.Behind(Yaw, -Pitch) * LooksAhead, FieldOfView) { WideAs = WideAs };
-        Previous = _placed ? Current : next;
-        Current = next;
-        _placed = true;
+        ShowNext(new Camera(eye, eye - CameraTurn.Behind(Yaw, -Pitch) * LooksAhead, FieldOfView));
     }
-
-    /// <summary>Puts the camera straight in place on the next update, for when the character teleports.</summary>
-    public void Jump() => _placed = false;
-
-    /// <summary>The camera between the last two ticks, as in <c>view.Camera(eyes.At(view.Blend))</c>.</summary>
-    public Camera At(float blend) => Camera.Lerp(Previous, Current, blend);
 }
 
 /// <summary>
@@ -172,7 +172,7 @@ public sealed class FirstPersonCamera
 /// rather than by moving closer. <see cref="TopDownCamera"/> and <see cref="IsometricCamera"/>
 /// are the two angles of it.
 /// </summary>
-public abstract class OverheadCamera
+public abstract class OverheadCamera : CameraRig
 {
     // Far enough that everything in a game's world sits in front of the camera.
     private const float Standoff = 500f;
@@ -180,7 +180,6 @@ public abstract class OverheadCamera
     private Vector3 _shownCenter;
     private float _shownSize;
     private float _shownYaw;
-    private bool _placed;
 
     protected OverheadCamera(float yaw, float pitch)
     {
@@ -204,14 +203,6 @@ public abstract class OverheadCamera
     /// </summary>
     public float Lag { get; set; } = 0.15f;
 
-    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
-    public float WideAs { get; set; }
-
-    /// <summary>The camera on the tick before this one.</summary>
-    public Camera Previous { get; private set; }
-
-    public Camera Current { get; private set; }
-
     /// <summary>The turn around the center, in radians, for a subclass to pass on or expose.</summary>
     protected float Angle { get; set; }
 
@@ -230,7 +221,7 @@ public abstract class OverheadCamera
         _shownCenter += step;
     }
 
-    /// <summary>Shows less by this many wheel notches, as in <c>camera.Zoom(input.Scroll)</c>.</summary>
+    /// <summary>Shows less by this many wheel notches, as in <c>camera.Zoom(input.Mouse.Scroll)</c>.</summary>
     public void Zoom(float notches) => Size = Math.Clamp(Size * MathF.Pow(CameraTurn.ZoomStep, notches), MinSize, MaxSize);
 
     /// <summary>Call once a tick to follow something, keeping it in the middle.</summary>
@@ -243,15 +234,11 @@ public abstract class OverheadCamera
     /// <summary>Call once a tick when the player moves the view themselves with <see cref="Pan"/>.</summary>
     public void Update(float seconds)
     {
-        float kept = _placed ? CameraTurn.Remaining(seconds, Lag) : 0f;
+        float kept = IsPlaced ? CameraTurn.Remaining(seconds, Lag) : 0f;
         _shownCenter = Vector3.Lerp(Center, _shownCenter, kept);
         _shownSize = float.Lerp(Size, _shownSize, kept);
         _shownYaw = float.Lerp(Angle, _shownYaw, kept);
-
-        var next = Build(_shownCenter, _shownSize, _shownYaw) with { WideAs = WideAs };
-        Previous = _placed ? Current : next;
-        Current = next;
-        _placed = true;
+        ShowNext(Build(_shownCenter, _shownSize, _shownYaw));
     }
 
     /// <summary>
@@ -261,15 +248,6 @@ public abstract class OverheadCamera
     /// </summary>
     protected virtual Camera Build(Vector3 center, float size, float yaw) =>
         Camera.Orthographic(center + CameraTurn.Behind(yaw, Tilt) * Standoff, center, size);
-
-    /// <summary>
-    /// Puts the camera straight in place on the next update, with no blend, for when the
-    /// view teleports or you set <see cref="Center"/>, <see cref="Size"/> or a turn and want it there now.
-    /// </summary>
-    public void Jump() => _placed = false;
-
-    /// <summary>The camera between the last two ticks, as in <c>view.Camera(camera.At(view.Blend))</c>.</summary>
-    public Camera At(float blend) => Camera.Lerp(Previous, Current, blend);
 }
 
 /// <summary>Looks straight down, with the top of the screen facing -z. Keep one in your game.</summary>
