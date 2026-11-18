@@ -8,34 +8,16 @@ namespace Super;
 /// </summary>
 public sealed class RandomStream
 {
-    private ulong _a;
-    private ulong _b;
-    private ulong _c;
-    private ulong _d;
+    // Not readonly: Next moves the state on in place.
+    private Xoshiro256 _generator;
 
     internal RandomStream(ulong seed)
     {
-        // SplitMix64 spreads one number over the four words of state, as the
-        // generator's authors recommend.
-        _a = Mix(seed += 0x9E3779B97F4A7C15);
-        _b = Mix(seed += 0x9E3779B97F4A7C15);
-        _c = Mix(seed += 0x9E3779B97F4A7C15);
-        _d = Mix(seed + 0x9E3779B97F4A7C15);
+        _generator = new Xoshiro256(seed);
     }
 
     /// <summary>64 random bits. Everything else in this class is built on this.</summary>
-    public ulong NextBits()
-    {
-        ulong result = BitOperations.RotateLeft(_b * 5, 7) * 9;
-        ulong shifted = _b << 17;
-        _c ^= _a;
-        _d ^= _b;
-        _b ^= _c;
-        _a ^= _d;
-        _c ^= shifted;
-        _d = BitOperations.RotateLeft(_d, 45);
-        return result;
-    }
+    public ulong NextBits() => _generator.Next();
 
     /// <summary>A number from 0 up to, but not including, 1.</summary>
     public float Float() => (NextBits() >> 40) * (1f / (1 << 24));
@@ -174,14 +156,6 @@ public sealed class RandomStream
 
     /// <summary>A point in a ball around zero, evenly spread through its volume.</summary>
     public Vector3 InsideSphere(float radius = 1f) => Direction3D() * (MathF.Cbrt(Float()) * radius);
-
-    /// <summary>The SplitMix64 mixer, which scrambles a number thoroughly.</summary>
-    internal static ulong Mix(ulong value)
-    {
-        value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9;
-        value = (value ^ (value >> 27)) * 0x94D049BB133111EB;
-        return value ^ (value >> 31);
-    }
 
     /// <summary>
     /// An even choice from 0 up to the limit. Lemire's method: a plain % would favour
