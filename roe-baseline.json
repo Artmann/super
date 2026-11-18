@@ -867,12 +867,6 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Super.Materials.CellsNode.Evaluate",
-      "file": "src/Super.Materials/Noise.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Super.Materials.DistanceTransform.Squared",
       "file": "src/Super.Materials/Distance.cs",
       "metric": 18
@@ -1992,12 +1986,6 @@
       "name": "Super.Materials.BricksNode.Evaluate",
       "file": "src/Super.Materials/Tiles.cs",
       "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Materials.CellsNode.Evaluate",
-      "file": "src/Super.Materials/Noise.cs",
-      "metric": 57
     },
     {
       "kind": "long-method",
