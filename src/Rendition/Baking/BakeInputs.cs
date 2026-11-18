@@ -67,7 +67,7 @@ public readonly record struct BakeSettings
 public readonly record struct BakeInputs(ulong Draws, ulong Lights, ulong Environment, ulong Settings)
 {
     /// <summary>One hash of all four, in the order they're declared: the one a bake is matched by.</summary>
-    public ulong Combined => BakeInputHash.Hasher().Add(Draws).Add(Lights).Add(Environment).Add(Settings).Finish();
+    public ulong Combined => StableHasher.ForThread().Add(Draws).Add(Lights).Add(Environment).Add(Settings).Finish();
 
     /// <summary>
     /// The parts that differ from <paramref name="before"/>, always in the order "draws", "lights", "environment",
