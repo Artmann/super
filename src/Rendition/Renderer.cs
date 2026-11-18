@@ -24,45 +24,10 @@ public sealed unsafe class Renderer : IDisposable
     private const float TemporalMipBias = -0.75f;
 
     /// <summary>The most skin matrices one frame can hold across every skinned draw.</summary>
-    public const int MaxBones = 16384;
+    public const int MaxBones = FrameSlots.MaxBones;
 
     /// <summary>The most reflection probes the renderer holds at once.</summary>
     public const int MaxReflectionProbes = ReflectionProbeOrder.MaxProbes;
-
-
-    private struct Frame
-    {
-        public CommandPool CommandPool;
-        public CommandBuffer CommandBuffer;
-        public Fence InFlight;
-        public Semaphore ImageAvailable;
-        public GpuBuffer Uniforms;
-        public GpuBuffer Bones;
-        public InstanceBuffer Instances;
-        public GpuBuffer Lights;
-        public GpuBuffer ShadowTiles;
-        public GpuBuffer Clusters;
-        // The reflection probes the view sees, in the order they blend, as light_data.glsl reads them at binding 13.
-        public GpuBuffer ReflectionProbes;
-        // The frame's suns and placed chunks, as chunks.glsl reads them at binding 11. See GpuChunk.
-        public GpuBuffer Chunks;
-        public DescriptorSet Set;
-
-        public readonly void Dispose(Vk api, Device device)
-        {
-            Uniforms.Dispose();
-            Bones.Dispose();
-            Instances.Dispose();
-            Lights.Dispose();
-            ShadowTiles.Dispose();
-            Clusters.Dispose();
-            ReflectionProbes.Dispose();
-            Chunks.Dispose();
-            api.DestroySemaphore(device, ImageAvailable, null);
-            api.DestroyFence(device, InFlight, null);
-            api.DestroyCommandPool(device, CommandPool, null);
-        }
-    }
 
     private readonly VulkanContext _context;
     private bool _disableVsync;
@@ -76,7 +41,7 @@ public sealed unsafe class Renderer : IDisposable
     // The largest image side the device can make, which the scene is shrunk to fit.
     private readonly int _maxImageSize;
     private readonly Vk _api;
-    private readonly Frame[] _frames = new Frame[FrameRing.Count];
+    private readonly FrameSlots _frames;
     // How far a simpler model may stray. Shadows are soft, so they can afford more.
     private const float CameraDetailError = 1f;
     private const float ShadowDetailError = 2f;
@@ -531,10 +496,7 @@ public sealed unsafe class Renderer : IDisposable
         _gBuffer = new GBuffer(_context, SceneExtent(_swapchain.Extent));
 
         _kit = new DescriptorKit(_context);
-        for (int i = 0; i < FrameRing.Count; i++)
-        {
-            _frames[i] = CreateFrame();
-        }
+        _frames = new FrameSlots(_context, _kit);
 
         _resources = new ResourceTable(_context);
         _retired = new RetiredResources(_ring, _meshStore, _resources);
@@ -551,10 +513,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _shadowResolution = ShadowPass.CheckResolution(options.ShadowResolution);
         _shadowPass = new ShadowPass(_context, _kit.FrameSetLayout, _resources, _shadowResolution);
-        foreach (ref var frame in _frames.AsSpan())
-        {
-            WriteAtlasDescriptors(frame);
-        }
+        _frames.WriteAtlas(_shadowPass.Atlas.View);
 
         _clusterLayout = _context.CreatePipelineLayout([_kit.FrameSetLayout]);
         _clusterPipeline = PipelineFactory.CreateCompute(_context, "cluster.comp", _clusterLayout);
@@ -568,12 +527,7 @@ public sealed unsafe class Renderer : IDisposable
         });
         FlushEnvironment();
         _skySh = new SkySh(_context, _environment.Sky, _environment.Sampler);
-        foreach (ref var frame in _frames.AsSpan())
-        {
-            var skyShInfo = new DescriptorBufferInfo(_skySh.Handle, 0, SkySh.Size);
-            var skyShWrite = Descriptors.BufferWrite(frame.Set, 12, &skyShInfo);
-            _api.UpdateDescriptorSets(_context.Device, 1, &skyShWrite, 0, null);
-        }
+        _frames.WriteSkySh(_skySh);
 
         _probes = new ReflectionProbes(_context, _environment.Sampler, FrameRing.Count);
         var captureScene = new CaptureScene(_meshStore.MeshSlots, _meshStore.DetailSlots, _shadowPass);
@@ -1702,7 +1656,7 @@ public sealed unsafe class Renderer : IDisposable
 
         ManageProbeStorage();
 
-        ref Frame frame = ref _frames[_ring.Index];
+        ref FrameSlot frame = ref _frames[_ring.Index];
         if (!AcquireImage(frame, view, out uint imageIndex))
         {
             return;
@@ -1862,7 +1816,7 @@ public sealed unsafe class Renderer : IDisposable
     /// Waits until the GPU is done with the frame slot, frees what waited on it, and takes the next swapchain image.
     /// False when the swapchain is out of date, after making a new one: then the frame isn't drawn.
     /// </summary>
-    private bool AcquireImage(in Frame frame, in FrameView view, out uint imageIndex)
+    private bool AcquireImage(in FrameSlot frame, in FrameView view, out uint imageIndex)
     {
         var fence = frame.InFlight;
         long waitStart = Stopwatch.GetTimestamp();
@@ -1897,7 +1851,7 @@ public sealed unsafe class Renderer : IDisposable
     /// Reads the GPU timer's last times for the frame slot, when the GPU is measured, and resets its fence. Returns
     /// whether this frame is timed.
     /// </summary>
-    private bool ResetFrame(in Frame frame)
+    private bool ResetFrame(in FrameSlot frame)
     {
         bool timed = MeasureGpu && _gpuTimer.IsSupported;
         if (timed)
@@ -1951,7 +1905,7 @@ public sealed unsafe class Renderer : IDisposable
     /// Plans the probes, writes the frame's uniforms, bones and chunks, and picks what each view draws. Returns how
     /// many draws the camera has, at the head of <see cref="_cameraDraws"/>.
     /// </summary>
-    private int WriteFrameData(in Frame frame, in FrameView view, ReadOnlySpan<DrawItem> draws, in FrameCamera camera)
+    private int WriteFrameData(in FrameSlot frame, in FrameView view, ReadOnlySpan<DrawItem> draws, in FrameCamera camera)
     {
         // Before the uniforms, which carry the probes' sun shadow maps and whether surfaces read the probes.
         int probeInstances = PlanProbes(view, draws) + PlanReflectionCapture(view, draws);
@@ -1964,7 +1918,7 @@ public sealed unsafe class Renderer : IDisposable
         int casters = DrawSelection.Bounds(draws, _meshStore.DetailSlots, _casterBounds, _windReach);
         bool castsShadow = WriteUniforms(frame, view, camera.Previous, camera.Shift, _casterBounds.AsSpan(0, casters));
         _uniformFrame = _ring.Index;
-        WriteBones(frame, view.Bones);
+        FrameSlots.WriteBones(frame, view.Bones);
         _motion.Begin(draws, view.Bones, camera.LastFrameKnown,
             new Span<Matrix4x4>((Matrix4x4*)frame.Bones.Mapped + view.Bones.Length, 2 * MaxBones - view.Bones.Length));
         _previousViewProjection = camera.ViewProjection;
@@ -1974,12 +1928,7 @@ public sealed unsafe class Renderer : IDisposable
         _transitionHold = view.Picture.Transition.Hold;
         var (cameraCount, shadowCount) = SelectDraws(view, camera.ViewProjection, draws, castsShadow);
         int tileDrawCount = SelectTileDraws(draws);
-        if (MeasureGpu)
-        {
-            DrawnTriangles = (DrawnTriangles.Camera, DrawnTriangles.Shadows + CountTriangles(_tileDraws.AsSpan(0, tileDrawCount)));
-        }
-
-        ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
+        _frames.ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
         _frameBakes.Relight.WriteTo(frame.Chunks, _frameBakes.MaskSlots.SpaceSlots);
 
         return cameraCount;
@@ -2002,7 +1951,7 @@ public sealed unsafe class Renderer : IDisposable
     /// Begins the frame's command buffer with the uploads, this frame's share of the chunk bakes going up, and a slice
     /// of the background bake.
     /// </summary>
-    private CommandBuffer BeginCommands(in Frame frame)
+    private CommandBuffer BeginCommands(in FrameSlot frame)
     {
         _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
         var cmd = frame.CommandBuffer;
@@ -2022,7 +1971,7 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>Records the frame's command buffer: the uploads, a bake slice, the sky, and then the frame itself.</summary>
-    private CommandBuffer RecordCommands(in Frame frame, in FrameView view, uint imageIndex, in FrameDraws draws, bool timed)
+    private CommandBuffer RecordCommands(in FrameSlot frame, in FrameView view, uint imageIndex, in FrameDraws draws, bool timed)
     {
         var cmd = BeginCommands(frame);
         // One top-level structure a frame, shared by the trace debug view and the traced probe updates, made only on
@@ -2062,7 +2011,7 @@ public sealed unsafe class Renderer : IDisposable
     /// Submits the frame's commands, once the swapchain image is there, signalling <paramref name="renderFinished"/>
     /// and the frame's fence.
     /// </summary>
-    private void Submit(in Frame frame, CommandBuffer cmd, Semaphore renderFinished)
+    private void Submit(in FrameSlot frame, CommandBuffer cmd, Semaphore renderFinished)
     {
         var waitInfo = new SemaphoreSubmitInfo
         {
@@ -2356,11 +2305,7 @@ public sealed unsafe class Renderer : IDisposable
         _resources.Dispose();
         _meshStore.Dispose();
 
-        foreach (ref var frame in _frames.AsSpan())
-        {
-            frame.Dispose(_api, _context.Device);
-        }
-
+        _frames.Dispose();
         _kit.Dispose();
         _gBuffer.Dispose();
         _swapchain.Dispose();
@@ -2969,7 +2914,7 @@ public sealed unsafe class Renderer : IDisposable
     /// Returns whether a light casts a shadow this frame.
     /// </summary>
     private bool WriteUniforms(
-        in Frame frame, in FrameView view, in Matrix4x4 previousViewProjection, Vector2 shift, ReadOnlySpan<Vector4> casters)
+        in FrameSlot frame, in FrameView view, in Matrix4x4 previousViewProjection, Vector2 shift, ReadOnlySpan<Vector4> casters)
     {
         bool historyValid = _gBuffer.Picture.HistoryReady;
         var uniforms = (FrameUniforms*)frame.Uniforms.Mapped;
@@ -3275,7 +3220,7 @@ public sealed unsafe class Renderer : IDisposable
     /// Picks the point and spot lights the view needs and their shadow tiles, and writes
     /// them where the shaders read them.
     /// </summary>
-    private void WriteLocalLights(in Frame frame, FrameUniforms* uniforms, in FrameView view)
+    private void WriteLocalLights(in FrameSlot frame, FrameUniforms* uniforms, in FrameView view)
     {
         if (view.LocalLights.Length > LocalLight.MaxPerFrame)
         {
@@ -3440,174 +3385,6 @@ public sealed unsafe class Renderer : IDisposable
     private static float VerticalFov(in Matrix4x4 projection) =>
         projection.M34 != 0f && projection.M22 != 0f ? 2f * MathF.Atan(1f / MathF.Abs(projection.M22)) : MathF.PI / 3f;
 
-    private Frame CreateFrame()
-    {
-        var frame = new Frame();
-
-        var poolInfo = new CommandPoolCreateInfo
-        {
-            SType = StructureType.CommandPoolCreateInfo,
-            Flags = CommandPoolCreateFlags.TransientBit,
-            QueueFamilyIndex = _context.QueueFamily,
-        };
-        _api.CreateCommandPool(_context.Device, &poolInfo, null, out frame.CommandPool).Check();
-
-        var allocInfo = new CommandBufferAllocateInfo
-        {
-            SType = StructureType.CommandBufferAllocateInfo,
-            CommandPool = frame.CommandPool,
-            Level = CommandBufferLevel.Primary,
-            CommandBufferCount = 1,
-        };
-        _api.AllocateCommandBuffers(_context.Device, &allocInfo, out frame.CommandBuffer).Check();
-
-        var fenceInfo = new FenceCreateInfo
-        {
-            SType = StructureType.FenceCreateInfo,
-            Flags = FenceCreateFlags.SignaledBit, // The first frame has nothing to wait for.
-        };
-        _api.CreateFence(_context.Device, &fenceInfo, null, out frame.InFlight).Check();
-
-        var semaphoreInfo = new SemaphoreCreateInfo { SType = StructureType.SemaphoreCreateInfo };
-        _api.CreateSemaphore(_context.Device, &semaphoreInfo, null, out frame.ImageAvailable).Check();
-
-        CreateFrameBuffers(ref frame);
-        frame.Set = _kit.NewSet(_kit.FrameSetLayout);
-        WriteFrameDescriptors(frame);
-        frame.Instances = new InstanceBuffer(_context);
-        WriteInstanceDescriptor(frame);
-        return frame;
-    }
-
-    // The frame's uniforms and the buffers its shaders read: bones, lights, shadow tiles, clusters, chunks and probes.
-    private void CreateFrameBuffers(ref Frame frame)
-    {
-        frame.Uniforms = GpuBuffer.CreateHostVisible(
-            _context, (ulong)sizeof(FrameUniforms), BufferUsageFlags.UniformBufferBit);
-        // This frame's bone matrices, then last frame's for motion vectors.
-        frame.Bones = GpuBuffer.CreateHostVisible(
-            _context, (ulong)(2 * MaxBones * sizeof(Matrix4x4)), BufferUsageFlags.StorageBufferBit);
-        frame.Lights = GpuBuffer.CreateHostVisible(
-            _context, (ulong)(LocalLight.MaxPerFrame * sizeof(GpuLocalLight)), BufferUsageFlags.StorageBufferBit);
-        frame.ShadowTiles = GpuBuffer.CreateHostVisible(
-            _context, (ulong)(LocalLights.MaxTiles * sizeof(GpuShadowTile)), BufferUsageFlags.StorageBufferBit);
-        frame.Clusters = new GpuBuffer(
-            _context, LocalLights.ClusterBytes, BufferUsageFlags.StorageBufferBit, MemoryPropertyFlags.DeviceLocalBit);
-        frame.Chunks = GpuBuffer.CreateHostVisible(
-            _context, (ulong)(ChunkRelight.HeaderBytes + BakeFiles.MaxChunks * sizeof(GpuChunk)), BufferUsageFlags.StorageBufferBit);
-        frame.ReflectionProbes = GpuBuffer.CreateHostVisible(
-            _context, (ulong)(ReflectionProbeOrder.MaxProbes * sizeof(GpuReflectionProbe)), BufferUsageFlags.StorageBufferBit);
-    }
-
-    // Points the frame's set at its buffers, as CreateFrameSetLayout lays them out.
-    private void WriteFrameDescriptors(in Frame frame)
-    {
-        var chunksInfo = new DescriptorBufferInfo(frame.Chunks.Handle, 0, frame.Chunks.Size);
-        var uniformInfo = new DescriptorBufferInfo(frame.Uniforms.Handle, 0, (ulong)sizeof(FrameUniforms));
-        var bonesInfo = new DescriptorBufferInfo(frame.Bones.Handle, 0, frame.Bones.Size);
-        var lightsInfo = new DescriptorBufferInfo(frame.Lights.Handle, 0, frame.Lights.Size);
-        var tilesInfo = new DescriptorBufferInfo(frame.ShadowTiles.Handle, 0, frame.ShadowTiles.Size);
-        var clustersInfo = new DescriptorBufferInfo(frame.Clusters.Handle, 0, frame.Clusters.Size);
-        var probesInfo = new DescriptorBufferInfo(frame.ReflectionProbes.Handle, 0, frame.ReflectionProbes.Size);
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            Descriptors.BufferWrite(frame.Set, 0, &uniformInfo, DescriptorType.UniformBuffer),
-            Descriptors.BufferWrite(frame.Set, 1, &bonesInfo),
-            Descriptors.BufferWrite(frame.Set, 3, &lightsInfo),
-            Descriptors.BufferWrite(frame.Set, 4, &tilesInfo),
-            Descriptors.BufferWrite(frame.Set, 5, &clustersInfo),
-            Descriptors.BufferWrite(frame.Set, 11, &chunksInfo),
-            Descriptors.BufferWrite(frame.Set, 13, &probesInfo),
-        };
-        _api.UpdateDescriptorSets(_context.Device, 7, writes, 0, null);
-    }
-
-    /// <summary>
-    /// Empties this frame's model matrices for a frame of at most <paramref name="copies"/>
-    /// draws, growing the buffer first if they won't fit. Must happen after the frame's
-    /// fence and before its commands are recorded, since they bind the descriptor.
-    /// </summary>
-    private void ResetInstances(in Frame frame, int copies)
-    {
-        if (frame.Instances.Reset(copies))
-        {
-            WriteInstanceDescriptor(frame);
-        }
-    }
-
-    /// <summary>The shadow atlas, read once with a depth comparison and once as plain depth.</summary>
-    private void WriteAtlasDescriptors(in Frame frame)
-    {
-        var compare = new DescriptorImageInfo(_kit.ShadowSampler, _shadowPass.Atlas.View, ImageLayout.ShaderReadOnlyOptimal);
-        var depth = new DescriptorImageInfo(_kit.NearestSampler, _shadowPass.Atlas.View, ImageLayout.ShaderReadOnlyOptimal);
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = frame.Set,
-                DstBinding = 6,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                PImageInfo = &compare,
-            },
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = frame.Set,
-                DstBinding = 7,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                PImageInfo = &depth,
-            },
-        };
-        _api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
-    }
-
-    /// <summary>The volumetric fog's summed volume, or the texel that stands in until it's made.</summary>
-    private void WriteVolumetricDescriptor(in Frame frame)
-    {
-        var info = new DescriptorImageInfo(_kit.LinearSampler, _volumetricFog.Result, ImageLayout.General);
-        var write = new WriteDescriptorSet
-        {
-            SType = StructureType.WriteDescriptorSet,
-            DstSet = frame.Set,
-            DstBinding = 8,
-            DescriptorCount = 1,
-            DescriptorType = DescriptorType.CombinedImageSampler,
-            PImageInfo = &info,
-        };
-        _api.UpdateDescriptorSets(_context.Device, 1, &write, 0, null);
-    }
-
-    private void WriteInstanceDescriptor(in Frame frame)
-    {
-        var info = frame.Instances.ModelsInfo;
-        var previousInfo = frame.Instances.PreviousInfo;
-        var lightmapInfo = frame.Instances.LightmapInfo;
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            Descriptors.BufferWrite(frame.Set, 2, &info),
-            Descriptors.BufferWrite(frame.Set, 9, &previousInfo),
-            Descriptors.BufferWrite(frame.Set, 10, &lightmapInfo),
-        };
-        _api.UpdateDescriptorSets(_context.Device, 3, writes, 0, null);
-    }
-
-    /// <summary>
-    /// Copies a frame's skin matrices to where the vertex shaders read them. Must happen
-    /// after the frame's fence, since the buffer is written in place.
-    /// </summary>
-    private static void WriteBones(in Frame frame, ReadOnlySpan<Matrix4x4> bones)
-    {
-        if (bones.Length > MaxBones)
-        {
-            throw new ArgumentException($"A frame can have at most {MaxBones} bone matrices, not {bones.Length}.", nameof(bones));
-        }
-
-        bones.CopyTo(new Span<Matrix4x4>(frame.Bones.Mapped, bones.Length));
-    }
-
 
     /// <summary>Points the fullscreen passes at the current render targets.</summary>
     private void WriteTargetDescriptors()
@@ -3672,10 +3449,7 @@ public sealed unsafe class Renderer : IDisposable
             new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal),
             new(_kit.LinearSampler, LightProbes.Volume.IrradianceView, ImageLayout.General),
             new(_kit.LinearSampler, LightProbes.Volume.DepthView, ImageLayout.General));
-        foreach (ref var frame in _frames.AsSpan())
-        {
-            WriteVolumetricDescriptor(frame);
-        }
+        _frames.WriteVolumetric(_volumetricFog.Result);
     }
 
     private void WriteImages(DescriptorSet set, ReadOnlySpan<DescriptorImageInfo> images) =>
