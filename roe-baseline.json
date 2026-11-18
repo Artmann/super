@@ -15,12 +15,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Hamlet.HamletGame.DrawBuilding",
-      "file": "examples/Hamlet/HamletGame.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.BakeFiles.IsRigid",
       "file": "src/Rendition/Baking/BakeFiles.cs",
       "metric": 14
@@ -990,12 +984,6 @@
       "name": "Hamlet.HamletGame.Draw",
       "file": "examples/Hamlet/HamletGame.cs",
       "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Hamlet.HamletGame.DrawBuilding",
-      "file": "examples/Hamlet/HamletGame.cs",
-      "metric": 72
     },
     {
       "kind": "long-method",
@@ -2723,7 +2711,7 @@
       "kind": "large-type",
       "name": "Hamlet.HamletGame",
       "file": "examples/Hamlet/HamletGame.cs",
-      "metric": 25
+      "metric": 24
     },
     {
       "kind": "large-type",
