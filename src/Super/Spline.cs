@@ -266,6 +266,31 @@ public sealed class Spline
     /// <summary>The place on the spline nearest <paramref name="point"/>.</summary>
     public SplineHit Nearest(Vector3 point)
     {
+        // The nearest sample brackets the answer to within a sample either side; narrow it down.
+        int best = NearestSample(point);
+        float count = Segments * Steps;
+        float low = (best - 1) / count;
+        float high = (best + 1) / count;
+        if (!Closed)
+        {
+            low = Math.Max(low, 0f);
+            high = Math.Min(high, 1f);
+        }
+
+        float near = GoldenSearch(low, high, point);
+
+        // Squared gaps stop telling close places apart when the point is far off, so finish with
+        // Newton steps on where the line to the point stands square to the curve.
+        var (segment, u) = Locate(WrapT(near));
+        u = NewtonSteps(segment, u, point);
+
+        float t = WrapT((segment + u) / Segments);
+        var position = Point(segment, u);
+        return new SplineHit(t, DistanceAt(t), position, Vector3.Distance(position, point));
+    }
+
+    private int NearestSample(Vector3 point)
+    {
         int best = 0;
         float bestGap = float.MaxValue;
         for (int k = 0; k < _samples.Length; k++)
@@ -278,16 +303,12 @@ public sealed class Spline
             }
         }
 
-        // The nearest sample brackets the answer to within a sample either side; narrow it down.
-        float count = Segments * Steps;
-        float low = (best - 1) / count;
-        float high = (best + 1) / count;
-        if (!Closed)
-        {
-            low = Math.Max(low, 0f);
-            high = Math.Min(high, 1f);
-        }
+        return best;
+    }
 
+    /// <summary>The middle of the span left after narrowing low to high round the place nearest the point.</summary>
+    private float GoldenSearch(float low, float high, Vector3 point)
+    {
         const float golden = 0.618034f;
         float a = high - golden * (high - low);
         float b = low + golden * (high - low);
@@ -313,9 +334,11 @@ public sealed class Spline
             }
         }
 
-        // Squared gaps stop telling close places apart when the point is far off, so finish with
-        // Newton steps on where the line to the point stands square to the curve.
-        var (segment, u) = Locate(WrapT((low + high) * 0.5f));
+        return (low + high) * 0.5f;
+    }
+
+    private float NewtonSteps(int segment, float u, Vector3 point)
+    {
         for (int i = 0; i < 4; i++)
         {
             var offset = Point(segment, u) - point;
@@ -329,9 +352,7 @@ public sealed class Spline
             u = Math.Clamp(u - Vector3.Dot(offset, heading) / slope, 0f, 1f);
         }
 
-        float t = WrapT((segment + u) / Segments);
-        var position = Point(segment, u);
-        return new SplineHit(t, DistanceAt(t), position, Vector3.Distance(position, point));
+        return u;
     }
 
     /// <summary>
