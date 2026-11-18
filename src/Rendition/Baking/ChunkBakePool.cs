@@ -398,7 +398,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     private void AddPage(Entry entry, LightBakePage source, int role)
     {
         var texture = new GpuTexture(_context, source.Width, source.Height, TextureKind.Linear, 1, 1,
-            format: Renderer.PageFormat(source.Format));
+            format: BakePages.Format(source.Format));
         entry.Pages.Add(new Page(source, texture, role));
     }
 

@@ -111,7 +111,7 @@ internal static class ChunkBakeCheck
     {
         foreach (var (page, name) in pages)
         {
-            int needed = TextureData.LevelSize(Renderer.PageFormat(page.Format), page.Width, page.Height);
+            int needed = TextureData.LevelSize(BakePages.Format(page.Format), page.Width, page.Height);
             if (page.Pixels.Length != needed)
             {
                 throw new InvalidDataException(
