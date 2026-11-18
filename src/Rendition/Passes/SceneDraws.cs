@@ -157,7 +157,7 @@ internal static unsafe class SceneDraws
     {
         foreach (ref readonly var draw in draws)
         {
-            if (Belongs(draw, resources.GetFlags(draw.Material), pass))
+            if (Belongs(draw, resources.Materials[draw.Material].Flags, pass))
             {
                 return true;
             }
@@ -352,7 +352,7 @@ internal static unsafe class SceneDraws
         int count = 0;
         for (int i = 0; i < draws.Length; i++)
         {
-            if (Belongs(draws[i], resources.GetFlags(draws[i].Material), pass))
+            if (Belongs(draws[i], resources.Materials[draws[i].Material].Flags, pass))
             {
                 order[count++] = i;
             }
@@ -380,7 +380,7 @@ internal static unsafe class SceneDraws
         public void Issue(int batch, Pipeline pipeline)
         {
             ref readonly var draw = ref First(batch);
-            var constants = Still ? Constants(draw, Cascade) : Constants(draw, Cascade, Resources.SwayOf, Details);
+            var constants = Still ? Constants(draw, Cascade) : Constants(draw, Cascade, Resources.Materials.SwayOf, Details);
             To.Issue(pipeline, draw, Batches[batch].Count, Firsts[batch], constants);
         }
 
@@ -407,9 +407,10 @@ internal static unsafe class SceneDraws
 
     private static Pipeline PipelineFor(in DrawItem draw, List<PipelineVariants> pipelines, ResourceTable resources, List<PipelineVariants>? solids)
     {
-        var flags = resources.GetFlags(draw.Material);
+        var facts = resources.Materials[draw.Material];
+        var flags = facts.Flags;
         var choices = solids is not null && !HasHoles(draw, resources) ? solids : pipelines;
-        var variants = choices[choices.Count > 1 ? resources.GetShader(draw.Material) : 0];
+        var variants = choices[choices.Count > 1 ? facts.Shader : 0];
         return (flags & MaterialFlags.TwoSided) != 0 ? variants.TwoSided : variants.Culled;
     }
 
@@ -437,7 +438,7 @@ internal static unsafe class SceneDraws
     /// finer version of itself, which dithers it.
     /// </summary>
     public static bool HasHoles(in DrawItem draw, ResourceTable resources) =>
-        draw.Dither != 0f || HasHoles(resources.HasCutouts(draw.Material), resources.GetFlags(draw.Material));
+        draw.Dither != 0f || HasHoles(resources.Materials[draw.Material].Cutouts, resources.Materials[draw.Material].Flags);
 
     /// <summary>What a command buffer has bound, so the same pipeline or mesh isn't bound twice in a row.</summary>
     public struct Bound()

@@ -86,7 +86,7 @@ internal sealed unsafe class LightingStage : IDisposable
         _api.EndColorTarget(cmd, targets.Scatter.Image);
         timer.Mark(cmd);
 
-        if (resources.AnySubsurface && !off.HasFlag(RenderEffects.Subsurface))
+        if (resources.Materials.AnySubsurface && !off.HasFlag(RenderEffects.Subsurface))
         {
             var across = BlurConstants.Across;
             ReadOnlySpan<DescriptorSet> acrossSets = [frameSet, _scatterAcrossSet, resources.Set];

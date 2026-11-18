@@ -225,7 +225,7 @@ internal sealed unsafe class TransparentPass : IDisposable
     private void DrawGlass(CommandBuffer cmd, TransparentStep step, in GlassDraws glass, ref SceneDraws.Bound drawn)
     {
         int index = step.First;
-        var constants = SceneDraws.Constants(glass.Draws[index], cascade: 0, _resources.SwayOf, glass.Details);
+        var constants = SceneDraws.Constants(glass.Draws[index], cascade: 0, _resources.Materials.SwayOf, glass.Details);
         constants.Tint.W = step.Refracts ? 1f : 0f;
         SceneDraws.Draw(
             _context.Api, cmd, _layout, _pipelines, _resources, glass.Draws, MemoryMarshal.CreateReadOnlySpan(ref index, 1),
@@ -239,7 +239,7 @@ internal sealed unsafe class TransparentPass : IDisposable
         for (int i = 0; i < draws.Length; i++)
         {
             ref readonly var draw = ref draws[i];
-            if (!SceneDraws.Belongs(draw, _resources.GetFlags(draw.Material), ScenePass.Transparent))
+            if (!SceneDraws.Belongs(draw, _resources.Materials[draw.Material].Flags, ScenePass.Transparent))
             {
                 continue;
             }

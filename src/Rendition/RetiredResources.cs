@@ -28,17 +28,17 @@ internal sealed class RetiredResources(FrameRing ring, MeshStore meshes, Resourc
 
         foreach (int texture in slot.FreedTextures)
         {
-            resources.ReleaseTexture(texture);
+            resources.Textures.Release(texture);
         }
 
         foreach (int array in slot.FreedTextureArrays)
         {
-            resources.ReleaseTextureArray(array);
+            resources.TextureArrays.Release(array);
         }
 
         foreach (int material in slot.FreedMaterials)
         {
-            resources.ReleaseMaterial(material);
+            resources.Materials.Release(material);
         }
 
         foreach (var other in slot.FreedOthers)

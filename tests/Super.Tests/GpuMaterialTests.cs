@@ -29,7 +29,7 @@ public class GpuMaterialTests
             + 4 * scalar        // occlusionTexture, toonSteps, toonRamp, toonPadding
             + vec4;             // toonRim
 
-        Assert.Equal(expected, Unsafe.SizeOf<ResourceTable.GpuMaterial>());
+        Assert.Equal(expected, Unsafe.SizeOf<GpuMaterial>());
     }
 
     // 64 bytes of fixed values, 128 of shader parameters, 16 and 16 of slots, then the
@@ -39,28 +39,46 @@ public class GpuMaterialTests
     // texture, the toon steps, the ramp and a padding follow at 320, 324, 328 and 332, so the toon rim lands on a 16-byte
     // boundary at 336, and the struct ends at 352.
     [Theory]
-    [InlineData(nameof(ResourceTable.GpuMaterial.Flags), 224)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.Transmission), 228)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.HeightTexture), 232)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.HeightDepth), 236)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.DetailColorTexture), 240)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.DetailNormalTexture), 244)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.DetailScale), 248)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.Ior), 252)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.Subsurface), 256)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.MaskTexture), 272)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.SoftEdge), 276)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.WearRoughness), 280)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.DirtRoughness), 284)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.Wear), 288)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.Dirt), 304)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.OcclusionTexture), 320)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.ToonSteps), 324)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.ToonRamp), 328)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.ToonRim), 336)]
+    [InlineData("Surface.BaseColor", 0)]
+    [InlineData("Surface.BaseColorTexture", 28)]
+    [InlineData("Surface.Clearcoat", 44)]
+    [InlineData(nameof(GpuMaterial.Emissive), 48)]
+    [InlineData(nameof(GpuMaterial.Flags), 224)]
+    [InlineData(nameof(GpuMaterial.Transmission), 228)]
+    [InlineData(nameof(GpuMaterial.HeightTexture), 232)]
+    [InlineData(nameof(GpuMaterial.HeightDepth), 236)]
+    [InlineData(nameof(GpuMaterial.DetailColorTexture), 240)]
+    [InlineData(nameof(GpuMaterial.DetailNormalTexture), 244)]
+    [InlineData(nameof(GpuMaterial.DetailScale), 248)]
+    [InlineData(nameof(GpuMaterial.Ior), 252)]
+    [InlineData(nameof(GpuMaterial.Subsurface), 256)]
+    [InlineData(nameof(GpuMaterial.MaskTexture), 272)]
+    [InlineData(nameof(GpuMaterial.SoftEdge), 276)]
+    [InlineData("Layers.WearRoughness", 280)]
+    [InlineData("Layers.DirtRoughness", 284)]
+    [InlineData("Layers.Wear", 288)]
+    [InlineData("Layers.Dirt", 304)]
+    [InlineData(nameof(GpuMaterial.OcclusionTexture), 320)]
+    [InlineData("Toon.Steps", 324)]
+    [InlineData("Toon.Ramp", 328)]
+    [InlineData("Toon.Rim", 336)]
     public void Field_sits_where_material_glsl_reads_it(string field, int offset)
     {
-        Assert.Equal(offset, (int)Marshal.OffsetOf<ResourceTable.GpuMaterial>(field));
+        Assert.Equal(offset, OffsetOf(field));
+    }
+
+    // The offset of a field, or of a field of a group, such as "Layers.Wear", from the start of the material.
+    private static int OffsetOf(string path)
+    {
+        var type = typeof(GpuMaterial);
+        int offset = 0;
+        foreach (string name in path.Split('.'))
+        {
+            offset += (int)Marshal.OffsetOf(type, name);
+            type = type.GetField(name)!.FieldType;
+        }
+
+        return offset;
     }
 
     [Fact]

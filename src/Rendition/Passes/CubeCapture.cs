@@ -25,7 +25,7 @@ internal sealed unsafe class CubeCapture(
         for (int i = 0; i < draws.Length; i++)
         {
             ref readonly var draw = ref draws[i];
-            if (!ProbeCapturePass.Captures(draw, resources.GetFlags(draw.Material)))
+            if (!ProbeCapturePass.Captures(draw, resources.Materials[draw.Material].Flags))
             {
                 continue;
             }

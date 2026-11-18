@@ -1,6 +1,3 @@
-using System.Numerics;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 
 namespace Rendition.Vulkan;
@@ -8,140 +5,42 @@ namespace Rendition.Vulkan;
 /// <summary>
 /// One descriptor set holding every texture and material. Shaders index it directly,
 /// so a draw only has to say which material it uses, and thousands of materials cost
-/// no extra binding work.
+/// no extra binding work. Binding 0 holds the <see cref="Textures"/>, binding 1 the <see cref="Materials"/> and
+/// binding 2 the <see cref="TextureArrays"/>.
 /// </summary>
 internal sealed unsafe class ResourceTable : IDisposable
 {
-    /// <summary>How many textures the table holds where the GPU allows it. See <see cref="MaxTextures"/>.</summary>
+    /// <summary>How many textures the table holds where the GPU allows it. See <see cref="BindlessSlots.Capacity"/>.</summary>
     public const uint WantedTextures = 1024;
     public const uint MaxTextureArrays = 256;
-    public const int MaxMaterials = 1024;
 
     /// <summary>Fragment shaders draw with the table; compute shaders that trace rays read it for what they hit.</summary>
     private const ShaderStageFlags Stages = ShaderStageFlags.FragmentBit | ShaderStageFlags.ComputeBit;
 
-    /// <summary>Must match the Material struct in Shaders/material.glsl, laid out as std430.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct GpuMaterial
-    {
-        [InlineArray(Rendition.ShaderTextures.Length)]
-        public struct TextureSlots
-        {
-            private uint _element;
-        }
-
-        public Vector4 BaseColor;
-        public float Metallic;
-        public float Roughness;
-        public float AlphaCutoff;
-        public uint BaseColorTexture;
-        public uint NormalTexture;
-        public uint SurfaceTexture;
-        public uint EmissiveTexture;
-        public float Clearcoat;
-        public Vector4 Emissive;
-        public Rendition.ShaderParameters ShaderParameters;
-        public TextureSlots ShaderTextures;
-        public TextureSlots ShaderArrays;
-        public uint Flags;
-        public float Transmission;
-        public uint HeightTexture;
-        public float HeightDepth;
-        public uint DetailColorTexture;
-        public uint DetailNormalTexture;
-
-        /// <summary>0 when the material has no detail textures, so the shader skips them.</summary>
-        public float DetailScale;
-
-        /// <summary>1 or more; 1 bends nothing.</summary>
-        public float Ior;
-
-        /// <summary>How far red, green and blue spread under the surface, in metres, and the widest of them in w.</summary>
-        public Vector4 Subsurface;
-
-        public uint MaskTexture;
-
-        /// <summary>How far behind transparent glass the scene must be for it to show fully, in metres; 0 never fades.</summary>
-        public float SoftEdge;
-
-        /// <summary>Below 0 keeps the surface's own roughness under the layer.</summary>
-        public float WearRoughness;
-        public float DirtRoughness;
-
-        /// <summary>The layer's colour in xyz and its amount in w. An amount of 0, as with no mask texture, skips it.</summary>
-        public Vector4 Wear;
-        public Vector4 Dirt;
-
-        /// <summary>White without one. <see cref="MaterialFlags.OcclusionOnUv2"/> says which UV set reads it.</summary>
-        public uint OcclusionTexture;
-
-        /// <summary>How many bands a toon material's light falls into, 0 with a ramp or for a material that isn't toon.</summary>
-        public float ToonSteps;
-
-        /// <summary>The toon ramp, white without one.</summary>
-        public uint ToonRamp;
-
-        /// <summary>Unused, so the rim lands on a 16-byte boundary.</summary>
-        public float ToonPadding;
-
-        /// <summary>The toon rim's light in rgb; a is unused.</summary>
-        public Vector4 ToonRim;
-    }
-
-    /// <summary>
-    /// The flag bit a toon material has on the GPU, set from <see cref="Material.Toon"/> rather than from
-    /// <see cref="MaterialFlags"/>, so a material can't be marked toon without its settings. MATERIAL_TOON in
-    /// material_data.glsl.
-    /// </summary>
-    internal const uint ToonFlag = 1u << 16;
-
     private readonly VulkanContext _context;
-    private readonly Sampler _sampler;
 
-    // For masks, which are atlases of islands: at the texture's edge an island must not pick up the far side.
-    private readonly Sampler _edgeSampler;
+    // Trilinear, anisotropic samplers: one that repeats past the edges, and one that clamps to them for masks, which
+    // are atlases of islands: at the texture's edge an island must not pick up the far side.
+    private readonly (Sampler Repeat, Sampler Clamp) _samplers;
     private readonly DescriptorPool _pool;
-    private readonly GpuBuffer _materials;
-    private readonly MaterialFlags[] _materialFlags = new MaterialFlags[MaxMaterials];
-    private readonly int[] _materialShaders = new int[MaxMaterials];
-    private readonly bool[] _materialCutouts = new bool[MaxMaterials];
-    private readonly int[] _materialShadows = new int[MaxMaterials];
-    private readonly float[] _materialWind = new float[MaxMaterials];
-    private readonly DistanceFade?[] _materialFade = new DistanceFade?[MaxMaterials];
-    private readonly bool[] _materialGlows = new bool[MaxMaterials];
-    private readonly bool[] _materialSubsurface = new bool[MaxMaterials];
-    private readonly int[] _materialTextures = new int[MaxMaterials * TexturesPerMaterial];
-    private readonly List<GpuTexture?> _textures = [];
-    private readonly List<GpuTexture?> _textureArrays = [];
-    private readonly Stack<int> _freeTextures = [];
-    private readonly Stack<int> _freeTextureArrays = [];
-    private readonly Stack<int> _freeMaterials = [];
-    private readonly bool[] _textureDying;
-    private readonly bool[] _textureArrayDying = new bool[MaxTextureArrays];
-    private readonly bool[] _materialLive = new bool[MaxMaterials];
-    private readonly TextureHandle _white;
-    private readonly TextureHandle _flatNormal;
-    private readonly TextureHandle _grey;
-    private readonly TextureArrayHandle _whiteArray;
-    private int _materialCount;
-
-    /// <summary>
-    /// Texture slots a material can name: base colour, normal, surface, emissive, height,
-    /// detail colour, detail normal, mask, occlusion and toon ramp, then the four shader textures.
-    /// </summary>
-    public const int TexturesPerMaterial = OwnTextures + ShaderTextures.Length;
-
-    /// <summary>How many of a material's texture slots come before its shader textures.</summary>
-    private const int OwnTextures = 10;
+    private readonly GpuBuffer _materialBuffer;
 
     public readonly DescriptorSetLayout Layout;
     public readonly DescriptorSet Set;
 
     /// <summary>
-    /// How many textures the table holds: <see cref="WantedTextures"/>, or fewer on a GPU that allows fewer descriptors
-    /// in one set. MoltenVK allows 1212, so the table holds 955 textures there.
+    /// The textures, as many as <see cref="WantedTextures"/>, or fewer on a GPU that allows fewer descriptors in one
+    /// set. MoltenVK allows 1212, so the table holds 955 textures there.
     /// </summary>
-    public uint MaxTextures { get; }
+    public BindlessSlots Textures { get; }
+
+    /// <summary>The texture arrays, <see cref="MaxTextureArrays"/> of them.</summary>
+    public BindlessSlots TextureArrays { get; }
+
+    public MaterialTable Materials { get; }
+
+    /// <summary>The table's own plain textures, which can't be destroyed.</summary>
+    public MaterialDefaults Defaults { get; }
 
     /// <summary>The textures a table holds on a GPU that allows <paramref name="perSetDescriptors"/> descriptors in one set.</summary>
     internal static uint TexturesFor(uint perSetDescriptors)
@@ -159,35 +58,33 @@ internal sealed unsafe class ResourceTable : IDisposable
     public ResourceTable(VulkanContext context)
     {
         _context = context;
-        SwayOf = GetWind;
-        FadeOf = material => _materialFade[material.Index];
-        ShadowShapeOf = material => _materialShadows[material.Index];
-        var api = context.Api;
-
         var properties11 = new PhysicalDeviceVulkan11Properties { SType = StructureType.PhysicalDeviceVulkan11Properties };
         var properties2 = new PhysicalDeviceProperties2 { SType = StructureType.PhysicalDeviceProperties2, PNext = &properties11 };
-        api.GetPhysicalDeviceProperties2(context.PhysicalDevice, &properties2);
-        MaxTextures = TexturesFor(properties11.MaxPerSetDescriptors);
-        _textureDying = new bool[MaxTextures];
-        (_sampler, _edgeSampler) = CreateSamplers(context, properties2.Properties.Limits.MaxSamplerAnisotropy);
-        Layout = CreateLayout(context, MaxTextures);
+        context.Api.GetPhysicalDeviceProperties2(context.PhysicalDevice, &properties2);
+        uint maxTextures = TexturesFor(properties11.MaxPerSetDescriptors);
+        _samplers = CreateSamplers(context, properties2.Properties.Limits.MaxSamplerAnisotropy);
+        Layout = CreateLayout(context, maxTextures);
         _pool = context.CreateDescriptorPool(
             DescriptorPoolCreateFlags.UpdateAfterBindBit,
             1,
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, MaxTextures + MaxTextureArrays),
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, maxTextures + MaxTextureArrays),
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 1));
         Set = context.AllocateSet(_pool, Layout);
+        Textures = new BindlessSlots(context, (Set, 0), (int)maxTextures, _samplers, "textures");
+        TextureArrays = new BindlessSlots(context, (Set, 2), (int)MaxTextureArrays, _samplers, "texture arrays");
 
-        ulong materialsSize = (ulong)(MaxMaterials * sizeof(GpuMaterial));
-        _materials = GpuBuffer.CreateHostVisible(context, materialsSize, BufferUsageFlags.StorageBufferBit);
-        var bufferInfo = new DescriptorBufferInfo(_materials.Handle, 0, materialsSize);
+        var white = AddTexture(SolidTexture(255, 255, 255));
+        Defaults = new MaterialDefaults(
+            white, AddTexture(SolidTexture(128, 128, 255)), AddTexture(SolidTexture(128, 128, 128)),
+            AddTextureArray(new GpuTexture(context, [SolidTexture(255, 255, 255)])));
+        Textures.Fallback = white.Index;
+        TextureArrays.Fallback = Defaults.WhiteArray.Index;
+
+        _materialBuffer = GpuBuffer.CreateHostVisible(context, MaterialTable.BufferSize, BufferUsageFlags.StorageBufferBit);
+        Materials = new MaterialTable(_materialBuffer, Defaults);
+        var bufferInfo = new DescriptorBufferInfo(_materialBuffer.Handle, 0, MaterialTable.BufferSize);
         var write = Descriptors.BufferWrite(Set, 1, &bufferInfo);
-        api.UpdateDescriptorSets(context.Device, 1, &write, 0, null);
-
-        _white = AddTexture(SolidTexture(255, 255, 255));
-        _flatNormal = AddTexture(SolidTexture(128, 128, 255));
-        _grey = AddTexture(SolidTexture(128, 128, 128));
-        _whiteArray = AddTextureArray(new GpuTexture(context, [SolidTexture(255, 255, 255)]));
+        context.Api.UpdateDescriptorSets(context.Device, 1, &write, 0, null);
     }
 
     // Trilinear, anisotropic samplers: one that repeats past the edges, and one that clamps to them.
@@ -250,397 +147,28 @@ internal sealed unsafe class ResourceTable : IDisposable
         return layout;
     }
 
-    public MaterialFlags GetFlags(MaterialHandle material) => _materialFlags[material.Index];
-
-    public int GetShader(MaterialHandle material) => _materialShaders[material.Index];
-
-    /// <summary>Whether the material's texture cuts holes in it.</summary>
-    public bool HasCutouts(MaterialHandle material) => _materialCutouts[material.Index];
-
     /// <summary>
-    /// A hash of what in the material shapes its shadow: its opacity, cut-off, the textures they come from and its flags,
-    /// so a material that only changes colour keeps the shadows it casts. A lookup made once.
+    /// Takes a slot for a texture and points it at the image, read past its edges as <paramref name="edges"/> says. A
+    /// full table frees the texture and throws; see <see cref="BindlessSlots.HasRoom"/>.
     /// </summary>
-    public Func<MaterialHandle, int> ShadowShapeOf { get; }
-
-    /// <summary>How far the material sways in the wind, as a share of its strength: 0 for not at all.</summary>
-    public float GetWind(MaterialHandle material) => _materialWind[material.Index];
-
-    /// <summary>Whether the material gives light of its own: some channel of its emissive colour is above 0.</summary>
-    public bool Glows(MaterialHandle material) => _materialGlows[material.Index];
-
-    /// <summary><see cref="GetWind"/> as a lookup that passes and culling hold on to, made once.</summary>
-    public Func<MaterialHandle, float> SwayOf { get; }
-
-    /// <summary>How each material fades out with distance, null when it never does, as a lookup made once.</summary>
-    public Func<MaterialHandle, DistanceFade?> FadeOf { get; }
-
-    /// <summary>True when a live material scatters light under its surface, so the frame needs the subsurface blur.</summary>
-    public bool AnySubsurface
-    {
-        get
-        {
-            for (int i = 0; i < _materialCount; i++)
-            {
-                if (_materialLive[i] && _materialSubsurface[i])
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Whether <see cref="AddTexture(GpuTexture, TextureEdges)"/> has a slot to give now. Ask before handing over a texture that must not be
-    /// freed at once, since a full table frees the texture it refuses.
-    /// </summary>
-    public bool HasTextureRoom => _freeTextures.Count > 0 || _textures.Count < MaxTextures;
-
-    /// <summary>
-    /// Takes a slot for a texture and points it at the image. The slot is free in every
-    /// frame in flight, which is what lets the set be written while bound.
-    /// </summary>
-    public TextureHandle AddTexture(GpuTexture texture, TextureEdges edges = TextureEdges.Repeat)
-    {
-        int slot;
-        if (_freeTextures.Count > 0)
-        {
-            slot = _freeTextures.Pop();
-            _textures[slot] = texture;
-        }
-        else
-        {
-            if (_textures.Count == MaxTextures)
-            {
-                texture.Dispose();
-                throw new InvalidOperationException($"The renderer holds at most {MaxTextures} textures.");
-            }
-
-            slot = _textures.Count;
-            _textures.Add(texture);
-        }
-
-        // The slot's descriptor is written once, so its sampler is the texture's for life. A
-        // material can't change it, which would change it for every other material using it.
-        WriteTextureDescriptor(0, slot, texture, edges == TextureEdges.Clamp);
-        return new TextureHandle(slot);
-    }
-
-    /// <summary>Takes a slot for a texture array, the same way as <see cref="AddTexture(GpuTexture, TextureEdges)"/>.</summary>
-    public TextureArrayHandle AddTextureArray(GpuTexture texture)
-    {
-        int slot;
-        if (_freeTextureArrays.Count > 0)
-        {
-            slot = _freeTextureArrays.Pop();
-            _textureArrays[slot] = texture;
-        }
-        else
-        {
-            if (_textureArrays.Count == MaxTextureArrays)
-            {
-                texture.Dispose();
-                throw new InvalidOperationException($"The renderer holds at most {MaxTextureArrays} texture arrays.");
-            }
-
-            slot = _textureArrays.Count;
-            _textureArrays.Add(texture);
-        }
-
-        WriteTextureDescriptor(2, slot, texture);
-        return new TextureArrayHandle(slot);
-    }
+    public TextureHandle AddTexture(GpuTexture texture, TextureEdges edges = TextureEdges.Repeat) =>
+        new(Textures.Add(texture, edges == TextureEdges.Clamp));
 
     /// <summary>Waits for the GPU, so call this while loading rather than during a frame.</summary>
     public TextureHandle AddTexture(TextureData data) => AddTexture(new GpuTexture(_context, data));
 
-    /// <summary>Whether the handle is one of the table's own textures, which can't be destroyed.</summary>
-    public bool IsBuiltIn(TextureHandle texture) => texture == _white || texture == _flatNormal || texture == _grey;
-
-    /// <summary>Whether a handle names a texture that hasn't been destroyed.</summary>
-    public bool IsLive(TextureHandle texture) =>
-        texture.Index >= 0 && texture.Index < _textures.Count && _textures[texture.Index] is not null
-        && !_textureDying[texture.Index];
-
-    /// <summary>Whether a handle names a texture that has been destroyed but still waits for the frames reading it.</summary>
-    public bool IsDying(TextureHandle texture) =>
-        texture.Index >= 0 && texture.Index < _textures.Count && _textures[texture.Index] is not null
-        && _textureDying[texture.Index];
-
-    /// <summary>Whether a handle names a material that hasn't been destroyed.</summary>
-    public bool IsLive(MaterialHandle material) =>
-        material.Index >= 0 && material.Index < _materialCount && _materialLive[material.Index];
-
-    /// <summary>Whether the handle is the table's own white array, which can't be destroyed.</summary>
-    public bool IsBuiltIn(TextureArrayHandle array) => array == _whiteArray;
-
-    /// <summary>Whether a handle names a texture array that hasn't been destroyed.</summary>
-    public bool IsLive(TextureArrayHandle array) =>
-        array.Index >= 0 && array.Index < _textureArrays.Count && _textureArrays[array.Index] is not null
-        && !_textureArrayDying[array.Index];
-
-    /// <summary>
-    /// Marks a live texture as destroyed, so destroying it again fails, and hands back the
-    /// image for the time until <see cref="ReleaseTexture"/> frees it.
-    /// </summary>
-    public GpuTexture MarkTextureDying(int slot)
-    {
-        _textureDying[slot] = true;
-        return _textures[slot]!;
-    }
-
-    /// <summary>Marks a live texture array as destroyed, like <see cref="MarkTextureDying"/>.</summary>
-    public GpuTexture MarkTextureArrayDying(int slot)
-    {
-        _textureArrayDying[slot] = true;
-        return _textureArrays[slot]!;
-    }
-
-    /// <summary>Marks a live material as destroyed, so destroying it again fails.</summary>
-    public void MarkMaterialDying(int slot) => _materialLive[slot] = false;
-
-    /// <summary>
-    /// Frees a texture's slot once no frame can read it, pointing the slot at white so
-    /// a stale material draws something harmless.
-    /// </summary>
-    public void ReleaseTexture(int slot)
-    {
-        var texture = _textures[slot];
-        if (texture is null)
-        {
-            return;
-        }
-
-        texture.Dispose();
-        _textures[slot] = null;
-        _textureDying[slot] = false;
-        WriteTextureDescriptor(0, slot, _textures[_white.Index]!);
-        _freeTextures.Push(slot);
-    }
-
-    /// <summary>Frees a texture array's slot the same way as <see cref="ReleaseTexture"/>.</summary>
-    public void ReleaseTextureArray(int slot)
-    {
-        var texture = _textureArrays[slot];
-        if (texture is null)
-        {
-            return;
-        }
-
-        texture.Dispose();
-        _textureArrays[slot] = null;
-        _textureArrayDying[slot] = false;
-        WriteTextureDescriptor(2, slot, _textureArrays[_whiteArray.Index]!);
-        _freeTextureArrays.Push(slot);
-    }
-
-    private void WriteTextureDescriptor(uint binding, int slot, GpuTexture texture, bool clampEdges = false)
-    {
-        var imageInfo = new DescriptorImageInfo(clampEdges ? _edgeSampler : _sampler, texture.View, ImageLayout.ShaderReadOnlyOptimal);
-        var write = new WriteDescriptorSet
-        {
-            SType = StructureType.WriteDescriptorSet,
-            DstSet = Set,
-            DstBinding = binding,
-            DstArrayElement = (uint)slot,
-            DescriptorCount = 1,
-            DescriptorType = DescriptorType.CombinedImageSampler,
-            PImageInfo = &imageInfo,
-        };
-        _context.Api.UpdateDescriptorSets(_context.Device, 1, &write, 0, null);
-    }
-
-    public MaterialHandle AddMaterial(in Material material)
-    {
-        if (_freeMaterials.Count > 0)
-        {
-            int slot = _freeMaterials.Pop();
-            WriteMaterial(slot, material);
-            _materialLive[slot] = true;
-            return new MaterialHandle(slot);
-        }
-
-        if (_materialCount == MaxMaterials)
-        {
-            throw new InvalidOperationException($"The renderer holds at most {MaxMaterials} materials.");
-        }
-
-        // Earlier frames only read earlier slots, so this write needs no synchronization.
-        WriteMaterial(_materialCount, material);
-        _materialLive[_materialCount] = true;
-        return new MaterialHandle(_materialCount++);
-    }
-
-    /// <summary>Lets a material slot be reused. Call once no frame in flight reads it.</summary>
-    public void ReleaseMaterial(int slot) => _freeMaterials.Push(slot);
-
-    /// <summary>The texture slots a material names, or -1 where it uses a built-in one.</summary>
-    public ReadOnlySpan<int> TexturesOf(MaterialHandle material) =>
-        _materialTextures.AsSpan(material.Index * TexturesPerMaterial, TexturesPerMaterial);
-
-    /// <summary>
-    /// Changes a material in place. A frame still on the GPU may see the new values,
-    /// which at worst shows them one frame early.
-    /// </summary>
-    public void UpdateMaterial(MaterialHandle handle, in Material material)
-    {
-        if (handle.Index < 0 || handle.Index >= _materialCount)
-        {
-            throw new ArgumentException("The material does not exist.", nameof(handle));
-        }
-
-        WriteMaterial(handle.Index, material);
-    }
-
-    /// <summary>
-    /// How far each colour spreads in metres, with the widest in w, or zero when the
-    /// surface doesn't scatter. A colour of zero spreads all three channels the full radius.
-    /// </summary>
-    internal static Vector4 Spread(in Subsurface subsurface)
-    {
-        if (!subsurface.IsOn)
-        {
-            return Vector4.Zero;
-        }
-
-        var color = subsurface.Color == Vector3.Zero ? Vector3.One : Vector3.Max(subsurface.Color, Vector3.Zero);
-        var spread = color * subsurface.Radius;
-        return new Vector4(spread, MathF.Max(spread.X, MathF.Max(spread.Y, spread.Z)));
-    }
-
-    /// <summary>
-    /// How much light passes through the material, which the shader reads from the transmission slot: a scattering
-    /// surface's own, foliage's translucency, or none.
-    /// </summary>
-    internal static float Transmission(in Material material)
-    {
-        if (material.Subsurface.IsOn)
-        {
-            return Math.Clamp(material.Subsurface.Transmission, 0f, 1f);
-        }
-
-        return (material.Flags & MaterialFlags.Foliage) != 0 ? Math.Clamp(material.Translucency, 0f, 1f) : 0f;
-    }
-
-    /// <summary>The material's share of the wind's lean, never below 0, and 0 for a value that isn't a number.</summary>
-    internal static float Sway(in Material material) =>
-        float.IsFinite(material.Wind) ? MathF.Max(material.Wind, 0f) : 0f;
-
-    // Without a mask there's nothing to lay the layer by, so it's off.
-    private static Vector4 Layer(in MaterialLayer layer, bool masked) =>
-        new(layer.Color, masked ? Math.Clamp(layer.Amount, 0f, 1f) : 0f);
-
-    private void WriteMaterial(int index, in Material material)
-    {
-        ref var gpu = ref ((GpuMaterial*)_materials.Mapped)[index];
-        gpu = ToGpu(material);
-        for (int i = 0; i < ShaderTextures.Length; i++)
-        {
-            gpu.ShaderTextures[i] = (uint)(material.ShaderTextures[i] ?? _white).Index;
-            gpu.ShaderArrays[i] = (uint)(material.ShaderArrays[i] ?? _whiteArray).Index;
-        }
-
-        _materialFlags[index] = material.Flags;
-        _materialShaders[index] = material.Shader?.Index ?? 0;
-        _materialCutouts[index] = material.AlphaCutoff > 0f;
-        _materialShadows[index] = HashCode.Combine(
-            material.BaseColor.W, material.AlphaCutoff, material.BaseColorTexture, material.SurfaceTexture, material.Flags);
-        _materialWind[index] = Sway(material);
-        _materialFade[index] = material.Fade;
-        _materialGlows[index] = material.Emissive.X > 0f || material.Emissive.Y > 0f || material.Emissive.Z > 0f;
-        _materialSubsurface[index] = material.Subsurface.IsOn;
-
-        var owned = _materialTextures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);
-        owned[0] = material.BaseColorTexture?.Index ?? -1;
-        owned[1] = material.NormalTexture?.Index ?? -1;
-        owned[2] = material.SurfaceTexture?.Index ?? -1;
-        owned[3] = material.EmissiveTexture?.Index ?? -1;
-        owned[4] = material.HeightTexture?.Index ?? -1;
-        owned[5] = material.DetailColorTexture?.Index ?? -1;
-        owned[6] = material.DetailNormalTexture?.Index ?? -1;
-        owned[7] = material.MaskTexture?.Index ?? -1;
-        owned[8] = material.OcclusionTexture?.Index ?? -1;
-        owned[9] = WriteToon(ref gpu, material.Toon);
-        for (int i = 0; i < ShaderTextures.Length; i++)
-        {
-            owned[OwnTextures + i] = material.ShaderTextures[i]?.Index ?? -1;
-        }
-    }
-
-    // The material as the shaders read it, with the table's plain textures where it has none, but without its shader
-    // textures and toon shading, which WriteMaterial adds.
-    private GpuMaterial ToGpu(in Material material)
-    {
-        return new GpuMaterial
-        {
-            BaseColor = material.BaseColor,
-            Metallic = material.Metallic,
-            Roughness = material.Roughness,
-            AlphaCutoff = material.AlphaCutoff,
-            BaseColorTexture = (uint)(material.BaseColorTexture ?? _white).Index,
-            NormalTexture = (uint)(material.NormalTexture ?? _flatNormal).Index,
-            SurfaceTexture = (uint)(material.SurfaceTexture ?? _white).Index,
-            EmissiveTexture = (uint)(material.EmissiveTexture ?? _white).Index,
-            Clearcoat = material.Clearcoat,
-            Emissive = new Vector4(material.Emissive, 0f),
-            ShaderParameters = material.ShaderParameters,
-            Flags = (uint)material.Flags,
-            HeightTexture = (uint)(material.HeightTexture ?? _white).Index,
-            HeightDepth = material.HeightTexture is null ? 0f : MathF.Max(material.HeightDepth, 0f),
-            DetailColorTexture = (uint)(material.DetailColorTexture ?? _grey).Index,
-            DetailNormalTexture = (uint)(material.DetailNormalTexture ?? _flatNormal).Index,
-            DetailScale = material.DetailColorTexture is null && material.DetailNormalTexture is null
-                ? 0f
-                : material.DetailScale > 0f ? material.DetailScale : 1f,
-            Ior = MathF.Max(material.Ior, 1f),
-            Transmission = Transmission(material),
-            Subsurface = Spread(material.Subsurface),
-            MaskTexture = (uint)(material.MaskTexture ?? _white).Index,
-            OcclusionTexture = (uint)(material.OcclusionTexture ?? _white).Index,
-            WearRoughness = material.Wear.Roughness,
-            DirtRoughness = material.Dirt.Roughness,
-            Wear = Layer(material.Wear, material.MaskTexture is not null),
-            Dirt = Layer(material.Dirt, material.MaskTexture is not null),
-            SoftEdge = float.IsFinite(material.SoftEdge) ? MathF.Max(material.SoftEdge, 0f) : 0f,
-        };
-    }
-
-    // A toon material's flag, bands or ramp, and rim, and the ramp's texture slot for the material's own, -1 for none.
-    // Plain bands, and a material that isn't toon, keep the white texture in the ramp's slot.
-    private int WriteToon(ref GpuMaterial gpu, ToonShading? shading)
-    {
-        gpu.ToonRamp = (uint)_white.Index;
-        if (shading is not { } toon)
-        {
-            return -1;
-        }
-
-        gpu.Flags |= ToonFlag;
-        gpu.ToonSteps = toon.Ramp is null ? toon.Steps : 0f;
-        gpu.ToonRamp = (uint)(toon.Ramp ?? _white).Index;
-        gpu.ToonRim = new Vector4(toon.Rim, 0f);
-        return toon.Ramp?.Index ?? -1;
-    }
+    /// <summary>Takes a slot for a texture array, the same way as <see cref="AddTexture(GpuTexture, TextureEdges)"/>.</summary>
+    public TextureArrayHandle AddTextureArray(GpuTexture texture) => new(TextureArrays.Add(texture));
 
     public void Dispose()
     {
-        foreach (var texture in _textures)
-        {
-            texture?.Dispose();
-        }
-
-        foreach (var array in _textureArrays)
-        {
-            array?.Dispose();
-        }
-
-        _materials.Dispose();
+        Textures.Dispose();
+        TextureArrays.Dispose();
+        _materialBuffer.Dispose();
         _context.Api.DestroyDescriptorPool(_context.Device, _pool, null);
         _context.Api.DestroyDescriptorSetLayout(_context.Device, Layout, null);
-        _context.Api.DestroySampler(_context.Device, _sampler, null);
-        _context.Api.DestroySampler(_context.Device, _edgeSampler, null);
+        _context.Api.DestroySampler(_context.Device, _samplers.Repeat, null);
+        _context.Api.DestroySampler(_context.Device, _samplers.Clamp, null);
     }
 
     private static TextureData SolidTexture(byte r, byte g, byte b) => new()
