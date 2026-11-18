@@ -8,7 +8,7 @@ namespace Rendition.Passes;
 /// <summary>
 /// Updates a batch of light probes with rays, where the GPU can trace them: probe_trace.comp sends 128 rays from each
 /// probe through the frame's top-level structure, shades what they hit as probe_light.glsl says, with shadow rays for
-/// the sun and the point and spot lights, and folds them into the probe's tiles in <see cref="ProbeVolume.StagingTiles"/>,
+/// the sun and the point and spot lights, and folds them into the probe's tiles in <see cref="ProbeVolumeAtlases.Staging"/>,
 /// slot i for probe i of the batch. The caller then blends them in. It takes the place of <see cref="ProbeCapturePass"/>
 /// and the folds, and needs no sun shadow map. Glass and water are skipped by every ray, as the rasterized capture
 /// leaves them out. Exists only where the device can trace. See "Light probes" in docs/design.md.

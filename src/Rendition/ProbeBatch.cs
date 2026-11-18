@@ -182,13 +182,9 @@ internal sealed class ProbeBatch
     {
         foreach (var invalidation in _invalidations)
         {
-            volume.RecordInvalidate(cmd, invalidation.Layer, invalidation.Origin,
-                invalidation.Counts.X, invalidation.Counts.Y, invalidation.Counts.Z, invalidation.SlabStart, invalidation.SlabCount);
+            volume.RecordInvalidate(cmd, invalidation);
         }
 
         _invalidations.Clear();
     }
-
-    /// <summary>One layer's cells to clear, as <see cref="ProbeVolume.RecordInvalidate"/> takes them.</summary>
-    private readonly record struct ProbeInvalidation(int Layer, Int3 Origin, Int3 Counts, Int3 SlabStart, Int3 SlabCount);
 }

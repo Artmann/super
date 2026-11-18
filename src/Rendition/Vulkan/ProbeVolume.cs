@@ -1,6 +1,5 @@
 using Rendition.Passes;
 using Silk.NET.Vulkan;
-using Buffer = Silk.NET.Vulkan.Buffer;
 
 namespace Rendition.Vulkan;
 
@@ -10,8 +9,8 @@ namespace Rendition.Vulkan;
 /// direction, which lets a surface tell whether a probe is behind a wall from it. Each atlas is a
 /// 2D array of five layers: the four cascades that follow the camera, finest first, then the fixed
 /// grid in <see cref="FixedGridLayer"/>. A frame's probe update draws each probe's six faces into
-/// its slot of <see cref="FacesImage"/>, <see cref="RecordFold"/> folds them into a slot of
-/// <see cref="StagingTiles"/>, and <see cref="RecordBlend"/> blends a batch of slots into the atlases.
+/// its slot of the <see cref="Faces"/>, <see cref="RecordFold"/> folds them into a staging slot of the
+/// <see cref="Atlases"/>, and <see cref="RecordBlend"/> blends a batch of slots into the atlases.
 ///
 /// Nothing real is made until <see cref="EnsureStorage"/>: until then the atlases are a one-tile
 /// stand-in, so a renderer with the probes switched off holds almost nothing.
@@ -20,7 +19,7 @@ namespace Rendition.Vulkan;
 internal sealed unsafe class ProbeVolume : IDisposable
 {
     /// <summary>How many texels across each captured face is. The probes keep only soft light, so this is plenty.</summary>
-    public const uint FaceSize = 16;
+    public const uint FaceSize = ProbeFaces.FaceSize;
 
     /// <summary>
     /// What a face's alpha holds where nothing was drawn: further than any probe looks. Must match
@@ -29,81 +28,23 @@ internal sealed unsafe class ProbeVolume : IDisposable
     public const float SkyMark = 1e4f;
 
     /// <summary>Texels across a tile, without its border. Must match probes.glsl and probe_fold.glsl.</summary>
-    public const int IrradianceTexels = 8;
-    public const int DepthTexels = 16;
+    public const int IrradianceTexels = ProbeVolumeAtlases.IrradianceTexels;
+    public const int DepthTexels = ProbeVolumeAtlases.DepthTexels;
 
     /// <summary>The atlas layer of the fixed grid. Layers 0 to 3 are the cascades.</summary>
-    public const int FixedGridLayer = ProbeScheduler.FixedGrid;
+    public const int FixedGridLayer = ProbeVolumeAtlases.FixedGridLayer;
 
     /// <summary>The atlases' layers: four cascades and the fixed grid.</summary>
-    public const int Layers = FixedGridLayer + 1;
+    public const int Layers = ProbeVolumeAtlases.Layers;
 
-    /// <summary>
-    /// One probe's two bordered tiles in the staging buffer: 10 × 10 RGBA floats and 18 × 18 RG
-    /// floats. Must match StagedTile in Shaders/probe_fold.glsl.
-    /// </summary>
-    public const int StagedTileBytes = (IrradianceTexels + 2) * (IrradianceTexels + 2) * 16 + (DepthTexels + 2) * (DepthTexels + 2) * 8;
+    /// <summary>One probe's two bordered tiles in the staging buffer. See <see cref="ProbeVolumeAtlases.StagedTileBytes"/>.</summary>
+    public const int StagedTileBytes = ProbeVolumeAtlases.StagedTileBytes;
 
     /// <summary>The faces' colour: the light seen in rgb and the distance in alpha.</summary>
-    public const Format FacesFormat = Format.R16G16B16A16Sfloat;
-
-    private const Format IrradianceFormat = Format.R16G16B16A16Sfloat;
-    private const Format DepthFormat = Format.R16G16Sfloat;
-
-    // The largest of the three compute shaders' constants.
-    private const uint PushBytes = 64;
-
-    /// <summary>Must match the Fold block in Shaders/probe_fold.comp.</summary>
-    private struct FoldConstants
-    {
-        public int Slot;
-        public float MaxDistance;
-        public float EnvironmentIntensity;
-    }
-
-    /// <summary>Must match the Blend block in Shaders/probe_blend.comp.</summary>
-    private struct BlendConstants
-    {
-        public float Alpha;
-        public int Count;
-        public float Snap;
-    }
-
-    /// <summary>Must match the Invalidate block in Shaders/probe_invalidate.comp.</summary>
-    private struct InvalidateConstants
-    {
-        public int OriginX, OriginY, OriginZ, Layer;
-        public int CountX, CountY, CountZ, Total;
-        public int StartX, StartY, StartZ, Unused0;
-        public int SlabX, SlabY, SlabZ, Unused1;
-    }
+    public const Format FacesFormat = ProbeFaces.ColorFormat;
 
     private readonly VulkanContext _context;
-    private readonly Sampler _facesSampler;
-    private readonly Sampler _skySampler;
-    private readonly ImageView _sky;
-    private readonly DescriptorSetLayout _setLayout;
-    private readonly DescriptorPool _pool;
-    private readonly DescriptorSet _set;
-    private readonly PipelineLayout _pipelineLayout;
-    private readonly LivePipeline? _foldPipeline;
-    private readonly LivePipeline? _blendPipeline;
-    private readonly LivePipeline? _invalidatePipeline;
-
-    private Image _irradiance;
-    private GpuAllocation _irradianceMemory;
-    private Image _depth;
-    private GpuAllocation _depthMemory;
-    private GpuBuffer _staging = null!;
-    private GpuBuffer _ids = null!;
-
-    private Image _facesColor;
-    private GpuAllocation _facesColorMemory;
-    private Image _facesDepth;
-    private GpuAllocation _facesDepthMemory;
-    private ImageView _facesArray;
-    private ImageView[] _slotColorViews = [];
-    private ImageView[] _slotDepthViews = [];
+    private readonly ProbeVolumePasses _passes;
 
     /// <summary>
     /// Whether this GPU can update the probes. The depth atlas has two channels, which compute shaders
@@ -119,96 +60,29 @@ internal sealed unsafe class ProbeVolume : IDisposable
     public ProbeVolume(VulkanContext context, Sampler skySampler, ImageView sky)
     {
         _context = context;
-        _skySampler = skySampler;
-        _sky = sky;
         Supported = context.Abilities.StorageImageExtendedFormats && context.Abilities.Multiview;
-        var api = context.Api;
-
-        var samplerInfo = new SamplerCreateInfo
-        {
-            SType = StructureType.SamplerCreateInfo,
-            MagFilter = Filter.Nearest,
-            MinFilter = Filter.Nearest,
-            MipmapMode = SamplerMipmapMode.Nearest,
-            AddressModeU = SamplerAddressMode.ClampToEdge,
-            AddressModeV = SamplerAddressMode.ClampToEdge,
-            AddressModeW = SamplerAddressMode.ClampToEdge,
-            MaxLod = 0f,
-        };
-        api.CreateSampler(context.Device, &samplerInfo, null, out _facesSampler).Check();
-
-        _setLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-            new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
-            new(2, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
-            new(3, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-            new(4, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-            new(5, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-        ]);
-        _pool = context.CreateDescriptorPool(
-            1,
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 2),
-            new DescriptorPoolSize(DescriptorType.StorageBuffer, 2),
-            new DescriptorPoolSize(DescriptorType.StorageImage, 2));
-        _set = context.AllocateSet(_pool, _setLayout);
-
-        _pipelineLayout = context.CreatePipelineLayout(
-            [_setLayout],
-            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, PushBytes));
-
-        if (Supported)
-        {
-            _foldPipeline = PipelineFactory.CreateCompute(context, "probe_fold.comp", _pipelineLayout);
-            _blendPipeline = PipelineFactory.CreateCompute(context, "probe_blend.comp", _pipelineLayout);
-            _invalidatePipeline = PipelineFactory.CreateCompute(context, "probe_invalidate.comp", _pipelineLayout);
-        }
-
-        CreatePlaceholder();
+        _passes = new ProbeVolumePasses(context, (skySampler, sky), Supported);
+        Atlases = Placeholder();
     }
 
+    /// <summary>
+    /// The atlases, the staging slots the folds write and the ids the blend reads. One tile per layer and one
+    /// staging slot until <see cref="EnsureStorage"/> makes the real ones.
+    /// </summary>
+    public ProbeVolumeAtlases Atlases { get; private set; }
+
+    /// <summary>The faces a batch of probes is drawn into. Null until <see cref="EnsureStorage"/> makes them.</summary>
+    public ProbeFaces? Faces { get; private set; }
+
     /// <summary>Whether the real atlases and faces exist, rather than the stand-in.</summary>
-    public bool Allocated { get; private set; }
+    public bool Allocated => Faces is not null;
 
     /// <summary>The quality the storage was made for. Only meaningful while <see cref="Allocated"/>.</summary>
     public ProbeQuality Quality { get; private set; }
 
-    /// <summary>Tiles across each atlas layer.</summary>
-    public int Columns { get; private set; }
+    public ImageView IrradianceView => Atlases.IrradianceView;
 
-    /// <summary>Tile rows in each atlas layer.</summary>
-    public int Rows { get; private set; }
-
-    /// <summary>The most probes one <see cref="RecordBlend"/> takes: the traced budget, the larger of the two.</summary>
-    public int StagingSlots { get; private set; }
-
-    /// <summary>How many probes' faces fit in <see cref="FacesImage"/>: the rasterized budget.</summary>
-    public int FaceSlots { get; private set; }
-
-    /// <summary>Folded tiles waiting to be blended into the atlases, <see cref="StagedTileBytes"/> each.</summary>
-    public Buffer StagingTiles => _staging.Handle;
-
-    public ImageView IrradianceView { get; private set; }
-
-    public ImageView DepthView { get; private set; }
-
-    /// <summary>Every probe's six faces, six layers per slot of the batch. Only while <see cref="Allocated"/>.</summary>
-    public Image FacesImage => _facesColor;
-
-    /// <summary>The depth the faces are drawn with, laid out as <see cref="FacesImage"/>.</summary>
-    public Image FacesDepthImage => _facesDepth;
-
-    /// <summary>The six colour layers of one slot, as a 2D array to draw all six faces at once with multiview.</summary>
-    public ImageView SlotColorView(int slot) => _slotColorViews[slot];
-
-    /// <summary>The six depth layers of one slot.</summary>
-    public ImageView SlotDepthView(int slot) => _slotDepthViews[slot];
-
-    /// <summary>
-    /// Whether any cascade tile has been written since the atlases were last cleared. Until one is,
-    /// surfaces skip the cascades.
-    /// </summary>
-    public bool CascadesWritten { get; private set; }
+    public ImageView DepthView => Atlases.DepthView;
 
     /// <summary>
     /// Makes the atlases, faces and staging for a quality, if they aren't already, with every probe
@@ -225,7 +99,15 @@ internal sealed unsafe class ProbeVolume : IDisposable
 
         _context.WaitIdle();
         DestroyStorage();
-        CreateStorage(quality);
+        Quality = quality;
+        var budget = ProbeBudget.For(quality);
+        Atlases = new ProbeVolumeAtlases(_context, ProbeVolumeAtlases.Grid(quality), budget.Traced, Supported);
+        Faces = new ProbeFaces(_context, budget.Raster);
+        if (Supported)
+        {
+            _passes.PointAt(Atlases, Faces.ArrayView);
+        }
+
         return true;
     }
 
@@ -243,7 +125,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
 
         _context.WaitIdle();
         DestroyStorage();
-        CreatePlaceholder();
+        Atlases = Placeholder();
         return true;
     }
 
@@ -251,37 +133,23 @@ internal sealed unsafe class ProbeVolume : IDisposable
     /// Readies the faces just drawn for folding: call once after the batch's captures and before its
     /// <see cref="RecordFold"/> calls. The last blend may still be reading the staging slots.
     /// </summary>
-    public void BeginFolds(CommandBuffer cmd)
-    {
-        Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit);
-    }
+    public void BeginFolds(CommandBuffer cmd) =>
+        _context.Api.MemoryBarrier(cmd,
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
 
     /// <summary>
-    /// Folds the six faces of one slot of <see cref="FacesImage"/> into the same staging slot.
+    /// Folds the six faces of one slot of the <see cref="Faces"/> into the same staging slot.
     /// <paramref name="spacing"/> is the probe's cascade's: further than two spacings a probe lights
     /// nothing, so distances stop there. Where it saw nothing it sees the sky: the environment times
     /// <paramref name="environmentIntensity"/>, whether or
     /// not the view shows the environment there, so a probe in the open reads as no probe does.
     /// </summary>
-    public void RecordFold(
-        CommandBuffer cmd, int slot, float spacing, float environmentIntensity)
+    public void RecordFold(CommandBuffer cmd, int slot, float spacing, float environmentIntensity)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(slot);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, Math.Min(StagingSlots, FaceSlots));
-        var api = _context.Api;
-
-        var set = _set;
-        var constants = new FoldConstants
-        {
-            Slot = slot,
-            MaxDistance = spacing * 2f,
-            EnvironmentIntensity = environmentIntensity,
-        };
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _foldPipeline!);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
-        api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(FoldConstants), &constants);
-        api.CmdDispatch(cmd, 1, 1, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, Math.Min(Atlases.StagingSlots, Faces?.Slots ?? 0));
+        _passes.RecordFold(cmd, slot, spacing * 2f, environmentIntensity);
     }
 
     /// <summary>
@@ -292,50 +160,32 @@ internal sealed unsafe class ProbeVolume : IDisposable
     public void RecordStagingReadBack(CommandBuffer cmd, GpuBuffer buffer, int slots)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(slots);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(slots, StagingSlots);
-        Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(slots, Atlases.StagingSlots);
+        _context.Api.MemoryBarrier(cmd,
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
         var region = new BufferCopy(0, 0, (ulong)slots * StagedTileBytes);
-        _context.Api.CmdCopyBuffer(cmd, _staging.Handle, buffer.Handle, 1, &region);
+        _context.Api.CmdCopyBuffer(cmd, Atlases.Staging.Handle, buffer.Handle, 1, &region);
     }
 
     /// <summary>
-    /// Makes uncaptured every probe of one atlas layer whose cell lies in a slab: cell x in
-    /// [start.X, start.X + count.X), or the same along y or z. The cells of the layer's box run from
-    /// <paramref name="origin"/> for <paramref name="countX"/> by countY by countZ, and wrap to their
-    /// slots as <see cref="ProbeCascades.Slot"/> does. A slab with no cells is (0, 0).
+    /// Makes uncaptured every probe of one atlas layer whose cell lies in the slab <paramref name="cells"/> names.
+    /// The cells wrap to their slots as <see cref="ProbeCascades.Slot"/> does.
     /// </summary>
-    public void RecordInvalidate(
-        CommandBuffer cmd, int layer, Int3 origin, int countX, int countY, int countZ, Int3 slabStart, Int3 slabCount)
+    public void RecordInvalidate(CommandBuffer cmd, in ProbeInvalidation cells)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(layer);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(layer, Layers);
-        int total = countX * countY * countZ;
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(total, Columns * Rows);
-        var api = _context.Api;
+        ArgumentOutOfRangeException.ThrowIfNegative(cells.Layer);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(cells.Layer, Layers);
+        int total = cells.Counts.X * cells.Counts.Y * cells.Counts.Z;
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(total, Atlases.Columns * Atlases.Rows);
 
         // Wait for anything still reading or writing the atlas.
-        Barrier(cmd,
-            PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.FragmentShaderBit,
-            AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit);
-
-        var set = _set;
-        var constants = new InvalidateConstants
-        {
-            OriginX = origin.X, OriginY = origin.Y, OriginZ = origin.Z, Layer = layer,
-            CountX = countX, CountY = countY, CountZ = countZ, Total = total,
-            StartX = slabStart.X, StartY = slabStart.Y, StartZ = slabStart.Z,
-            SlabX = slabCount.X, SlabY = slabCount.Y, SlabZ = slabCount.Z,
-        };
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _invalidatePipeline!);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
-        api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(InvalidateConstants), &constants);
-        api.CmdDispatch(cmd, (uint)((total + 63) / 64), 1, 1);
-
-        Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit,
-            AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
+        _context.Api.MemoryBarrier(cmd,
+            (PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.FragmentShaderBit,
+                AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
+        _passes.RecordInvalidate(cmd, cells, total);
+        _context.Api.MemoryBarrier(cmd, (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit), ProbeVolumeAtlases.Readers);
     }
 
     /// <summary>
@@ -354,322 +204,43 @@ internal sealed unsafe class ProbeVolume : IDisposable
             return;
         }
 
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(batch.Count, StagingSlots);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(batch.Count, Atlases.StagingSlots);
         var api = _context.Api;
 
         // ids is two ints per probe, and StagingSlots keeps it well under CmdUpdateBuffer's 65,536 bytes.
         int count = batch.Count;
         int* ids = stackalloc int[count * 2];
-        PackIds(batch, ids);
+        Atlases.PackIds(batch, ids);
 
         // The last blend may still be reading the ids.
-        Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit,
-            PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit);
-        api.CmdUpdateBuffer(cmd, _ids.Handle, 0, (ulong)(count * 8), ids);
+        api.MemoryBarrier(cmd,
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit),
+            (PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit));
+        api.CmdUpdateBuffer(cmd, Atlases.Ids.Handle, 0, (ulong)(count * 8), ids);
 
         // Wait for the ids, the folds or copies that filled the staging slots, and anything still
         // reading the atlases.
-        Barrier(cmd,
-            PipelineStageFlags2.AllTransferBit | PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.FragmentShaderBit,
-            AccessFlags2.TransferWriteBit | AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.ComputeShaderBit,
-            AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
-
-        var set = _set;
-        var constants = new BlendConstants { Alpha = alpha, Count = count, Snap = snap };
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _blendPipeline!);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
-        api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(BlendConstants), &constants);
-        api.CmdDispatch(cmd, (uint)count, 1, 1);
-
-        Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit,
-            AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
+        api.MemoryBarrier(cmd,
+            (PipelineStageFlags2.AllTransferBit | PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.FragmentShaderBit,
+                AccessFlags2.TransferWriteBit | AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit));
+        _passes.RecordBlend(cmd, count, alpha, snap);
+        api.MemoryBarrier(cmd, (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit), ProbeVolumeAtlases.Readers);
     }
 
-    // Writes each probe's layer and slot into ids, two ints a probe, and notes when a cascade is written.
-    private void PackIds(IReadOnlyList<ProbeId> batch, int* ids)
-    {
-        for (int i = 0; i < batch.Count; i++)
-        {
-            var id = batch[i];
-            if (id.Cascade < 0 || id.Cascade >= Layers || id.Slot < 0 || id.Slot >= Columns * Rows)
-            {
-                throw new ArgumentOutOfRangeException(nameof(batch), id, "There is no such probe in the atlases.");
-            }
-
-            ids[i * 2] = id.Cascade;
-            ids[i * 2 + 1] = id.Slot;
-            if (id.Cascade < FixedGridLayer)
-            {
-                CascadesWritten = true;
-            }
-        }
-    }
-
-    /// <summary>Clears every layer of both atlases, so every probe is uncaptured again.</summary>
-    public void RecordClear(CommandBuffer cmd)
-    {
-        var api = _context.Api;
-        Barrier(cmd,
-            PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.FragmentShaderBit,
-            AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit,
-            PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit);
-        var black = new ClearColorValue(0f, 0f, 0f, 0f);
-        var cleared = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, Layers);
-        api.CmdClearColorImage(cmd, _irradiance, ImageLayout.General, &black, 1, &cleared);
-        api.CmdClearColorImage(cmd, _depth, ImageLayout.General, &black, 1, &cleared);
-        Barrier(cmd, PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
-            PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit,
-            AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
-        CascadesWritten = false;
-    }
     public void Dispose()
     {
-        var api = _context.Api;
         DestroyStorage();
-        _foldPipeline?.Destroy();
-        _blendPipeline?.Destroy();
-        _invalidatePipeline?.Destroy();
-
-        api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
-        api.DestroyDescriptorPool(_context.Device, _pool, null);
-        api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
-        api.DestroySampler(_context.Device, _facesSampler, null);
-    }
-
-    // Enough tiles for a cascade or the fixed grid, laid out near square.
-    private static (int Columns, int Rows) Grid(ProbeQuality quality)
-    {
-        int tiles = Math.Max(ProbeCascades.Layouts(quality)[0].Total, ProbeGrid.MaxProbes);
-        int columns = (int)Math.Ceiling(Math.Sqrt(tiles));
-        int rows = (tiles + columns - 1) / columns;
-        return (columns, rows);
+        _passes.Dispose();
     }
 
     // One tile per layer and one staging slot: enough to bind, and to keep the test hooks working.
-    private void CreatePlaceholder()
-    {
-        Allocated = false;
-        Columns = 1;
-        Rows = 1;
-        StagingSlots = 1;
-        FaceSlots = 0;
-        CreateAtlases();
-    }
-
-    private void CreateStorage(ProbeQuality quality)
-    {
-        Quality = quality;
-        (Columns, Rows) = Grid(quality);
-        var budget = ProbeBudget.For(quality);
-        StagingSlots = budget.Traced;
-        FaceSlots = budget.Raster;
-        CreateAtlases();
-
-        uint layers = (uint)(FaceSlots * 6);
-        (_facesColor, _facesColorMemory) = CreateArrayImage(
-            FaceSize,
-            FaceSize,
-            FacesFormat,
-            ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit,
-            layers);
-        (_facesDepth, _facesDepthMemory) = CreateArrayImage(
-            FaceSize, FaceSize, GBuffer.DepthFormat, ImageUsageFlags.DepthStencilAttachmentBit, layers);
-        _facesArray = CreateArrayView(_facesColor, FacesFormat, ImageAspectFlags.ColorBit, 0, layers);
-        _slotColorViews = new ImageView[FaceSlots];
-        _slotDepthViews = new ImageView[FaceSlots];
-        for (int slot = 0; slot < FaceSlots; slot++)
-        {
-            _slotColorViews[slot] = CreateArrayView(_facesColor, FacesFormat, ImageAspectFlags.ColorBit, (uint)slot * 6, 6);
-            _slotDepthViews[slot] = CreateArrayView(_facesDepth, GBuffer.DepthFormat, ImageAspectFlags.DepthBit, (uint)slot * 6, 6);
-        }
-
-        // The fold samples the faces, so they start readable for the first frame's barriers.
-        var api = _context.Api;
-        var faces = _facesColor;
-        _context.SubmitAndWait(cmd => api.Transition(cmd, faces, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, PipelineStageFlags2.None, AccessFlags2.None,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit, layerCount: layers));
-
-        Allocated = true;
-        if (Supported)
-        {
-            WriteDescriptors();
-        }
-    }
-
-    private void CreateAtlases()
-    {
-        CascadesWritten = false;
-        (_irradiance, _irradianceMemory, var irradianceView) = CreateAtlas(
-            (uint)(Columns * (IrradianceTexels + 2)), (uint)(Rows * (IrradianceTexels + 2)), IrradianceFormat);
-        (_depth, _depthMemory, var depthView) = CreateAtlas(
-            (uint)(Columns * (DepthTexels + 2)), (uint)(Rows * (DepthTexels + 2)), DepthFormat);
-        IrradianceView = irradianceView;
-        DepthView = depthView;
-
-        _staging = new GpuBuffer(_context, (ulong)StagingSlots * StagedTileBytes,
-            BufferUsageFlags.TransferSrcBit |
-            BufferUsageFlags.StorageBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
-        _ids = new GpuBuffer(_context, (ulong)StagingSlots * 8,
-            BufferUsageFlags.StorageBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
-    }
+    private ProbeVolumeAtlases Placeholder() => new(_context, (1, 1), 1, Supported);
 
     private void DestroyStorage()
     {
-        var api = _context.Api;
-        api.DestroyImageView(_context.Device, IrradianceView, null);
-        api.DestroyImageView(_context.Device, DepthView, null);
-        api.DestroyImage(_context.Device, _irradiance, null);
-        api.DestroyImage(_context.Device, _depth, null);
-        _context.Memory.Free(_irradianceMemory);
-        _context.Memory.Free(_depthMemory);
-        _staging.Dispose();
-        _ids.Dispose();
-
-        if (Allocated)
-        {
-            foreach (var view in _slotColorViews)
-            {
-                api.DestroyImageView(_context.Device, view, null);
-            }
-
-            foreach (var view in _slotDepthViews)
-            {
-                api.DestroyImageView(_context.Device, view, null);
-            }
-
-            api.DestroyImageView(_context.Device, _facesArray, null);
-            api.DestroyImage(_context.Device, _facesColor, null);
-            api.DestroyImage(_context.Device, _facesDepth, null);
-            _context.Memory.Free(_facesColorMemory);
-            _context.Memory.Free(_facesDepthMemory);
-            _slotColorViews = [];
-            _slotDepthViews = [];
-            Allocated = false;
-        }
-    }
-
-    private void WriteDescriptors()
-    {
-        var facesInfo = new DescriptorImageInfo(_facesSampler, _facesArray, ImageLayout.ShaderReadOnlyOptimal);
-        var stagingInfo = new DescriptorBufferInfo(_staging.Handle, 0, Vk.WholeSize);
-        var idsInfo = new DescriptorBufferInfo(_ids.Handle, 0, Vk.WholeSize);
-        var irradianceInfo = new DescriptorImageInfo(default, IrradianceView, ImageLayout.General);
-        var depthInfo = new DescriptorImageInfo(default, DepthView, ImageLayout.General);
-        var skyInfo = new DescriptorImageInfo(_skySampler, _sky, ImageLayout.ShaderReadOnlyOptimal);
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            Write(0, DescriptorType.CombinedImageSampler, &facesInfo, null),
-            Write(1, DescriptorType.StorageBuffer, null, &stagingInfo),
-            Write(2, DescriptorType.StorageBuffer, null, &idsInfo),
-            Write(3, DescriptorType.StorageImage, &irradianceInfo, null),
-            Write(4, DescriptorType.StorageImage, &depthInfo, null),
-            Write(5, DescriptorType.CombinedImageSampler, &skyInfo, null),
-        };
-        _context.Api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
-    }
-
-    private WriteDescriptorSet Write(uint binding, DescriptorType type, DescriptorImageInfo* image, DescriptorBufferInfo* buffer) => new()
-    {
-        SType = StructureType.WriteDescriptorSet,
-        DstSet = _set,
-        DstBinding = binding,
-        DescriptorCount = 1,
-        DescriptorType = type,
-        PImageInfo = image,
-        PBufferInfo = buffer,
-    };
-
-    private void Barrier(
-        CommandBuffer cmd, PipelineStageFlags2 sourceStage, AccessFlags2 sourceAccess, PipelineStageFlags2 destinationStage, AccessFlags2 destinationAccess)
-    {
-        var barrier = new MemoryBarrier2
-        {
-            SType = StructureType.MemoryBarrier2,
-            SrcStageMask = sourceStage,
-            SrcAccessMask = sourceAccess,
-            DstStageMask = destinationStage,
-            DstAccessMask = destinationAccess,
-        };
-        var dependency = new DependencyInfo
-        {
-            SType = StructureType.DependencyInfo,
-            MemoryBarrierCount = 1,
-            PMemoryBarriers = &barrier,
-        };
-        _context.Api.CmdPipelineBarrier2(cmd, &dependency);
-    }
-
-    // A 2D image of `layers` layers in device memory, with one mip.
-    private (Image Image, GpuAllocation Memory) CreateArrayImage(
-        uint width, uint height, Format format, ImageUsageFlags usage, uint layers)
-    {
-        var api = _context.Api;
-        var imageInfo = new ImageCreateInfo
-        {
-            SType = StructureType.ImageCreateInfo,
-            ImageType = ImageType.Type2D,
-            Format = format,
-            Extent = new Extent3D(width, height, 1),
-            MipLevels = 1,
-            ArrayLayers = layers,
-            Samples = SampleCountFlags.Count1Bit,
-            Tiling = ImageTiling.Optimal,
-            Usage = usage,
-            SharingMode = SharingMode.Exclusive,
-            InitialLayout = ImageLayout.Undefined,
-        };
-        api.CreateImage(_context.Device, &imageInfo, null, out var image).Check();
-        api.GetImageMemoryRequirements(_context.Device, image, out var requirements);
-        var memory = _context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
-        api.BindImageMemory(_context.Device, image, memory.Memory, memory.Offset).Check();
-        return (image, memory);
-    }
-
-    private ImageView CreateArrayView(Image image, Format format, ImageAspectFlags aspect, uint firstLayer, uint layers)
-    {
-        var viewInfo = new ImageViewCreateInfo
-        {
-            SType = StructureType.ImageViewCreateInfo,
-            Image = image,
-            ViewType = ImageViewType.Type2DArray,
-            Format = format,
-            SubresourceRange = new ImageSubresourceRange(aspect, 0, 1, firstLayer, layers),
-        };
-        _context.Api.CreateImageView(_context.Device, &viewInfo, null, out var view).Check();
-        return view;
-    }
-
-    /// <summary>
-    /// A five-layer atlas that stays in the general layout for good, so the blend writes it and lighting samples it.
-    /// It starts cleared: black, and every probe uncaptured.
-    /// </summary>
-    private (Image Image, GpuAllocation Memory, ImageView View) CreateAtlas(uint width, uint height, Format format)
-    {
-        var api = _context.Api;
-        var usage = ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit | ImageUsageFlags.TransferSrcBit;
-        if (Supported)
-        {
-            usage |= ImageUsageFlags.StorageBit;
-        }
-
-        var (image, memory) = CreateArrayImage(width, height, format, usage, Layers);
-        var view = CreateArrayView(image, format, ImageAspectFlags.ColorBit, 0, Layers);
-        var range = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, Layers);
-        _context.SubmitAndWait(cmd =>
-        {
-            api.Transition(cmd, image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General,
-                PipelineStageFlags2.None, AccessFlags2.None, PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
-                layerCount: Layers);
-            var black = new ClearColorValue(0f, 0f, 0f, 0f);
-            var cleared = range;
-            api.CmdClearColorImage(cmd, image, ImageLayout.General, &black, 1, &cleared);
-            Barrier(cmd, PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
-                PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit,
-                AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
-        });
-        return (image, memory, view);
+        Atlases.Dispose();
+        Faces?.Dispose();
+        Faces = null;
     }
 }

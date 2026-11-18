@@ -3056,7 +3056,7 @@ public sealed unsafe class Renderer : IDisposable
             uniforms->ProbeCascadeOrigins[c] = new Vector4(origin.X, origin.Y, origin.Z, cascades.Layout(c).Spacing);
         }
 
-        bool readCascades = inUse && LightProbes.Volume.CascadesWritten;
+        bool readCascades = inUse && LightProbes.Volume.Atlases.CascadesWritten;
         var cascadeLayout = cascades.Layout(0);
         uniforms->ProbeCascadeCounts = new Vector4(
             cascadeLayout.CountX, cascadeLayout.CountY, cascadeLayout.CountZ, readCascades ? 1f : 0f);

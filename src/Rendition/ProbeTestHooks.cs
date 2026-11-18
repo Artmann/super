@@ -18,7 +18,7 @@ internal sealed unsafe class ProbeTestHooks(
     {
         Ensure();
         context.WaitIdle();
-        context.SubmitAndWait(probes.Volume.RecordClear);
+        context.SubmitAndWait(probes.Volume.Atlases.RecordClear);
         probes.SettledOnce = false;
     }
 
@@ -61,7 +61,7 @@ internal sealed unsafe class ProbeTestHooks(
         context.SubmitAndWait(cmd =>
         {
             var copy = new BufferCopy(0, 0, ProbeVolume.StagedTileBytes);
-            context.Api.CmdCopyBuffer(cmd, source.Handle, volume.StagingTiles, 1, &copy);
+            context.Api.CmdCopyBuffer(cmd, source.Handle, volume.Atlases.Staging.Handle, 1, &copy);
             volume.RecordBlend(cmd, [id], 1f);
         });
     }
