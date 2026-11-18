@@ -103,21 +103,7 @@ sealed class PerlinNode : Node
     internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
     {
         var size = context.Size;
-        var octaves = new Octave[_octaves];
-        var amplitude = 1f;
-        var total = 0f;
-
-        for (var o = 0; o < _octaves; o++)
-        {
-            var cellsX = _along << o;
-            var cellsY = _across << o;
-            var seed = Seed + (ulong)o * 0x9E3779B97F4A7C15UL;
-            var small = cellsX <= TableLimit && cellsY <= TableLimit;
-
-            octaves[o] = new Octave(cellsX, cellsY, seed, amplitude, small ? Gradients(cellsX, cellsY, seed) : null);
-            total += amplitude * amplitude;
-            amplitude *= _persistence;
-        }
+        var (octaves, total) = MakeOctaves();
 
         // The octaves are independent, so their spread adds as the root of the sum of squares. Dividing by that keeps
         // the spread the same however many octaves there are. 0.8 puts about 3 standard deviations across 0..1.
@@ -147,6 +133,28 @@ sealed class PerlinNode : Node
                 output[y * size + x] = Math.Clamp(0.5f + sum * scale, 0f, 1f);
             }
         });
+    }
+
+    /// <summary>Each octave twice as fine as the last, at <c>_persistence</c> times its strength, and the sum of their squared strengths.</summary>
+    (Octave[] Octaves, float Total) MakeOctaves()
+    {
+        var octaves = new Octave[_octaves];
+        var amplitude = 1f;
+        var total = 0f;
+
+        for (var o = 0; o < _octaves; o++)
+        {
+            var cellsX = _along << o;
+            var cellsY = _across << o;
+            var seed = Seed + (ulong)o * 0x9E3779B97F4A7C15UL;
+            var small = cellsX <= TableLimit && cellsY <= TableLimit;
+
+            octaves[o] = new Octave(cellsX, cellsY, seed, amplitude, small ? Gradients(cellsX, cellsY, seed) : null);
+            total += amplitude * amplitude;
+            amplitude *= _persistence;
+        }
+
+        return (octaves, total);
     }
 
     static (float, float)[] Gradients(int cellsX, int cellsY, ulong seed)
