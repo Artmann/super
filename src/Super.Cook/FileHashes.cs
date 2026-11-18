@@ -98,8 +98,8 @@ internal sealed class FileHashes(string folder)
     /// </summary>
     internal static HashSet<string> CurrentKeys(IEnumerable<string> keys)
     {
-        var current = new HashSet<string>(CacheFolder.PathComparer);
-        var folders = new HashSet<string>(CacheFolder.PathComparer);
+        var current = new HashSet<string>(PathCase.PathComparer);
+        var folders = new HashSet<string>(PathCase.PathComparer);
         foreach (string key in keys)
         {
             int ticks = key.LastIndexOf('|');

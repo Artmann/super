@@ -26,7 +26,7 @@ internal static class CacheObjects
     public static void Save(string folder, string hash, byte[] bytes, CacheUsage usage)
     {
         var info = new FileInfo(PathOf(folder, hash));
-        lock (Gates[(int)((uint)CacheFolder.PathComparer.GetHashCode(info.FullName) % (uint)Gates.Length)])
+        lock (Gates[(int)((uint)PathCase.PathComparer.GetHashCode(info.FullName) % (uint)Gates.Length)])
         {
             if (info.Exists)
             {
