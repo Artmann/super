@@ -24,7 +24,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
-        gpu.Renderer.PrepareBaking();
+        gpu.Renderer.BakeJobs.Bakers.Prepare(probes: true);
         try
         {
             var room = Room(gpu, quad);
@@ -33,7 +33,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
 
             var whole = gpu.Renderer.Bake(view, room, settings);
             byte[] stepped;
-            using (var job = gpu.Renderer.CreateSpaceJob(view, room, settings))
+            using (var job = gpu.Renderer.BakeJobs.CreateSpaceJob(view, room, settings))
             {
                 RunInSinglePasses(job);
                 stepped = job.Finish();
@@ -55,7 +55,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
-        gpu.Renderer.PrepareBaking();
+        gpu.Renderer.BakeJobs.Bakers.Prepare(probes: true);
         try
         {
             var draws = ChunkDraws(gpu, quad);
@@ -64,7 +64,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
 
             var whole = gpu.Renderer.BakeChunk(view, draws, 0, settings);
             byte[] stepped;
-            using (var job = gpu.Renderer.CreateChunkJob(view, draws, 0, settings))
+            using (var job = gpu.Renderer.BakeJobs.CreateChunkJob(view, draws, 0, settings))
             {
                 Assert.Equal(BakeFiles.Chunk("chunk", job.Inputs.Combined), job.File);
                 Assert.Equal("chunk", job.Name);
@@ -88,7 +88,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
-        gpu.Renderer.PrepareBaking();
+        gpu.Renderer.BakeJobs.Bakers.Prepare(probes: true);
         try
         {
             // The chunk reads back its sums, its filtered light and both runs of its transfer; the space its sums,
@@ -96,8 +96,8 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
             // Each job is made just before it runs, so the room's frame isn't drawn while the chunk's job holds the pages.
             var jobs = new Func<BakeJob>[]
             {
-                () => gpu.Renderer.CreateChunkJob(ChunkView(gpu), ChunkDraws(gpu, quad), 0, new BakeSettings(8, BakeQuality.Preview)),
-                () => gpu.Renderer.CreateSpaceJob(RoomView(gpu, Room(gpu, quad)), Room(gpu, quad), new BakeSettings(4, BakeQuality.Preview)),
+                () => gpu.Renderer.BakeJobs.CreateChunkJob(ChunkView(gpu), ChunkDraws(gpu, quad), 0, new BakeSettings(8, BakeQuality.Preview)),
+                () => gpu.Renderer.BakeJobs.CreateSpaceJob(RoomView(gpu, Room(gpu, quad)), Room(gpu, quad), new BakeSettings(4, BakeQuality.Preview)),
             };
             foreach (var create in jobs)
             {
@@ -139,11 +139,11 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
-        gpu.Renderer.PrepareBaking();
+        gpu.Renderer.BakeJobs.Bakers.Prepare(probes: true);
         try
         {
             var room = Room(gpu, quad);
-            using var job = gpu.Renderer.CreateSpaceJob(RoomView(gpu, room), room, new BakeSettings(4, BakeQuality.Preview));
+            using var job = gpu.Renderer.BakeJobs.CreateSpaceJob(RoomView(gpu, room), room, new BakeSettings(4, BakeQuality.Preview));
             Assert.Equal(0f, job.Progress);
 
             float before = 0f;
@@ -175,11 +175,11 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
-        gpu.Renderer.PrepareBaking();
+        gpu.Renderer.BakeJobs.Bakers.Prepare(probes: true);
         try
         {
             var room = Room(gpu, quad);
-            using var job = gpu.Renderer.CreateSpaceJob(RoomView(gpu, room), room, new BakeSettings(4, BakeQuality.Preview));
+            using var job = gpu.Renderer.BakeJobs.CreateSpaceJob(RoomView(gpu, room), room, new BakeSettings(4, BakeQuality.Preview));
             gpu.Context.SubmitAndWait(cmd => job.Step(cmd, 1));
 
             var error = Assert.Throws<InvalidOperationException>(() => job.Finish());
@@ -199,7 +199,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
-        gpu.Renderer.PrepareBaking();
+        gpu.Renderer.BakeJobs.Bakers.Prepare(probes: true);
         try
         {
             var room = Room(gpu, quad);
@@ -212,7 +212,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
             var frame = new DrawItem[room.Length + 1];
             room.CopyTo(frame, 0);
             byte[] stepped;
-            using (var job = gpu.Renderer.CreateSpaceJob(view, room, settings))
+            using (var job = gpu.Renderer.BakeJobs.CreateSpaceJob(view, room, settings))
             {
                 var result = BakeStepResult.Continue;
                 for (int step = 0; result != BakeStepResult.Done; step++)
@@ -253,19 +253,19 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         var view = RoomView(fresh, room);
         var settings = new BakeSettings(4, BakeQuality.Preview);
 
-        var space = Assert.Throws<InvalidOperationException>(() => fresh.Renderer.CreateSpaceJob(RoomView(fresh, room), room, settings));
+        var space = Assert.Throws<InvalidOperationException>(() => fresh.Renderer.BakeJobs.CreateSpaceJob(RoomView(fresh, room), room, settings));
         Assert.Equal(
-            "The bake of \"job-room\" can't start yet: baking isn't prepared, and preparing it waits for the GPU, which a bake job never does. Call PrepareBaking first, outside a frame.",
+            "The bake of \"job-room\" can't start yet: baking isn't prepared, and preparing it waits for the GPU, which a bake job never does. Prepare baking first, outside a frame.",
             space.Message);
         var chunk = Assert.Throws<InvalidOperationException>(
-            () => fresh.Renderer.CreateChunkJob(ChunkView(fresh), ChunkDraws(fresh, quad), 0, new BakeSettings(8, BakeQuality.Preview)));
+            () => fresh.Renderer.BakeJobs.CreateChunkJob(ChunkView(fresh), ChunkDraws(fresh, quad), 0, new BakeSettings(8, BakeQuality.Preview)));
         Assert.Equal(
-            "The bake of \"chunk\" can't start yet: baking isn't prepared, and preparing it waits for the GPU, which a bake job never does. Call PrepareBaking first, outside a frame.",
+            "The bake of \"chunk\" can't start yet: baking isn't prepared, and preparing it waits for the GPU, which a bake job never does. Prepare baking first, outside a frame.",
             chunk.Message);
 
         // Once prepared, the same job starts.
-        fresh.Renderer.PrepareBaking();
-        using (var job = fresh.Renderer.CreateSpaceJob(view, room, settings))
+        fresh.Renderer.BakeJobs.Bakers.Prepare(probes: true);
+        using (var job = fresh.Renderer.BakeJobs.CreateSpaceJob(view, room, settings))
         {
             Assert.Equal("job-room", job.Name);
         }
@@ -281,9 +281,9 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         var quad = CreateQuad(fresh);
         var room = Room(fresh, quad);
 
-        fresh.Renderer.PrepareBaking();
+        fresh.Renderer.BakeJobs.Bakers.Prepare(probes: true);
         var error = Assert.Throws<InvalidOperationException>(
-            () => fresh.Renderer.CreateSpaceJob(RoomView(fresh, room), room, new BakeSettings(4, BakeQuality.Preview)));
+            () => fresh.Renderer.BakeJobs.CreateSpaceJob(RoomView(fresh, room), room, new BakeSettings(4, BakeQuality.Preview)));
         Assert.Equal("Baking needs a GPU that can trace rays, and this one can't.", error.Message);
 
         fresh.Renderer.DestroyMesh(quad);

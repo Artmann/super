@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
@@ -16,7 +15,6 @@ namespace Rendition;
 /// </summary>
 public sealed unsafe class Renderer : IDisposable
 {
-    private const int FramesInFlight = 2;
     private const int JitterSteps = 16;
 
     // How much sharper a mip level material textures are read at while anti-aliasing shifts the
@@ -93,31 +91,14 @@ public sealed unsafe class Renderer : IDisposable
     // The largest image side the device can make, which the scene is shrunk to fit.
     private readonly int _maxImageSize;
     private readonly Vk _api;
-    private readonly Frame[] _frames = new Frame[FramesInFlight];
+    private readonly Frame[] _frames = new Frame[FrameRing.Count];
     // How far a simpler model may stray. Shadows are soft, so they can afford more.
     private const float CameraDetailError = 1f;
     private const float ShadowDetailError = 2f;
 
-    private readonly List<Mesh?> _meshes = [];
-    private readonly Stack<int> _freeMeshes = [];
-    private readonly List<PartDetail> _details = [default];
-    private readonly Stack<int> _freeDetails = [];
-
-    /// <summary>
-    /// What's been destroyed while a frame might still read it. Slot i holds what was
-    /// queued while frame slot i was the last one submitted; its fence says when the
-    /// GPU is done with all of it. See "Resource lifetime" in docs/design.md.
-    /// </summary>
-    private sealed class DestroyedSlot
-    {
-        public readonly List<Mesh> Meshes = [];
-        public readonly List<int> Textures = [];
-        public readonly List<int> TextureArrays = [];
-        public readonly List<int> Materials = [];
-        public readonly List<IDisposable> Others = [];
-    }
-
-    private readonly DestroyedSlot[] _destroyed = [.. Enumerable.Range(0, FramesInFlight).Select(_ => new DestroyedSlot())];
+    private readonly FrameRing _ring = new();
+    private readonly MeshStore _meshStore = new();
+    private readonly RetiredResources _retired;
     private readonly UploadQueue _uploads;
     private readonly ResourceTable _resources;
     private readonly RayTracing? _tracing;
@@ -218,14 +199,7 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The sky or the environment's description changed and its cubes aren't redrawn yet.</summary>
     private bool _environmentPending;
 
-    private readonly DescriptorPool _descriptorPool;
-    private readonly DescriptorPool _lightingPool;
-    private readonly DescriptorSetLayout _frameSetLayout;
-    private readonly DescriptorSetLayout _lightingSetLayout;
-    private readonly DescriptorSetLayout _sixTextureSetLayout;
-    private readonly DescriptorSetLayout _fourTextureSetLayout;
-    private readonly DescriptorSetLayout _twoTextureSetLayout;
-    private readonly DescriptorSetLayout _oneTextureSetLayout;
+    private readonly DescriptorKit _kit;
     private readonly DescriptorSet _aoSet;
     private readonly DescriptorSet _aoAcrossSet;
     private readonly DescriptorSet _aoSteadySet;
@@ -238,10 +212,6 @@ public sealed unsafe class Renderer : IDisposable
     private readonly DescriptorSet _taaSet;
     private readonly DescriptorSet _tonemapSet;
     private readonly DescriptorSet _finishSet;
-    private readonly Sampler _sampler;
-    private readonly Sampler _linearSampler;
-    private readonly Sampler _mipSampler;
-    private readonly Sampler _shadowSampler;
 
     private readonly ShadowPass _shadowPass;
     private readonly GBufferPass _gBufferPass;
@@ -280,7 +250,6 @@ public sealed unsafe class Renderer : IDisposable
 
     private Swapchain _swapchain;
     private GBuffer _gBuffer;
-    private int _frameIndex;
     private GpuBuffer? _capture;
     private bool _captureRecorded;
     private int _frameNumber;
@@ -645,76 +614,33 @@ public sealed unsafe class Renderer : IDisposable
         _maxImageSize = (int)Math.Min(deviceProperties.Limits.MaxImageDimension2D, int.MaxValue);
         _gBuffer = new GBuffer(_context, SceneExtent(_swapchain.Extent));
 
-        var samplerInfo = new SamplerCreateInfo
-        {
-            SType = StructureType.SamplerCreateInfo,
-            MagFilter = Filter.Nearest,
-            MinFilter = Filter.Nearest,
-            MipmapMode = SamplerMipmapMode.Nearest,
-            AddressModeU = SamplerAddressMode.ClampToEdge,
-            AddressModeV = SamplerAddressMode.ClampToEdge,
-            AddressModeW = SamplerAddressMode.ClampToEdge,
-        };
-        _api.CreateSampler(_context.Device, &samplerInfo, null, out _sampler).Check();
-
-        var linearSamplerInfo = samplerInfo with { MagFilter = Filter.Linear, MinFilter = Filter.Linear };
-        _api.CreateSampler(_context.Device, &linearSamplerInfo, null, out _linearSampler).Check();
-
-        // Frosted glass reads the blurrier mips of the scene copy.
-        var mipSamplerInfo = linearSamplerInfo with { MipmapMode = SamplerMipmapMode.Linear, MaxLod = Vk.LodClampNone };
-        _api.CreateSampler(_context.Device, &mipSamplerInfo, null, out _mipSampler).Check();
-
-        // Reversed-Z: a point is lit when it is at least as near the light as the map says.
-        var shadowSamplerInfo = samplerInfo with
-        {
-            MagFilter = Filter.Linear,
-            MinFilter = Filter.Linear,
-            CompareEnable = true,
-            CompareOp = CompareOp.GreaterOrEqual,
-        };
-        _api.CreateSampler(_context.Device, &shadowSamplerInfo, null, out _shadowSampler).Check();
-
-        _frameSetLayout = CreateFrameSetLayout();
-        // With the frame set's three, the lighting pass samples 19 textures, more than MoltenVK allows in ordinary sets.
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 18, ShaderStageFlags.FragmentBit, updateAfterBind: true);
-        _sixTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 6, ShaderStageFlags.FragmentBit);
-        _fourTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 4, ShaderStageFlags.FragmentBit);
-        _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
-        _oneTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
-
-        _descriptorPool = _context.CreateDescriptorPool(
-            FramesInFlight + 12,
-            new DescriptorPoolSize(DescriptorType.UniformBuffer, FramesInFlight),
-            new DescriptorPoolSize(DescriptorType.StorageBuffer, 10 * FramesInFlight),
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 40 + 3 * FramesInFlight));
-        _lightingPool = _context.CreateDescriptorPool(
-            DescriptorPoolCreateFlags.UpdateAfterBindBit, 1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 18));
-
-        for (int i = 0; i < FramesInFlight; i++)
+        _kit = new DescriptorKit(_context);
+        for (int i = 0; i < FrameRing.Count; i++)
         {
             _frames[i] = CreateFrame();
         }
 
         _resources = new ResourceTable(_context);
+        _retired = new RetiredResources(_ring, _meshStore, _resources);
         _chunkPool = new ChunkBakePool(_context, _resources, ChunkBakePool.ChunkUploadBudget, ChunkUnreadable);
         if (_context.CanTrace)
         {
             _tracing = new RayTracing(_context, _resources, MeshFor, _uploads.IsPending,
-                releaseAfterSubmitted: structure => Destroying().Others.Add(structure),
-                releaseAfterRecorded: used => _destroyed[_frameIndex].Others.Add(used));
+                releaseAfterSubmitted: structure => _retired.AfterLastSubmitted.FreedOthers.Add(structure),
+                releaseAfterRecorded: used => _retired.AfterRecording.FreedOthers.Add(used));
             _traceScene = new TraceScene(TraceFlagsOf);
         }
 
-        _traceDebugPass = _tracing is null ? null : new TraceDebugPass(_context, FramesInFlight, _frameSetLayout, _resources.Layout);
+        _traceDebugPass = _tracing is null ? null : new TraceDebugPass(_context, FrameRing.Count, _kit.FrameSetLayout, _resources.Layout);
 
         _shadowResolution = ShadowPass.CheckResolution(options.ShadowResolution);
-        _shadowPass = new ShadowPass(_context, _frameSetLayout, _resources, _shadowResolution);
+        _shadowPass = new ShadowPass(_context, _kit.FrameSetLayout, _resources, _shadowResolution);
         foreach (ref var frame in _frames.AsSpan())
         {
             WriteAtlasDescriptors(frame);
         }
 
-        _clusterLayout = _context.CreatePipelineLayout([_frameSetLayout]);
+        _clusterLayout = _context.CreatePipelineLayout([_kit.FrameSetLayout]);
         _clusterPipeline = PipelineFactory.CreateCompute(_context, "cluster.comp", _clusterLayout);
 
         _environment = new EnvironmentMap(_context);
@@ -733,66 +659,70 @@ public sealed unsafe class Renderer : IDisposable
             _api.UpdateDescriptorSets(_context.Device, 1, &skyShWrite, 0, null);
         }
 
-        _probes = new ReflectionProbes(_context, _environment.Sampler, FramesInFlight);
-        _reflectionCapture = new ReflectionCapturePass(_context, _frameSetLayout, _resources, new CaptureScene(_meshes, _details, _shadowPass),
+        _probes = new ReflectionProbes(_context, _environment.Sampler, FrameRing.Count);
+        _reflectionCapture = new ReflectionCapturePass(_context, _kit.FrameSetLayout, _resources, new CaptureScene(_meshStore.MeshSlots, _meshStore.DetailSlots, _shadowPass),
             new DescriptorImageInfo(_environment.Sampler, _environment.Sky, ImageLayout.ShaderReadOnlyOptimal));
         _lightProbes = new ProbeVolume(_context, _environment.Sampler, _environment.Sky);
-        _probeUpdatePass = new ProbeCapturePass(_context, _frameSetLayout, _resources);
+        _probeUpdatePass = new ProbeCapturePass(_context, _kit.FrameSetLayout, _resources);
         if (_tracing is not null && _lightProbes.Supported)
         {
-            _probeTracePass = new ProbeTracePass(_context, FramesInFlight, _frameSetLayout, _resources,
+            _probeTracePass = new ProbeTracePass(_context, FrameRing.Count, _kit.FrameSetLayout, _resources,
                 ProbeBudget.For(ProbeQuality.High).Traced);
         }
 
-        _volumetricFog = new VolumetricFogVolume(_context, _frameSetLayout, _linearSampler);
+        _volumetricFog = new VolumetricFogVolume(_context, _kit.FrameSetLayout, _kit.LinearSampler);
 
-        _aoSet = AllocateSet(_fourTextureSetLayout);
-        _aoAcrossSet = AllocateSet(_fourTextureSetLayout);
-        _aoSteadySet = AllocateSet(_sixTextureSetLayout);
-        _aoSteadyAcrossSet = AllocateSet(_fourTextureSetLayout);
-        _aoDownSet = AllocateSet(_fourTextureSetLayout);
-        _scatterAcrossSet = AllocateSet(_twoTextureSetLayout);
-        _scatterDownSet = AllocateSet(_twoTextureSetLayout);
-        _lightingSet = _context.AllocateSet(_lightingPool, _lightingSetLayout);
-        _reflectionSet = AllocateSet(_fourTextureSetLayout);
-        _taaSet = AllocateSet(_fourTextureSetLayout);
-        _tonemapSet = AllocateSet(_twoTextureSetLayout);
-        _finishSet = AllocateSet(_twoTextureSetLayout);
-        _overlaySet = AllocateSet(_oneTextureSetLayout);
-        _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Display);
-        _particlePass = new ParticlePass(_context, _frameSetLayout, FramesInFlight);
-        _decalPass = new DecalPass(_context, _frameSetLayout, _resources, FramesInFlight);
-        _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment, _probes);
-        _probeDebugPass = new ProbeDebugPass(_context, _frameSetLayout, _lightingSetLayout);
-        _exposureMeter = new ExposureMeter(_context, _sampler);
-        _fsrPass = new FsrPass(_context, _sampler, _frameSetLayout, _exposureMeter.SetLayout);
-        _depthOfFieldPass = new DepthOfFieldPass(_context, _sampler, _linearSampler, _frameSetLayout);
+        _aoSet = _kit.NewSet(_kit.FourTextureLayout);
+        _aoAcrossSet = _kit.NewSet(_kit.FourTextureLayout);
+        _aoSteadySet = _kit.NewSet(_kit.SixTextureLayout);
+        _aoSteadyAcrossSet = _kit.NewSet(_kit.FourTextureLayout);
+        _aoDownSet = _kit.NewSet(_kit.FourTextureLayout);
+        _scatterAcrossSet = _kit.NewSet(_kit.TwoTextureLayout);
+        _scatterDownSet = _kit.NewSet(_kit.TwoTextureLayout);
+        _lightingSet = _kit.NewLightingSet();
+        _reflectionSet = _kit.NewSet(_kit.FourTextureLayout);
+        _taaSet = _kit.NewSet(_kit.FourTextureLayout);
+        _tonemapSet = _kit.NewSet(_kit.TwoTextureLayout);
+        _finishSet = _kit.NewSet(_kit.TwoTextureLayout);
+        _overlaySet = _kit.NewSet(_kit.OneTextureLayout);
+        _bloomPass = new BloomPass(_context, _kit.LinearSampler, _gBuffer.Resolved.View, _gBuffer.Display);
+        _particlePass = new ParticlePass(_context, _kit.FrameSetLayout, FrameRing.Count);
+        _decalPass = new DecalPass(_context, _kit.FrameSetLayout, _resources, FrameRing.Count);
+        _transparentPass = new TransparentPass(_context, _kit.FrameSetLayout, _resources, _environment, _probes);
+        _probeDebugPass = new ProbeDebugPass(_context, _kit.FrameSetLayout, _kit.LightingSetLayout);
+        _exposureMeter = new ExposureMeter(_context, _kit.NearestSampler);
+        _fsrPass = new FsrPass(_context, _kit.NearestSampler, _kit.FrameSetLayout, _exposureMeter.SetLayout);
+        _depthOfFieldPass = new DepthOfFieldPass(_context, _kit.NearestSampler, _kit.LinearSampler, _kit.FrameSetLayout);
         _depthOfFieldPass.SetTargets(DisplaySource, _gBuffer.Depth.View, _gBuffer.Extent);
         WriteTargetDescriptors();
 
-        _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
+        _gBufferPass = new GBufferPass(_context, _kit.FrameSetLayout, _resources);
         _aoPass = new FullscreenPass(
-            _context, "ao.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [_frameSetLayout, _fourTextureSetLayout], 2 * sizeof(int));
+            _context, "ao.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [_kit.FrameSetLayout, _kit.FourTextureLayout], sizeof(int));
         _aoBlurPass = new FullscreenPass(
-            _context, "ao_blur.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [_frameSetLayout, _fourTextureSetLayout], 3 * sizeof(int));
+            _context, "ao_blur.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [_kit.FrameSetLayout, _kit.FourTextureLayout], 3 * sizeof(int));
         _aoSteadyPass = new FullscreenPass(
-            _context, "ao_temporal.frag", [GBuffer.AoSteadyFormat, GBuffer.AoSteadyFormat], [_frameSetLayout, _sixTextureSetLayout], 2 * sizeof(int));
-        _reflectionPass = new FullscreenPass(_context, "reflections.frag", GBuffer.HdrFormat, [_frameSetLayout, _fourTextureSetLayout], sizeof(int));
+            _context, "ao_temporal.frag", [GBuffer.AoSteadyFormat, GBuffer.AoSteadyFormat], [_kit.FrameSetLayout, _kit.SixTextureLayout], 2 * sizeof(int));
+        _reflectionPass = new FullscreenPass(_context, "reflections.frag", GBuffer.HdrFormat, [_kit.FrameSetLayout, _kit.FourTextureLayout], sizeof(int));
         _lightingPass = new FullscreenPass(_context, "lighting.frag", [GBuffer.HdrFormat, GBuffer.HdrFormat],
-            [_frameSetLayout, _lightingSetLayout, _resources.Layout]);
+            [_kit.FrameSetLayout, _kit.LightingSetLayout, _resources.Layout]);
         _scatterAcrossPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
-            [_frameSetLayout, _twoTextureSetLayout, _resources.Layout], BlurConstants.Size);
+            [_kit.FrameSetLayout, _kit.TwoTextureLayout, _resources.Layout], BlurConstants.Size);
         _scatterDownPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
-            [_frameSetLayout, _twoTextureSetLayout, _resources.Layout], BlurConstants.Size, blend: true);
-        _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_frameSetLayout, _fourTextureSetLayout]);
+            [_kit.FrameSetLayout, _kit.TwoTextureLayout, _resources.Layout], BlurConstants.Size, blend: true);
+        _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_kit.FrameSetLayout, _kit.FourTextureLayout]);
         _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat,
-            [_frameSetLayout, _twoTextureSetLayout, _exposureMeter.SetLayout]);
-        _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_frameSetLayout, _twoTextureSetLayout], TransitionConstants.Size);
-        _overlayPass = new OverlayPass(_context, _swapchain.Format, _oneTextureSetLayout, _resources, FramesInFlight);
+            [_kit.FrameSetLayout, _kit.TwoTextureLayout, _exposureMeter.SetLayout]);
+        _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_kit.FrameSetLayout, _kit.TwoTextureLayout], TransitionConstants.Size);
+        _overlayPass = new OverlayPass(_context, _swapchain.Format, _kit.OneTextureLayout, _resources, FrameRing.Count);
         // Counting each pass's shaders needs a device feature; without it the frame is only timed.
-        _gpuWork = _context.PipelineStatistics ? new GpuWorkCounter(_context, FramesInFlight, GpuTimer.FramePasses) : null;
-        _gpuTimer = new GpuTimer(_context, FramesInFlight, counter: _gpuWork);
-        _bakeTimer = new GpuTimer(_context, FramesInFlight, ["Background bake"]);
+        _gpuWork = _context.PipelineStatistics ? new GpuWorkCounter(_context, FrameRing.Count, GpuTimer.FramePasses) : null;
+        _gpuTimer = new GpuTimer(_context, FrameRing.Count, counter: _gpuWork);
+        _areaInputs = new AreaInputs(_meshStore.PartBounds, () => EnvironmentHash);
+        BakeJobs = new BakeJobs(_context, new PreparedBakers(_context, _environment, () => new Baker(_context, this)),
+            _meshStore, _resources, _areaInputs);
+        BackgroundBakes = new BackgroundBakes(_context, _ring, _retired, BakeJobs,
+            new BackgroundBakes.BakeWants(_bakeResolver, _readableBakes, _areaInputs.Lights));
     }
 
     /// <summary>
@@ -806,7 +736,7 @@ public sealed unsafe class Renderer : IDisposable
         _uploads.Add(vertexStaging, vertexBuffer);
         var indexBuffer = GpuBuffer.CreateDeviceLocalStaged(_context, indices, BufferUsageFlags.IndexBufferBit | traceInput, out var indexStaging);
         _uploads.Add(indexStaging, indexBuffer);
-        return AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length)
+        return _meshStore.AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length)
         {
             CumulativeAreas = LightmapLayout.CumulativeAreas(vertices, indices),
         });
@@ -817,13 +747,10 @@ public sealed unsafe class Renderer : IDisposable
     /// Read from a running total kept when the mesh was made. Throws for a mesh that isn't live.
     /// </summary>
     internal float AreaOf(MeshHandle handle, uint firstIndex, uint indexCount) =>
-        LightmapLayout.RangeArea(MeshFor(handle).CumulativeAreas, firstIndex, indexCount);
+        _meshStore.TriangleArea(handle, firstIndex, indexCount);
 
     /// <summary>The mesh behind a live handle. For tests, which read its buffers' addresses.</summary>
-    internal Mesh MeshFor(MeshHandle handle) =>
-        handle.Index >= 0 && handle.Index < _meshes.Count && _meshes[handle.Index] is { } mesh
-            ? mesh
-            : throw new ArgumentException($"Mesh {handle.Index} is not live.", nameof(handle));
+    internal Mesh MeshFor(MeshHandle handle) => _meshStore.LiveMesh(handle);
 
     /// <summary>The Vulkan context, for tests that make buffers of their own.</summary>
     internal VulkanContext Context => _context;
@@ -977,7 +904,7 @@ public sealed unsafe class Renderer : IDisposable
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 2),
             new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 2));
         var pipelineLayout = _context.CreatePipelineLayout(
-            [_frameSetLayout, setLayout],
+            [_kit.FrameSetLayout, setLayout],
             new PushConstantRange(ShaderStageFlags.ComputeBit, 0, sizeof(int)));
         var pipeline = PipelineFactory.CreateCompute(_context, "probe_sample.comp", pipelineLayout);
 
@@ -1016,8 +943,8 @@ public sealed unsafe class Renderer : IDisposable
     {
         var inputInfo = new DescriptorBufferInfo(input.Handle, 0, Vk.WholeSize);
         var outputInfo = new DescriptorBufferInfo(output.Handle, 0, Vk.WholeSize);
-        var irradianceInfo = new DescriptorImageInfo(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General);
-        var depthInfo = new DescriptorImageInfo(_linearSampler, _lightProbes.DepthView, ImageLayout.General);
+        var irradianceInfo = new DescriptorImageInfo(_kit.LinearSampler, _lightProbes.IrradianceView, ImageLayout.General);
+        var depthInfo = new DescriptorImageInfo(_kit.LinearSampler, _lightProbes.DepthView, ImageLayout.General);
         var writes = stackalloc WriteDescriptorSet[]
         {
             new()
@@ -1077,19 +1004,6 @@ public sealed unsafe class Renderer : IDisposable
     internal TraceFlags TraceFlagsOf(MaterialHandle material) =>
         RayTracing.TraceFlagsFor(_resources.HasCutouts(material), _resources.GetFlags(material));
 
-    private MeshHandle AddMesh(Mesh mesh)
-    {
-        if (_freeMeshes.Count > 0)
-        {
-            int slot = _freeMeshes.Pop();
-            _meshes[slot] = mesh;
-            return new MeshHandle(slot);
-        }
-
-        _meshes.Add(mesh);
-        return new MeshHandle(_meshes.Count - 1);
-    }
-
     /// <summary>
     /// Lets go of a mesh and its detail entries. Returns at once; the memory comes back
     /// two frames later, when no frame in flight can read it. Drawing with the handle
@@ -1097,23 +1011,16 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public void DestroyMesh(MeshHandle mesh)
     {
-        if (mesh.Index < 0 || mesh.Index >= _meshes.Count || _meshes[mesh.Index] is not { } live)
-        {
-            throw new ArgumentException("The mesh does not exist.", nameof(mesh));
-        }
-
-        _meshes[mesh.Index] = null;
-        _freeMeshes.Push(mesh.Index);
-        _shadowWorld++;
+        var live = _meshStore.TakeMesh(mesh);
 
         // A mesh made this frame may still be waiting for its bytes. That copy must not
         // run into a buffer that is about to be freed.
         _uploads.Cancel(live.Vertices);
         _uploads.Cancel(live.Indices);
-        Destroying().Meshes.Add(live);
+        _retired.AfterLastSubmitted.FreedMeshes.Add(live);
 
         // A background bake still tracing it would read freed buffers.
-        StopBakeThatReads(job => job.Uses(mesh));
+        BackgroundBakes.StopIfReads(job => job.Uses(mesh));
 
         // Its structures read its buffers, and its handle may go to another mesh, so they go with it.
         _tracing?.Forget(mesh);
@@ -1142,7 +1049,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _uploads.Cancel(_resources.MarkTextureArrayDying(array.Index));
-        Destroying().TextureArrays.Add(array.Index);
+        _retired.AfterLastSubmitted.FreedTextureArrays.Add(array.Index);
     }
 
     /// <summary>Lets go of a material slot. Draws that still use it are a caller mistake.</summary>
@@ -1195,10 +1102,10 @@ public sealed unsafe class Renderer : IDisposable
     {
         _shadowWorld++;
         // A background bake whose materials read it would trace a freed image.
-        StopBakeThatReads(job => BakeReadsTexture(job, slot));
+        BackgroundBakes.StopIfReads(job => BakeReadsTexture(job, slot));
 
         _uploads.Cancel(_resources.MarkTextureDying(slot));
-        Destroying().Textures.Add(slot);
+        _retired.AfterLastSubmitted.FreedTextures.Add(slot);
     }
 
     // Whether a material of one of the job's draws names the texture in this slot.
@@ -1229,70 +1136,10 @@ public sealed unsafe class Renderer : IDisposable
         // The slot may go to a material with a different opaque flag, so no structure may keep using it, and a
         // background bake tracing those structures can't go on.
         var material = new MaterialHandle(slot);
-        StopBakeThatReads(job => job.Uses(material));
+        BackgroundBakes.StopIfReads(job => job.Uses(material));
         _tracing?.ForgetMaterial(material);
         _resources.MarkMaterialDying(slot);
-        Destroying().Materials.Add(slot);
-    }
-
-    /// <summary>
-    /// Stops the running background bake when <paramref name="reads"/> says it reads something about to be freed or
-    /// rebuilt: a mesh, a texture, or a material whose structures go. Its held top level still points at them, so it
-    /// would trace freed memory. The queue starts the area again from the scene. A bake whose steps are all done, and
-    /// whose file is being made, reads nothing on the GPU any more, so it is left to finish. Every path that destroys
-    /// or rebuilds what a bake traces calls this before it lets go.
-    /// </summary>
-    private void StopBakeThatReads(Func<BakeJob, bool> reads)
-    {
-        if (_bake is SteppingBake { Job: var job } && reads(job))
-        {
-            StopBakeJob();
-        }
-    }
-
-    /// <summary>The slot whose fence covers the frame most recently submitted.</summary>
-    private DestroyedSlot Destroying() => _destroyed[(_frameIndex + FramesInFlight - 1) % FramesInFlight];
-
-    /// <summary>Frees what was queued against a frame slot, once its fence has signalled.</summary>
-    private void ReleaseDestroyed(int frameSlot)
-    {
-        var slot = _destroyed[frameSlot];
-        foreach (var mesh in slot.Meshes)
-        {
-            foreach (int detail in mesh.Details)
-            {
-                _details[detail] = default;
-                _freeDetails.Push(detail);
-            }
-
-            mesh.Dispose();
-        }
-
-        foreach (int texture in slot.Textures)
-        {
-            _resources.ReleaseTexture(texture);
-        }
-
-        foreach (int array in slot.TextureArrays)
-        {
-            _resources.ReleaseTextureArray(array);
-        }
-
-        foreach (int material in slot.Materials)
-        {
-            _resources.ReleaseMaterial(material);
-        }
-
-        foreach (var other in slot.Others)
-        {
-            other.Dispose();
-        }
-
-        slot.Meshes.Clear();
-        slot.Textures.Clear();
-        slot.TextureArrays.Clear();
-        slot.Materials.Clear();
-        slot.Others.Clear();
+        _retired.AfterLastSubmitted.FreedMaterials.Add(slot);
     }
 
     /// <summary>
@@ -1328,7 +1175,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void RecordEnvironment(CommandBuffer cmd)
     {
-        if (_environmentPending && _framesSubmitted == 0)
+        if (_environmentPending && _ring.FramesSubmitted == 0)
         {
             _environment.Record(cmd, _bakedSky);
         }
@@ -1403,9 +1250,8 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public BakeFrame? LastBakeFrame { get; private set; }
 
-    private readonly AnimatedLights _animatedLights = new(Console.Error);
+    private readonly AreaInputs _areaInputs;
     private readonly BakeResolver _bakeResolver = new(NoBakes.Instance) { FadeSeconds = 0.5f };
-    private Func<DetailHandle, BakeSphere>? _boundsOf;
     private DirectionalLight[] _bakeKeptSuns = [];
     private LocalLight[] _bakeKeptLights = [];
     private bool _drawingWithoutBakedLights;
@@ -1481,22 +1327,6 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>A bake's light probes: their grid, and the material table slots of their irradiance and depth atlases.</summary>
     private sealed record BakedProbes(ProbeVolumeSettings Settings, int Irradiance, int Depth);
 
-    /// <summary>A store's bakes, less those found unreadable, which count as missing.</summary>
-    private sealed class ReadableBakes : IBakeStore
-    {
-        public IBakeStore Inner = NoBakes.Instance;
-        public int Reloads;
-        public readonly HashSet<string> Unreadable = [];
-
-        public bool IsFresh(string file, BakeInputs inputs) => !Unreadable.Contains(file) && Inner.IsFresh(file, inputs);
-
-        public bool IsFreshQuietly(string file, BakeInputs inputs) => !Unreadable.Contains(file) && Inner.IsFreshQuietly(file, inputs);
-
-        public LightBakeFile? Load(string file) => Inner.Load(file);
-
-        int IBakeStore.Reloads => Reloads;
-    }
-
     /// <summary>
     /// Makes sure the space's fresh bake has its lightmaps on the GPU, reading it when it isn't the one already loaded.
     /// False, logged once, when it can't be read; then the file counts as missing until the store reloads.
@@ -1551,7 +1381,7 @@ public sealed unsafe class Renderer : IDisposable
             {
                 BakePages.CheckSpace(bake, file);
             }
-            else if (GivesLightmaps(store))
+            else if (_readableBakes.GivesLightmaps(store))
             {
                 // Its header was fresh a moment ago, so the file was removed or renamed since, without a reload.
                 throw new InvalidDataException("The file is gone, though its header was read as fresh.");
@@ -1605,27 +1435,6 @@ public sealed unsafe class Renderer : IDisposable
             ReleasePages(pages);
             throw;
         }
-    }
-
-    // Whether each store type has a Load of its own, rather than the interface's, which gives no lightmaps.
-    private readonly Dictionary<Type, bool> _givesLightmaps = [];
-
-    /// <summary>
-    /// Whether the store has its own <see cref="IBakeStore.Load"/>. Only a store that leaves it out may answer null for
-    /// a fresh file and still have the area count as baked.
-    /// </summary>
-    private bool GivesLightmaps(IBakeStore store)
-    {
-        var type = store.GetType();
-        if (!_givesLightmaps.TryGetValue(type, out bool gives))
-        {
-            var map = type.GetInterfaceMap(typeof(IBakeStore));
-            int load = Array.FindIndex(map.InterfaceMethods, m => m.Name == nameof(IBakeStore.Load));
-            gives = map.TargetMethods[load].DeclaringType != typeof(IBakeStore);
-            _givesLightmaps[type] = gives;
-        }
-
-        return gives;
     }
 
     /// <summary>Lets the loaded bake's pages go, once the frames drawing them are done.</summary>
@@ -1707,21 +1516,21 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void FollowBakeStore()
     {
-        if (!ReferenceEquals(_readableBakes.Inner, Bakes) || _readableBakes.Reloads != Bakes.Reloads)
+        if (!ReferenceEquals(_readableBakes.Inner, Bakes) || _readableBakes.ReloadsSeen != Bakes.Reloads)
         {
             _readableBakes.Inner = Bakes;
-            _readableBakes.Reloads = Bakes.Reloads;
+            _readableBakes.ReloadsSeen = Bakes.Reloads;
             _readableBakes.Unreadable.Clear();
-            var destroying = Destroying();
-            _chunkPool.Clear(destroying.Textures, destroying.Others);
+            var destroying = _retired.AfterLastSubmitted;
+            _chunkPool.Clear(destroying.FreedTextures, destroying.FreedOthers);
         }
 
         // Files the store forgot one at a time are read again, and only those: the other chunk bakes stay up.
         foreach (string file in Bakes.TakeForgotten())
         {
             _readableBakes.Unreadable.Remove(file);
-            var destroying = Destroying();
-            _chunkPool.Forget(file, destroying.Textures, destroying.Others);
+            var destroying = _retired.AfterLastSubmitted;
+            _chunkPool.Forget(file, destroying.FreedTextures, destroying.FreedOthers);
         }
     }
 
@@ -1734,12 +1543,12 @@ public sealed unsafe class Renderer : IDisposable
         _bakeResolver.Store = view.Off.HasFlag(RenderEffects.BakedLighting) ? NoBakes.Instance : _readableBakes;
         _bakeResolver.ChunkResident = _chunkResident ??= ChunkResident;
         _namedChunks.Clear();
-        var bakes = _bakeResolver.Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash, _animatedLights);
+        var bakes = _areaInputs.ResolveAreas(_bakeResolver, view, draws);
         if (bakes.SpaceFresh && !LoadSpaceBake(view.BakedSpace!.Value.Name, bakes.Space!.Value))
         {
             // Its file is now unreadable, so the space is worked out again as unbaked: its Baked lights come back.
             _namedChunks.Clear();
-            bakes = _bakeResolver.Resolve(view, draws, _boundsOf, EnvironmentHash, _animatedLights);
+            bakes = _areaInputs.ResolveAreas(_bakeResolver, view, draws);
         }
 
         return bakes;
@@ -1775,7 +1584,7 @@ public sealed unsafe class Renderer : IDisposable
     private bool ChunkResident(string file, BakeInputs inputs)
     {
         var store = _readableBakes.Inner;
-        if (!GivesLightmaps(store))
+        if (!_readableBakes.GivesLightmaps(store))
         {
             return true;
         }
@@ -1806,7 +1615,7 @@ public sealed unsafe class Renderer : IDisposable
         _chunkCount = 0;
         var chunks = view.BakedChunks;
         var store = _readableBakes.Inner;
-        if (chunks.IsEmpty || !GivesLightmaps(store))
+        if (chunks.IsEmpty || !_readableBakes.GivesLightmaps(store))
         {
             return;
         }
@@ -1946,53 +1755,14 @@ public sealed unsafe class Renderer : IDisposable
         _maskSlots.Assign(bakes, _chunkData);
     }
 
-    // How long one submit of the path tracer may run, below Windows' two-second GPU timeout with room to spare.
-    private static readonly TimeSpan BakeBatchBudget = TimeSpan.FromMilliseconds(80);
-
-    private Baker? _baker;
-
     /// <summary>
-    /// Makes what a bake needs, the baker and, unless <paramref name="probes"/> is false, the probe volume a space's
-    /// probes fold through, so <see cref="CreateSpaceJob"/> and <see cref="CreateChunkJob"/> can start a bake without
-    /// waiting for the GPU. Waits for the GPU the first time; does nothing once it has run, or when the GPU can't trace
-    /// rays. Call it outside a frame. <see cref="Bake"/> and <see cref="BakeChunk"/> call it themselves; a chunk has no
-    /// probes, so <see cref="BakeChunk"/> passes false and works on a GPU the probe fold can't run on.
+    /// Makes the jobs that bake a frame's space or chunks, on the baker it prepares. Tests prepare it and make jobs
+    /// through this; <see cref="Bake"/> and <see cref="BakeChunk"/> run a job to the end.
     /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// The GPU can trace rays but lacks the storage image formats a bake needs, or, with <paramref name="probes"/>, what
-    /// the live probes fold with.
-    /// </exception>
-    internal void PrepareBaking(bool probes = true)
-    {
-        if (_tracing is null)
-        {
-            return;
-        }
+    internal BakeJobs BakeJobs { get; }
 
-        _baker ??= new Baker(_context, this);
-        if (probes)
-        {
-            _baker.EnsureProbeVolume(_environment.Sky, _environment.Sampler);
-        }
-    }
-
-    // The baker PrepareBaking made, and its probe volume when the bake has probes. A job never makes them itself,
-    // since that waits for the GPU.
-    private (Baker Baker, ProbeVolume? Volume) PreparedBaker(string name, bool probes)
-    {
-        if (_tracing is null)
-        {
-            throw new InvalidOperationException("Baking needs a GPU that can trace rays, and this one can't.");
-        }
-
-        if (_baker is not { } baker || (probes && baker.ProbeVolume is null))
-        {
-            throw new InvalidOperationException(
-                $"The bake of \"{name}\" can't start yet: baking isn't prepared, and preparing it waits for the GPU, which a bake job never does. Call PrepareBaking first, outside a frame.");
-        }
-
-        return (baker, baker.ProbeVolume);
-    }
+    /// <summary>The bakes the renderer makes by itself, a slice a frame. See <see cref="AutoBake"/>.</summary>
+    internal BackgroundBakes BackgroundBakes { get; }
 
     /// <summary>
     /// Path traces the view's baked space into a lightmap and returns it as a <c>.lightbake</c> file's bytes, made from
@@ -2016,179 +1786,22 @@ public sealed unsafe class Renderer : IDisposable
 
     private byte[] BakeTinted(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
     {
-        var space = CheckSpace(view, settings);
-        long started = Stopwatch.GetTimestamp();
-        BakeIds.CheckStaticDraws(draws);
-        BakeFiles.CheckChunks(view.BakedChunks);
+        var space = BakeJobs.StartSpace(view, draws, settings);
+        SettleForBake(view);
+        BakeJobs.Bakers.Prepare(probes: true);
+        using var job = BakeJobs.SpaceJob(view, draws, settings, space);
+        return BakeJobs.RunToEnd(job);
+    }
+
+    // Readies the GPU for a bake that waits: nothing in flight, no background bake on the baker's pages, every upload
+    // done, and the view's sky drawn.
+    private void SettleForBake(in FrameView view)
+    {
         _context.WaitIdle();
-        DropBackgroundBakes();
+        BackgroundBakes.DropAll();
         _uploads.Flush();
         BakeSky(view);
         FlushEnvironment();
-        PrepareBaking();
-        using var job = SpaceJob(view, draws, settings, space, started);
-        return RunJob(job);
-    }
-
-    /// <summary>
-    /// The bake <see cref="Bake"/> makes, as a job to step, without waiting for the GPU: it records nothing until its
-    /// first step. The frame's sky and uploads are taken as they are, so call it after a frame has drawn this view.
-    /// The draws and lights are copied, so the job doesn't need the frame's spans. Call <see cref="PrepareBaking"/>
-    /// first.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">As <see cref="Bake"/>, or baking isn't prepared.</exception>
-    /// <exception cref="ArgumentException">As <see cref="Bake"/>.</exception>
-    internal BakeJob CreateSpaceJob(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
-    {
-        var space = CheckSpace(view, settings);
-        long started = Stopwatch.GetTimestamp();
-        BakeIds.CheckStaticDraws(draws);
-        BakeFiles.CheckChunks(view.BakedChunks);
-        return SpaceJob(view, draws, settings, space, started);
-    }
-
-    // Steps a job to the end, a submit at a time, with as many passes in each as fit the batch budget, then makes its
-    // file.
-    private byte[] RunJob(BakeJob job)
-    {
-        int batch = 1;
-        while (true)
-        {
-            var result = BakeStepResult.Continue;
-            long stepStarted = Stopwatch.GetTimestamp();
-            _context.SubmitAndWait(cmd => result = job.Step(cmd, batch));
-            if (result == BakeStepResult.Done)
-            {
-                return job.Finish();
-            }
-
-            if (result == BakeStepResult.AwaitCpu)
-            {
-                // A whole bake may wait, so the next step finds the work done rather than submitting empty steps.
-                job.WaitForCpu();
-            }
-
-            // As many passes as fit the budget at the rate this step ran, never more than double at once. A step that
-            // traced nothing starts the next stage's passes over from one, since its passes may cost something else.
-            int count = job.PassesInLastStep;
-            if (count == 0)
-            {
-                batch = 1;
-                continue;
-            }
-
-            double perPass = Math.Max(Stopwatch.GetElapsedTime(stepStarted).TotalMilliseconds / count, 1e-3);
-            batch = Math.Clamp((int)(BakeBatchBudget.TotalMilliseconds / perPass), 1, Math.Max(count * 2, 1));
-        }
-    }
-
-    // What the renderer bakes by itself, and the queue that picks what is next. See "Background bakes" in
-    // docs/design.md.
-    private AutoBake? _autoBake;
-    private BakeQueue? _bakeQueue;
-
-    // Set when PrepareBaking refused for the AutoBake set, so frames bake nothing until another is set.
-    private bool _autoBakeUnavailable;
-
-    // This frame's wants, grown when a frame names more areas.
-    private BakeWant[] _bakeWants = new BakeWant[16];
-
-    // The running background bake, stepping or finishing, or null. Kept while its file is made on the thread pool, so
-    // no other bake sets up on the baker's pages before it lets them go. See "Lifecycle state in engine code" in
-    // docs/design.md.
-    private RunningBake? _bake;
-
-    // Finishes on the thread pool, until the render thread takes their results; and those results.
-    private readonly List<FinishingBake> _bakeFinishes = [];
-    private readonly ConcurrentQueue<FinishingBake> _bakesFinished = new();
-
-    // Stopped jobs whose steps a frame in flight may still run, freed with the frame slot they were queued against.
-    private readonly HashSet<BakeJob> _retiringBakes = [];
-
-    // How many passes the next trace slice records, and which run of measurements may change it: a step that traces
-    // nothing starts the count over, and a slice measured from before then says nothing about the passes now.
-    private int _bakePasses = 1;
-    private int _bakePassEpoch;
-
-    // Frames submitted, so a step that copied results back knows when they have landed.
-    private long _framesSubmitted;
-
-    // Each frame slot's slice: whether it was timed, its passes and its epoch.
-    private readonly GpuTimer _bakeTimer;
-    private readonly bool[] _sliceTimed = new bool[FramesInFlight];
-    private readonly int[] _slicePasses = new int[FramesInFlight];
-    private readonly int[] _sliceEpoch = new int[FramesInFlight];
-    private float _lastSliceMilliseconds;
-
-    // Areas whose bake failed, each reported once.
-    private readonly HashSet<string> _bakeFailuresLogged = new(StringComparer.Ordinal);
-
-    /// <summary>The running background bake: the job the queue started, for which area, at which quality.</summary>
-    private abstract class RunningBake(BakeJob job, BakeWant want, BakeQuality quality)
-    {
-        public readonly BakeJob Job = job;
-        public readonly BakeWant Want = want;
-        public readonly BakeQuality Quality = quality;
-    }
-
-    /// <summary>
-    /// A background bake recording a slice a frame, from the frame after <paramref name="readyAt"/> frames have been
-    /// submitted, when a step that copied results back has landed.
-    /// </summary>
-    private sealed class SteppingBake(BakeJob job, BakeWant want, BakeQuality quality, long readyAt)
-        : RunningBake(job, want, quality)
-    {
-        public readonly long ReadyAt = readyAt;
-    }
-
-    /// <summary>A background bake whose steps are done and whose file is being made on the thread pool.</summary>
-    private sealed class FinishingBake(BakeJob job, BakeWant want, BakeQuality quality) : RunningBake(job, want, quality)
-    {
-        public Task? Task;
-        public byte[]? Bytes;
-        public Exception? Error;
-
-        // Set on the render thread when the bake was stopped while finishing: its file is dropped.
-        public bool Cancelled;
-    }
-
-    // Stopped jobs the GPU is done with whose work on the thread pool still runs, freed by a later frame once it is done.
-    private readonly List<BakeJob> _bakesBusyOnCpu = [];
-
-    /// <summary>
-    /// A stopped job, freed once the frame slot it was queued against is done, or, while its work on the thread pool
-    /// still runs, by the first frame after that work ends, so the render thread never waits for it.
-    /// </summary>
-    private sealed class RetiredBake(Renderer renderer, BakeJob job) : IDisposable
-    {
-        public void Dispose()
-        {
-            if (job.CpuBusy)
-            {
-                renderer._bakesBusyOnCpu.Add(job);
-                return;
-            }
-
-            renderer._retiringBakes.Remove(job);
-            job.Dispose();
-        }
-    }
-
-    // Frees the stopped jobs whose work on the thread pool has ended.
-    private void FreeBakesDoneOnCpu()
-    {
-        for (int i = _bakesBusyOnCpu.Count - 1; i >= 0; i--)
-        {
-            var job = _bakesBusyOnCpu[i];
-            if (job.CpuBusy)
-            {
-                continue;
-            }
-
-            _bakesBusyOnCpu.RemoveAt(i);
-            _retiringBakes.Remove(job);
-            job.Dispose();
-        }
     }
 
     /// <summary>
@@ -2200,525 +1813,15 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public AutoBake? AutoBake
     {
-        get => _autoBake;
-        set
-        {
-            StopBakeJob();
-            _autoBake = value;
-            _bakeQueue = value is null ? null : new BakeQueue(value.Qualities);
-            _autoBakeUnavailable = false;
-            if (value is null || _tracing is null)
-            {
-                return;
-            }
-
-            try
-            {
-                PrepareBaking(probes: value.Spaces);
-            }
-            catch (InvalidOperationException e)
-            {
-                _autoBakeUnavailable = true;
-                Console.Error.WriteLine($"Nothing is baked in the background: {e.Message}");
-            }
-        }
+        get => BackgroundBakes.AutoBake;
+        set => BackgroundBakes.AutoBake = value;
     }
 
     /// <summary>
     /// How the background bake is getting on, or null when none runs and no area waits for one. While areas wait and
     /// none runs yet, its name is empty and its fraction 0. See <see cref="AutoBake"/>.
     /// </summary>
-    public BakeProgress? BakeProgress => _bake is { Job: var job }
-        ? new BakeProgress(job.Name, _bake is FinishingBake ? 1f : job.Progress, _bakeQueue?.Waiting ?? 0,
-            _lastSliceMilliseconds)
-        : _bakeQueue is { Waiting: > 0 } queue
-            ? new BakeProgress("", 0f, queue.Waiting, _lastSliceMilliseconds)
-            : null;
-
-    /// <summary>How many background bake slices have been measured on the GPU, for tests.</summary>
-    internal int BakeSlicesMeasured { get; private set; }
-
-    /// <summary>The time the render thread spent in the background bake's last step, in milliseconds, for tests.</summary>
-    internal float BakeStepCpuMilliseconds { get; private set; }
-
-    /// <summary>How many bake jobs are made and not yet disposed, for tests.</summary>
-    internal int LiveBakeJobs => _baker?.JobPools ?? 0;
-
-    /// <summary>The passes the next trace slice of the background bake records, for tests.</summary>
-    internal int BakeSlicePasses => _bakePasses;
-
-    /// <summary>Hands the files finished on the thread pool to <see cref="AutoBake"/>'s Done, on the render thread.</summary>
-    private void TakeFinishedBakes()
-    {
-        FreeBakesDoneOnCpu();
-        while (_bakesFinished.TryDequeue(out var finished))
-        {
-            _bakeFinishes.Remove(finished);
-
-            // Every step ran before the job was done, so the GPU is finished with it.
-            finished.Job.Dispose();
-            if (finished.Cancelled)
-            {
-                continue;
-            }
-
-            _bake = null;
-            var want = finished.Want;
-            _bakeQueue?.Finished(want.File, want.Inputs, finished.Quality);
-            if (finished.Error is { } error)
-            {
-                ReportBakeFailure(want, error);
-                continue;
-            }
-
-            _autoBake?.Done(new BakeDone(want.File, want.Name, finished.Job.Inputs, finished.Quality, finished.Bytes!));
-        }
-    }
-
-    /// <summary>
-    /// Tells the queue which areas this frame names whose bake is missing or stale, stops the running bake when its
-    /// area is named with other inputs, and makes the job the queue starts. Runs once a frame, from the frame as
-    /// drawn with every light, after <see cref="ResolveBakes"/>.
-    /// </summary>
-    private void UpdateBackgroundBake(in FrameView view, ReadOnlySpan<DrawItem> draws)
-    {
-        if (_autoBake is not { } auto || _bakeQueue is not { } queue || _autoBakeUnavailable || _tracing is null)
-        {
-            return;
-        }
-
-        int count = CollectBakeWants(view, auto, queue, out bool cancel);
-        var start = queue.Update(_bakeWants.AsSpan(0, count), view.CameraPosition, out bool cancelled, out var quality);
-        if (cancel || cancelled)
-        {
-            // The queue already forgot it, and may have started the next bake, so it isn't told again.
-            StopBakeJob(tellQueue: false);
-        }
-
-        if (start is { } want)
-        {
-            StartBakeJob(view, draws, queue, want, quality);
-        }
-    }
-
-    /// <summary>
-    /// Fills <see cref="_bakeWants"/> with the last frame's areas whose bake is missing or stale, once its lights hold
-    /// still, and returns how many. <paramref name="cancel"/> says whether the running bake is of a named area with
-    /// other inputs, so it must stop.
-    /// </summary>
-    private int CollectBakeWants(in FrameView view, AutoBake auto, BakeQueue queue, out bool cancel)
-    {
-        int count = 0;
-        cancel = false;
-        if (LastBakeFrame is not { } bakes || !_animatedLights.Settled)
-        {
-            return count;
-        }
-
-        if (auto.Spaces)
-        {
-            cancel |= WantSpaceBake(view, queue, bakes, ref count);
-        }
-
-        cancel |= WantChunkBakes(view, queue, bakes, ref count);
-        return count;
-    }
-
-    /// <summary>
-    /// Names the view's baked space to the queue, and wants its bake when it is missing or stale. Returns whether the
-    /// running bake is of the space with other inputs, so it must stop.
-    /// </summary>
-    private bool WantSpaceBake(in FrameView view, BakeQueue queue, BakeFrame bakes, ref int count)
-    {
-        if (view.BakedSpace is not { } space || bakes.Space is not { } spaceInputs)
-        {
-            return false;
-        }
-
-        string file = _bakeResolver.SpaceFile(space.Name);
-        bool cancel = queue.Named(file, spaceInputs);
-        if (queue.Wants(_readableBakes.Inner, file, spaceInputs))
-        {
-            AddBakeWant(ref count, new BakeWant(file, space.Name, spaceInputs, -1, (space.Min + space.Max) * 0.5f));
-        }
-
-        return cancel;
-    }
-
-    /// <summary>
-    /// Names each of the view's chunks with static draws and settled inputs to the queue, and wants the bakes that are
-    /// missing or stale. Returns whether the running bake is of a chunk with other inputs, so it must stop.
-    /// </summary>
-    private bool WantChunkBakes(in FrameView view, BakeQueue queue, BakeFrame bakes, ref int count)
-    {
-        bool cancel = false;
-        var chunks = view.BakedChunks;
-        for (int c = 0; c < chunks.Length && c < bakes.Chunks.Count; c++)
-        {
-            if (bakes.ChunkPending(c) || bakes.ChunkStaticDraws(c) == 0)
-            {
-                continue;
-            }
-
-            var inputs = bakes.Chunks[c];
-            string file = bakes.ChunkFile(c);
-            cancel |= queue.Named(file, inputs);
-            if (queue.Wants(_readableBakes.Inner, file, inputs))
-            {
-                var chunk = chunks[c];
-                var centre = Vector3.Transform((chunk.Min + chunk.Max) * 0.5f, chunk.Transform);
-                AddBakeWant(ref count, new BakeWant(file, chunk.Name, inputs, c, centre));
-            }
-        }
-
-        return cancel;
-    }
-
-    /// <summary>Makes the job for the bake the queue started, or reports why it can't be made.</summary>
-    private void StartBakeJob(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeQueue queue, BakeWant want, BakeQuality quality)
-    {
-        // The queue starts a bake only when none runs; a job left here would never be freed.
-        if (_bake is not null)
-        {
-            StopBakeJob(tellQueue: false);
-        }
-
-        try
-        {
-            var job = want.Chunk < 0
-                ? CreateSpaceJob(view, draws, new BakeSettings(view.BakedSpace!.Value.TexelsPerMetre, quality))
-                : CreateChunkJob(view, draws, want.Chunk, new BakeSettings(view.BakedChunks[want.Chunk].TexelsPerMetre, quality));
-            _bake = new SteppingBake(job, want, quality, readyAt: 0);
-            _bakePasses = 1;
-            _bakePassEpoch++;
-        }
-        catch (Exception e) when (e is InvalidOperationException or ArgumentException)
-        {
-            // Never started again with these inputs, so a bake that can't be made doesn't loop.
-            queue.Finished(want.File, want.Inputs, quality);
-            ReportBakeFailure(want, e);
-        }
-    }
-
-    private void AddBakeWant(ref int count, in BakeWant want)
-    {
-        if (count == _bakeWants.Length)
-        {
-            Array.Resize(ref _bakeWants, count * 2);
-        }
-
-        _bakeWants[count++] = want;
-    }
-
-    private void ReportBakeFailure(in BakeWant want, Exception error)
-    {
-        if (_bakeFailuresLogged.Add(want.File))
-        {
-            Console.Error.WriteLine($"The background bake of \"{want.Name}\" failed, so its area stays lit live: {error.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Records the running background bake's next slice into the frame's command buffer, between timestamps, with as
-    /// many trace passes as the last measured slice says fit the budget. Skips the frame while a step's readback is
-    /// still on its way, and while the last bake still holds the baker's pages.
-    /// </summary>
-    private void RecordBakeSlice(CommandBuffer cmd)
-    {
-        _sliceTimed[_frameIndex] = false;
-        if (_bake is not SteppingBake { Job: var job } stepping || _framesSubmitted < stepping.ReadyAt
-            || (!job.Started && _baker!.PagesClaimed))
-        {
-            return;
-        }
-
-        bool timed = _bakeTimer.IsSupported;
-        if (timed)
-        {
-            _bakeTimer.Begin(cmd, _frameIndex);
-        }
-
-        BakeStepResult result;
-        try
-        {
-            if (!TryStepBake(cmd, stepping, out result))
-            {
-                return;
-            }
-        }
-        finally
-        {
-            if (timed)
-            {
-                _bakeTimer.Mark(cmd);
-                _bakeTimer.End(cmd);
-            }
-        }
-
-        AfterBakeStep(stepping, result, timed);
-    }
-
-    /// <summary>
-    /// Records the bake's next step. False when the step throws, after ending the bake and reporting why: what the step
-    /// recorded rides this frame, so the job goes with this frame's slot.
-    /// </summary>
-    private bool TryStepBake(CommandBuffer cmd, SteppingBake stepping, out BakeStepResult result)
-    {
-        long stepStarted = Stopwatch.GetTimestamp();
-        try
-        {
-            result = stepping.Job.Step(cmd, _bakePasses);
-            BakeStepCpuMilliseconds = (float)Stopwatch.GetElapsedTime(stepStarted).TotalMilliseconds;
-            return true;
-        }
-        catch (Exception e) when (e is InvalidOperationException or ArgumentException)
-        {
-            _bakeQueue?.Finished(stepping.Want.File, stepping.Want.Inputs, stepping.Quality);
-            RetireBakeJob(stepping.Job, _destroyed[_frameIndex]);
-            _bake = null;
-            ReportBakeFailure(stepping.Want, e);
-            result = default;
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Keeps what the slice ran for <see cref="MeasureBakeSlice"/>, and moves the bake on: to wait for the step's
-    /// readback, or to make its file once every step is done.
-    /// </summary>
-    private void AfterBakeStep(SteppingBake stepping, BakeStepResult result, bool timed)
-    {
-        var job = stepping.Job;
-        int passes = job.PassesInLastStep;
-        if (passes == 0)
-        {
-            // The next stage's passes may cost something else, so they start over from one.
-            _bakePasses = 1;
-            _bakePassEpoch++;
-        }
-
-        _sliceTimed[_frameIndex] = timed;
-        _slicePasses[_frameIndex] = passes;
-        _sliceEpoch[_frameIndex] = _bakePassEpoch;
-        switch (result)
-        {
-            case BakeStepResult.AwaitGpu:
-                // This frame is the next submitted; its fence has passed once as many more frames have been.
-                _bake = new SteppingBake(job, stepping.Want, stepping.Quality, _framesSubmitted + FramesInFlight);
-                break;
-            case BakeStepResult.Done:
-                StartFinishingBake(stepping);
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Reads the slice timed in this frame slot, whose fence has passed, and sizes the next trace slice from it: as
-    /// many passes as fit the budget at the rate it ran, never more than double.
-    /// </summary>
-    private void MeasureBakeSlice()
-    {
-        if (!_sliceTimed[_frameIndex])
-        {
-            return;
-        }
-
-        _sliceTimed[_frameIndex] = false;
-        if (!_bakeTimer.Collect(_frameIndex))
-        {
-            return;
-        }
-
-        float milliseconds = (float)_bakeTimer.Times[0].Milliseconds;
-        _lastSliceMilliseconds = milliseconds;
-        BakeSlicesMeasured++;
-        int passes = _slicePasses[_frameIndex];
-        if (passes == 0 || _sliceEpoch[_frameIndex] != _bakePassEpoch || _autoBake is not { } auto)
-        {
-            return;
-        }
-
-        double perPass = Math.Max(milliseconds / passes, 1e-4);
-        _bakePasses = (int)Math.Clamp(auto.BudgetMilliseconds / perPass, 1, Math.Max(passes * 2, 1));
-    }
-
-    // Makes the finished job's file on the thread pool, since encoding the pages takes longer than a frame.
-    private void StartFinishingBake(SteppingBake stepping)
-    {
-        var finishing = new FinishingBake(stepping.Job, stepping.Want, stepping.Quality);
-        _bake = finishing;
-        _bakeFinishes.Add(finishing);
-        finishing.Task = Task.Run(() =>
-        {
-            try
-            {
-                finishing.Bytes = finishing.Job.Finish();
-            }
-            catch (Exception e)
-            {
-                finishing.Error = e;
-            }
-
-            _bakesFinished.Enqueue(finishing);
-        });
-    }
-
-    /// <summary>
-    /// Stops the running background bake, if any, without finishing it; the queue starts its area again while a frame
-    /// names it. Steps already submitted may still run, so the job is freed with the last submitted frame. Pass
-    /// <paramref name="tellQueue"/> false when the queue itself called the bake off, since it may already have started
-    /// the next one, which telling it would end too.
-    /// </summary>
-    private void StopBakeJob(bool tellQueue = true)
-    {
-        switch (_bake)
-        {
-            case null:
-                return;
-            case FinishingBake finishing:
-                // Its file is being made; it is dropped, and the job freed when the thread pool is done with it.
-                finishing.Cancelled = true;
-                break;
-            default:
-                RetireBakeJob(_bake.Job, Destroying());
-                break;
-        }
-
-        _bake = null;
-        if (tellQueue)
-        {
-            _bakeQueue?.Stopped();
-        }
-    }
-
-    // A job that never stepped holds nothing the GPU reads, so it goes at once.
-    private void RetireBakeJob(BakeJob job, DestroyedSlot slot)
-    {
-        if (!job.Started)
-        {
-            job.Dispose();
-            return;
-        }
-
-        _retiringBakes.Add(job);
-        slot.Others.Add(new RetiredBake(this, job));
-    }
-
-    /// <summary>
-    /// Frees every background bake once the GPU is idle, for a whole bake, which needs the baker's pages, and for
-    /// <see cref="Dispose"/>: waits for the files being made, drops them, and stops the running bake.
-    /// </summary>
-    private void DropBackgroundBakes()
-    {
-        StopBakeJob();
-        foreach (var finishing in _bakeFinishes)
-        {
-            finishing.Cancelled = true;
-            finishing.Task?.Wait();
-        }
-
-        while (_bakesFinished.TryDequeue(out var finished))
-        {
-            finished.Job.Dispose();
-        }
-
-        _bakeFinishes.Clear();
-        foreach (var job in _retiringBakes)
-        {
-            // Disposing twice is harmless, so the slot's later release changes nothing. A job whose work on the thread
-            // pool still runs is waited for here, where waiting is allowed.
-            job.Dispose();
-        }
-
-        _retiringBakes.Clear();
-        _bakesBusyOnCpu.Clear();
-    }
-
-    // The checks every bake of the view's space makes before it starts.
-    private static CheckedSpace CheckSpace(in FrameView view, BakeSettings settings)
-    {
-        if (view.BakedSpace is not { } space)
-        {
-            throw new InvalidOperationException("Bake needs a baked space in the frame; call view.BakedLighting first.");
-        }
-
-        if (settings.TexelsPerMetre != space.TexelsPerMetre)
-        {
-            throw new ArgumentException(
-                $"The baked space \"{space.Name}\" is lit at {space.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, so it can't be baked at {settings.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)}: no frame would find that bake fresh.",
-                nameof(settings));
-        }
-
-        // The space's probes, laid out as the live probes are, so the runtime copies their tiles straight in.
-        var probeSettings = new ProbeVolumeSettings(space.Min, space.Max, space.ProbeSpacing);
-        long probeCount = ProbeGrid.Total(probeSettings);
-        if (probeCount > BakeFiles.MaxSpaceProbes)
-        {
-            throw new InvalidOperationException(
-                $"The baked space \"{space.Name}\" holds {probeCount.ToString(CultureInfo.InvariantCulture)} probes, but a bake holds at most {BakeFiles.MaxSpaceProbes.ToString(CultureInfo.InvariantCulture)}.");
-        }
-
-        return new CheckedSpace(space, probeSettings);
-    }
-
-    /// <summary>A baked space that passed <see cref="CheckSpace"/>, and its probes' grid.</summary>
-    private readonly record struct CheckedSpace(BakedSpace Space, ProbeVolumeSettings Probes);
-
-    /// <summary>Lays out the static draws the space owns on its lightmap pages, and throws when they don't fit.</summary>
-    private LightmapLayout LayOutSpace(
-        ReadOnlySpan<DrawItem> draws, BakedSpace space, ReadOnlySpan<BakedChunk> chunks, BakeSettings settings)
-    {
-        var owned = new List<DrawItem>();
-        foreach (ref readonly var draw in draws)
-        {
-            if (draw.BakeId != 0
-                && BakeAreas.OwnerOfDraw(BakeAreas.Transform(BoundsOf(draw.Detail), draw.Transform), space, chunks) == BakeAreas.Space)
-            {
-                owned.Add(draw);
-            }
-        }
-
-        var layout = LightmapLayout.Build(CollectionsMarshal.AsSpan(owned), AreaOf, settings, GetsLightmap);
-        if (layout.Left.Count > 0)
-        {
-            throw new InvalidOperationException(
-                $"{layout.Left.Count.ToString(CultureInfo.InvariantCulture)} of the {owned.Count.ToString(CultureInfo.InvariantCulture)} static draws in the baked space \"{space.Name}\" don't fit in {LightmapLayout.MaxPages.ToString(CultureInfo.InvariantCulture)} lightmap pages of {LightmapLayout.PageSize.ToString(CultureInfo.InvariantCulture)} texels, so they would get no baked light. Use fewer than {settings.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, or bake a smaller space.");
-        }
-
-        return layout;
-    }
-
-    // Resolves the space's inputs, lays out its draws and takes its lights, and makes the job that bakes them. Never
-    // waits: the baker and its probe volume come from PrepareBaking.
-    private BakeJob SpaceJob(
-        in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings, CheckedSpace checkedSpace, long started)
-    {
-        var (space, probeSettings) = checkedSpace;
-
-        // A resolver of its own, so the frame's resolver keeps what the last frame drew. It still tells the tracker
-        // where each light is, so a light that moved between frames is known to be moving.
-        var inputs = new BakeResolver(NoBakes.Instance)
-            .Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash, _animatedLights).Space!.Value;
-
-        var layout = LayOutSpace(draws, space, view.BakedChunks, settings);
-        var lights = BakeLights.TakeSpace(view, space, _animatedLights);
-        var unassigned = new List<int>();
-        var channels = BakeLights.AssignSpaceChannels(view, space, lights, unassigned);
-        var bakeLights = CollectionsMarshal.AsSpan(lights.Lights);
-        var (baker, volume) = PreparedBaker(space.Name, probes: true);
-        var area = new AreaJob(draws.ToArray(), bakeLights.ToArray(), false, layout, view.EnvironmentIntensity, true,
-            probeSettings);
-        var skipped = unassigned.ToArray();
-        var quality = settings.Quality;
-        return new BakeJob(baker, _context, BakeFiles.Space(space.Name), space.Name, inputs, settings, area,
-            _environment.Sky, _environment.Sampler, volume,
-            result =>
-            {
-                var report = new LightBakeReport(skipped, result.InvalidShare, result.Passes, Stopwatch.GetElapsedTime(started));
-                return new LightBakeFile(inputs, quality, layout.Draws, result.Irradiance, result.Direction, result.Mask,
-                    result.ProbeIrradiance, result.ProbeDepth, probeSettings, channels, report);
-            });
-    }
+    public BakeProgress? BakeProgress => BackgroundBakes.Progress;
 
     /// <summary>
     /// Path traces chunk <paramref name="chunk"/> of the frame in its own space and returns its <c>.lightbake</c> bytes,
@@ -2743,146 +1846,12 @@ public sealed unsafe class Renderer : IDisposable
 
     private byte[] BakeChunkTinted(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings)
     {
-        CheckChunk(view, chunk, settings);
-        long started = Stopwatch.GetTimestamp();
-        BakeIds.CheckStaticDraws(draws);
-        BakeFiles.CheckChunks(view.BakedChunks);
-        var resolved = ResolveChunk(view, draws, chunk);
-        _context.WaitIdle();
-        DropBackgroundBakes();
-        _uploads.Flush();
-        BakeSky(view);
-        FlushEnvironment();
-        PrepareBaking(probes: false);
-        using var job = ChunkJob(view, draws, settings, resolved, started);
-        return RunJob(job);
+        var resolved = BakeJobs.StartChunk(view, draws, chunk, settings);
+        SettleForBake(view);
+        BakeJobs.Bakers.Prepare(probes: false);
+        using var job = BakeJobs.ChunkJob(view, draws, settings, resolved);
+        return BakeJobs.RunToEnd(job);
     }
-
-    /// <summary>
-    /// The bake <see cref="BakeChunk"/> makes, as a job to step, without waiting for the GPU: it records nothing until
-    /// its first step. The frame's sky and uploads are taken as they are, so call it after a frame has drawn this view.
-    /// The draws and lights are copied, so the job doesn't need the frame's spans. Call <see cref="PrepareBaking"/>
-    /// first.
-    /// </summary>
-    /// <exception cref="ArgumentOutOfRangeException">As <see cref="BakeChunk"/>.</exception>
-    /// <exception cref="ArgumentException">As <see cref="BakeChunk"/>.</exception>
-    /// <exception cref="InvalidOperationException">As <see cref="BakeChunk"/>, or baking isn't prepared.</exception>
-    internal BakeJob CreateChunkJob(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings)
-    {
-        CheckChunk(view, chunk, settings);
-        long started = Stopwatch.GetTimestamp();
-        BakeIds.CheckStaticDraws(draws);
-        BakeFiles.CheckChunks(view.BakedChunks);
-        var resolved = ResolveChunk(view, draws, chunk);
-        return ChunkJob(view, draws, settings, resolved, started);
-    }
-
-    // The checks every bake of a chunk makes before it starts.
-    private static void CheckChunk(in FrameView view, int chunk, BakeSettings settings)
-    {
-        var chunks = view.BakedChunks;
-        if (chunk < 0 || chunk >= chunks.Length)
-        {
-            throw new ArgumentOutOfRangeException(nameof(chunk), chunk, string.Create(CultureInfo.InvariantCulture,
-                $"The frame has {chunks.Length} baked {(chunks.Length == 1 ? "chunk" : "chunks")}, so chunk {chunk} doesn't exist."));
-        }
-
-        var baked = chunks[chunk];
-        if (settings.TexelsPerMetre != baked.TexelsPerMetre)
-        {
-            throw new ArgumentException(
-                $"The baked chunk \"{baked.Name}\" is lit at {baked.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, so it can't be baked at {settings.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)}: no frame would find that bake fresh.",
-                nameof(settings));
-        }
-    }
-
-    /// <summary>A chunk of the frame, its inputs, the resolver that found them, and the bake ids of its draws.</summary>
-    private sealed record ResolvedChunk(int Chunk, BakeInputs Inputs, BakeResolver Resolver, HashSet<ulong> Ids);
-
-    // A chunk's inputs, and which draws are its, with the same resolver the space's bake uses, so the chunk takes exactly
-    // the draws its inputs name.
-    private ResolvedChunk ResolveChunk(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk)
-    {
-        var resolver = new BakeResolver(NoBakes.Instance);
-        var inputs = resolver.Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash, _animatedLights)
-            .ChunkInputs[chunk];
-        var ids = new HashSet<ulong>(resolver.ChunkIds(chunk));
-        if (ids.Count == 0)
-        {
-            throw new InvalidOperationException(
-                $"The baked chunk \"{view.BakedChunks[chunk].Name}\" owns no static draws, so there is nothing to bake. A static draw belongs to the chunk whose box holds its centre, unless the baked space's box touches it.");
-        }
-
-        return new ResolvedChunk(chunk, inputs, resolver, ids);
-    }
-
-    /// <summary>
-    /// The chunk's draws, in its own space, and whether any of them glows. The rest of the world neither blocks nor
-    /// bounces its light. Only this copy's: every copy of a chunk has the same ids, so an id alone would take the other
-    /// copies' draws too.
-    /// </summary>
-    private List<DrawItem> MoveChunkDraws(ReadOnlySpan<DrawItem> draws, ResolvedChunk resolved, in BakedChunk baked, out bool glows)
-    {
-        var owners = resolved.Resolver.Owners;
-        var owned = new List<DrawItem>();
-        glows = false;
-        for (int d = 0; d < draws.Length; d++)
-        {
-            ref readonly var draw = ref draws[d];
-            if (d < owners.Length && owners[d] == resolved.Chunk && draw.BakeId != 0 && resolved.Ids.Contains(draw.BakeId))
-            {
-                var moved = draw;
-                moved.Transform = BakeAreas.Relative(draw.Transform, baked.Transform);
-                owned.Add(moved);
-                glows |= _resources.Glows(draw.Material);
-            }
-        }
-
-        return owned;
-    }
-
-    // Moves the chunk's draws and lights into its space, lays them out on its page, and makes the job that bakes them.
-    // Never waits: the baker comes from PrepareBaking.
-    private BakeJob ChunkJob(
-        in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings, ResolvedChunk resolved, long started)
-    {
-        var baked = view.BakedChunks[resolved.Chunk];
-        var inputs = resolved.Inputs;
-        var owned = MoveChunkDraws(draws, resolved, baked, out bool glows);
-        var layout = LightmapLayout.BuildSingle(CollectionsMarshal.AsSpan(owned), AreaOf, baked.TexelsPerMetre, GetsLightmap);
-        if (layout.Left.Count > 0)
-        {
-            throw new InvalidOperationException(
-                $"{layout.Left.Count.ToString(CultureInfo.InvariantCulture)} of the {owned.Count.ToString(CultureInfo.InvariantCulture)} static draws in the baked chunk \"{baked.Name}\" don't fit in one lightmap page of {LightmapLayout.PageSize.ToString(CultureInfo.InvariantCulture)} texels, so they would get no baked light. Use fewer than {baked.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, or make the chunk smaller.");
-        }
-
-        var lights = BakeLights.TakeChunk(view, resolved.Chunk, _animatedLights);
-        var unassigned = new List<int>();
-        var (bakeLights, chunkChannels) = BakeLights.AssignChunkChannels(view.LocalLights, baked, lights, unassigned);
-
-        // No sky and no sun in the plain light: the transfer carries them, for whatever sky the chunk is placed under.
-        bool plainLight = lights.Lights.Count > 0 || glows;
-        var (baker, _) = PreparedBaker(baked.Name, probes: false);
-        var area = new AreaJob(owned.ToArray(), bakeLights, true, layout, 0f, plainLight, null);
-        var skipped = unassigned.ToArray();
-        var quality = settings.Quality;
-        return new BakeJob(baker, _context, BakeFiles.Chunk(baked.Name, inputs.Combined), baked.Name, inputs, settings,
-            area, _environment.Sky, _environment.Sampler, null,
-            result =>
-            {
-                var report = new LightBakeReport(skipped, result.InvalidShare, result.Passes, Stopwatch.GetElapsedTime(started));
-                return new LightBakeFile(inputs, quality, layout.Draws, result.Irradiance, result.Direction, result.Mask,
-                    null, null, null, [], report)
-                {
-                    Transfer = result.Transfer,
-                    ChunkChannels = chunkChannels,
-                };
-            });
-    }
-
-    // Whether a material may have a lightmap: not one that sways in the wind or is see-through.
-    private bool GetsLightmap(MaterialHandle material) =>
-        _resources.GetWind(material) == 0f && (_resources.GetFlags(material) & MaterialFlags.Transparent) == 0;
 
     private static ulong HashEnvironment(in EnvironmentDescription environment)
     {
@@ -3040,7 +2009,7 @@ public sealed unsafe class Renderer : IDisposable
         _context.WaitIdle();
         _overlayAtlas?.Dispose();
         _overlayAtlas = new GpuTexture(_context, data);
-        WriteImages(_overlaySet, [new(_linearSampler, _overlayAtlas.View, ImageLayout.ShaderReadOnlyOptimal)]);
+        WriteImages(_overlaySet, [new(_kit.LinearSampler, _overlayAtlas.View, ImageLayout.ShaderReadOnlyOptimal)]);
     }
 
     /// <summary>
@@ -3243,12 +2212,12 @@ public sealed unsafe class Renderer : IDisposable
 
         WriteTargetDescriptors();
         _probeUpdatePass.WriteSet(
-            new DescriptorImageInfo(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
-            new DescriptorImageInfo(_linearSampler, _lightProbes.DepthView, ImageLayout.General),
-            new DescriptorImageInfo(_shadowSampler, _probeSun.View, ImageLayout.ShaderReadOnlyOptimal));
+            new DescriptorImageInfo(_kit.LinearSampler, _lightProbes.IrradianceView, ImageLayout.General),
+            new DescriptorImageInfo(_kit.LinearSampler, _lightProbes.DepthView, ImageLayout.General),
+            new DescriptorImageInfo(_kit.ShadowSampler, _probeSun.View, ImageLayout.ShaderReadOnlyOptimal));
         _probeTracePass?.WriteSet(
-            new DescriptorImageInfo(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
-            new DescriptorImageInfo(_linearSampler, _lightProbes.DepthView, ImageLayout.General),
+            new DescriptorImageInfo(_kit.LinearSampler, _lightProbes.IrradianceView, ImageLayout.General),
+            new DescriptorImageInfo(_kit.LinearSampler, _lightProbes.DepthView, ImageLayout.General),
             _lightProbes.StagingTiles,
             new DescriptorImageInfo(_environment.Sampler, _environment.Sky, ImageLayout.ShaderReadOnlyOptimal));
     }
@@ -3406,7 +2375,7 @@ public sealed unsafe class Renderer : IDisposable
         float reach = 0.5f * coarsest.Spacing * new Vector3(coarsest.CountX, coarsest.CountY, coarsest.CountZ).Length();
         _probeSun!.Plan(ShadowSun(view), view.CameraPosition, reach, _frameNumber);
 
-        var (taken, captured) = _probeUpdatePass.Prepare(draws, _details,
+        var (taken, captured) = _probeUpdatePass.Prepare(draws, _meshStore.DetailSlots,
             CollectionsMarshal.AsSpan(_probeBatchPositions), CollectionsMarshal.AsSpan(_probeBatchSpacings), ProbeTrianglesPerFrame);
 
         // Probes past the frame's triangle budget stay as they are in the scheduler, so a later frame picks them.
@@ -3444,7 +2413,7 @@ public sealed unsafe class Renderer : IDisposable
         if (_probeTracePass is { } tracePass && traced is { } scene)
         {
             _lightProbes.BeginFolds(cmd);
-            tracePass.Record(cmd, batch, scene, _tracing!, _frameIndex, frameSet,
+            tracePass.Record(cmd, batch, scene, _tracing!, _ring.Index, frameSet,
                 CollectionsMarshal.AsSpan(_probeBatchPositions), CollectionsMarshal.AsSpan(_probeBatchSpacings),
                 (uint)scheduler.Frame, _probeEnvironmentIntensity);
             _lightProbes.RecordBlend(cmd, batch, TracedBlend, TracedSnap);
@@ -3453,8 +2422,8 @@ public sealed unsafe class Renderer : IDisposable
             return;
         }
 
-        _probeSun!.Record(_api, cmd, _shadowPass, frameSet, draws, _meshes, _details, instances);
-        _probeUpdatePass.Record(cmd, _lightProbes, frameSet, draws, _meshes, instances);
+        _probeSun!.Record(_api, cmd, _shadowPass, frameSet, draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances);
+        _probeUpdatePass.Record(cmd, _lightProbes, frameSet, draws, _meshStore.MeshSlots, instances);
         _lightProbes.BeginFolds(cmd);
         for (int i = 0; i < batch.Count; i++)
         {
@@ -3525,7 +2494,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _reflectionCapture.Record(cmd, frameSet, draws, instances);
-        _probes.RecordFilter(cmd, _frameIndex, _reflectionCaptureSlot, _reflectionCaptureProbe, _reflectionCapture.Cube.CubeView);
+        _probes.RecordFilter(cmd, _ring.Index, _reflectionCaptureSlot, _reflectionCaptureProbe, _reflectionCapture.Cube.CubeView);
         _reflectionCaptureSlot = -1;
         ReflectionCapturesDrawn++;
     }
@@ -3586,7 +2555,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             // Structures bake each part's opaque flag in, so ones drawn in this material are rebuilt when next traced.
             // A background bake's held top level still points at the old ones, so it stops first.
-            StopBakeThatReads(job => job.Uses(handle));
+            BackgroundBakes.StopIfReads(job => job.Uses(handle));
             _tracing!.ForgetMaterial(handle);
         }
     }
@@ -3729,7 +2698,7 @@ public sealed unsafe class Renderer : IDisposable
             var detail = simplify
                 ? MeshDetail.Build(vertices, partIndices, allIndices)
                 : MeshDetail.Full(vertices, partIndices);
-            details[i] = AddDetail(detail with { Radius = detail.Radius * radiusScale });
+            details[i] = _meshStore.AddDetail(detail with { Radius = detail.Radius * radiusScale });
             draws[i] = new DrawItem
             {
                 FirstIndex = part.FirstIndex,
@@ -3741,7 +2710,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         var mesh = CreateMesh(vertices, CollectionsMarshal.AsSpan(allIndices));
-        _meshes[mesh.Index]!.Details = details;
+        _meshStore.LiveMesh(mesh).Details = details;
         foreach (ref var draw in draws.AsSpan())
         {
             draw.Mesh = mesh;
@@ -3750,28 +2719,11 @@ public sealed unsafe class Renderer : IDisposable
         return draws;
     }
 
-    private int AddDetail(in PartDetail detail)
-    {
-        if (_freeDetails.Count > 0)
-        {
-            int slot = _freeDetails.Pop();
-            _details[slot] = detail;
-            return slot;
-        }
-
-        _details.Add(detail);
-        return _details.Count - 1;
-    }
-
     /// <summary>
     /// The sphere around a part, in the model's units, before its draw's transform. A part without detail is the
     /// point at its origin.
     /// </summary>
-    public BakeSphere BoundsOf(DetailHandle detail)
-    {
-        var part = _details[detail.Index];
-        return new BakeSphere(part.Center, part.Radius);
-    }
+    public BakeSphere BoundsOf(DetailHandle detail) => _meshStore.PartBounds(detail);
 
     public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws) =>
         RenderTinted(SkyModel.Tinted(view, ref _tintedLights), draws);
@@ -3797,7 +2749,7 @@ public sealed unsafe class Renderer : IDisposable
 
         ManageProbeStorage();
 
-        ref Frame frame = ref _frames[_frameIndex];
+        ref Frame frame = ref _frames[_ring.Index];
         if (!AcquireImage(frame, view, out uint imageIndex))
         {
             return;
@@ -3812,7 +2764,7 @@ public sealed unsafe class Renderer : IDisposable
         var renderFinished = _swapchain.RenderFinished[imageIndex];
         Submit(frame, cmd, renderFinished);
         Present(view, imageIndex, renderFinished);
-        _frameIndex = (_frameIndex + 1) % FramesInFlight;
+        _ring.MoveToNextSlot();
     }
 
     /// <summary>
@@ -3912,8 +2864,8 @@ public sealed unsafe class Renderer : IDisposable
         _bloomPass.SetSource(DisplaySource);
         WriteImages(_tonemapSet,
         [
-            new(_sampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
-            new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.LinearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         _exposureMeter.SetSource(DisplaySource, _gBuffer.Display);
         _depthOfFieldPass.SetSource(DisplaySource, _gBuffer.Depth.View);
@@ -3926,7 +2878,7 @@ public sealed unsafe class Renderer : IDisposable
     private bool DrewWithoutBakedLights(in FrameView view, ReadOnlySpan<DrawItem> draws)
     {
         // Before the bakes are resolved, so a file Done saves can be fresh this very frame.
-        TakeFinishedBakes();
+        BackgroundBakes.TakeFinished();
 
         // Worked out once, from the original view: a frame drawn again without its baked sun keeps the sky that sun
         // lights, and its disc.
@@ -3934,7 +2886,7 @@ public sealed unsafe class Renderer : IDisposable
         bool relit = ResolveBakes(view, draws, out var withoutBakedLights);
 
         // From the frame with every light, since a bake takes the lights a fresh bake would drop.
-        UpdateBackgroundBake(view, draws);
+        BackgroundBakes.Update(view, draws, LastBakeFrame);
         if (!relit)
         {
             return false;
@@ -3962,8 +2914,8 @@ public sealed unsafe class Renderer : IDisposable
         var fence = frame.InFlight;
         long waitStart = Stopwatch.GetTimestamp();
         _api.WaitForFences(_context.Device, 1, &fence, true, ulong.MaxValue).Check();
-        ReleaseDestroyed(_frameIndex);
-        MeasureBakeSlice();
+        _retired.Release(_ring.Index);
+        BackgroundBakes.Slicer.Timer.Measure(_ring.Index, BackgroundBakes.AutoBake);
 
         uint acquiredIndex = 0;
         var acquired = _context.SwapchainApi.AcquireNextImage(
@@ -3997,7 +2949,7 @@ public sealed unsafe class Renderer : IDisposable
         bool timed = MeasureGpu && _gpuTimer.IsSupported;
         if (timed)
         {
-            _gpuTimer.Collect(_frameIndex);
+            _gpuTimer.Collect(_ring.Index);
         }
 
         var fence = frame.InFlight;
@@ -4056,9 +3008,9 @@ public sealed unsafe class Renderer : IDisposable
             _casterBounds = new Vector4[draws.Length * 2];
         }
 
-        int casters = DrawSelection.Bounds(draws, _details, _casterBounds, _windReach);
+        int casters = DrawSelection.Bounds(draws, _meshStore.DetailSlots, _casterBounds, _windReach);
         bool castsShadow = WriteUniforms(frame, view, camera.Previous, camera.Shift, _casterBounds.AsSpan(0, casters));
-        _uniformFrame = _frameIndex;
+        _uniformFrame = _ring.Index;
         WriteBones(frame, view.Bones);
         _motion.Begin(draws, view.Bones, camera.LastFrameKnown,
             new Span<Matrix4x4>((Matrix4x4*)frame.Bones.Mapped + view.Bones.Length, 2 * MaxBones - view.Bones.Length));
@@ -4114,11 +3066,12 @@ public sealed unsafe class Renderer : IDisposable
             Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
         };
         _api.BeginCommandBuffer(cmd, &beginInfo).Check();
-        _uploads.Record(cmd, _destroyed[_frameIndex].Others);
+        var retiring = _retired.AfterRecording;
+        _uploads.Record(cmd, retiring.FreedOthers);
         // The chunk bakes no copy named this frame are let go once it is done.
-        _chunkPool.Record(cmd, _destroyed[_frameIndex].Textures, _destroyed[_frameIndex].Others);
+        _chunkPool.Record(cmd, retiring.FreedTextures, retiring.FreedOthers);
         // After the uploads, so a mesh made this frame is in the bake's scene.
-        RecordBakeSlice(cmd);
+        BackgroundBakes.Slicer.RecordSlice(cmd);
         return cmd;
     }
 
@@ -4136,13 +3089,13 @@ public sealed unsafe class Renderer : IDisposable
             traced = _tracing!.TopLevel(cmd, _traceScene!.Collect(draws.Scene));
         }
 
-        int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_frameIndex, view.Overlay);
+        int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_ring.Index, view.Overlay);
         UploadParticles(view);
 
-        _decalPass.Upload(_frameIndex);
+        _decalPass.Upload(_ring.Index);
         if (timed)
         {
-            _gpuTimer.Begin(cmd, _frameIndex);
+            _gpuTimer.Begin(cmd, _ring.Index);
         }
 
         // A changed sky, redrawn before the frame's passes read it. It waits on the GPU for earlier reads itself, so the
@@ -4195,7 +3148,7 @@ public sealed unsafe class Renderer : IDisposable
             PSignalSemaphoreInfos = &signalInfo,
         };
         _api.QueueSubmit2(_context.Queue, 1, &submit, frame.InFlight).Check();
-        _framesSubmitted++;
+        _ring.Submitted();
     }
 
     /// <summary>Shows the image once the frame is drawn, and makes a new swapchain when the window has changed.</summary>
@@ -4271,7 +3224,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         if (!_relightChunks)
         {
-            return DrawSelection.Select(camera, draws, _details, _cameraDraws, _windReach, fades: _fadeRules);
+            return DrawSelection.Select(camera, draws, _meshStore.DetailSlots, _cameraDraws, _windReach, fades: _fadeRules);
         }
 
         if (_cameraSources.Length < _cameraDraws.Length)
@@ -4280,7 +3233,7 @@ public sealed unsafe class Renderer : IDisposable
             _cameraChunks = new int[_cameraDraws.Length];
         }
 
-        int cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws, _windReach, _cameraSources, _fadeRules);
+        int cameraCount = DrawSelection.Select(camera, draws, _meshStore.DetailSlots, _cameraDraws, _windReach, _cameraSources, _fadeRules);
         for (int i = 0; i < cameraCount; i++)
         {
             _cameraChunks[i] = _drawChunks[_cameraSources[i]];
@@ -4298,7 +3251,7 @@ public sealed unsafe class Renderer : IDisposable
             float texelsPerUnit = _shadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
             var shadow = new DetailView(
                 _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, DetailError(ShadowDetailError), cull: Culls);
-            _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade], _windReach, fades: _fadeRules);
+            _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _meshStore.DetailSlots, _shadowDraws[cascade], _windReach, fades: _fadeRules);
             shadowCount += _shadowCounts[cascade];
         }
 
@@ -4353,7 +3306,7 @@ public sealed unsafe class Renderer : IDisposable
             Forward = new Vector4(forward, 0f),
         };
         ReadOnlySpan<Particle> particles = _off.HasFlag(RenderEffects.Particles) ? [] : view.Particles;
-        _particleCount = _particlePass.Upload(_frameIndex, particles, view.CameraPosition, forward);
+        _particleCount = _particlePass.Upload(_ring.Index, particles, view.CameraPosition, forward);
         _transparentView = TransparentView.From(view.View, view.Projection);
     }
 
@@ -4378,11 +3331,9 @@ public sealed unsafe class Renderer : IDisposable
             ref readonly var view = ref tiles[tile];
             var shadow = new DetailView(
                 view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, DetailError(ShadowDetailError), far: true, cull: Culls);
-            int count = DrawSelection.Select(shadow, draws, _details, _tileDraws.AsSpan(total), _windReach, fades: _fadeRules);
-            bool redraw = _tileCache.NeedsDrawing(view, _tileDraws.AsSpan(total, count), _windReach, _resources.ShadowShapeOf);
-            _tileRanges[tile] = new ShadowPass.TileDraws(total, redraw ? count : 0, redraw);
-            total += _tileRanges[tile].Count;
-            drawn += redraw ? 1 : 0;
+            int count = DrawSelection.Select(shadow, draws, _meshStore.DetailSlots, _tileDraws.AsSpan(total), _windReach, fades: _fadeRules);
+            _tileRanges[tile] = (total, count);
+            total += count;
         }
 
         _tileCache.End();
@@ -4447,28 +3398,24 @@ public sealed unsafe class Renderer : IDisposable
     {
         _context.WaitIdle();
         _uploads.Discard();
-        DropBackgroundBakes();
-        for (int slot = 0; slot < FramesInFlight; slot++)
+        BackgroundBakes.DropAll();
+        for (int slot = 0; slot < FrameRing.Count; slot++)
         {
-            ReleaseDestroyed(slot);
+            _retired.Release(slot);
         }
 
         // Its pages already in the material table go with the table.
         _chunkPool.Dispose();
         DisposePasses();
         _resources.Dispose();
-
-        foreach (var mesh in _meshes)
-        {
-            mesh?.Dispose();
-        }
+        _meshStore.Dispose();
 
         foreach (ref var frame in _frames.AsSpan())
         {
             frame.Dispose(_api, _context.Device);
         }
 
-        DestroyDescriptorsAndSamplers();
+        _kit.Dispose();
         _gBuffer.Dispose();
         _swapchain.Dispose();
         _context.Dispose();
@@ -4478,10 +3425,10 @@ public sealed unsafe class Renderer : IDisposable
     private void DisposePasses()
     {
         _traceDebugPass?.Dispose();
-        _baker?.Dispose();
+        BakeJobs.Bakers.Dispose();
         _tracing?.Dispose();
         _gpuTimer.Dispose();
-        _bakeTimer.Dispose();
+        BackgroundBakes.Dispose();
         _overlayPass.Dispose();
         _overlayAtlas?.Dispose();
         _finishPass.Dispose();
@@ -4524,22 +3471,6 @@ public sealed unsafe class Renderer : IDisposable
         {
             image.Cube.Dispose();
         }
-    }
-
-    private void DestroyDescriptorsAndSamplers()
-    {
-        _api.DestroyDescriptorPool(_context.Device, _descriptorPool, null);
-        _api.DestroyDescriptorPool(_context.Device, _lightingPool, null);
-        _api.DestroyDescriptorSetLayout(_context.Device, _oneTextureSetLayout, null);
-        _api.DestroyDescriptorSetLayout(_context.Device, _twoTextureSetLayout, null);
-        _api.DestroyDescriptorSetLayout(_context.Device, _sixTextureSetLayout, null);
-        _api.DestroyDescriptorSetLayout(_context.Device, _fourTextureSetLayout, null);
-        _api.DestroyDescriptorSetLayout(_context.Device, _lightingSetLayout, null);
-        _api.DestroyDescriptorSetLayout(_context.Device, _frameSetLayout, null);
-        _api.DestroySampler(_context.Device, _shadowSampler, null);
-        _api.DestroySampler(_context.Device, _linearSampler, null);
-        _api.DestroySampler(_context.Device, _mipSampler, null);
-        _api.DestroySampler(_context.Device, _sampler, null);
     }
 
     private void RecordFrame(CommandBuffer cmd, DescriptorSet frameSet, uint imageIndex, in FrameDraws draws, int overlayQuads)
@@ -4655,7 +3586,7 @@ public sealed unsafe class Renderer : IDisposable
 
         if (overlayQuads > 0)
         {
-            _overlayPass.Record(cmd, _swapchain.Views[imageIndex], window, _overlaySet, _frameIndex, overlayQuads);
+            _overlayPass.Record(cmd, _swapchain.Views[imageIndex], window, _overlaySet, _ring.Index, overlayQuads);
         }
 
         _gpuTimer.Mark(cmd);
@@ -4775,7 +3706,7 @@ public sealed unsafe class Renderer : IDisposable
     private void RecordScene(CommandBuffer cmd, DescriptorSet frameSet, in FrameDraws draws)
     {
         var targets = _gBuffer;
-        var instances = _frames[_frameIndex].Instances;
+        var instances = _frames[_ring.Index].Instances;
 
         // The lighting pass binds history even before there is any.
         if (!targets.HistoryReady)
@@ -4820,7 +3751,7 @@ public sealed unsafe class Renderer : IDisposable
             for (int cascade = 0; cascade < _shadowCascades; cascade++)
             {
                 var casters = _shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]);
-                _shadowPass.Record(cmd, frameSet, casters, _meshes, _details, instances, cascade);
+                _shadowPass.Record(cmd, frameSet, casters, _meshStore.MeshSlots, _meshStore.DetailSlots, instances, cascade);
             }
 
             _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
@@ -4849,7 +3780,7 @@ public sealed unsafe class Renderer : IDisposable
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
                 kept, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
                 DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
-            _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileDraws, ranges, _meshes, _details, instances);
+            _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileDraws, _tileRanges.AsSpan(0, _tileCount), _meshStore.MeshSlots, _meshStore.DetailSlots, instances);
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
                 ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess);
         }
@@ -4944,7 +3875,7 @@ public sealed unsafe class Renderer : IDisposable
         instances.History = _motion;
         instances.Lightmaps = _activeLightmaps;
         bool late = _decalPass.Count > 0 && SceneDraws.AnyIn(draws, _resources, ScenePass.OpaqueAfterDecals);
-        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, DepthFirstView,
+        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances, DepthFirstView,
             late ? ScenePass.OpaqueTakingDecals : ScenePass.Opaque);
         bool decalsDrawn = RecordDecals(cmd, targets, frameSet);
         if (late)
@@ -4966,7 +3897,7 @@ public sealed unsafe class Renderer : IDisposable
     private void RecordTraceView(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, TopLevelStructure scene)
     {
         _gpuTimer.Mark(cmd);
-        _traceDebugPass!.Record(cmd, _frameIndex, _tracing!, scene, frameSet, _resources.Set, targets.Hdr, targets.Extent);
+        _traceDebugPass!.Record(cmd, _ring.Index, _tracing!, scene, frameSet, _resources.Set, targets.Hdr, targets.Extent);
         _gpuTimer.Mark(cmd);
         _gpuTimer.Mark(cmd);
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
@@ -5024,8 +3955,8 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
             ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
             AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
-        _transparentPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, _transparentView,
-            _particlePass, _frameIndex, _particleCount, _particleCamera, _windReach);
+        _transparentPass.Record(cmd, targets, frameSet, draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances, _transparentView,
+            _particlePass, _ring.Index, _particleCount, _particleCamera, _windReach);
 
         // With the probes off there are no spheres, and no atlases to read.
         if (_probeView && _lightProbesInUse)
@@ -5218,7 +4149,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
             ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
 
-        _decalPass.Record(cmd, targets, frameSet, _frameIndex);
+        _decalPass.Record(cmd, targets, frameSet, _ring.Index);
         return true;
     }
 
@@ -5237,7 +4168,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
             ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, pass: ScenePass.OpaqueAfterDecals);
+        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshStore.MeshSlots, _meshStore.DetailSlots, instances, pass: ScenePass.OpaqueAfterDecals);
     }
 
     /// <summary>
@@ -5813,7 +4744,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.CreateSemaphore(_context.Device, &semaphoreInfo, null, out frame.ImageAvailable).Check();
 
         CreateFrameBuffers(ref frame);
-        frame.Set = AllocateSet(_frameSetLayout);
+        frame.Set = _kit.NewSet(_kit.FrameSetLayout);
         WriteFrameDescriptors(frame);
         frame.Instances = new InstanceBuffer(_context);
         WriteInstanceDescriptor(frame);
@@ -5879,8 +4810,8 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The shadow atlas, read once with a depth comparison and once as plain depth.</summary>
     private void WriteAtlasDescriptors(in Frame frame)
     {
-        var compare = new DescriptorImageInfo(_shadowSampler, _shadowPass.Atlas.View, ImageLayout.ShaderReadOnlyOptimal);
-        var depth = new DescriptorImageInfo(_sampler, _shadowPass.Atlas.View, ImageLayout.ShaderReadOnlyOptimal);
+        var compare = new DescriptorImageInfo(_kit.ShadowSampler, _shadowPass.Atlas.View, ImageLayout.ShaderReadOnlyOptimal);
+        var depth = new DescriptorImageInfo(_kit.NearestSampler, _shadowPass.Atlas.View, ImageLayout.ShaderReadOnlyOptimal);
         var writes = stackalloc WriteDescriptorSet[]
         {
             new()
@@ -5908,7 +4839,7 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The volumetric fog's summed volume, or the texel that stands in until it's made.</summary>
     private void WriteVolumetricDescriptor(in Frame frame)
     {
-        var info = new DescriptorImageInfo(_linearSampler, _volumetricFog.Result, ImageLayout.General);
+        var info = new DescriptorImageInfo(_kit.LinearSampler, _volumetricFog.Result, ImageLayout.General);
         var write = new WriteDescriptorSet
         {
             SType = StructureType.WriteDescriptorSet,
@@ -5949,62 +4880,15 @@ public sealed unsafe class Renderer : IDisposable
         bones.CopyTo(new Span<Matrix4x4>(frame.Bones.Mapped, bones.Length));
     }
 
-    /// <summary>
-    /// The frame uniforms at binding 0, the skin matrices at binding 1 and each copy's
-    /// model matrix at binding 2, as Shaders/common.glsl, skinning.glsl and instances.glsl
-    /// read them. Bindings 3 to 5 hold the point and spot lights, their shadow tiles and
-    /// the cluster lists, and 6 and 7 the shadow atlas, as Shaders/light_data.glsl and
-    /// local_shadows.glsl read them, 8 the volumetric fog's summed volume, as
-    /// volumetric.glsl reads it, 9 where each copy stood last frame, as instances.glsl
-    /// reads it for motion vectors, and 10 where each copy reads its baked light. 11 holds
-    /// the frame's suns and placed chunks and 12 the sky projected by SkySh, as
-    /// chunks.glsl reads them, to relight every copy of a chunk's bake. 13 holds the reflection
-    /// probes the view sees, as light_data.glsl reads them.
-    /// </summary>
-    private DescriptorSetLayout CreateFrameSetLayout()
-    {
-        const ShaderStageFlags everyStage = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit | ShaderStageFlags.ComputeBit;
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
-            new(0, DescriptorType.UniformBuffer, 1, everyStage),
-            new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
-            new(2, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
-            new(3, DescriptorType.StorageBuffer, 1, everyStage),
-            new(4, DescriptorType.StorageBuffer, 1, everyStage),
-            new(5, DescriptorType.StorageBuffer, 1, everyStage),
-            new(6, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit | ShaderStageFlags.ComputeBit),
-            new(7, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-            new(8, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-            new(9, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
-            new(10, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
-            new(11, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
-            new(12, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
-            new(13, DescriptorType.StorageBuffer, 1, everyStage),
-        };
-        return _context.CreateSetLayout(new ReadOnlySpan<DescriptorSetLayoutBinding>(bindings, 14));
-    }
-
-    private DescriptorSetLayout CreateSetLayout(DescriptorType type, int bindingCount, ShaderStageFlags stages, bool updateAfterBind = false)
-    {
-        Span<DescriptorSetLayoutBinding> bindings = stackalloc DescriptorSetLayoutBinding[bindingCount];
-        for (int i = 0; i < bindingCount; i++)
-        {
-            bindings[i] = new DescriptorSetLayoutBinding((uint)i, type, 1, stages);
-        }
-
-        return _context.CreateSetLayout(bindings, updateAfterBind);
-    }
-
-    private DescriptorSet AllocateSet(DescriptorSetLayout layout) => _context.AllocateSet(_descriptorPool, layout);
 
     /// <summary>Points the fullscreen passes at the current render targets.</summary>
     private void WriteTargetDescriptors()
     {
-        var depth = new DescriptorImageInfo(_sampler, _gBuffer.Depth.View, ImageLayout.ShaderReadOnlyOptimal);
-        var normal = new DescriptorImageInfo(_sampler, _gBuffer.Normal.View, ImageLayout.ShaderReadOnlyOptimal);
-        _decalPass.WriteTargets(depth, new DescriptorImageInfo(_sampler, _gBuffer.NormalCopy.View, ImageLayout.ShaderReadOnlyOptimal));
+        var depth = new DescriptorImageInfo(_kit.NearestSampler, _gBuffer.Depth.View, ImageLayout.ShaderReadOnlyOptimal);
+        var normal = new DescriptorImageInfo(_kit.NearestSampler, _gBuffer.Normal.View, ImageLayout.ShaderReadOnlyOptimal);
+        _decalPass.WriteTargets(depth, new DescriptorImageInfo(_kit.NearestSampler, _gBuffer.NormalCopy.View, ImageLayout.ShaderReadOnlyOptimal));
 
-        var shadowDepth = new DescriptorImageInfo(_sampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal);
+        var shadowDepth = new DescriptorImageInfo(_kit.NearestSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal);
         WriteOcclusionSets(depth, normal, shadowDepth);
         WriteLightingSets(depth, normal, shadowDepth);
         WriteBlendSets(depth);
@@ -6014,34 +4898,34 @@ public sealed unsafe class Renderer : IDisposable
     // The ambient occlusion's sets: the trace, the average over the last frames and the blur's two steps.
     private void WriteOcclusionSets(DescriptorImageInfo depth, DescriptorImageInfo normal, DescriptorImageInfo shadowDepth)
     {
-        WriteImages(_aoSet, [depth, normal, shadowDepth, new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal)]);
+        WriteImages(_aoSet, [depth, normal, shadowDepth, new(_kit.LinearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal)]);
         WriteImages(_aoAcrossSet,
         [
-            new(_sampler, _gBuffer.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
             normal,
         ]);
         WriteImages(_aoSteadySet,
         [
-            new(_sampler, _gBuffer.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.AoHistory.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.BounceHistory.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.AoHistory.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.BounceHistory.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
-            new(_sampler, _gBuffer.Motion.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Motion.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         WriteImages(_aoSteadyAcrossSet,
         [
-            new(_sampler, _gBuffer.AoSteady.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.BounceSteady.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.AoSteady.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.BounceSteady.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
             normal,
         ]);
         WriteImages(_aoDownSet,
         [
-            new(_sampler, _gBuffer.AoAcross.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.BounceAcross.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.AoAcross.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.BounceAcross.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
             normal,
         ]);
@@ -6052,36 +4936,36 @@ public sealed unsafe class Renderer : IDisposable
     {
         WriteImages(_lightingSet,
         [
-            new(_sampler, _gBuffer.BaseColor.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.BaseColor.View, ImageLayout.ShaderReadOnlyOptimal),
             normal,
             depth,
             shadowDepth,
-            new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.ShadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.AoBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.AoBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.LinearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _probes.Cubes.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
-            new(_linearSampler, _lightProbes.DepthView, ImageLayout.General),
-            new(_sampler, _gBuffer.Baked.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.Mask.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.Traced.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.BounceBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.LinearSampler, _lightProbes.IrradianceView, ImageLayout.General),
+            new(_kit.LinearSampler, _lightProbes.DepthView, ImageLayout.General),
+            new(_kit.NearestSampler, _gBuffer.Baked.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Mask.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Traced.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.BounceBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         _reflectionCapture.WriteSet(
-            new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
-            new(_linearSampler, _lightProbes.DepthView, ImageLayout.General),
+            new(_kit.LinearSampler, _lightProbes.IrradianceView, ImageLayout.General),
+            new(_kit.LinearSampler, _lightProbes.DepthView, ImageLayout.General),
             new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
-            _shadowSampler);
+            _kit.ShadowSampler);
         WriteImages(_reflectionSet,
         [
             depth,
             normal,
-            new(_sampler, _gBuffer.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.LinearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
     }
 
@@ -6089,22 +4973,22 @@ public sealed unsafe class Renderer : IDisposable
     private void WriteBlendSets(DescriptorImageInfo depth)
     {
         // Glass and particles read depth while it's also attached for glass to test against.
-        var testedDepth = new DescriptorImageInfo(_sampler, _gBuffer.Depth.View, ImageLayout.DepthReadOnlyOptimal);
-        _transparentPass.WriteTargets(new(_mipSampler, _gBuffer.SceneColor.View, ImageLayout.ShaderReadOnlyOptimal), testedDepth);
+        var testedDepth = new DescriptorImageInfo(_kit.NearestSampler, _gBuffer.Depth.View, ImageLayout.DepthReadOnlyOptimal);
+        _transparentPass.WriteTargets(new(_kit.MipSampler, _gBuffer.SceneColor.View, ImageLayout.ShaderReadOnlyOptimal), testedDepth);
 
         WriteImages(_scatterAcrossSet,
         [
-            new(_sampler, _gBuffer.Scatter.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Scatter.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
         ]);
         WriteImages(_scatterDownSet,
         [
-            new(_sampler, _gBuffer.ScatterBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.ScatterBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
         ]);
         _particlePass.WriteTargets(
             testedDepth,
-            new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.ShadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal));
@@ -6116,28 +5000,28 @@ public sealed unsafe class Renderer : IDisposable
         // Glass has just used depth for testing, and it stays in that layout.
         WriteImages(_taaSet,
         [
-            new(_sampler, _gBuffer.Hdr.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.Depth.View, ImageLayout.DepthReadOnlyOptimal),
-            new(_sampler, _gBuffer.Motion.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Hdr.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.LinearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Depth.View, ImageLayout.DepthReadOnlyOptimal),
+            new(_kit.NearestSampler, _gBuffer.Motion.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         WriteImages(_tonemapSet,
         [
-            new(_sampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
-            new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.NearestSampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.LinearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         _exposureMeter.SetSource(DisplaySource, _gBuffer.Display);
         WriteImages(_finishSet,
         [
-            new(_linearSampler, _gBuffer.Ldr.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_linearSampler, _gBuffer.Held.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.LinearSampler, _gBuffer.Ldr.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.LinearSampler, _gBuffer.Held.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
 
         _volumetricFog.SetSources(
-            new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.ShadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Background, ImageLayout.ShaderReadOnlyOptimal),
-            new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
-            new(_linearSampler, _lightProbes.DepthView, ImageLayout.General));
+            new(_kit.LinearSampler, _lightProbes.IrradianceView, ImageLayout.General),
+            new(_kit.LinearSampler, _lightProbes.DepthView, ImageLayout.General));
         foreach (ref var frame in _frames.AsSpan())
         {
             WriteVolumetricDescriptor(frame);
