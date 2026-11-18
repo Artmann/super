@@ -48,8 +48,8 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     public ImageView Background => _prefilter.Background;
 
     /// <summary>
-    /// What Graphics.EnvironmentLight off gives every side; see <see cref="EnvironmentFlat"/>. After a <see cref="Record"/> that was waited for
-    /// it is exact; after a recorded update it is the last one the GPU has finished, and its reflection half can trail
+    /// What Graphics.Lighting.EnvironmentLight off gives every side; see <see cref="EnvironmentFlat"/>. After a
+    /// <see cref="Record"/> that was waited for it is exact; after a recorded update it is the last one the GPU has finished, and its reflection half can trail
     /// the last slice of the rough reflections.
     /// </summary>
     public (Vector3 Irradiance, Vector3 Reflection) Flat => _flat.Value;

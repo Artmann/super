@@ -4,8 +4,8 @@ using Silk.NET.Vulkan;
 namespace Rendition.Vulkan;
 
 /// <summary>
-/// What Graphics.EnvironmentLight off gives every side: the irradiance cube's average, the sky's average soft light,
-/// since each face's middle already gathers the half of the sky it faces; and the reflections' average at their
+/// What Graphics.Lighting.EnvironmentLight off gives every side: the irradiance cube's average, the sky's average soft
+/// light, since each face's middle already gathers the half of the sky it faces; and the reflections' average at their
 /// roughest level. <see cref="Record"/> copies the face middles into a buffer the CPU reads, so the shaders read one
 /// colour instead of six lookups a pixel.
 /// </summary>

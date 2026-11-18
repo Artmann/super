@@ -621,8 +621,8 @@ void main() {
         baseColor *= 1.0 - fresnelSchlick(nDotV, f0);
     }
 
-    // With Graphics.Specular off every surface is plain diffuse: metals in their base colour, no coat, and a zero f0,
-    // so shade() lights only the diffuse part. A toon surface is drawn so too, its reflections being too busy for a
+    // With Graphics.Lighting.Specular off every surface is plain diffuse: metals in their base colour, no coat, and a
+    // zero f0, so shade() lights only the diffuse part. A toon surface is drawn so too, its reflections being too busy for a
     // flat look; its shine is toonLight()'s hard spot.
     bool specular = !isOff(OFF_SPECULAR) && !toon;
     if (!specular) {
