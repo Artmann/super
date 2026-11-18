@@ -66,7 +66,7 @@ vec2 refractedUv(vec2 here, vec3 v, vec3 n, float ior) {
 // How much of the glass shows, from 0 to 1. A copy fading out with distance fades its opacity
 // rather than dithering, as glass blends anyway; two versions cross-fading each show their share.
 // With a soft edge, the glass fades out where the scene behind comes within that many metres of
-// it, as water does where it meets the shore. With Graphics.Fades off, neither fades.
+// it, as water does where it meets the shore. With Graphics.Drawing.Fades off, neither fades.
 float glassShown(Material material, vec2 here) {
     if (isOff(OFF_FADES)) {
         return 1.0;
@@ -120,7 +120,7 @@ void main() {
     float nDotV = max(dot(n, v), 1e-4);
     float roughness = clamp(roughnessOfSurface, 0.045, 1.0);
     float alpha = roughness * roughness;
-    // With Graphics.Specular off a zero f0 leaves no highlight and no reflection, only the diffuse light.
+    // With Graphics.Lighting.Specular off a zero f0 leaves no highlight and no reflection, only the diffuse light.
     bool specularOn = !isOff(OFF_SPECULAR);
     vec3 f0 = specularOn ? vec3(0.04) : vec3(0.0);
 

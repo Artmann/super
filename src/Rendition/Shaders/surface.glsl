@@ -108,7 +108,7 @@ const float DIRT_FULL = 0.75;
 // mesh and read through the second uv. Wear goes on convex edges, where the mask's breakup
 // lets it, and dirt in hollows the sky can't reach and low down near the mesh's foot, but not
 // over wear, which rubs it off. Each tints rather than paints: the colour is multiplied by
-// twice the layer's, so the grain underneath still shows. Graphics.WearAndDirt turns it off.
+// twice the layer's, so the grain underneath still shows. Graphics.Surfaces.WearAndDirt turns it off.
 void applyLayers(Material material, inout vec3 color, inout float roughness) {
     if (isOff(OFF_WEAR_AND_DIRT) || (material.wear.a <= 0.0 && material.dirt.a <= 0.0)) {
         return;
@@ -382,7 +382,7 @@ Surface materialSurface(vec2 uv) {
         surfaceOcclusion = textureGrad(textures[material.occlusionTexture], uv, uvX, uvY).r;
     }
 
-    // Without a level set, or with Graphics.Puddles off, frame.puddles.z is 0 and nothing is wet.
+    // Without a level set, or with Graphics.Surfaces.Puddles off, frame.puddles.z is 0 and nothing is wet.
     if (puddlesHere()) {
         float height = material.heightDepth > 0.0 ? textureGrad(textures[material.heightTexture], uv, uvX, uvY).r : 1.0;
         applyPuddles(surface, inPosition, height, material.heightDepth);

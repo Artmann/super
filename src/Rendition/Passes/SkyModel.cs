@@ -110,8 +110,9 @@ internal static class SkyModel
     }
 
     /// <summary>
-    /// Whether the physical sky's air fades far surfaces: not with Graphics.AerialPerspective off, and not in a view with a
-    /// haze of its own, which takes over even while Graphics.Haze hides it. Reflection probe captures never draw it.
+    /// Whether the physical sky's air fades far surfaces: not with Graphics.Atmosphere.AerialPerspective off, and not in a
+    /// view with a haze of its own, which takes over even while Graphics.Atmosphere.Haze hides it. Reflection probe
+    /// captures never draw it.
     /// </summary>
     public static bool AirShows(in FrameView view, RenderEffects off) =>
         !off.HasFlag(RenderEffects.AerialPerspective) && !(view.BackgroundFadeEnd > view.BackgroundFadeStart);
