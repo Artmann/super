@@ -67,8 +67,8 @@ internal static class DecodedTextures
         using (input.Time("keep alpha coverage"))
         {
             return partner is null
-                ? TextureData.KeepAlphaCoverage(texture, alphaCutoff)
-                : TextureData.KeepAlphaCoverage(texture, alphaCutoff, partner.Texture);
+                ? CutoutCoverage.Keep(texture, alphaCutoff)
+                : CutoutCoverage.Keep(texture, alphaCutoff, partner.Texture);
         }
     }
 

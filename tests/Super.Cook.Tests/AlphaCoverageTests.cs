@@ -111,9 +111,9 @@ public sealed class AlphaCoverageTests : IDisposable
         // column, and the filter spreads them all below a half. The 16 pixels where two cross are the most opaque, the
         // 32 on one thread next and the 16 between least, so the shares a scale can give are 0, 16, 48 and 64 in 64.
         // Kept, it is 16, the nearest to 15.
-        Assert.Equal(240.0 / 1024, TextureData.AlphaCoverage(colour, 0, 0.5f));
-        Assert.Equal(0.0, TextureData.AlphaCoverage(filtered, 2, 0.5f));
-        Assert.Equal(16.0 / 64, TextureData.AlphaCoverage(colour, 2, 0.5f));
+        Assert.Equal(240.0 / 1024, CutoutCoverage.Of(colour, 0, 0.5f));
+        Assert.Equal(0.0, CutoutCoverage.Of(filtered, 2, 0.5f));
+        Assert.Equal(16.0 / 64, CutoutCoverage.Of(colour, 2, 0.5f));
         Assert.Equal(filtered.Mips[0], colour.Mips[0]);
     }
 
@@ -170,11 +170,11 @@ public sealed class AlphaCoverageTests : IDisposable
         // Over a surface this even, the product passes where the colour's alpha alone reaches 0.5 * 255 / 160, so every
         // level keeps the share that the colour alone would keep at that cutoff.
         float alone = 0.5f * 255f / 160f;
-        var expected = TextureData.KeepAlphaCoverage(TextureData.FromPixels(Size, Size, TextureKind.Color, Threads()), alone);
+        var expected = CutoutCoverage.Keep(TextureData.FromPixels(Size, Size, TextureKind.Color, Threads()), alone);
         Assert.Equal(expected.Mips.Length, colour.Mips.Length);
         for (int level = 1; level < expected.Mips.Length; level++)
         {
-            Assert.Equal(TextureData.AlphaCoverage(expected, level, alone), ProductCoverage(colour, cookedSurface, level, 0.5f));
+            Assert.Equal(CutoutCoverage.Of(expected, level, alone), ProductCoverage(colour, cookedSurface, level, 0.5f));
         }
 
         // The surface is left as the filter made it, and only the colour is scaled.

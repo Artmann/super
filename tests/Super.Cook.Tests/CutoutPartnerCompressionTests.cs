@@ -83,7 +83,7 @@ public sealed class CutoutPartnerCompressionTests
         // At a cutoff of 0.5 over a surface alpha of 204, a colour byte passes from ceil(127.5 * 255 / 204) = 160 on,
         // not from 128 as on its own.
         var surface = Surface(204);
-        var color = TextureData.KeepAlphaCoverage(Strands(), Cutoff, surface);
+        var color = CutoutCoverage.Keep(Strands(), Cutoff, surface);
         TextureData[] textures = [color, surface];
 
         TextureCompression.Compress(textures, [Material(color: 0, surface: 1)]);

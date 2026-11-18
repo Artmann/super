@@ -3363,7 +3363,7 @@ clamps the slight overshoot its negative lobes give at sharp steps. Normal maps 
 renormalised after each level.
 
 A cut-out's colour texture, and a surface texture its rule names, then keep their alpha
-coverage (`TextureData.KeepAlphaCoverage`, after Castaño's coverage-preserving mipmaps, as in
+coverage (`CutoutCoverage.Keep`, after Castaño's coverage-preserving mipmaps, as in
 The Witness). Filtering averages a thread a pixel wide with the clear pixels beside it, so a
 few levels down its alpha is under the cutoff and it vanishes: a cobweb breaks into dots a
 few metres away, and grass tips thin out. For each smaller level the cook scales alpha by
@@ -3402,7 +3402,7 @@ file hash is part of the colour's memo and texture keys, and the cooker's versio
 ![The cobweb in --leaves from about 6 m: left, filtered mips leave one dot of the web and thin the dry grass; right, mips that keep their coverage keep the threads and the grass](media/alpha-coverage-mips.webp)
 
 The model cooker then widens each surface texture's roughness by its normal map
-(`TextureData.WidenRoughness`, after Toksvig 2004 and the vMF form of Han et al. 2007).
+(`RoughnessWidening.Widen`, after Toksvig 2004 and the vMF form of Han et al. 2007).
 Each level's normals are the plain average of the full-size normals they cover, left
 unnormalised, and the shorter that average, the more the bumps under the pixel disagree.
 The length gives a von Mises-Fisher sharpness `κ = (3r - r³) / (1 - r²)`, whose slope
