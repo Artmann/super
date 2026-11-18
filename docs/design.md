@@ -4573,7 +4573,9 @@ of every entry the same deferred way, while a file the store forgot by itself (`
 through `ChunkBakePool.Forget`, which touches that entry alone. A forgotten entry that isn't resident
 yet is let go the way eviction does (its textures retire after the frames using them, and its read's
 result is ignored). A resident one is only marked stale and keeps drawing: the next `Use` starts a
-replacement read into a second map, `_replacing`, and the replacement goes up like any new bake. At
+replacement read into a second map, and the replacement goes up like any new bake. Inside the pool,
+`HeldBakes` keeps the entries and their replacements by file, and `PageUploads` keeps the bakes going
+up, counts the resident ones and lets a bake's pages go. At
 the end of the `Record` where its last page goes up, it takes the old entry's place and the old one
 is released, so a bake written over, such as a Final over a Preview, never flickers to live light.
 A replacement that can't be read or put on the GPU is dropped with the old one, and the chunk is lit
