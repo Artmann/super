@@ -4,31 +4,52 @@ using Super.Ecs;
 
 namespace Super.Physics;
 
-public sealed partial class Physics
+/// <summary>
+/// Reads how fast bodies move, and pushes, spins and speeds up dynamic ones. Reach it through <c>physics.Bodies</c>.
+/// A simulated ragdoll counts as one body.
+/// </summary>
+public sealed class PhysicsBodies
 {
+    private readonly DisposalGuard _guard;
+    private readonly World _world;
+    private readonly BodySync _bodies;
+    private readonly PhysicsRagdolls _ragdolls;
+    private readonly Action _sync;
+
+    internal PhysicsBodies(DisposalGuard guard, World world, BodySync bodies, PhysicsRagdolls ragdolls, Action sync)
+    {
+        _guard = guard;
+        _world = world;
+        _bodies = bodies;
+        _ragdolls = ragdolls;
+        _sync = sync;
+    }
+
+    private BodyInterface Jolt => _bodies.Simulation.BodyInterface;
+
     /// <summary>
     /// How fast an entity's body moves, in metres per second. 0 for one that isn't moving or has no body yet. For a
     /// simulated ragdoll, the mean of its parts, weighted by their mass.
     /// </summary>
     public Vector3 Velocity(Entity entity)
     {
-        if (_ragdolls.Simulating(entity) is { } live)
+        if (_ragdolls.Set.Simulating(entity) is { } live)
         {
             return live.Parts.Velocity();
         }
 
-        return _bodies.TryGetValue(entity, out var tracked) ? _system.BodyInterface.GetLinearVelocity(in tracked.Body) : Vector3.Zero;
+        return _bodies.TryGet(entity, out var tracked) ? Jolt.GetLinearVelocity(in tracked.Body) : Vector3.Zero;
     }
 
     /// <summary>How fast an entity's body turns, as an axis whose length is radians per second. For a ragdoll, its pelvis.</summary>
     public Vector3 AngularVelocity(Entity entity)
     {
-        if (_ragdolls.Simulating(entity) is { } live)
+        if (_ragdolls.Set.Simulating(entity) is { } live)
         {
-            return _system.BodyInterface.GetAngularVelocity(in live.Parts.Ids[0]);
+            return Jolt.GetAngularVelocity(in live.Parts.Ids[0]);
         }
 
-        return _bodies.TryGetValue(entity, out var tracked) ? _system.BodyInterface.GetAngularVelocity(in tracked.Body) : Vector3.Zero;
+        return _bodies.TryGet(entity, out var tracked) ? Jolt.GetAngularVelocity(in tracked.Body) : Vector3.Zero;
     }
 
     /// <summary>
@@ -37,30 +58,30 @@ public sealed partial class Physics
     /// </summary>
     public void SetVelocity(Entity entity, Vector3 velocity)
     {
-        CheckFinite(velocity, nameof(velocity));
-        if (RagdollFor(entity) is { } live)
+        Numbers.RequireFinite(velocity, nameof(velocity));
+        if (_ragdolls.Simulated(entity) is { } live)
         {
             live.Parts.SetVelocity(velocity);
             return;
         }
 
         var body = DynamicBody(entity, velocity, nameof(velocity));
-        _system.BodyInterface.SetLinearVelocity(in body, in velocity);
-        _system.BodyInterface.ActivateBody(in body);
+        Jolt.SetLinearVelocity(in body, in velocity);
+        Jolt.ActivateBody(in body);
     }
 
     /// <summary>Sets how fast a dynamic body turns, as an axis whose length is radians per second. Every simulated part of a ragdoll takes it.</summary>
     public void SetAngularVelocity(Entity entity, Vector3 spin)
     {
-        CheckFinite(spin, nameof(spin));
-        if (RagdollFor(entity) is { } live)
+        Numbers.RequireFinite(spin, nameof(spin));
+        if (_ragdolls.Simulated(entity) is { } live)
         {
             for (int i = 0; i < live.Parts.Ids.Length; i++)
             {
                 if (live.Parts.Dynamic[i])
                 {
-                    _system.BodyInterface.SetAngularVelocity(in live.Parts.Ids[i], in spin);
-                    _system.BodyInterface.ActivateBody(in live.Parts.Ids[i]);
+                    Jolt.SetAngularVelocity(in live.Parts.Ids[i], in spin);
+                    Jolt.ActivateBody(in live.Parts.Ids[i]);
                 }
             }
 
@@ -68,26 +89,26 @@ public sealed partial class Physics
         }
 
         var body = DynamicBody(entity, spin, nameof(spin));
-        _system.BodyInterface.SetAngularVelocity(in body, in spin);
-        _system.BodyInterface.ActivateBody(in body);
+        Jolt.SetAngularVelocity(in body, in spin);
+        Jolt.ActivateBody(in body);
     }
 
     /// <summary>
     /// Gives a dynamic body a sudden push, in newton-seconds, through its centre: the change in velocity is the
     /// impulse over the mass. Use it for a kick, a hit or an explosion. A simulated ragdoll's parts share it by mass,
-    /// so the whole body moves; <see cref="PushPart"/> pushes one limb.
+    /// so the whole body moves; <see cref="PhysicsRagdolls.PushPart"/> pushes one limb.
     /// </summary>
     public void Push(Entity entity, Vector3 impulse)
     {
-        CheckFinite(impulse, nameof(impulse));
-        if (RagdollFor(entity) is { } live)
+        Numbers.RequireFinite(impulse, nameof(impulse));
+        if (_ragdolls.Simulated(entity) is { } live)
         {
             live.Parts.Push(impulse, force: false);
             return;
         }
 
         var body = DynamicBody(entity, impulse, nameof(impulse));
-        _system.BodyInterface.AddImpulse(in body, in impulse);
+        Jolt.AddImpulse(in body, in impulse);
     }
 
     /// <summary>
@@ -96,16 +117,16 @@ public sealed partial class Physics
     /// </summary>
     public void Push(Entity entity, Vector3 impulse, Vector3 point)
     {
-        CheckFinite(impulse, nameof(impulse));
-        CheckFinite(point, nameof(point));
-        if (RagdollFor(entity) is { } live)
+        Numbers.RequireFinite(impulse, nameof(impulse));
+        Numbers.RequireFinite(point, nameof(point));
+        if (_ragdolls.Simulated(entity) is { } live)
         {
-            _system.BodyInterface.AddImpulse(in live.Parts.Ids[live.Parts.Nearest(point)], in impulse, in point);
+            Jolt.AddImpulse(in live.Parts.Ids[live.Parts.Nearest(point)], in impulse, in point);
             return;
         }
 
         var body = DynamicBody(entity, impulse, nameof(impulse));
-        _system.BodyInterface.AddImpulse(in body, in impulse, in point);
+        Jolt.AddImpulse(in body, in impulse, in point);
     }
 
     /// <summary>
@@ -114,54 +135,46 @@ public sealed partial class Physics
     /// </summary>
     public void AddForce(Entity entity, Vector3 force)
     {
-        CheckFinite(force, nameof(force));
-        if (RagdollFor(entity) is { } live)
+        Numbers.RequireFinite(force, nameof(force));
+        if (_ragdolls.Simulated(entity) is { } live)
         {
             live.Parts.Push(force, force: true);
             return;
         }
 
         var body = DynamicBody(entity, force, nameof(force));
-        _system.BodyInterface.AddForce(in body, in force);
+        Jolt.AddForce(in body, in force);
     }
 
     /// <summary>Twists a dynamic body through the next step, in newton-metres, around the torque's axis. On a ragdoll, its pelvis.</summary>
     public void AddTorque(Entity entity, Vector3 torque)
     {
-        CheckFinite(torque, nameof(torque));
-        if (RagdollFor(entity) is { } live)
+        Numbers.RequireFinite(torque, nameof(torque));
+        if (_ragdolls.Simulated(entity) is { } live)
         {
-            _system.BodyInterface.AddTorque(in live.Parts.Ids[0], in torque);
+            Jolt.AddTorque(in live.Parts.Ids[0], in torque);
             return;
         }
 
         var body = DynamicBody(entity, torque, nameof(torque));
-        _system.BodyInterface.AddTorque(in body, in torque);
+        Jolt.AddTorque(in body, in torque);
     }
 
     /// <summary>The entity's dynamic body, syncing first if it was only just given one.</summary>
     private BodyID DynamicBody(Entity entity, Vector3 value, string name)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        CheckFinite(value, name);
-        if (!_bodies.ContainsKey(entity) && _world.IsAlive(entity) && _world.Has<Collider>(entity))
+        _guard.ThrowIfDisposed();
+        Numbers.RequireFinite(value, name);
+        if (!_bodies.TryGet(entity, out _) && _world.IsAlive(entity) && _world.Has<Collider>(entity))
         {
-            Sync();
+            _sync();
         }
 
-        if (!_bodies.TryGetValue(entity, out var tracked) || tracked.Settings.Kind != BodyKind.Dynamic)
+        if (!_bodies.TryGet(entity, out var tracked) || tracked.Settings.Kind != BodyKind.Dynamic)
         {
             throw new InvalidOperationException($"Entity {entity.Id} has no dynamic Body; only dynamic bodies can be pushed or given a velocity.");
         }
 
         return tracked.Body;
-    }
-
-    private static void CheckFinite(Vector3 value, string name)
-    {
-        if (!Numbers.IsFinite(value))
-        {
-            throw new ArgumentOutOfRangeException(name, value, $"The {name} must be finite.");
-        }
     }
 }

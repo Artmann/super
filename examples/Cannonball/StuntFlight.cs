@@ -85,7 +85,7 @@ public sealed class StuntFlight(World world, Physics physics, RandomStream rando
     public string Caption() => Stage switch
     {
         Stage.Loaded => "Ready...",
-        Stage.Flying => string.Create(CultureInfo.InvariantCulture, $"Flying at {physics.Velocity(Stuntman).Length():0} m/s"),
+        Stage.Flying => string.Create(CultureInfo.InvariantCulture, $"Flying at {physics.Bodies.Velocity(Stuntman).Length():0} m/s"),
         Stage.Tumbling => string.Create(CultureInfo.InvariantCulture, $"Hit at {HitSpeed:0.0} m/s"),
         _ => string.Create(CultureInfo.InvariantCulture, $"Hit at {HitSpeed:0.0} m/s, and back on his feet"),
     };
@@ -95,8 +95,8 @@ public sealed class StuntFlight(World world, Physics physics, RandomStream rando
         // A little muscle keeps the flail in the arms and legs, but the flight is his own.
         world.Get<Ragdoll>(Stuntman) = world.Get<Ragdoll>(Stuntman) with { Mode = RagdollMode.Simulated, Strength = 0.3f };
         Animator.Set(Stance.Flail);
-        physics.SetVelocity(Stuntman, CannonballField.Aim * random.Between(LowestSpeed, TopSpeed));
-        physics.SetAngularVelocity(Stuntman, new Vector3(1.5f, 0f, 0.4f));
+        physics.Bodies.SetVelocity(Stuntman, CannonballField.Aim * random.Between(LowestSpeed, TopSpeed));
+        physics.Bodies.SetAngularVelocity(Stuntman, new Vector3(1.5f, 0f, 0.4f));
         Stage = Stage.Flying;
         _seconds = 0f;
     }
@@ -129,13 +129,13 @@ public sealed class StuntFlight(World world, Physics physics, RandomStream rando
 
     private void WatchForRest(float seconds)
     {
-        _still = physics.Velocity(Stuntman).Length() < StillSpeed ? _still + seconds : 0f;
+        _still = physics.Bodies.Velocity(Stuntman).Length() < StillSpeed ? _still + seconds : 0f;
         if (_still < StillSeconds && _seconds < LongestTumble)
         {
             return;
         }
 
-        bool faceUp = physics.IsFaceUp(Stuntman);
+        bool faceUp = physics.Ragdolls.IsFaceUp(Stuntman);
         world.Get<Ragdoll>(Stuntman) = world.Get<Ragdoll>(Stuntman) with { Mode = RagdollMode.Off };
         Animator.Set(Stance.Idle);
         Animator.Play(faceUp ? Move.StandUp : Move.StandUpFromFront);

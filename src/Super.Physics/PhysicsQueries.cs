@@ -1,29 +1,46 @@
 using System.Numerics;
-using System.Runtime.InteropServices;
 using JoltPhysicsSharp;
 using Super.Ecs;
 using JoltRay = JoltPhysicsSharp.Ray;
 
 namespace Super.Physics;
 
-public sealed partial class Physics
+/// <summary>
+/// Asks the physics world what is where: rays, swept shapes and overlaps, as of the last sync. Reach it through
+/// <c>physics.Queries</c>. Triggers, and entities destroyed since the last sync, are never found.
+/// </summary>
+public sealed class PhysicsQueries
 {
-    private readonly QueryShapeCache _queryShapes = new();
+    /// <summary>How far a ray or shape cast reaches when no distance is given, in metres.</summary>
+    public const float DefaultReach = 1000f;
+
+    private readonly DisposalGuard _guard;
+    private readonly PhysicsSystem _system;
+    private readonly Dictionary<uint, Entity> _owners;
+    private readonly QueryShapeCache _shapes;
+    private readonly QueryFilters _filters;
+    private readonly ShapeOverlaps _overlaps;
     private readonly List<RayCastResult> _rayResults = [];
     private readonly List<ShapeCastResult> _castResults = [];
-    private readonly List<uint> _collided = [];
-    private GCHandle _self;
     private readonly List<RayHit> _rayScratch = [];
+
+    internal PhysicsQueries(DisposalGuard guard, PhysicsSystem system, Dictionary<uint, Entity> owners, QueryParts parts)
+    {
+        _guard = guard;
+        _system = system;
+        _owners = owners;
+        (_shapes, _filters, _overlaps) = parts;
+    }
 
     /// <summary>
     /// The nearest collider on the given layers that the ray meets within <paramref name="reach"/> metres, or
     /// nothing. A ray starting inside a collider hits it at distance 0. Triggers, and entities destroyed since the
     /// last sync, are skipped.
     /// </summary>
-    public RayHit? Raycast(Super.Ray ray, float reach = DefaultReach, uint layers = AllLayers)
+    public RayHit? Raycast(Super.Ray ray, float reach = DefaultReach, uint layers = LayerBits.All)
     {
         var cast = Cast(ray, reach, layers);
-        if (!_system.NarrowPhaseQuery.CastRay(in cast, out var result, objectLayerFilter: _layerFilter, bodyFilter: _aliveFilter))
+        if (!_system.NarrowPhaseQuery.CastRay(in cast, out var result, objectLayerFilter: _filters.Layers, bodyFilter: _filters.Alive))
         {
             return null;
         }
@@ -36,12 +53,12 @@ public sealed partial class Physics
     /// into <paramref name="hits"/>, which is cleared first. Hits at the same distance come in entity order, so a
     /// seeded run repeats.
     /// </summary>
-    public void RaycastAll(Super.Ray ray, List<RayHit> hits, float reach = DefaultReach, uint layers = AllLayers)
+    public void RaycastAll(Super.Ray ray, List<RayHit> hits, float reach = DefaultReach, uint layers = LayerBits.All)
     {
         hits.Clear();
         var cast = Cast(ray, reach, layers);
         _rayResults.Clear();
-        _system.NarrowPhaseQuery.CastRay(in cast, new RayCastSettings(), CollisionCollectorType.AllHit, _rayResults, objectLayerFilter: _layerFilter, bodyFilter: _aliveFilter);
+        _system.NarrowPhaseQuery.CastRay(in cast, new RayCastSettings(), CollisionCollectorType.AllHit, _rayResults, objectLayerFilter: _filters.Layers, bodyFilter: _filters.Alive);
         foreach (var result in _rayResults)
         {
             hits.Add(Hit(ray, reach, result));
@@ -75,9 +92,9 @@ public sealed partial class Physics
         Vector3 direction,
         float reach = DefaultReach,
         Quaternion? rotation = null,
-        uint layers = AllLayers)
+        uint layers = LayerBits.All)
     {
-        CastShape(shape, from, direction, reach, rotation, layers);
+        CastShape(new ShapeSweep(shape, from, direction, reach, rotation), layers);
         ShapeHit? nearest = null;
         foreach (var result in _castResults)
         {
@@ -102,10 +119,10 @@ public sealed partial class Physics
         List<ShapeHit> hits,
         float reach = DefaultReach,
         Quaternion? rotation = null,
-        uint layers = AllLayers)
+        uint layers = LayerBits.All)
     {
         hits.Clear();
-        CastShape(shape, from, direction, reach, rotation, layers);
+        CastShape(new ShapeSweep(shape, from, direction, reach, rotation), layers);
         foreach (var result in _castResults)
         {
             hits.Add(CastHit(direction, reach, result));
@@ -120,69 +137,44 @@ public sealed partial class Physics
     /// <paramref name="position"/>, into <paramref name="hits"/>, which is cleared first, in entity order. Use it for
     /// an explosion's reach, or whether there's room to stand up. Triggers are skipped.
     /// </summary>
-    public void Overlap(Collider shape, Vector3 position, List<Entity> hits, Quaternion? rotation = null, uint layers = AllLayers)
+    public void Overlap(Collider shape, Vector3 position, List<Entity> hits, Quaternion? rotation = null, uint layers = LayerBits.All)
     {
         hits.Clear();
-        var query = _queryShapes.Get(shape, Vector3.One, null, "Overlap");
+        var query = _shapes.Get(shape, Vector3.One, null, "Overlap");
         var turn = QueryMath.Turn(rotation);
-        Filter(layers);
+        _filters.Only(layers);
         var transform = QueryMath.CentreOfMass(query, position, turn);
-        Collide(query, transform, hits);
+        _overlaps.Collide(query, transform, hits);
     }
 
-    private unsafe void Collide(Shape shape, Matrix4x4 centreOfMass, List<Entity> hits)
+    /// <summary>Frees the shapes and filters the queries and trigger checks share.</summary>
+    internal void Release()
     {
-        hits.Clear();
-        var scale = Vector3.One;
-        var origin = Vector3.Zero;
-        _collided.Clear();
-
-        // The overload that fills a list allocates on every call; a callback that adds body IDs doesn't.
-        if (!_self.IsAllocated)
-        {
-            _self = GCHandle.Alloc(this, GCHandleType.Weak);
-        }
-
-        _system.NarrowPhaseQuery.CollideShape(shape, in scale, in centreOfMass, in origin, &Collected, GCHandle.ToIntPtr(_self), null!, _layerFilter, _aliveFilter, null!);
-        foreach (var body in _collided)
-        {
-            if (_owners.TryGetValue(body, out var entity) && !hits.Contains(entity))
-            {
-                hits.Add(entity);
-            }
-        }
-
-        hits.Sort(EntityOrder.Comparison);
+        _shapes.Dispose();
+        _overlaps.Dispose();
+        _filters.Dispose();
     }
 
-    [UnmanagedCallersOnly]
-    private static unsafe float Collected(IntPtr context, CollideShapeResult* result)
+    private void CastShape(ShapeSweep sweep, uint layers)
     {
-        ((Physics)GCHandle.FromIntPtr(context).Target!)._collided.Add(result->BodyID2.ID);
-
-        // Keep looking: no hit is good enough to stop at.
-        return float.MaxValue;
-    }
-
-    private void CastShape(Collider shape, Vector3 from, Vector3 direction, float reach, Quaternion? rotation, uint layers)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        var (shape, from, direction, reach, rotation) = sweep;
+        _guard.ThrowIfDisposed();
         QueryMath.CheckReach(reach);
         if (!(direction.LengthSquared() > 0f) || !float.IsFinite(direction.X + direction.Y + direction.Z))
         {
             throw new ArgumentOutOfRangeException(nameof(direction), direction, "A shape cast needs a direction that isn't zero.");
         }
 
-        var query = _queryShapes.Get(shape, Vector3.One, null, "ShapeCast");
+        var query = _shapes.Get(shape, Vector3.One, null, "ShapeCast");
         var turn = QueryMath.Turn(rotation);
-        Filter(layers);
+        _filters.Only(layers);
         // Unlike CollideShape, Jolt's CastShape takes where the shape's origin is, and finds its centre itself.
         var transform = QueryMath.Placed(from, turn);
-        var sweep = Vector3.Normalize(direction) * reach;
+        var path = Vector3.Normalize(direction) * reach;
         var origin = Vector3.Zero;
         var settings = new ShapeCastSettings { ReturnDeepestPoint = true };
         _castResults.Clear();
-        _system.NarrowPhaseQuery.CastShape(query, in transform, in sweep, settings, in origin, CollisionCollectorType.AllHit, _castResults, objectLayerFilter: _layerFilter, bodyFilter: _aliveFilter);
+        _system.NarrowPhaseQuery.CastShape(query, in transform, in path, settings, in origin, CollisionCollectorType.AllHit, _castResults, objectLayerFilter: _filters.Layers, bodyFilter: _filters.Alive);
     }
 
     private ShapeHit CastHit(Vector3 direction, float reach, in ShapeCastResult result)
@@ -194,9 +186,9 @@ public sealed partial class Physics
 
     private JoltRay Cast(Super.Ray ray, float reach, uint layers)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        _guard.ThrowIfDisposed();
         QueryMath.CheckReach(reach);
-        Filter(layers);
+        _filters.Only(layers);
         return new JoltRay(ray.Origin, ray.Direction * reach);
     }
 
@@ -206,22 +198,9 @@ public sealed partial class Physics
         return new RayHit(_owners[result.BodyID.ID], distance, ray.Origin + ray.Direction * distance);
     }
 
-    private void Filter(uint layers)
-    {
-        if (layers == 0 || (layers & ~AllLayers) != 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(layers), layers, "Layers are bits 0 to 15, and a query needs at least one.");
-        }
-
-        _layerFilter.Layers = layers;
-        _aliveFilter.Skip = null;
-    }
-
-    private void FreeHandle()
-    {
-        if (_self.IsAllocated)
-        {
-            _self.Free();
-        }
-    }
+    /// <summary>A shape swept from a place along a direction, as a shape cast asks for.</summary>
+    private readonly record struct ShapeSweep(Collider Shape, Vector3 From, Vector3 Direction, float Reach, Quaternion? Rotation);
 }
+
+/// <summary>The parts <see cref="PhysicsQueries"/> shares with the trigger checks.</summary>
+internal readonly record struct QueryParts(QueryShapeCache Shapes, QueryFilters Filters, ShapeOverlaps Overlaps);

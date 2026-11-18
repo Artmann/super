@@ -49,7 +49,7 @@ public class BodyTests
 
         // Half of g times t squared: 4.905 m in one second, give or take the steps.
         Assert.Equal(100f - 4.905f, world.Get<Transform>(ball).Position.Y, 0.15f);
-        Assert.Equal(-9.81f, physics.Velocity(ball).Y, 0.05f);
+        Assert.Equal(-9.81f, physics.Bodies.Velocity(ball).Y, 0.05f);
     }
 
     [Fact]
@@ -65,7 +65,7 @@ public class BodyTests
         // Jolt lets resting bodies sink up to 2 cm, so contacts stay steady.
         var transform = world.Get<Transform>(box);
         Assert.Equal(0.5f, transform.Position.Y, 0.03f);
-        Assert.Equal(0f, physics.Velocity(box).Length(), 0.05f);
+        Assert.Equal(0f, physics.Bodies.Velocity(box).Length(), 0.05f);
     }
 
     [Fact]
@@ -80,8 +80,8 @@ public class BodyTests
         // It reaches the floor after about 0.48 s; give it a little more to bounce.
         Run(physics, 45);
 
-        Assert.True(physics.Velocity(bouncy).Y > 3f, $"The bouncy ball rises at {physics.Velocity(bouncy).Y}.");
-        Assert.Equal(0f, physics.Velocity(dull).Y, 0.3f);
+        Assert.True(physics.Bodies.Velocity(bouncy).Y > 3f, $"The bouncy ball rises at {physics.Bodies.Velocity(bouncy).Y}.");
+        Assert.Equal(0f, physics.Bodies.Velocity(dull).Y, 0.3f);
     }
 
     [Fact]
@@ -92,10 +92,10 @@ public class BodyTests
         physics.Gravity = Vector3.Zero;
         var crate = Place(world, Vector3.Zero, Collider.Box(Vector3.One), Body.Dynamic(mass: 4f, drag: 0f));
 
-        physics.Push(crate, new Vector3(8f, 0f, 0f));
+        physics.Bodies.Push(crate, new Vector3(8f, 0f, 0f));
         Run(physics, 60);
 
-        Assert.Equal(new Vector3(2f, 0f, 0f), physics.Velocity(crate));
+        Assert.Equal(new Vector3(2f, 0f, 0f), physics.Bodies.Velocity(crate));
         Assert.Equal(2f, world.Get<Transform>(crate).Position.X, 0.01f);
     }
 
@@ -106,7 +106,7 @@ public class BodyTests
         using var _ = physics;
         physics.Gravity = Vector3.Zero;
         var ball = Place(world, Vector3.Zero, Collider.Ball(0.5f), Body.Dynamic(drag: 0f));
-        physics.SetVelocity(ball, new Vector3(0f, 0f, 6f));
+        physics.Bodies.SetVelocity(ball, new Vector3(0f, 0f, 6f));
         Run(physics, 1);
 
         world.Get<Transform>(ball).Position = new Vector3(10f, 0f, 0f);
@@ -116,7 +116,7 @@ public class BodyTests
         var position = world.Get<Transform>(ball).Position;
         Assert.Equal(10f, position.X, 0.001f);
         Assert.Equal(0.1f, position.Z, 0.001f);
-        Assert.Equal(new Vector3(0f, 0f, 6f), physics.Velocity(ball));
+        Assert.Equal(new Vector3(0f, 0f, 6f), physics.Bodies.Velocity(ball));
     }
 
     [Fact]
@@ -169,8 +169,8 @@ public class BodyTests
         var locked = Place(world, Vector3.Zero, Collider.Box(Vector3.One), Body.Dynamic(lockRotation: true));
         var free = Place(world, new Vector3(5f, 0f, 0f), Collider.Box(Vector3.One), Body.Dynamic());
 
-        physics.Push(locked, Vector3.UnitZ, new Vector3(0.5f, 0.5f, 0f));
-        physics.Push(free, Vector3.UnitZ, new Vector3(5.5f, 0.5f, 0f));
+        physics.Bodies.Push(locked, Vector3.UnitZ, new Vector3(0.5f, 0.5f, 0f));
+        physics.Bodies.Push(free, Vector3.UnitZ, new Vector3(5.5f, 0.5f, 0f));
         Run(physics, 30);
 
         Assert.Equal(Quaternion.Identity, world.Get<Transform>(locked).Rotation);
@@ -199,7 +199,7 @@ public class BodyTests
         using var _ = physics;
         var wall = Place(world, Vector3.Zero, Collider.Box(Vector3.One), Body.Static);
 
-        var error = Assert.Throws<InvalidOperationException>(() => physics.Push(wall, Vector3.UnitX));
+        var error = Assert.Throws<InvalidOperationException>(() => physics.Bodies.Push(wall, Vector3.UnitX));
 
         Assert.Equal($"Entity {wall.Id} has no dynamic Body; only dynamic bodies can be pushed or given a velocity.", error.Message);
     }

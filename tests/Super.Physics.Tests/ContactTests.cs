@@ -98,8 +98,8 @@ public class ContactTests
         var left = Ball(world, new Vector3(-2f, 3f, 0f));
         var right = Ball(world, new Vector3(2f, 3f, 0f));
         physics.Sync();
-        physics.SetVelocity(right, new Vector3(-3f, 0f, 0f));
-        physics.SetVelocity(left, new Vector3(1f, 0f, 0f));
+        physics.Bodies.SetVelocity(right, new Vector3(-3f, 0f, 0f));
+        physics.Bodies.SetVelocity(left, new Vector3(1f, 0f, 0f));
 
         var contacts = Run(physics, 2f).Where(c => c.Contact.Other == right).ToList();
 

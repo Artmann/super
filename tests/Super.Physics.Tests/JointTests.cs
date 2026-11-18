@@ -58,7 +58,7 @@ public class JointTests
         world.Add(box, Body.Dynamic());
         world.Add(box, Joint.Fixed());
         physics.Sync();
-        physics.Push(box, new Vector3(5f, 0f, 0f), new Vector3(0f, 5.5f, 0f));
+        physics.Bodies.Push(box, new Vector3(5f, 0f, 0f), new Vector3(0f, 5.5f, 0f));
 
         Run(physics, 1f);
 
@@ -91,7 +91,7 @@ public class JointTests
         using var physics = new Physics(world);
         var door = Door(world);
         physics.Sync();
-        physics.Push(door, new Vector3(0f, 0f, -2f), new Vector3(1f, 1f, 0f));
+        physics.Bodies.Push(door, new Vector3(0f, 0f, -2f), new Vector3(1f, 1f, 0f));
 
         Run(physics, 0.5f);
 
@@ -108,7 +108,7 @@ public class JointTests
         using var physics = new Physics(world);
         var door = Door(world, min: -30f, max: 30f);
         physics.Sync();
-        physics.Push(door, new Vector3(0f, 0f, -1f), new Vector3(1f, 1f, 0f));
+        physics.Bodies.Push(door, new Vector3(0f, 0f, -1f), new Vector3(1f, 1f, 0f));
 
         float widest = 0f;
         for (int i = 0; i < 60; i++)
@@ -130,7 +130,7 @@ public class JointTests
         var right = Ball(world, new Vector3(1f, 5f, 0f));
         world.Add(right, Joint.Rod(Vector3.Zero, left, Vector3.Zero, 2f));
         physics.Sync();
-        physics.SetVelocity(right, new Vector3(-3f, 1f, 0f));
+        physics.Bodies.SetVelocity(right, new Vector3(-3f, 1f, 0f));
 
         float shortest = float.MaxValue;
         float longest = 0f;
@@ -143,7 +143,7 @@ public class JointTests
         }
 
         Assert.True(shortest > 1.95f && longest < 2.05f, $"they were from {shortest} to {longest} m apart");
-        Assert.True(physics.Velocity(left).Length() > 0.5f, "the rod didn't push the other ball along");
+        Assert.True(physics.Bodies.Velocity(left).Length() > 0.5f, "the rod didn't push the other ball along");
     }
 
     [Fact]
@@ -157,7 +157,7 @@ public class JointTests
         world.Add(stick, Body.Dynamic(drag: 0f));
         world.Add(stick, Joint.Ball(new Vector3(0f, 1f, 0f)));
         physics.Sync();
-        physics.Push(stick, new Vector3(1f, 0f, 1f), new Vector3(0f, 3f, 0f));
+        physics.Bodies.Push(stick, new Vector3(1f, 0f, 1f), new Vector3(0f, 3f, 0f));
 
         Run(physics, 1f);
 

@@ -33,7 +33,7 @@ public class PhysicsTests
         var near = Place(world, new Vector3(0f, 1f, 0f), Collider.Ball(0.5f));
         physics.Sync();
 
-        var hit = physics.Raycast(Forward);
+        var hit = physics.Queries.Raycast(Forward);
 
         Assert.NotNull(hit);
         Assert.Equal(near, hit.Value.Entity);
@@ -50,7 +50,7 @@ public class PhysicsTests
         Place(world, new Vector3(3f, 1f, 0f), Collider.Ball(0.5f));
         physics.Sync();
 
-        Assert.Null(physics.Raycast(Forward));
+        Assert.Null(physics.Queries.Raycast(Forward));
     }
 
     [Fact]
@@ -62,8 +62,8 @@ public class PhysicsTests
         var ball = Place(world, new Vector3(0f, 1f, 0f), Collider.Ball(0.5f));
         physics.Sync();
 
-        Assert.Null(physics.Raycast(Forward, reach: 9f));
-        Assert.Equal(ball, physics.Raycast(Forward, reach: 10f)!.Value.Entity);
+        Assert.Null(physics.Queries.Raycast(Forward, reach: 9f));
+        Assert.Equal(ball, physics.Queries.Raycast(Forward, reach: 10f)!.Value.Entity);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class PhysicsTests
         var behind = Place(world, new Vector3(0f, 1f, -5f), Collider.Ball(0.5f, layers: 2));
         physics.Sync();
 
-        Assert.Equal(behind, physics.Raycast(Forward, layers: 2)!.Value.Entity);
+        Assert.Equal(behind, physics.Queries.Raycast(Forward, layers: 2)!.Value.Entity);
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public class PhysicsTests
         physics.Sync();
 
         var hits = new List<RayHit>();
-        physics.RaycastAll(Forward, hits);
+        physics.Queries.RaycastAll(Forward, hits);
 
         Assert.Equal([a, b, c], hits.Select(hit => hit.Entity));
     }
@@ -104,12 +104,12 @@ public class PhysicsTests
         var child = Place(world, new Vector3(0f, 1f, 0f), Collider.Ball(0.5f));
         world.Add(child, new Parent(parent));
         physics.Sync();
-        Assert.Null(physics.Raycast(Forward));
+        Assert.Null(physics.Queries.Raycast(Forward));
 
         world.Get<Transform>(parent).Position = Vector3.Zero;
         physics.Sync();
 
-        Assert.Equal(child, physics.Raycast(Forward)!.Value.Entity);
+        Assert.Equal(child, physics.Queries.Raycast(Forward)!.Value.Entity);
     }
 
     [Fact]
@@ -119,12 +119,12 @@ public class PhysicsTests
         using var _ = physics;
         var ball = Place(world, new Vector3(1.5f, 1f, 0f), Collider.Ball(0.5f));
         physics.Sync();
-        Assert.Null(physics.Raycast(Forward));
+        Assert.Null(physics.Queries.Raycast(Forward));
 
         world.Get<Transform>(ball).Scale = new Vector3(4f);
         physics.Sync();
 
-        Assert.Equal(ball, physics.Raycast(Forward)!.Value.Entity);
+        Assert.Equal(ball, physics.Queries.Raycast(Forward)!.Value.Entity);
     }
 
     [Fact]
@@ -137,7 +137,7 @@ public class PhysicsTests
         physics.Sync();
 
         world.Destroy(near);
-        Assert.Equal(far, physics.Raycast(Forward)!.Value.Entity);
+        Assert.Equal(far, physics.Queries.Raycast(Forward)!.Value.Entity);
 
         physics.Sync();
         Assert.Equal(1, physics.Count);
@@ -152,7 +152,7 @@ public class PhysicsTests
         physics.Sync();
 
         world.Remove<Collider>(ball);
-        Assert.Null(physics.Raycast(Forward));
+        Assert.Null(physics.Queries.Raycast(Forward));
         physics.Sync();
 
         Assert.Equal(0, physics.Count);
@@ -178,7 +178,7 @@ public class PhysicsTests
 
         public void Load() => Target = Place(world, new Vector3(0f, 1f, 0f), Collider.Ball(0.5f));
 
-        public void Update(GameTime time) => Hit = physics.Raycast(Forward)?.Entity;
+        public void Update(GameTime time) => Hit = physics.Queries.Raycast(Forward)?.Entity;
 
         public void Draw(View view)
         {

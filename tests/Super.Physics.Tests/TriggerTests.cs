@@ -43,16 +43,16 @@ public class TriggerTests
         for (int tick = 0; tick < 120; tick++)
         {
             physics.Step(Tick);
-            entered.AddRange(physics.Entered.Select(e => (tick, e)));
-            exited.AddRange(physics.Exited.Select(e => (tick, e)));
-            wasInside |= physics.Inside(area).Contains(ball);
+            entered.AddRange(physics.Triggers.Entered.Select(e => (tick, e)));
+            exited.AddRange(physics.Triggers.Exited.Select(e => (tick, e)));
+            wasInside |= physics.Triggers.Inside(area).Contains(ball);
         }
 
         Assert.Equal([new TriggerEvent(area, ball)], entered.Select(e => e.Event));
         Assert.Equal([new TriggerEvent(area, ball)], exited.Select(e => e.Event));
         Assert.True(entered[0].Tick < exited[0].Tick);
         Assert.True(wasInside);
-        Assert.Empty(physics.Inside(area));
+        Assert.Empty(physics.Triggers.Inside(area));
     }
 
     [Fact]
@@ -84,8 +84,8 @@ public class TriggerTests
 
         physics.Step(Tick);
 
-        Assert.Equal([new TriggerEvent(area, b), new TriggerEvent(area, a)], physics.Entered);
-        Assert.Equal([b, a], physics.Inside(area));
+        Assert.Equal([new TriggerEvent(area, b), new TriggerEvent(area, a)], physics.Triggers.Entered);
+        Assert.Equal([b, a], physics.Triggers.Inside(area));
     }
 
     [Fact]
@@ -96,19 +96,19 @@ public class TriggerTests
         var area = Area(world, Vector3.Zero, new Vector3(2f));
         var door = Place(world, new Vector3(5f, 0f, 0f), Collider.Box(Vector3.One));
         physics.Step(Tick);
-        Assert.Empty(physics.Entered);
+        Assert.Empty(physics.Triggers.Entered);
 
         world.Get<Transform>(door).Position = Vector3.Zero;
         physics.Step(Tick);
-        Assert.Equal([new TriggerEvent(area, door)], physics.Entered);
+        Assert.Equal([new TriggerEvent(area, door)], physics.Triggers.Entered);
 
         physics.Step(Tick);
-        Assert.Empty(physics.Entered);
-        Assert.Empty(physics.Exited);
+        Assert.Empty(physics.Triggers.Entered);
+        Assert.Empty(physics.Triggers.Exited);
 
         world.Get<Transform>(door).Position = new Vector3(5f, 0f, 0f);
         physics.Step(Tick);
-        Assert.Equal([new TriggerEvent(area, door)], physics.Exited);
+        Assert.Equal([new TriggerEvent(area, door)], physics.Triggers.Exited);
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class TriggerTests
         world.Destroy(coin);
         physics.Step(Tick);
 
-        Assert.Equal([new TriggerEvent(area, coin)], physics.Exited);
+        Assert.Equal([new TriggerEvent(area, coin)], physics.Triggers.Exited);
     }
 
     [Fact]
@@ -136,6 +136,6 @@ public class TriggerTests
 
         physics.Step(Tick);
 
-        Assert.Empty(physics.Entered);
+        Assert.Empty(physics.Triggers.Entered);
     }
 }

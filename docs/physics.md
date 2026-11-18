@@ -76,17 +76,17 @@ a body, static and kinematic ones too.
 
 **Moving dynamic bodies.** Physics owns a dynamic body's Transform, so it can't have a
 `Parent`. Setting its Transform yourself teleports it, keeping its speed. Otherwise, push
-it:
+it through `physics.Bodies`:
 
 | Call | What it does |
 | --- | --- |
-| `physics.Push(entity, impulse)` | A sudden push in newton-seconds: the velocity changes by impulse over mass. Kicks, hits, explosions |
-| `physics.Push(entity, impulse, point)` | The same, at a point in the world, so it spins when the point is off centre |
-| `physics.AddForce(entity, force)` | A steady push in newtons through the next step. Call it every tick for thrusters or wind |
-| `physics.AddTorque(entity, torque)` | A twist through the next step |
-| `physics.SetVelocity(entity, velocity)` | Sets it outright, in metres per second |
-| `physics.SetAngularVelocity(entity, spin)` | Sets the spin, as an axis whose length is radians per second |
-| `physics.Velocity(entity)`, `physics.AngularVelocity(entity)` | How fast any body moves and turns |
+| `physics.Bodies.Push(entity, impulse)` | A sudden push in newton-seconds: the velocity changes by impulse over mass. Kicks, hits, explosions |
+| `physics.Bodies.Push(entity, impulse, point)` | The same, at a point in the world, so it spins when the point is off centre |
+| `physics.Bodies.AddForce(entity, force)` | A steady push in newtons through the next step. Call it every tick for thrusters or wind |
+| `physics.Bodies.AddTorque(entity, torque)` | A twist through the next step |
+| `physics.Bodies.SetVelocity(entity, velocity)` | Sets it outright, in metres per second |
+| `physics.Bodies.SetAngularVelocity(entity, spin)` | Sets the spin, as an axis whose length is radians per second |
+| `physics.Bodies.Velocity(entity)`, `physics.Bodies.AngularVelocity(entity)` | How fast any body moves and turns |
 
 Only dynamic bodies can be pushed; pushing anything else throws, naming the entity.
 
@@ -95,7 +95,7 @@ Only dynamic bodies can be pushed; pushing anything else throws, naming the enti
 
 ## Characters
 
-A `Character` walks with `physics.Move`. It slides along walls, climbs steps, keeps to the
+A `Character` walks with `physics.Characters.Move`. It slides along walls, climbs steps, keeps to the
 ground going down slopes and stairs, can't walk up slopes that are too steep, and pushes
 crates. Its shape is its collider, usually a capsule on its feet:
 
@@ -122,7 +122,7 @@ public void Update(GameTime time)
         velocity.Y = 6f;
     }
 
-    var move = physics.Move(player, new Vector3(walk.X, velocity.Y, walk.Y), time.DeltaSeconds);
+    var move = physics.Characters.Move(player, new Vector3(walk.X, velocity.Y, walk.Y), time.DeltaSeconds);
     velocity = move.Velocity;
     grounded = move.Grounded;
 }
@@ -158,7 +158,7 @@ world.Add(goal, new Trigger(Detects: Players));
 
 public void Update(GameTime time)
 {
-    foreach (var entered in physics.Entered)
+    foreach (var entered in physics.Triggers.Entered)
     {
         if (entered.Trigger == goal)
         {
@@ -170,9 +170,9 @@ public void Update(GameTime time)
 
 | Call | What it gives |
 | --- | --- |
-| `physics.Entered` | Who came into a trigger in the last step, as `(Trigger, Other)` pairs |
-| `physics.Exited` | Who left one in the last step |
-| `physics.Inside(trigger)` | Who's in it now |
+| `physics.Triggers.Entered` | Who came into a trigger in the last step, as `(Trigger, Other)` pairs |
+| `physics.Triggers.Exited` | Who left one in the last step |
+| `physics.Triggers.Inside(trigger)` | Who's in it now |
 
 Each lists in trigger order, then entity order, so a seeded run repeats. Triggers notice
 colliders on their `Detects` layers (every layer by default), but never other triggers.
@@ -278,16 +278,16 @@ Set `Mode` to switch the ragdoll:
 
 ```csharp
 world.Get<Ragdoll>(stuntman) = world.Get<Ragdoll>(stuntman) with { Mode = RagdollMode.Simulated };
-physics.SetVelocity(stuntman, aim * 18f);
+physics.Bodies.SetVelocity(stuntman, aim * 18f);
 ```
 
 A ragdoll switched to `Simulated` starts where the animation has the limbs, moving as
 fast as they were moving, so a running character falls forward. While it's simulated,
-the entity's Transform follows the pelvis. `Push`, `SetVelocity`, `SetAngularVelocity`,
+the entity's Transform follows the pelvis. `physics.Bodies`' `Push`, `SetVelocity`, `SetAngularVelocity`,
 `AddForce` and `Velocity` work on the whole body, spread over its mass; `Push` with a
 point pushes the part nearest it, and `AddTorque` twists the pelvis while the mask leaves
 it simulated (the animation holds a pelvis outside the mask, so a twist does nothing). They work straight
-after the switch, in the same Update. `physics.PushPart(entity, "Head", impulse, point)`
+after the switch, in the same Update. `physics.Ragdolls.PushPart(entity, "Head", impulse, point)`
 pushes a part by name, such as the head a ball hits.
 
 `Strength` sets how hard the muscles pull each part towards the pose the animation
@@ -300,11 +300,11 @@ legs keep walking; the other parts follow the animation.
 ### Getting up
 
 Switching back to `Off` takes the bodies away and blends the ragdoll's pose back into
-the clips over `BlendSeconds`, 0.4 by default. `physics.IsFaceUp(entity)` says which
+the clips over `BlendSeconds`, 0.4 by default. `physics.Ragdolls.IsFaceUp(entity)` says which
 get-up clip to pick before the switch:
 
 ```csharp
-bool faceUp = physics.IsFaceUp(stuntman);
+bool faceUp = physics.Ragdolls.IsFaceUp(stuntman);
 world.Get<Ragdoll>(stuntman) = world.Get<Ragdoll>(stuntman) with { Mode = RagdollMode.Off };
 animator.Play(faceUp ? Move.StandUp : Move.StandUpFromFront);
 ```
@@ -319,7 +319,7 @@ facing the way a body lying there would get up.
 
 ### Seeing the bodies
 
-`physics.RagdollShapes(entity, shapes)` lists each part's shape where it is now, as a
+`physics.Ragdolls.Shapes(entity, shapes)` lists each part's shape where it is now, as a
 `RagdollShapeView` with its joint, shape, transform, size and whether it's simulated.
 Draw them over the character while tuning a `RagdollBody`; the
 [Cannonball](../examples/Cannonball) example does this on D.
@@ -332,7 +332,7 @@ Draw them over the character while tuning a `RagdollBody`; the
 public void Update(GameTime time)
 {
     var ray = input.MouseRay(camera);
-    if (physics.Raycast(ray, layers: Enemies) is { } hit)
+    if (physics.Queries.Raycast(ray, layers: Enemies) is { } hit)
     {
         Target = hit.Entity;     // hit.Distance and hit.Point say where.
     }
@@ -341,13 +341,18 @@ public void Update(GameTime time)
 
 | Call | What it does |
 | --- | --- |
-| `Raycast(ray, reach, layers)` | The nearest hit within `reach` metres (1000 by default) on those layers, or `null` |
-| `RaycastAll(ray, hits, reach, layers)` | Every collider the ray meets, nearest first and once each, into a list you keep |
-| `ShapeCast(shape, from, direction, reach, rotation, layers)` | Sweeps a collider shape, a thick ray, and gives the first hit with its point and surface normal, or `null` |
-| `ShapeCastAll(shape, from, direction, hits, reach, rotation, layers)` | Every collider the sweep meets, nearest first |
-| `Overlap(shape, position, hits, rotation, layers)` | Every entity whose collider touches the shape there, in entity order |
+| `Queries.Raycast(ray, reach, layers)` | The nearest hit within `reach` metres (1000 by default) on those layers, or `null` |
+| `Queries.RaycastAll(ray, hits, reach, layers)` | Every collider the ray meets, nearest first and once each, into a list you keep |
+| `Queries.ShapeCast(shape, from, direction, reach, rotation, layers)` | Sweeps a collider shape, a thick ray, and gives the first hit with its point and surface normal, or `null` |
+| `Queries.ShapeCastAll(shape, from, direction, hits, reach, rotation, layers)` | Every collider the sweep meets, nearest first |
+| `Queries.Overlap(shape, position, hits, rotation, layers)` | Every entity whose collider touches the shape there, in entity order |
 | `Sync()` | Moves the colliders to where their entities are now |
 | `Count` | How many colliders there are, as of the last sync |
+
+`Physics` hands its work to five parts: `physics.Bodies` pushes and reads bodies,
+`physics.Characters` walks characters, `physics.Queries` asks what is where,
+`physics.Triggers` says who is in each trigger and `physics.Ragdolls` reads and pushes
+ragdolls. `Step`, `Sync`, `Gravity`, `Count` and `Contacts` stay on `Physics` itself.
 
 A shape cast answers questions a ray can't: will a ball fit down this corridor, where
 does a falling crate land, how far can the [camera boom](cameras.md#third-person) reach.

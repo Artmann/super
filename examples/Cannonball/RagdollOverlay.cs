@@ -16,7 +16,7 @@ public sealed class RagdollOverlay(Physics physics)
     public void Draw(View view, Entity entity)
     {
         _shapes.Clear();
-        physics.RagdollShapes(entity, _shapes);
+        physics.Ragdolls.Shapes(entity, _shapes);
         for (int i = 0; i < _shapes.Count; i++)
         {
             var shape = _shapes[i];
