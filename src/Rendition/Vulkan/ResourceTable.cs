@@ -528,6 +528,12 @@ internal sealed unsafe class ResourceTable : IDisposable
     {
         ref var gpu = ref ((GpuMaterial*)_materials.Mapped)[index];
         gpu = ToGpu(material);
+        for (int i = 0; i < ShaderTextures.Length; i++)
+        {
+            gpu.ShaderTextures[i] = (uint)(material.ShaderTextures[i] ?? _white).Index;
+            gpu.ShaderArrays[i] = (uint)(material.ShaderArrays[i] ?? _whiteArray).Index;
+        }
+
         _materialFlags[index] = material.Flags;
         _materialShaders[index] = material.Shader?.Index ?? 0;
         _materialCutouts[index] = material.AlphaCutoff > 0f;
@@ -553,11 +559,11 @@ internal sealed unsafe class ResourceTable : IDisposable
         }
     }
 
-    // The material as the shaders read it, with the table's plain textures where it has none, but without its toon
-    // shading, which WriteToon adds.
+    // The material as the shaders read it, with the table's plain textures where it has none, but without its shader
+    // textures and toon shading, which WriteMaterial adds.
     private GpuMaterial ToGpu(in Material material)
     {
-        var gpu = new GpuMaterial
+        return new GpuMaterial
         {
             BaseColor = material.BaseColor,
             Metallic = material.Metallic,
@@ -589,13 +595,6 @@ internal sealed unsafe class ResourceTable : IDisposable
             Dirt = Layer(material.Dirt, material.MaskTexture is not null),
             SoftEdge = float.IsFinite(material.SoftEdge) ? MathF.Max(material.SoftEdge, 0f) : 0f,
         };
-        for (int i = 0; i < ShaderTextures.Length; i++)
-        {
-            gpu.ShaderTextures[i] = (uint)(material.ShaderTextures[i] ?? _white).Index;
-            gpu.ShaderArrays[i] = (uint)(material.ShaderArrays[i] ?? _whiteArray).Index;
-        }
-
-        return gpu;
     }
 
     // A toon material's flag, bands or ramp, and rim, and the ramp's texture slot for the material's own, -1 for none.
