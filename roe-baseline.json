@@ -9,54 +9,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.ChartFree",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.DropSteep",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.FarShares",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.FirstOverlap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 17
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.Lay",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 31
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.Problem",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 35
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.SharedArea",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.LightmapUnwrap.Unwrap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 13
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.MeshDetail.Simplify",
       "file": "src/Rendition/MeshDetail.cs",
       "metric": 19
@@ -426,60 +378,6 @@
       "name": "Rendition.LightmapLayout.Single",
       "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
       "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.ChartFree",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 32
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.DropSteep",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 30
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.FarShares",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 39
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.FirstOverlap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 34
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.Grow",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 22
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.Lay",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 63
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.Problem",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 69
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.SharedArea",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.LightmapUnwrap.Unwrap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 25
     },
     {
       "kind": "high-cognitive-complexity",
@@ -882,90 +780,6 @@
       "name": "Rendition.LightmapLayout.Single",
       "file": "src/Rendition/Lightmaps/LightmapLayout.cs",
       "metric": 76
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.ChartFree",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 77
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Densities",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 51
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.DropSteep",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 82
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Edges",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.FarShares",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 99
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.FirstOverlap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 95
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Grow",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 45
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Lay",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 191
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Problem",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 164
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.SharedArea",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 80
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.SurfacePoint",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 53
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Turn",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 53
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.Unwrap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 80
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.LightmapUnwrap.UvCharts",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 61
     },
     {
       "kind": "long-method",
@@ -1857,18 +1671,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.LightmapUnwrap.Densities",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.LightmapUnwrap.SurfacePoint",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Rendition.Passes.DepthOfFieldPass.Record",
       "file": "src/Rendition/Passes/DepthOfFieldPass.cs",
       "metric": 6
@@ -2271,12 +2073,6 @@
     },
     {
       "kind": "large-file",
-      "name": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 1867
-    },
-    {
-      "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
       "metric": 6009
@@ -2394,12 +2190,6 @@
       "name": "Rendition.FrameView",
       "file": "src/Rendition/Types.cs",
       "metric": 37
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.LightmapUnwrap",
-      "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 40
     },
     {
       "kind": "large-type",

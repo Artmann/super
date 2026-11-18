@@ -126,7 +126,7 @@ public class LightmapUnwrapTests
     [InlineData(0.25)]
     public void A_chart_rectangle_holds_every_texel_the_chart_touches(double extent)
     {
-        var (size, offset) = LightmapUnwrap.ChartRectangle(extent);
+        var (size, offset) = ChartPage.ChartRectangle(extent);
 
         // Texel k is touched when the closed span [k, k + 1] meets the closed span the chart covers.
         int first = (int)Math.Ceiling(offset) - 1;

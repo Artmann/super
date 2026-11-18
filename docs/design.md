@@ -2324,7 +2324,10 @@ The view leaves tone mapping and every effect on; unlike the trace view it sets 
 `LightmapUnwrap.Unwrap` gives a mesh a second UV set (`Vertex.Uv2`) for baked lighting, and
 `LightmapUnwrap.Problem` checks such a set and names the first thing wrong with it, or
 returns null. Both keep the triangles and their order; `Unwrap` only splits a vertex where
-two charts meet.
+two charts meet. The steps live beside it in `src/Rendition/Lightmaps`: `UnwrapCharts` grows
+the charts and `ChartCutter` cuts them back, `ChartPage` lays them out on the page,
+`TriangleOverlap` and `FarShareSearch` find triangles that overlap or share a texel, and
+`UvSet` and `TexelOwners` hold what `Problem` reads.
 
 Charts are found without looking at the first UVs, so a texture seam doesn't cut one.
 Corners are welded by exact position, and two triangles join across an edge only when the
