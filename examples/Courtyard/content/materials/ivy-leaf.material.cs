@@ -22,25 +22,10 @@ public sealed class IvyLeaf : MaterialGraph
 
     public override Material Build()
     {
+        // Each stage makes its nodes in the same order as before, as a node's noise is seeded by the order it is made in.
         var lobes = Lobes(Seed);
-
-        // The leaf's outline as a distance-like field: above 0 inside, below 0 outside, made of the lobes joined
-        // smoothly round the palm.
-        var field = Pixel.Gray(p => Field(Leaf(p.Uv), lobes));
-        var stalk = Pixel.Gray(p => Stalk(p.Uv));
-        var leaf = field.Levels(-Soft, Soft);
-        var opacity = leaf.Max(stalk);
-
-        // The rim: 1 at the edge, fading to 0 a centimetre in, from the distance to the outside of the leaf. The leaf is
-        // thickest in its middle and curls down a little at its edge.
-        var rim = leaf.Invert().Distance(0.05f);
-
-        // Veins: the main ones from the notch to each lobe's tip, side veins off them towards the tips, bent by
-        // directional noise so they wander as real ones do, and a faint net between them from cell edges.
-        var wander = Noise.Directional(scale: 24, angle: 0f, stretch: 3f, octaves: 2, seed: 2);
-        var veins = Pixel.Gray(p => Veins(Leaf(p.Uv), lobes, p.Gray(0)), wander);
-        var net = Noise.Cells(scale: 48, output: CellOutput.Edge, seed: 3).Levels(0f, 0.06f).Invert().Multiply(0.35f);
-        var allVeins = veins.Max(net.Multiply(leaf));
+        var (leaf, stalk, opacity, rim) = LeafShape(lobes);
+        var allVeins = VeinNet(lobes, leaf);
 
         // Along each lobe, 0 at the notch and 1 at its tip, and the shiny band down the middle of each lobe.
         var along = Pixel.Gray(p => Along(Leaf(p.Uv), lobes));
@@ -52,16 +37,7 @@ public sealed class IvyLeaf : MaterialGraph
             .Multiply(leaf)
             .Max(stalk.Multiply(0.6f));
 
-        // Dark green at the base to fresh green at the tips. About a tenth of the leaf has started to yellow, in soft
-        // Perlin patches. The veins and the very rim are paler.
-        var green = along.GradientMap(Ramp.Of((0f, "#2f4a1e"), (0.45f, "#43662a"), (1f, "#6f9a3a")));
-        var yellowing = Noise.Perlin(scale: 4, octaves: 3, seed: 5 + Seed).HistogramScan(0.1f, contrast: 0.35f);
-        var color = green
-            .Blend(Rgb.Of("#a3a23e"), mask: yellowing, opacity: 0.75f)
-            .Blend(Rgb.Of("#9fb46c"), mask: allVeins, opacity: 0.7f)
-            .Blend(Rgb.Of("#7d9a46"), mask: rim.Levels(0.8f, 1f), opacity: 0.35f)
-            .Multiply(Noise.Perlin(scale: 32, octaves: 3, seed: 6).Remap(0.92f, 1.06f))
-            .Blend(Rgb.Of("#5c6b2c"), mask: stalk.Multiply(leaf.Invert()));
+        var color = LeafColor(along, allVeins, rim, stalk, leaf);
 
         // Waxy: 0.55 over the leaf and 0.42 in a band down the middle of each lobe, where the cuticle catches the light,
         // a little rougher on the veins. Glossier, a leaf seen edge on mirrors the sky and turns white.
@@ -79,6 +55,53 @@ public sealed class IvyLeaf : MaterialGraph
             Roughness = roughness,
             Opacity = opacity,
         };
+    }
+
+    /// <summary>
+    /// The leaf cut out of its outline, the stalk, the two together, and the rim: 1 at the leaf's edge, fading to 0 a
+    /// centimetre in, from the distance to the outside of the leaf. The leaf is thickest in its middle and curls down a
+    /// little at its edge.
+    /// </summary>
+    private static (Gray Leaf, Gray Stalk, Gray Opacity, Gray Rim) LeafShape(Lobe[] lobes)
+    {
+        // The leaf's outline as a distance-like field: above 0 inside, below 0 outside, made of the lobes joined
+        // smoothly round the palm.
+        var field = Pixel.Gray(p => Field(Leaf(p.Uv), lobes));
+        var stalk = Pixel.Gray(p => Stalk(p.Uv));
+        var leaf = field.Levels(-Soft, Soft);
+        var opacity = leaf.Max(stalk);
+
+        return (leaf, stalk, opacity, leaf.Invert().Distance(0.05f));
+    }
+
+    /// <summary>
+    /// Veins: the main ones from the notch to each lobe's tip, side veins off them towards the tips, bent by directional
+    /// noise so they wander as real ones do, and a faint net between them from cell edges.
+    /// </summary>
+    private static Gray VeinNet(Lobe[] lobes, Gray leaf)
+    {
+        var wander = Noise.Directional(scale: 24, angle: 0f, stretch: 3f, octaves: 2, seed: 2);
+        var veins = Pixel.Gray(p => Veins(Leaf(p.Uv), lobes, p.Gray(0)), wander);
+        var net = Noise.Cells(scale: 48, output: CellOutput.Edge, seed: 3).Levels(0f, 0.06f).Invert().Multiply(0.35f);
+
+        return veins.Max(net.Multiply(leaf));
+    }
+
+    /// <summary>
+    /// Dark green at the base to fresh green at the tips. About a tenth of the leaf has started to yellow, in soft
+    /// Perlin patches. The veins and the very rim are paler.
+    /// </summary>
+    private Rgb LeafColor(Gray along, Gray veins, Gray rim, Gray stalk, Gray leaf)
+    {
+        var green = along.GradientMap(Ramp.Of((0f, "#2f4a1e"), (0.45f, "#43662a"), (1f, "#6f9a3a")));
+        var yellowing = Noise.Perlin(scale: 4, octaves: 3, seed: 5 + Seed).HistogramScan(0.1f, contrast: 0.35f);
+
+        return green
+            .Blend(Rgb.Of("#a3a23e"), mask: yellowing, opacity: 0.75f)
+            .Blend(Rgb.Of("#9fb46c"), mask: veins, opacity: 0.7f)
+            .Blend(Rgb.Of("#7d9a46"), mask: rim.Levels(0.8f, 1f), opacity: 0.35f)
+            .Multiply(Noise.Perlin(scale: 32, octaves: 3, seed: 6).Remap(0.92f, 1.06f))
+            .Blend(Rgb.Of("#5c6b2c"), mask: stalk.Multiply(leaf.Invert()));
     }
 
     /// <summary>One lobe: the way it points, how long it is and how wide at its base, in fractions of the image.</summary>

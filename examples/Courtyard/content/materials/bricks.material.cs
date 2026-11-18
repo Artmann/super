@@ -182,12 +182,47 @@ public sealed class Bricks : MaterialGraph
 
     public override Material Build()
     {
+        // Each stage makes its nodes in the same order as before, as a node's noise is seeded by the order it is made in.
         // 8 bricks of 43.75 cm across the 3.5 m, 12 courses of about 29 cm: big old bricks,
         // so they read at the distance the courtyard is seen from.
         var bricks = Tiles.Bricks(columns: Columns, rows: Rows, gap: 0.075f, bevel: 0.08f);
         var ids = bricks.FloodFill();
         var tone = ToneImage();
+        var (faces, hardness, wear, undulation) = Faces(bricks, ids, tone);
+        var (mortarNoise, height) = MortarFill(faces, undulation, bricks);
+        (height, var detail) = Weathering(height, wear, bricks);
 
+        var mortarMask = bricks.Levels(0f, 0.25f).Invert();
+        var color = BrickColor(tone, ids, mortarNoise, mortarMask, detail);
+        (color, var bloom) = Efflorescence(color, hardness, mortarMask);
+        color = Soot(color);
+
+        // Hard bricks have a slight sheen, soft ones are dull, the mortar duller and the salts dullest.
+        var brickRoughness = hardness
+            .Curve((0f, 0.95f), (0.4f, 0.8f), (0.6f, 0.65f), (1f, 0.55f))
+            .Add(Noise.Perlin(scale: 32, octaves: 3).Remap(-0.02f, 0.02f))
+            .Blend(Gray.Of(0.95f), mask: bloom);
+
+        return new Material
+        {
+            Width = 3.5f,
+            Depth = 0.02f,
+            Occlusion = 0.85f,
+            Height = height,
+            Color = color,
+            Roughness = brickRoughness.Blend(Gray.Of(0.9f), mask: mortarMask),
+        };
+    }
+
+    /// <summary>The pores, grit, pitting and spalls that <see cref="Weathering"/> wore into the bricks, which the colour follows.</summary>
+    private sealed record BrickDetail(Gray Pores, Gray Grit, Gray Pitting, Gray Spalls);
+
+    /// <summary>
+    /// The bricks' faces, each tilted, undulating and chipped on its own. Also returns how hard each brick is, 1 the
+    /// hardest, how worn it is, the inverse, and the undulation.
+    /// </summary>
+    private static (Gray Faces, Gray Hardness, Gray Wear, Gray Undulation) Faces(Gray bricks, Islands ids, Gray tone)
+    {
         // Each brick leans its own way: a ramp across and a ramp down, each scaled by a random amount from -1 to 1.
         var across = ids.ToGradient(0f).Subtract(0.5f).Multiply(ids.RandomGray(seed: 1).Remap(-1f, 1f));
         var down = ids.ToGradient(90f).Subtract(0.5f).Multiply(ids.RandomGray(seed: 2).Remap(-1f, 1f));
@@ -214,13 +249,25 @@ public sealed class Bricks : MaterialGraph
         var chipCover = Noise.Perlin(scale: 18, octaves: 3).HistogramScan(0.45f, contrast: 0.9f);
         faces = faces.Blend(chipped, mask: chipBricks.Multiply(nearJoint).Multiply(chipCover));
 
-        // The mortar fills the joints to its own uneven level, ±30% from Perlin, and in about one joint
-        // in seven, a patch from cells, it has weathered back to leave a deep recess.
+        return (faces, hardness, wear, undulation);
+    }
+
+    /// <summary>
+    /// The mortar fills the joints to its own uneven level, ±30% from Perlin, and in about one joint in seven, a patch
+    /// from cells, it has weathered back to leave a deep recess. Returns the mortar's noise, and the height.
+    /// </summary>
+    private static (Gray MortarNoise, Gray Height) MortarFill(Gray faces, Gray undulation, Gray bricks)
+    {
         var mortarNoise = Noise.Perlin(scale: 12, octaves: 4);
         var recessed = Noise.Cells(scale: 10, output: CellOutput.Id).HistogramScan(0.15f, contrast: 0.98f);
         var mortarFill = mortarNoise.Remap(0.7f, 1.3f).Multiply(0.15f).Multiply(recessed.Invert());
-        var height = faces.Max(mortarFill).Add(undulation.Multiply(bricks));
 
+        return (mortarNoise, faces.Max(mortarFill).Add(undulation.Multiply(bricks)));
+    }
+
+    /// <summary>Pores, grit and spalls worn into <paramref name="height"/>, the soft bricks far more than the hard ones.</summary>
+    private static (Gray Height, BrickDetail Detail) Weathering(Gray height, Gray wear, Gray bricks)
+    {
         // Small pores and fine grit in the brick faces and the mortar, so they hold detail close
         // up. The soft bricks are pitted far more than the hard ones.
         var pores = Noise.Cells(scale: 520, output: CellOutput.F1).Levels(0f, 0.22f);
@@ -233,55 +280,58 @@ public sealed class Bricks : MaterialGraph
         var spalls = Noise.Perlin(scale: 40, octaves: 4).Levels(0.64f, 0.68f).Multiply(bricks.Levels(0.3f, 0.6f));
         height = height.Subtract(spalls.Multiply(0.25f));
 
-        var mortarMask = bricks.Levels(0f, 0.25f).Invert();
+        return (height, new BrickDetail(pores, grit, pitting, spalls));
+    }
+
+    /// <summary>The bricks in their tones and the mortar between them.</summary>
+    private static Rgb BrickColor(Gray tone, Islands ids, Gray mortarNoise, Gray mortarMask, BrickDetail detail)
+    {
         // Each brick is exactly one of the eight tones, so no two neighbours match, then mottled within itself.
         var brickColor = tone
             .GradientMap(Ramp.Of(Tones.Select((hex, i) => (i / (float)(Tones.Length - 1), hex)).ToArray()))
             .Multiply(ids.RandomGray(seed: 6).Remap(0.95f, 1.04f))
             .Multiply(Noise.Perlin(scale: 24, octaves: 3).Remap(0.88f, 1.06f))
             .Multiply(Noise.Perlin(scale: 200, octaves: 3).Remap(0.92f, 1.05f))
-            .Multiply(grit.Remap(0.92f, 1.05f))
-            .Multiply(pores.Invert().Multiply(pitting).Multiply(0.28f).Invert())
-            .Multiply(spalls.Remap(1f, 1.18f));
+            .Multiply(detail.Grit.Remap(0.92f, 1.05f))
+            .Multiply(detail.Pores.Invert().Multiply(detail.Pitting).Multiply(0.28f).Invert())
+            .Multiply(detail.Spalls.Remap(1f, 1.18f));
 
         // Old lime mortar, grey and dirty rather than clean, its own Perlin lightening and darkening it by ±30%.
         var mortarColor = Rgb.Of("#857e71")
             .Multiply(mortarNoise.Remap(0.7f, 1.3f))
-            .Multiply(grit.Remap(0.86f, 1.08f))
-            .Multiply(pores.Remap(0.8f, 1f));
-        var color = brickColor.Blend(mortarColor, mask: mortarMask);
+            .Multiply(detail.Grit.Remap(0.86f, 1.08f))
+            .Multiply(detail.Pores.Remap(0.8f, 1f));
 
-        // Efflorescence: damp carries salts out through the joints, where they dry to a white rim that bleeds about
-        // 4 cm into the soft bricks and over the mortar between them, in patches over about a fifth of the wall.
-        // Hard bricks keep it out. A fine grain of crystals breaks its edge.
+        return brickColor.Blend(mortarColor, mask: mortarMask);
+    }
+
+    /// <summary>
+    /// Efflorescence: damp carries salts out through the joints, where they dry to a white rim that bleeds about 4 cm
+    /// into the soft bricks and over the mortar between them, in patches over about a fifth of the wall. Hard bricks
+    /// keep it out. A fine grain of crystals breaks its edge. Returns <paramref name="color"/> with the salts, and
+    /// where they bloom.
+    /// </summary>
+    private static (Rgb Color, Gray Bloom) Efflorescence(Rgb color, Gray hardness, Gray mortarMask)
+    {
         var soft = hardness.Levels(0.39f, 0.41f).Invert();
         var bleed = mortarMask.Distance(0.012f);
         var crystals = Noise.Perlin(scale: 60, octaves: 3).Levels(0.35f, 0.65f).Remap(0.5f, 1f);
         var bloom = EfflorescencePatches().Multiply(bleed).Multiply(soft).Multiply(crystals);
-        color = color.Blend(Rgb.Of("#d8d4cc"), mask: bloom, opacity: 0.5f);
 
-        // Soot: smoke and dirty rain have darkened a band under the string course, 4 courses up the tile
-        // (two thirds of the way down the image), by up to 25%, fading downwards and torn into streaks.
+        return (color.Blend(Rgb.Of("#d8d4cc"), mask: bloom, opacity: 0.5f), bloom);
+    }
+
+    /// <summary>
+    /// Soot: smoke and dirty rain have darkened a band under the string course, 4 courses up the tile (two thirds of
+    /// the way down the image), by up to 25%, fading downwards and torn into streaks.
+    /// </summary>
+    private static Rgb Soot(Rgb color)
+    {
         var band = Gradient.Linear(90f).Transform(offset: new Vector2(0f, 1f / 6f)).Levels(0.5f, 1f);
         var underCourse = Gradient.Linear(90f).Transform(offset: new Vector2(0f, 5f / 12f)).Levels(0.48f, 0.52f);
         var streaks = Noise.Directional(scale: 14, angle: 90f, stretch: 8f, octaves: 3).Levels(0.25f, 0.75f);
         var soot = band.Multiply(underCourse).Multiply(streaks);
-        color = color.Multiply(soot.Multiply(0.25f).Invert());
 
-        // Hard bricks have a slight sheen, soft ones are dull, the mortar duller and the salts dullest.
-        var brickRoughness = hardness
-            .Curve((0f, 0.95f), (0.4f, 0.8f), (0.6f, 0.65f), (1f, 0.55f))
-            .Add(Noise.Perlin(scale: 32, octaves: 3).Remap(-0.02f, 0.02f))
-            .Blend(Gray.Of(0.95f), mask: bloom);
-
-        return new Material
-        {
-            Width = 3.5f,
-            Depth = 0.02f,
-            Occlusion = 0.85f,
-            Height = height,
-            Color = color,
-            Roughness = brickRoughness.Blend(Gray.Of(0.9f), mask: mortarMask),
-        };
+        return color.Multiply(soot.Multiply(0.25f).Invert());
     }
 }

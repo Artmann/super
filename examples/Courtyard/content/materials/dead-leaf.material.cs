@@ -23,14 +23,9 @@ public sealed class DeadLeaf : MaterialGraph
 
     public override Material Build()
     {
-        int seed = Seed;
-        var form = Form.Of(seed);
-
-        // The margin is crumbled: a little of it is broken off here and there.
-        var crumble = Noise.Perlin(scale: 40, octaves: 3, seed: 2);
-        var field = Pixel.Gray(p => Field(p.Uv, form) - 0.006f * MathF.Max(0f, p.Gray(0) - 0.55f) * 5f, crumble);
-        var leaf = field.Levels(-Soft, Soft);
-        var stalk = Pixel.Gray(p => Stalk(p.Uv, form));
+        // Each stage makes its nodes in the same order as before, as a node's noise is seeded by the order it is made in.
+        var form = Form.Of(Seed);
+        var (field, leaf, stalk) = Outline(form);
 
         // Holes eaten through it: round-ish gaps from a cell pattern, only where a coarse mask lets them.
         var holes = Noise.Cells(scale: 16, seed: 3).Levels(0.05f, 0.09f).Invert()
@@ -41,14 +36,9 @@ public sealed class DeadLeaf : MaterialGraph
         var veins = Pixel.Gray(p => Veins(p.Uv, form)).Max(midrib);
         var rim = field.Levels(0f, 0.035f).Invert().Multiply(leaf);
 
-        // Dry tan, browner in blotches, paler at the margin and on the veins.
+        // The blotches where it dried browner.
         var blotch = Noise.Perlin(scale: 7, octaves: 4, seed: 5).HistogramScan(0.5f, 0.4f);
-        var color = Noise.Perlin(scale: 18, octaves: 3, seed: 6)
-            .GradientMap(Ramp.Of("#8a5a30", "#a06c3a", "#94622f"))
-            .Blend(Rgb.Of("#5e3a1e"), mask: blotch, opacity: 0.75f)
-            .Blend(Rgb.Of("#b58e5c"), mask: rim, opacity: 0.55f)
-            .Blend(Rgb.Of("#c09a68"), mask: veins, opacity: 0.6f)
-            .Blend(Rgb.Of("#6e4a28"), mask: stalk, opacity: 1f);
+        var color = DriedColor(blotch, rim, veins, stalk);
 
         // The edges curl up, the veins stand a little proud, and the blade is wrinkled.
         var wrinkles = Noise.Perlin(scale: 14, octaves: 4, seed: 7);
@@ -68,6 +58,31 @@ public sealed class DeadLeaf : MaterialGraph
                 .Add(Noise.Perlin(scale: 30, octaves: 2, seed: 8).Remap(-0.04f, 0.04f)),
             Opacity = opacity,
         };
+    }
+
+    /// <summary>
+    /// The leaf's outline: <c>Field</c>, above 0 inside the blade, with its margin crumbled, broken off a little here
+    /// and there; the blade cut out of it; and the stalk.
+    /// </summary>
+    private static (Gray Field, Gray Leaf, Gray Stalk) Outline(Form form)
+    {
+        var crumble = Noise.Perlin(scale: 40, octaves: 3, seed: 2);
+        var field = Pixel.Gray(p => Field(p.Uv, form) - 0.006f * MathF.Max(0f, p.Gray(0) - 0.55f) * 5f, crumble);
+        var leaf = field.Levels(-Soft, Soft);
+        var stalk = Pixel.Gray(p => Stalk(p.Uv, form));
+
+        return (field, leaf, stalk);
+    }
+
+    /// <summary>Dry tan, browner in <paramref name="blotch"/>, paler at the <paramref name="rim"/> and on the veins.</summary>
+    private static Rgb DriedColor(Gray blotch, Gray rim, Gray veins, Gray stalk)
+    {
+        return Noise.Perlin(scale: 18, octaves: 3, seed: 6)
+            .GradientMap(Ramp.Of("#8a5a30", "#a06c3a", "#94622f"))
+            .Blend(Rgb.Of("#5e3a1e"), mask: blotch, opacity: 0.75f)
+            .Blend(Rgb.Of("#b58e5c"), mask: rim, opacity: 0.55f)
+            .Blend(Rgb.Of("#c09a68"), mask: veins, opacity: 0.6f)
+            .Blend(Rgb.Of("#6e4a28"), mask: stalk, opacity: 1f);
     }
 
     /// <summary>One leaf's own shape: how its middle bends, how many lobes it has and where they sit on each side.</summary>
