@@ -46,10 +46,7 @@ public sealed class Catalog<T> : IReadOnlyCollection<T>, ICatalog
     private readonly List<Action> _listeners = [];
     private List<T> _records = [];
     private Dictionary<string, T> _byId = [];
-    private IReadOnlyList<CheckedFile>? _checked;
-    private readonly HashSet<string> _broken = [];
-    private List<T>? _builtRecords;
-    private Dictionary<string, T>? _builtById;
+    private PendingRead? _read;
 
     internal Catalog(string folder)
     {
@@ -86,19 +83,21 @@ public sealed class Catalog<T> : IReadOnlyCollection<T>, ICatalog
 
     void ICatalog.Check(ContentReader reader, List<string> problems, List<ContentReference> references)
     {
-        _broken.Clear();
-        _checked = reader.Check(_folder, typeof(T), problems, references, _broken);
+        var broken = new HashSet<string>();
+        var files = reader.Check(_folder, typeof(T), problems, references, broken);
+        _read = new PendingRead(files, broken);
     }
 
-    bool ICatalog.Has(string id) => _checked is null
+    bool ICatalog.Has(string id) => _read is null
         ? _byId.ContainsKey(id)
-        : _broken.Contains(id) || _checked.Any(file => file.Id == id);
+        : _read.Broken.Contains(id) || _read.Files.Any(file => file.Id == id);
 
     void ICatalog.Build(ContentReader reader, List<string> problems)
     {
-        var records = new List<T>(_checked!.Count);
-        var byId = new Dictionary<string, T>(_checked.Count);
-        foreach (var file in _checked)
+        var read = _read!;
+        var records = new List<T>(read.Files.Count);
+        var byId = new Dictionary<string, T>(read.Files.Count);
+        foreach (var file in read.Files)
         {
             try
             {
@@ -108,7 +107,7 @@ public sealed class Catalog<T> : IReadOnlyCollection<T>, ICatalog
             }
             catch (JsonException error)
             {
-                problems.Add($"{file.Path}:{error.LineNumber + 1 ?? 1}: {ContentValidator.Plain(error.Message)}");
+                problems.Add($"{file.Path}:{error.LineNumber + 1 ?? 1}: {JsonProblemLog.Plain(error.Message)}");
             }
             catch (ArgumentException error)
             {
@@ -117,24 +116,18 @@ public sealed class Catalog<T> : IReadOnlyCollection<T>, ICatalog
             }
         }
 
-        _builtRecords = records;
-        _builtById = byId;
+        read.Records = records;
+        read.ById = byId;
     }
 
     void ICatalog.Commit()
     {
-        _records = _builtRecords!;
-        _byId = _builtById!;
+        _records = _read!.Records!;
+        _byId = _read.ById!;
         ((ICatalog)this).Drop();
     }
 
-    void ICatalog.Drop()
-    {
-        _checked = null;
-        _broken.Clear();
-        _builtRecords = null;
-        _builtById = null;
-    }
+    void ICatalog.Drop() => _read = null;
 
     void ICatalog.Announce()
     {
@@ -142,5 +135,20 @@ public sealed class Catalog<T> : IReadOnlyCollection<T>, ICatalog
         {
             listener();
         }
+    }
+
+    /// <summary>
+    /// One read of the folder, from <see cref="ICatalog.Check"/> until <see cref="ICatalog.Commit"/> or
+    /// <see cref="ICatalog.Drop"/>: the files that passed, the ids of those that didn't, and the records built.
+    /// </summary>
+    private sealed class PendingRead(IReadOnlyList<CheckedFile> files, HashSet<string> broken)
+    {
+        public IReadOnlyList<CheckedFile> Files { get; } = files;
+
+        public HashSet<string> Broken { get; } = broken;
+
+        public List<T>? Records { get; set; }
+
+        public Dictionary<string, T>? ById { get; set; }
     }
 }

@@ -65,14 +65,15 @@ internal sealed class ContentReader
         foreach (string path in paths)
         {
             var json = WithoutByteOrderMark(_files.Read(path));
-            var validator = new ContentValidator(path, json, Options, _files, problems, references);
+            var log = new JsonProblemLog(path, json.Span, problems);
+            var validator = new ContentValidator(log, json, Options, _files, references);
             validator.Check(type);
-            if (validator.Passed)
+            if (log.Passed)
             {
-                CheckId(validator, path, ids);
+                CheckId(validator, log, path, ids);
             }
 
-            if (validator.Passed)
+            if (log.Passed)
             {
                 found.Add(new CheckedFile(path, json, validator.Id!));
             }
@@ -85,19 +86,19 @@ internal sealed class ContentReader
         return found;
     }
 
-    private static void CheckId(ContentValidator validator, string path, Dictionary<string, string> ids)
+    private static void CheckId(ContentValidator validator, JsonProblemLog log, string path, Dictionary<string, string> ids)
     {
         if (validator.Id is null)
         {
-            validator.Report(validator.IdLine, "id is missing");
+            log.Report(validator.IdLine, "id is missing");
         }
         else if (validator.Id.Length == 0)
         {
-            validator.Report(validator.IdLine, "id must not be empty");
+            log.Report(validator.IdLine, "id must not be empty");
         }
         else if (!ids.TryAdd(validator.Id, path))
         {
-            validator.Report(validator.IdLine, $"id {validator.Id} is already used by {ids[validator.Id]}");
+            log.Report(validator.IdLine, $"id {validator.Id} is already used by {ids[validator.Id]}");
         }
     }
 

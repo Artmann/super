@@ -13,35 +13,21 @@ internal sealed class ContentValidator
 {
     private const string SchemaField = "$schema";
     private const string IdField = "id";
-    private const string VectorWord = "a list of three numbers, such as [1, 0, 2]";
 
-    private readonly string _path;
+    private readonly JsonProblemLog _log;
     private readonly ReadOnlyMemory<byte> _json;
     private readonly JsonSerializerOptions _options;
     private readonly IContentFiles _files;
-    private readonly List<string> _problems;
     private readonly List<ContentReference> _references;
-    private readonly List<int> _lineStarts = [0];
-    private readonly int _problemsBefore;
 
-    public ContentValidator(string path, ReadOnlyMemory<byte> json, JsonSerializerOptions options, IContentFiles files, List<string> problems, List<ContentReference> references)
+    /// <summary>A validator for one file, whose problems go into <paramref name="log"/> and references into <paramref name="references"/>.</summary>
+    public ContentValidator(JsonProblemLog log, ReadOnlyMemory<byte> json, JsonSerializerOptions options, IContentFiles files, List<ContentReference> references)
     {
-        _path = path;
+        _log = log;
         _json = json;
         _options = options;
         _files = files;
-        _problems = problems;
         _references = references;
-        _problemsBefore = problems.Count;
-
-        var bytes = json.Span;
-        for (int i = 0; i < bytes.Length; i++)
-        {
-            if (bytes[i] == (byte)'\n')
-            {
-                _lineStarts.Add(i + 1);
-            }
-        }
     }
 
     /// <summary>The record's id, if the file gave one.</summary>
@@ -49,17 +35,6 @@ internal sealed class ContentValidator
 
     /// <summary>The line the id is on, or the first line if there isn't one.</summary>
     public int IdLine { get; private set; } = 1;
-
-    public bool Passed => _problems.Count == _problemsBefore;
-
-    /// <summary>Strips the serializer's position off its message, since the place is already named.</summary>
-    public static string Plain(string message)
-    {
-        int position = message.IndexOf(" LineNumber:", StringComparison.Ordinal);
-        int path = message.IndexOf(" Path:", StringComparison.Ordinal);
-        int end = path >= 0 ? path : position;
-        return end >= 0 ? message[..end].TrimEnd(' ', '.', '|') : message;
-    }
 
     public void Check(Type type)
     {
@@ -80,17 +55,15 @@ internal sealed class ContentValidator
         }
         catch (JsonException error)
         {
-            Report((int)(error.LineNumber ?? 0) + 1, $"this is not valid JSON: {Plain(error.Message)}");
+            _log.Report((int)(error.LineNumber ?? 0) + 1, $"this is not valid JSON: {JsonProblemLog.Plain(error.Message)}");
         }
     }
 
-    public void Report(int line, string problem) => _problems.Add($"{_path}:{line}: {problem}");
+    private static bool IsRef(Type type) => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Ref<>);
 
-    private int Line(long offset)
-    {
-        int found = _lineStarts.BinarySearch((int)offset);
-        return found >= 0 ? found + 1 : ~found;
-    }
+    /// <summary>What a value of this type must be, for the message when it's missing.</summary>
+    private static string Word(Type type) =>
+        type == typeof(ModelRef) || type == typeof(Rig) || IsRef(type) ? "text" : JsonLeafCheck.Word(type);
 
     private void Value(ref Utf8JsonReader reader, Type type, string field, bool nullable, bool top = false)
     {
@@ -104,33 +77,14 @@ internal sealed class ContentValidator
         {
             if (!nullable)
             {
-                Wrong(ref reader, field, Word(type));
+                _log.Wrong(ref reader, field, Word(type));
             }
 
             return;
         }
 
-        if (type == typeof(ModelRef))
+        if (NamedValue(ref reader, type, field))
         {
-            Model(ref reader, field);
-            return;
-        }
-
-        if (type == typeof(Rig))
-        {
-            RigOf(ref reader, field);
-            return;
-        }
-
-        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Ref<>))
-        {
-            Reference(ref reader, type.GetGenericArguments()[0], field);
-            return;
-        }
-
-        if (type == typeof(Vector3))
-        {
-            Vector(ref reader, field);
             return;
         }
 
@@ -147,54 +101,90 @@ internal sealed class ContentValidator
                 Entries(ref reader, info, field);
                 break;
             default:
-                Leaf(ref reader, type, field);
+                JsonLeafCheck.Leaf(ref reader, type, field, _log, _options.PropertyNamingPolicy!);
                 break;
         }
+    }
+
+    /// <summary>Checks a value written in a way of its own: a model or rig by name, a reference, or a vector. False for anything else.</summary>
+    private bool NamedValue(ref Utf8JsonReader reader, Type type, string field)
+    {
+        if (type == typeof(ModelRef) || type == typeof(Rig))
+        {
+            NamedModel(ref reader, field, type == typeof(Rig));
+            return true;
+        }
+
+        if (IsRef(type))
+        {
+            Reference(ref reader, type.GetGenericArguments()[0], field);
+            return true;
+        }
+
+        if (type == typeof(Vector3))
+        {
+            JsonLeafCheck.ThreeNumbers(ref reader, field, _log);
+            return true;
+        }
+
+        return false;
     }
 
     private void Fields(ref Utf8JsonReader reader, JsonTypeInfo info, string field, bool top)
     {
         if (reader.TokenType != JsonTokenType.StartObject)
         {
-            Wrong(ref reader, field, "an object");
+            _log.Wrong(ref reader, field, "an object");
             return;
         }
 
-        int opened = Line(reader.TokenStartIndex);
+        int opened = _log.LineOf(reader.TokenStartIndex);
         var seen = new HashSet<string>();
         while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
         {
-            string name = reader.GetString()!;
-            int line = Line(reader.TokenStartIndex);
-            reader.Read();
-            var property = info.Properties.FirstOrDefault(candidate => candidate.Name == name);
-            if (property is null)
-            {
-                if (!(top && name == SchemaField))
-                {
-                    Report(line, $"{Join(field, name)} is not a field of {info.Type.Name}");
-                }
-
-                reader.Skip();
-                continue;
-            }
-
-            seen.Add(name);
-            if (top && name == IdField && reader.TokenType == JsonTokenType.String)
-            {
-                Id = reader.GetString();
-                IdLine = line;
-            }
-
-            Value(ref reader, property.PropertyType, Join(field, name), property.IsSetNullable);
+            Field(ref reader, info, field, top, seen);
         }
 
+        RequireFields(info, field, seen, opened);
+    }
+
+    /// <summary>Checks one field of an object, from its name on.</summary>
+    private void Field(ref Utf8JsonReader reader, JsonTypeInfo info, string field, bool top, HashSet<string> seen)
+    {
+        string name = reader.GetString()!;
+        int line = _log.LineOf(reader.TokenStartIndex);
+        reader.Read();
+        var property = info.Properties.FirstOrDefault(candidate => candidate.Name == name);
+        if (property is null)
+        {
+            if (!(top && name == SchemaField))
+            {
+                _log.Report(line, $"{JsonProblemLog.FieldPath(field, name)} is not a field of {info.Type.Name}");
+            }
+
+            reader.Skip();
+            return;
+        }
+
+        seen.Add(name);
+        if (top && name == IdField && reader.TokenType == JsonTokenType.String)
+        {
+            Id = reader.GetString();
+            IdLine = line;
+        }
+
+        Value(ref reader, property.PropertyType, JsonProblemLog.FieldPath(field, name), property.IsSetNullable);
+    }
+
+    /// <summary>Reports every field an object must have but didn't, on the line the object opened.</summary>
+    private void RequireFields(JsonTypeInfo info, string field, HashSet<string> seen, int opened)
+    {
         foreach (var property in info.Properties)
         {
             bool required = property.IsRequired || property.AssociatedParameter is { HasDefaultValue: false, IsMemberInitializer: false };
             if (required && !seen.Contains(property.Name))
             {
-                Report(opened, $"{Join(field, property.Name)} is missing");
+                _log.Report(opened, $"{JsonProblemLog.FieldPath(field, property.Name)} is missing");
             }
         }
     }
@@ -203,7 +193,7 @@ internal sealed class ContentValidator
     {
         if (reader.TokenType != JsonTokenType.StartArray)
         {
-            Wrong(ref reader, field, "a list");
+            _log.Wrong(ref reader, field, "a list");
             return;
         }
 
@@ -219,7 +209,7 @@ internal sealed class ContentValidator
     {
         if (reader.TokenType != JsonTokenType.StartObject)
         {
-            Wrong(ref reader, field, "an object");
+            _log.Wrong(ref reader, field, "an object");
             return;
         }
 
@@ -227,69 +217,29 @@ internal sealed class ContentValidator
         {
             string key = reader.GetString()!;
             reader.Read();
-            Value(ref reader, info.ElementType!, Join(field, key), nullable: false);
+            Value(ref reader, info.ElementType!, JsonProblemLog.FieldPath(field, key), nullable: false);
         }
     }
 
-    private void Leaf(ref Utf8JsonReader reader, Type type, string field)
-    {
-        if (type == typeof(string))
-        {
-            Expect(ref reader, JsonTokenType.String, field, "text");
-        }
-        else if (type == typeof(bool))
-        {
-            if (reader.TokenType is not (JsonTokenType.True or JsonTokenType.False))
-            {
-                Wrong(ref reader, field, "true or false");
-            }
-        }
-        else if (type.IsEnum)
-        {
-            Choice(ref reader, type, field);
-        }
-        else if (IsWhole(type))
-        {
-            Whole(ref reader, type, field);
-        }
-        else if (type == typeof(float) || type == typeof(double) || type == typeof(decimal))
-        {
-            Expect(ref reader, JsonTokenType.Number, field, "a number");
-        }
-        else
-        {
-            // Anything else has a converter of its own, which reports its own mistakes.
-            reader.Skip();
-        }
-    }
-
-    private void Model(ref Utf8JsonReader reader, string field)
+    /// <summary>Checks a cooked model named by text, and for a rig that the model has one.</summary>
+    private void NamedModel(ref Utf8JsonReader reader, string field, bool rig)
     {
         if (reader.TokenType != JsonTokenType.String)
         {
-            Wrong(ref reader, field, "text");
+            _log.Wrong(ref reader, field, "text");
             return;
         }
 
         string name = reader.GetString()!;
-        if (ContentNames.Problem(_files, name, ContentKind.Model) is { } problem)
+        string? problem = ContentNames.Problem(_files, name, ContentKind.Model);
+        if (rig)
         {
-            Report(Line(reader.TokenStartIndex), $"{field} {problem}");
-        }
-    }
-
-    private void RigOf(ref Utf8JsonReader reader, string field)
-    {
-        if (reader.TokenType != JsonTokenType.String)
-        {
-            Wrong(ref reader, field, "text");
-            return;
+            problem ??= ContentNames.RigProblem(_files, name);
         }
 
-        string name = reader.GetString()!;
-        if ((ContentNames.Problem(_files, name, ContentKind.Model) ?? ContentNames.RigProblem(_files, name)) is { } problem)
+        if (problem is not null)
         {
-            Report(Line(reader.TokenStartIndex), $"{field} {problem}");
+            _log.Report(_log.LineOf(reader.TokenStartIndex), $"{field} {problem}");
         }
     }
 
@@ -297,111 +247,10 @@ internal sealed class ContentValidator
     {
         if (reader.TokenType != JsonTokenType.String)
         {
-            Wrong(ref reader, field, "text");
+            _log.Wrong(ref reader, field, "text");
             return;
         }
 
-        _references.Add(new ContentReference(target, reader.GetString()!, $"{_path}:{Line(reader.TokenStartIndex)}", field));
-    }
-
-    private void Vector(ref Utf8JsonReader reader, string field)
-    {
-        if (reader.TokenType != JsonTokenType.StartArray)
-        {
-            Wrong(ref reader, field, VectorWord);
-            return;
-        }
-
-        int line = Line(reader.TokenStartIndex);
-        int count = 0;
-        bool numbers = true;
-        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
-        {
-            numbers &= reader.TokenType == JsonTokenType.Number;
-            reader.Skip();
-            count++;
-        }
-
-        if (!numbers || count != 3)
-        {
-            Report(line, $"{(field.Length > 0 ? field : "this file")} must be {VectorWord}");
-        }
-    }
-
-    private void Choice(ref Utf8JsonReader reader, Type type, string field)
-    {
-        string[] names = Enum.GetNames(type).Select(name => _options.PropertyNamingPolicy!.ConvertName(name)).ToArray();
-        if (reader.TokenType != JsonTokenType.String || !names.Contains(reader.GetString()))
-        {
-            Wrong(ref reader, field, $"one of {string.Join(", ", names)}");
-        }
-    }
-
-    private void Whole(ref Utf8JsonReader reader, Type type, string field)
-    {
-        if (reader.TokenType != JsonTokenType.Number)
-        {
-            Wrong(ref reader, field, "a number");
-            return;
-        }
-
-        bool fits = Type.GetTypeCode(type) switch
-        {
-            TypeCode.Byte => reader.TryGetByte(out _),
-            TypeCode.SByte => reader.TryGetSByte(out _),
-            TypeCode.Int16 => reader.TryGetInt16(out _),
-            TypeCode.UInt16 => reader.TryGetUInt16(out _),
-            TypeCode.Int32 => reader.TryGetInt32(out _),
-            TypeCode.UInt32 => reader.TryGetUInt32(out _),
-            TypeCode.Int64 => reader.TryGetInt64(out _),
-            _ => reader.TryGetUInt64(out _),
-        };
-        if (!fits)
-        {
-            bool fraction = reader.TryGetDouble(out double value) && value != Math.Floor(value);
-            Wrong(ref reader, field, fraction ? "a whole number" : $"small enough for {type.Name}");
-        }
-    }
-
-    private void Expect(ref Utf8JsonReader reader, JsonTokenType token, string field, string word)
-    {
-        if (reader.TokenType != token)
-        {
-            Wrong(ref reader, field, word);
-        }
-    }
-
-    private void Wrong(ref Utf8JsonReader reader, string field, string word)
-    {
-        string what = field.Length > 0 ? field : "this file";
-        Report(Line(reader.TokenStartIndex), $"{what} must be {word}");
-        reader.Skip();
-    }
-
-    private static string Join(string field, string name) => field.Length > 0 ? $"{field}.{name}" : name;
-
-    private static bool IsWhole(Type type) => Type.GetTypeCode(type) is TypeCode.Byte or TypeCode.SByte
-        or TypeCode.Int16 or TypeCode.UInt16 or TypeCode.Int32 or TypeCode.UInt32 or TypeCode.Int64 or TypeCode.UInt64;
-
-    private static string Word(Type type)
-    {
-        if (type == typeof(string) || type == typeof(ModelRef) || type == typeof(Rig) || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Ref<>)))
-        {
-            return "text";
-        }
-
-        if (type == typeof(bool))
-        {
-            return "true or false";
-        }
-
-        if (type == typeof(Vector3))
-        {
-            return VectorWord;
-        }
-
-        return IsWhole(type) || type == typeof(float) || type == typeof(double) || type == typeof(decimal)
-            ? "a number"
-            : "filled in";
+        _references.Add(new ContentReference(target, reader.GetString()!, _log.PlaceOf(reader.TokenStartIndex), field));
     }
 }
