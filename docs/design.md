@@ -4414,7 +4414,7 @@ at least 1x1), at most one irradiance page and one mask page, as many direction 
 irradiance ones, each plain page's size,
 each page's bytes against `TextureData.LevelSize`, and that every rect is on page 0. Its result,
 the bake or the exception's message, comes back through a `ConcurrentQueue`. A chunk that isn't
-resident is added to the frame with `BakeFreshness.AddChunk(..., pending: true)`: it counts in
+resident is added to the frame with `BakeFrame.AddChunk` and a `ChunkBakeState` that says pending: it counts in
 `ChunkPending`, not `ChunkFresh`, and its Baked lights stay live, so a frame never draws half a
 bake. `Render` never waits on the worker.
 
