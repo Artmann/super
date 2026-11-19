@@ -77,4 +77,18 @@ public class TransformTests
         AssertEqual(Vector3.UnitY, Vector3.Transform(Vector3.UnitY, transform.Rotation));
         AssertEqual(new Vector3(2f), transform.Scale);
     }
+
+    [Fact]
+    public void From_a_matrix_places_a_point_where_the_matrix_does()
+    {
+        // Scaled 2, 3 and 4, a quarter turn about y, then moved to (5, 6, 7): +x of 1 becomes 2 along -z.
+        var matrix = Matrix4x4.CreateScale(2f, 3f, 4f) * Matrix4x4.CreateRotationY(MathF.PI / 2f) * Matrix4x4.CreateTranslation(5f, 6f, 7f);
+
+        var transform = Transform.From(matrix);
+
+        AssertEqual(new Vector3(5f, 6f, 7f), transform.Position);
+        AssertEqual(new Vector3(2f, 3f, 4f), transform.Scale);
+        AssertEqual(new Vector3(5f, 6f, 5f), Vector3.Transform(Vector3.UnitX, transform.Matrix));
+        AssertEqual(new Vector3(5f, 9f, 7f), Vector3.Transform(Vector3.UnitY, transform.Matrix));
+    }
 }

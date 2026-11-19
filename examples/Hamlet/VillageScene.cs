@@ -83,7 +83,7 @@ internal sealed class VillageScene
         public static BuildingEntities Spawn(World world, Building building, ModelRef pane)
         {
             var plan = building.Plan;
-            var at = Spawning.Of(building.Placement);
+            var at = Transform.From(building.Placement);
             var parts = new Entity[plan.Parts.Length];
             for (int p = 0; p < parts.Length; p++)
             {
@@ -112,7 +112,7 @@ internal sealed class VillageScene
                 var window = plan.Windows[w];
                 var middle = window.Middle - window.Outward * 0.09f;
                 var frame = Matrix4x4.CreateScale(window.Size.X, window.Size.Y, 1f) * PlanBuilder.Facing(middle, window.Outward) * building.Placement;
-                panes[w] = world.Spawn(Spawning.Of(frame), new Model(pane), new Hidden());
+                panes[w] = world.Spawn(Transform.From(frame), new Model(pane), new Hidden());
                 windowLights[w] = world.Spawn(WindowLight(building, window, 0f), new Hidden());
             }
 

@@ -10,18 +10,18 @@ namespace Archer;
 /// arrows in a third. The whole thing is one <see cref="Cutscene"/>; the game only moves
 /// her, the arrows and the dummies. R plays it again.
 /// </summary>
-public sealed class ArcherGame(Content content, Director director, Input input) : IGame, IArcherStage
+public sealed class ArcherGame(World world, Content content, Director director, Input input) : IGame, IArcherStage
 {
-    private const int ErikaKey = 1;
-    private const int DummyKey = 10;
-    private const int ArrowKey = 100;
     private const string Nock = "mixamorig:arrow";
 
     private readonly List<Arrow> _arrows = [];
+    private readonly List<Entity> _arrowEntities = [];
+    private Entity[] _dummyEntities = [];
     private AnimationController<Pose, Move> _controller = null!;
-    private Clearing _clearing = null!;
     private ModelRef _dummyModel;
     private ModelRef _arrowModel;
+    private Entity _camera;
+    private Entity _erika;
 
     public Erika Erika { get; private set; } = null!;
 
@@ -48,10 +48,12 @@ public sealed class ArcherGame(Content content, Director director, Input input) 
             .Action(Move.Dive, rig.Clip("Dive"), fadeSeconds: 0.15f)
             .Action(Move.Cocky, rig.Clip("Cocky"), fadeSeconds: 0.3f);
 
-        _clearing = new Clearing(content);
+        new Clearing(world, content);
         _dummyModel = content.Model("archer-props/dummy.glb");
         _arrowModel = content.Model("archer-props/arrow.glb");
+        Daylight();
         Begin();
+        _camera = world.Spawn(Film.End(Erika.Position));
     }
 
     public void Update(GameTime time)
@@ -72,57 +74,82 @@ public sealed class ArcherGame(Content content, Director director, Input input) 
         {
             dummy.Update(seconds);
         }
+
+        Place();
     }
 
-    public void Draw(View view)
+    /// <summary>Lets an arrow go from her bow at a dummy.</summary>
+    public void Shoot(Dummy target)
     {
-        // The director holds the camera while the film plays; this is where it leaves off.
-        view.Camera(Film.End(Erika.Position));
-        // Golden hour: the sun is 14 degrees up, and the air it comes through turns its white light gold.
-        view.Lights.Sun(new Vector3(0.9f, 0.24f, 0.3f), new Vector3(12f, 11f, 10f));
+        var arrow = new Arrow(Erika.JointAt(Nock), target);
+        _arrows.Add(arrow);
+        _arrowEntities.Add(world.Spawn(Transform.From(arrow.Transform), new Model(_arrowModel)));
+    }
+
+    /// <summary>The sun and its warm fill, the sky, the shadows and the grade.</summary>
+    private void Daylight()
+    {
+        world.Spawn(
+            // Golden hour: the sun is 14 degrees up, and the air it comes through turns its white light gold.
+            new Sun(new Vector3(0.9f, 0.24f, 0.3f), new Vector3(12f, 11f, 10f), CastsShadows: true),
+            new Sky(new SkySettings
+            {
+                Brightness = 0.9f,
+                Turbidity = 3f,
+                HazeStart = 45f,
+                HazeEnd = 150f,
+            }),
+            new Shadows(14f, 3),
+            new Finish(new PostSettings
+            {
+                Exposure = 0.2f,
+                Contrast = 0.18f,
+                Saturation = 0.05f,
+                Vignette = 0.4f,
+                Sharpen = 0.3f,
+                Grain = 0.012f,
+            }));
+
         // The live probes see the clearing as it is: the forest ring hides the warm horizon, so
         // the bounce comes from the blue zenith overhead. A warm fill keeps the targets in
         // golden-hour light instead of the cool blue the old fill gave them.
-        view.Lights.Sun(new Vector3(-0.6f, 0.6f, -0.4f), new Vector3(0.44f, 0.32f, 0.2f));
-        view.Surroundings.Sky(new SkySettings
-        {
-            Brightness = 0.9f,
-            Turbidity = 3f,
-            HazeStart = 45f,
-            HazeEnd = 150f,
-        });
-        view.Lights.Shadows(14f, cascades: 3);
-        view.Effects.Finish(new PostSettings
-        {
-            Exposure = 0.2f,
-            Contrast = 0.18f,
-            Saturation = 0.05f,
-            Vignette = 0.4f,
-            Sharpen = 0.3f,
-            Grain = 0.012f,
-        });
+        world.Spawn(new Sun(new Vector3(-0.6f, 0.6f, -0.4f), new Vector3(0.44f, 0.32f, 0.2f)));
+    }
 
-        _clearing.Draw(view);
-        view.Model(ErikaKey, Erika.Animator, view.Smooth(Erika.Previous, Erika.Transform));
+    /// <summary>Moves her, the dummies and the arrows' entities to where the game has them, and the camera after her.</summary>
+    private void Place()
+    {
+        world.Get<Transform>(_erika) = Transform.From(Erika.Transform);
         for (int i = 0; i < Dummies.Length; i++)
         {
-            view.Model(DummyKey + i, _dummyModel, view.Smooth(Dummies[i].Previous, Dummies[i].Transform));
+            world.Get<Transform>(_dummyEntities[i]) = Transform.From(Dummies[i].Transform);
         }
 
         for (int i = 0; i < _arrows.Count; i++)
         {
-            view.Model(ArrowKey + i, _arrowModel, view.Smooth(_arrows[i].Previous, _arrows[i].Transform));
+            world.Get<Transform>(_arrowEntities[i]) = Transform.From(_arrows[i].Transform);
         }
+
+        // The director holds the camera while the film plays; this is where it leaves off.
+        world.Get<Camera>(_camera) = Film.End(Erika.Position);
     }
 
-    /// <summary>Lets an arrow go from her bow at a dummy.</summary>
-    public void Shoot(Dummy target) => _arrows.Add(new Arrow(Erika.JointAt(Nock), target));
-
-    // Sets everything where the film starts and rolls it.
+    // Sets everything where the film starts and rolls it, in place of the last run's.
     private void Begin()
     {
+        // The first run has no cast yet, and an unset entity could be another live one.
+        if (_dummyEntities.Length > 0)
+        {
+            foreach (var entity in (ReadOnlySpan<Entity>)[_erika, .. _dummyEntities, .. _arrowEntities])
+            {
+                world.Destroy(entity);
+            }
+        }
+
         _arrows.Clear();
+        _arrowEntities.Clear();
         Erika = new Erika(_controller.Start(Pose.Idle), Vector3.Zero, 0f);
+        _erika = world.Spawn(Transform.From(Erika.Transform), new Animated(Erika.Animator));
         var rockTop = Clearing.Rock + new Vector3(0f, Film.RockHeight, 0f);
         Dummies =
         [
@@ -130,6 +157,7 @@ public sealed class ArcherGame(Content content, Director director, Input input) 
             new Dummy(new Vector3(5f, 0f, 16.5f), rockTop),
             new Dummy(new Vector3(-8.5f, 0f, 20f), Film.DiveEnd),
         ];
+        _dummyEntities = [.. Dummies.Select(dummy => world.Spawn(Transform.From(dummy.Transform), new Model(_dummyModel)))];
         director.Play(Film.Make(this));
     }
 }

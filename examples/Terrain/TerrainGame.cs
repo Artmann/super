@@ -25,7 +25,7 @@ public enum Control
 /// camera as it flies and are unloaded behind it. A road made from a spline loops round
 /// the start, and F plays a flyover along it.
 /// </summary>
-public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Input input, Content content, Director director) : IGame
+public sealed class TerrainGame(World world, GameRandom random, Actions<Control> actions, Input input, Content content, Director director) : IGame
 {
     private const float FlyoverSeconds = 8f;
 
@@ -41,12 +41,10 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
     private Hills _hills = null!;
     private TerrainChunks _chunks = null!;
     private Vector3 _position;
-    private Vector3 _previousPosition;
     private Road _road = null!;
     private float _yaw;
     private float _pitch = -0.25f;
-    private float _previousYaw;
-    private float _previousPitch;
+    private Entity _camera;
 
     /// <summary>The camera's place in the world.</summary>
     internal Vector3 Position => _position;
@@ -78,22 +76,21 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
         _hills = new Hills(ground);
         var shader = content.Shader("terrain");
         var layers = GroundLayers.Make(content, random.Stream("looks"));
-        _chunks = new TerrainChunks(content, _hills, moisture, shader, layers);
+        _chunks = new TerrainChunks(world, content, _hills, moisture, shader, layers);
 
         _position = new Vector3(0f, _hills.Height(0f, 0f) + 14f, 0f);
-        _previousPosition = _position;
-        _previousYaw = _yaw;
-        _previousPitch = _pitch;
-        _road = new Road(content, _hills.Height);
+        _road = new Road(world, content, _hills.Height);
         _chunks.Update(_position);
+        _camera = world.Spawn(Camera());
+        world.Spawn(
+            new Sun(new Vector3(0.5f, 0.8f, 0.3f), new Vector3(3.6f, 3.4f, 3.1f)),
+            new Shadows(40f, 3),
+            new Finish(new PostSettings { Contrast = 0.08f, Saturation = 0.08f, Vignette = 0.25f }));
     }
 
     public void Update(GameTime time)
     {
         input.Mouse.Locked = true;
-        _previousPosition = _position;
-        _previousYaw = _yaw;
-        _previousPitch = _pitch;
 
         var look = actions.Vector(Control.Look);
         _yaw -= look.X;
@@ -113,25 +110,13 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
             _position.Y = floor;
         }
 
+        world.Get<Camera>(_camera) = Camera();
         _chunks.Update(_position);
         _road.Update(time);
         if (actions.Pressed(Control.Flyover))
         {
             director.Play(new Cutscene().Then(Shot.Along(FlyoverSeconds, Rail(), () => _road.Cart, look: new Vector3(0f, 1f, 0f))));
         }
-    }
-
-    public void Draw(View view)
-    {
-        var position = Vector3.Lerp(_previousPosition, _position, view.Blend);
-        float yaw = _previousYaw + (_yaw - _previousYaw) * view.Blend;
-        float pitch = _previousPitch + (_pitch - _previousPitch) * view.Blend;
-        view.Camera(position, position + Forward(yaw, pitch), 60f * MathF.PI / 180f);
-        view.Lights.Sun(new Vector3(0.5f, 0.8f, 0.3f), new Vector3(3.6f, 3.4f, 3.1f));
-        view.Lights.Shadows(40f, 3);
-        view.Effects.Finish(new PostSettings { Contrast = 0.08f, Saturation = 0.08f, Vignette = 0.25f });
-        _chunks.Draw(view);
-        _road.Draw(view);
     }
 
     /// <summary>
@@ -154,6 +139,8 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
 
         return Spline.Through(points);
     }
+
+    private Camera Camera() => new(_position, _position + Forward(_yaw, _pitch), 60f * MathF.PI / 180f);
 
     private static Vector3 Forward(float yaw, float pitch) =>
         new(-MathF.Sin(yaw) * MathF.Cos(pitch), MathF.Sin(pitch), -MathF.Cos(yaw) * MathF.Cos(pitch));
