@@ -362,6 +362,8 @@ public sealed class Outpost(Systems systems) : IGame
 ```
 
 A system gets what its constructor asks for, such as `World` or `Input`, from the game's
-services, and doesn't need registering itself. Each type is added once; adding it again throws.
+services, and doesn't need registering itself. Register one when other classes need it too, such as a
+`Shots` system that towers fire through: `Add` then uses that same one. Each type is added
+once; adding it again throws.
 Nothing runs on its own: the game decides when `Update` runs, so pausing is skipping the call.
 Systems are optional, and a game can mix them with work in its own `Update`.

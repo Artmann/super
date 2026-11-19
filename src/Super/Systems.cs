@@ -20,7 +20,8 @@ public sealed class Systems(IServiceProvider services)
 
     /// <summary>
     /// Makes a <typeparamref name="T"/> and adds it after the others. It gets what its constructor asks for from the
-    /// game's services, such as <see cref="World"/> or <see cref="Input"/>, without being registered itself.
+    /// game's services, such as <see cref="World"/> or <see cref="Input"/>, without being registered itself. When it is
+    /// registered, that same one is added, so other classes can ask for it too.
     /// </summary>
     public Systems Add<T>()
         where T : class, ISystem
@@ -33,7 +34,7 @@ public sealed class Systems(IServiceProvider services)
             }
         }
 
-        _systems.Add(ActivatorUtilities.CreateInstance<T>(services));
+        _systems.Add(ActivatorUtilities.GetServiceOrCreateInstance<T>(services));
         return this;
     }
 
