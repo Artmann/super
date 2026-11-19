@@ -70,6 +70,7 @@ made, and the first error is thrown after the last one.
 | `world.Has<T>(entity)` | Whether it has one |
 | `world.Get<T>(entity)` | A reference to a component, to read or change |
 | `world.Teleport(entity, transform)` | Sets its `Transform` so it's drawn there at once, not sliding there between ticks. See [Drawing entities](#drawing-entities) |
+| `world.Changed(entity)` | Says a `Static` entity was changed through `Get`, so it's drawn again. See [Static draws](#static-draws) |
 | `world.Destroy(entity)` | Removes the entity and its components |
 | `world.IsAlive(entity)` | Whether it still exists. A destroyed entity's ID isn't confused with a new one |
 | `world.Count` | How many entities there are |
@@ -210,6 +211,19 @@ world.Add(wall, Transform.At(new Vector3(4f, 0f, 0f)));
 world.Add(wall, new Model(content.Model("castle/wall.glb")));
 world.Add(wall, new Static());
 ```
+
+The world draws static entities once and keeps the result, so a town of thousands of
+pieces costs almost nothing a frame. It draws them again when a static entity is spawned,
+destroyed, or given or relieved of a component with `Add` or `Remove`. A change it can't
+see is a write through `Get`, so call `world.Changed(entity)` after one:
+
+```csharp
+world.Get<Transform>(wall).Position.Y = 2f;
+world.Changed(wall);
+```
+
+The same goes for a static entity with a `Parent` that moves: it stays where it was drawn
+until something changes. For an entity that isn't static, `Changed` does nothing.
 
 A static entity can't swim or take a pose, so one with `Animated`, or with a `Swim` whose
 amplitude isn't zero, throws `ArgumentException` when it's drawn, naming the entity's ID as

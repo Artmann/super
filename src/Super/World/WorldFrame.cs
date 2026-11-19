@@ -12,6 +12,12 @@ internal static class WorldFrame
 {
     private const int MaxParentDepth = 32;
 
+    // The key the static entities' draws are kept under, in the view's memory.
+    private const int StaticKey = 0;
+
+    // Kept in a field so drawing the static entities again makes no new delegate.
+    private static readonly Action<ModelPass, View> DrawStatic = static (pass, view) => DrawArchetypes(view, pass);
+
     /// <summary>Describes everything the world shows into a view that has just begun its frame.</summary>
     public static void Describe(View view, World world) => Models(view, world);
 
@@ -19,7 +25,8 @@ internal static class WorldFrame
     /// Draws every entity with a <see cref="Transform"/> and a <see cref="Model"/> or an <see cref="Animated"/>, keyed by
     /// entity ID. Entities blend from where they were at the last tick, unless <see cref="Static"/>; <see cref="Parent"/>
     /// entities follow their parent, <see cref="Swim"/> entities swim, and <see cref="Animated"/> entities take their
-    /// animator's pose.
+    /// animator's pose. Static entities are drawn once and replayed, like <see cref="View.Cached"/>, until
+    /// <see cref="ArchetypeTable.StaticVersion"/> says one changed.
     /// </summary>
     private static void Models(View view, World world)
     {
@@ -32,26 +39,41 @@ internal static class WorldFrame
         world.BeginIteration();
         try
         {
-            int index = -1;
-            while (world.Archetypes.NextMatching(ref index, default(ComponentMask).With(types.Transform)) is { } archetype)
+            if (types.Static >= 0)
             {
-                var rows = ModelRows.Of(archetype, types);
-                if (rows.Models is null && rows.Animated is null)
-                {
-                    continue;
-                }
-
-                for (int i = 0; i < archetype.Count; i++)
-                {
-                    rows.Draw(view, world, i);
-                }
+                view.Cached(StaticKey, world.Archetypes.StaticVersion, new ModelPass(world, types, IsStatic: true), DrawStatic);
             }
+
+            DrawArchetypes(view, new ModelPass(world, types, IsStatic: false));
         }
         finally
         {
             world.EndIteration();
         }
     }
+
+    /// <summary>Draws every archetype with a transform whose static-ness matches the pass.</summary>
+    private static void DrawArchetypes(View view, in ModelPass pass)
+    {
+        var types = pass.Types;
+        int index = -1;
+        while (pass.World.Archetypes.NextMatching(ref index, default(ComponentMask).With(types.Transform)) is { } archetype)
+        {
+            var rows = ModelRows.Of(archetype, types);
+            if (rows.IsStatic != pass.IsStatic || (rows.Models is null && rows.Animated is null))
+            {
+                continue;
+            }
+
+            for (int i = 0; i < archetype.Count; i++)
+            {
+                rows.Draw(view, pass.World, i);
+            }
+        }
+    }
+
+    /// <summary>One walk over the world's archetypes: the static ones, or the rest.</summary>
+    private readonly record struct ModelPass(World World, ModelTypes Types, bool IsStatic);
 
     /// <summary>The component type IDs <see cref="Models"/> reads, or -1 for each the world has never seen.</summary>
     private readonly struct ModelTypes
