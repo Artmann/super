@@ -63,7 +63,7 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies, Tow
 
     private void Play(GameTime time)
     {
-        if (actions.Pressed(Control.Build) && !input.Mouse.OverUi)
+        if (actions.Pressed(Control.Build))
         {
             // Follow the line from the camera through the cursor down to the ground, and build on that tile.
             if (input.Mouse.Ray(Camera).Ground() is { } spot && field.TileAt(spot) is { } tile)

@@ -581,6 +581,9 @@ on a gamepad button too, that's one more binding, and nothing else changes. See
 Make `Towers.cs`:
 
 ```csharp
+using System.Numerics;
+using Super;
+
 namespace OutpostExample;
 
 /// <summary>One tower, standing on a tile.</summary>
@@ -644,7 +647,7 @@ actions.Bind(Control.Build, MouseButton.Left);
 And build in `Update`, before the enemies walk:
 
 ```csharp
-if (actions.Pressed(Control.Build) && !input.Mouse.OverUi)
+if (actions.Pressed(Control.Build))
 {
     // Follow the line from the camera through the cursor down to the ground, and build on that tile.
     if (input.Mouse.Ray(Camera).Ground() is { } spot && field.TileAt(spot) is { } tile)
@@ -655,8 +658,6 @@ if (actions.Pressed(Control.Build) && !input.Mouse.OverUi)
 ```
 
 `Pressed` is true only on the tick the button goes down, so holding it builds once.
-`OverUi` is true when the cursor is over the interface. We don't have one yet, but we will
-in chapter 6, and clicking a button shouldn't also build a tower under it.
 
 The cursor is a point on the screen, but tiles are in the world. `Mouse.Ray(Camera)` is the
 line from the camera through the cursor, out into the world. `Ground()` finds where that
@@ -1132,8 +1133,8 @@ public UiView? Ui => new Hud(player.Gold, player.Lives, waves.Number, Waves.Coun
 Because `Hud` is a record, two HUDs with the same numbers are equal, and Super uses that to
 skip work when nothing changed. You can make a new one every frame without worrying.
 
-Remember `!input.Mouse.OverUi` from chapter 4? Now it matters. The stats panel takes the
-mouse, so a click on it doesn't fall through and build a tower on the grass behind it.
+The stats panel takes the mouse. A click that lands on the interface never reaches
+`actions.Pressed`, so clicking the panel won't also build a tower on the grass behind it.
 The hint uses `.IgnoresPointer()` to do the opposite: it's only words, so clicks go
 straight through to the ground. [Interfaces](../interfaces.md) has every view and
 modifier.
@@ -1236,7 +1237,7 @@ public void Update(GameTime time)
 ```csharp
 private void Play(GameTime time)
 {
-    if (actions.Pressed(Control.Build) && !input.Mouse.OverUi)
+    if (actions.Pressed(Control.Build))
     {
         // Follow the line from the camera through the cursor down to the ground, and build on that tile.
         if (input.Mouse.Ray(Camera).Ground() is { } spot && field.TileAt(spot) is { } tile)
@@ -1346,9 +1347,11 @@ check what happened.
 
 ### A test project
 
-Make an ordinary xUnit project next to the game and point it at the game:
+Make an ordinary xUnit project next to the game, not inside its folder, and point it at
+the game. From inside the `Outpost` folder, step up one first:
 
 ```
+cd ..
 dotnet new xunit -o Outpost.Tests
 dotnet add Outpost.Tests reference Outpost
 ```
@@ -1384,9 +1387,19 @@ public class OutpostTests
 ```
 
 `run.Ticks(n)` plays that many ticks. At 30 ticks a second, `run.Ticks(30 * 40)` is forty
-seconds of play. `run.Game` is your `OutpostGame`, so a test can look at the gold, the
-towers and the enemies through the properties you gave it. `Start` jumps straight past the
-title, because most tests don't care about it.
+seconds of play. `run.Game` is your `OutpostGame`, so a test can look at the game through
+its properties. You gave it `Player` and `Enemies` in chapter 3. Add the other parts next
+to them in `OutpostGame.cs`, so tests can see those too:
+
+```csharp
+public Towers Towers => towers;
+
+public Shots Shots => shots;
+
+public Waves Waves => waves;
+```
+
+`Start` jumps straight past the title, because most tests don't care about it.
 
 Here's a whole test. With one life left and no towers, the first walker to reach the base
 should end the game:
@@ -1512,8 +1525,9 @@ That's a whole game: a title, ten waves, towers, gold, lives, and a way to win o
 with tests that play it for you. Outpost is yours now, so change it. Here are a few
 places to start, each with a page that explains the part of Super it needs.
 
-[Audio](../audio.md) plays sounds from a file. Give each shot a little pop with
-`audio.Play(shot, at: tower)`, so it comes from the tower that fired, and play a low thud
+[Audio](../audio.md) plays sounds from a file. Load a sound with
+`content.Sounds.Sound("sounds/pop.wav")` and call `audio.Play(pop, at: spot)` where a tower
+fires, so each shot pops from the tower that fired it, and play a low thud
 when an enemy reaches the base.
 
 [JSON content](../content.md) loads records from files in a `content` folder. Move the wave

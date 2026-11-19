@@ -377,6 +377,29 @@ public class OutpostTests
         Assert.Contains(run.ShownText, text => text.Text == "You held the outpost!");
     }
 
+    [Fact]
+    public void Winning_needs_the_last_wave_fully_spawned()
+    {
+        using var run = Start();
+        var waves = run.Game.Waves;
+        waves.Gap = 1f / 30f;
+        waves.Pause = 1f / 30f;
+
+        for (int tick = 0; tick < 30 * 60 && waves.Number < Waves.Count; tick++)
+        {
+            run.Ticks(1);
+        }
+
+        // The last wave has begun, but most of it is still waiting to come out.
+        Assert.Equal(Waves.Count, waves.Number);
+        Assert.False(waves.AllSpawned);
+
+        run.Game.Enemies.Clear();
+        run.Ticks(1);
+
+        Assert.Equal(Screen.Playing, run.States<Screen>().Current);
+    }
+
     [Theory, Seeds(10)]
     public void Gold_never_goes_negative(int seed)
     {
