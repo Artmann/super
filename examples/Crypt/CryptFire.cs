@@ -48,16 +48,4 @@ public static class CryptFire
 
     internal static readonly ParticleEffect CandleFlame = new ParticleEffect().Add(Flame);
     internal static readonly ParticleEffect Torch = new ParticleEffect().Add(TorchFire).Add(Embers);
-
-    /// <summary>
-    /// A fire that never stops, at <paramref name="seconds"/>: each second's flames under their own key, this one's and
-    /// the last's still dying out.
-    /// </summary>
-    internal static void Draw(View view, int key, ParticleEffect effect, Vector3 at, float seconds)
-    {
-        int second = (int)seconds;
-        float into = seconds - second;
-        view.Effects.Particles(key + (second % 500), effect, at, into);
-        view.Effects.Particles(key + ((second + 499) % 500), effect, at, into + 1f);
-    }
 }

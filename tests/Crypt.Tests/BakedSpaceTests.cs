@@ -1,6 +1,7 @@
 using System.Numerics;
 using Crypt;
 using Super;
+using Microsoft.Extensions.DependencyInjection;
 using Super.Testing;
 
 namespace Crypt.Tests;
@@ -17,7 +18,8 @@ public sealed class BakedSpaceTests
     private static readonly Vector3 HallMin = new(-(CryptGame.HallWidth / 2f) - 0.6f, 0f, CryptGame.HallBack - 0.6f);
     private static readonly Vector3 HallMax = new(CryptGame.HallWidth / 2f + 0.6f, CryptGame.HallHeight + 0.4f, CryptGame.HallFront + 0.6f);
 
-    private static (View View, Content Content) DrawnFrame()
+    // The game running headless, with these files as its content, after its first tick, and the content to look in.
+    private static (HeadlessRun<CryptGame> Run, Content Content) Started()
     {
         var files = new MemoryContent();
         foreach (string name in new[] { "floor", "wall", "blocks" })
@@ -42,12 +44,9 @@ public sealed class BakedSpaceTests
         }
 
         var content = new Content(files);
-        var game = new CryptGame(content, new Input(), new Graphics());
-        game.Load();
-        var view = new View();
-        view.Begin(0f);
-        game.Draw(view);
-        return (view, content);
+        var run = HeadlessGame.Create<CryptGame>(1, services => services.AddSingleton(content));
+        run.Ticks(1);
+        return (run, content);
     }
 
     // The mesh behind a draw, when the test can see it: the built-in shapes and the meshes the game makes in code. A
@@ -84,15 +83,20 @@ public sealed class BakedSpaceTests
     [Fact]
     public void Crypt_names_one_baked_space_and_static_hall()
     {
-        var (view, content) = DrawnFrame();
+        var (started, content) = Started();
+        using var run = started;
 
+        // The baked space is named in Draw, as it is every frame.
+        var view = new View();
+        view.Begin(0f);
+        run.Game.Draw(view);
         var space = view.Indirect.BakedSpace;
         Assert.NotNull(space);
         Assert.Equal("crypt", space.Value.Name);
         Assert.True(Holds(space.Value.Min, space.Value.Max, HallMin, HallMax),
             $"The box {space.Value.Min} to {space.Value.Max} should hold the hall, {HallMin} to {HallMax}.");
 
-        var statics = view.Drawn.ToArray().Where(draw => draw.Static).ToArray();
+        var statics = run.Drawn.Where(draw => draw.Static).ToArray();
         Assert.NotEmpty(statics);
 
         int measured = 0;
@@ -123,11 +127,19 @@ public sealed class BakedSpaceTests
     [Fact]
     public void Crypt_keeps_only_the_swinging_lantern_and_its_chain_unbaked()
     {
-        var (view, _) = DrawnFrame();
+        using var run = Started().Run;
 
-        var moving = view.Drawn.ToArray().Where(draw => !draw.Static).Select(draw => draw.Key).Order().ToArray();
+        var moving = run.Drawn.Where(draw => !draw.Static).ToArray();
 
-        // The chain is drawn under the lantern's key and the lantern under the next. Everything else in the hall stands still.
-        Assert.Equal([CryptGame.LanternKey, CryptGame.LanternKey + 1], moving);
+        // The chain and the lantern hang from the vault over the chest, at 0, -3.1, between the lantern's foot and the
+        // vault 5 m up. Everything else in the hall stands still.
+        Assert.Equal(2, moving.Length);
+        foreach (var draw in moving)
+        {
+            var at = draw.Transform.Translation;
+            Assert.InRange(at.X, -0.1f, 0.1f);
+            Assert.InRange(at.Z, -3.3f, -2.9f);
+            Assert.InRange(at.Y, 2.4f, 5f);
+        }
     }
 }
