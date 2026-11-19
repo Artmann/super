@@ -29,3 +29,18 @@ public sealed record Hud(int Gold, int Lives, int Wave, int Waves) : UiView
     .Padding(16f)
     .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);
 }
+
+/// <summary>A big line and a small one in the middle of the screen, for the title and the end of a game.</summary>
+public sealed record Banner(string Title, string Hint) : UiView
+{
+    public override UiView Body => new VStack(Spacing: 8f)
+    {
+        new Text(Title).Bold().FontSize(40f),
+        new Text(Hint),
+    }
+    .Padding(24f)
+    .Background(Color.Hex("#10141C", 0.7f))
+    .FixedSize()
+    .IgnoresPointer()
+    .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity);
+}

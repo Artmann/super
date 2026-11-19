@@ -4,7 +4,7 @@ using Super.Ui;
 
 namespace OutpostExample;
 
-public sealed class OutpostGame(Field field, Player player, Enemies enemies, Towers towers, Shots shots, Waves waves, Actions<Control> actions, Input input) : IGame
+public sealed class OutpostGame(Field field, Player player, Enemies enemies, Towers towers, Shots shots, Waves waves, States<Screen> screen, Actions<Control> actions, Input input) : IGame
 {
     private static readonly Vector3 Grass = new(0.25f, 0.55f, 0.18f);
     private static readonly Vector3 Sand = new(0.8f, 0.6f, 0.3f);
@@ -25,20 +25,46 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies, Tow
 
     public Waves Waves => waves;
 
-    public UiView? Ui => new Hud(player.Gold, player.Lives, waves.Number, Waves.Count);
+    public UiView? Ui => screen.Current switch
+    {
+        Screen.Title => new Banner("Outpost", "Click or press Space to start"),
+        Screen.Won => new Banner("You held the outpost!", "Press R to play again"),
+        Screen.Lost => new Banner("The outpost fell", "Press R to play again"),
+        _ => new Hud(player.Gold, player.Lives, waves.Number, Waves.Count),
+    };
 
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
     {
-        // Builds a tower on the middle tile and one by the first bend, for screenshots: --script towers
-        ["towers"] = new InputScript().Wait(1).Click(new Vector2(640, 360)).Wait(1).Click(new Vector2(411, 261)).Wait(5),
+        // Starts the game, for screenshots: --script start
+        ["start"] = new InputScript().Press(Key.Space),
+        // Starts, then builds a tower on the middle tile and one by the first bend: --script towers
+        ["towers"] = new InputScript().Press(Key.Space).Wait(1).Click(new Vector2(640, 360)).Wait(1).Click(new Vector2(411, 261)).Wait(5),
     };
 
     public void Load()
     {
         actions.Bind(Control.Build, MouseButton.Left);
+        actions.Bind(Control.Start, Key.Space, MouseButton.Left);
+        actions.Bind(Control.Restart, Key.R);
+
+        screen.OnEnter(Screen.Playing, NewGame);
     }
 
     public void Update(GameTime time)
+    {
+        switch (screen.Current)
+        {
+            case Screen.Title when actions.Pressed(Control.Start):
+            case Screen.Won or Screen.Lost when actions.Pressed(Control.Restart):
+                screen.Set(Screen.Playing);
+                break;
+            case Screen.Playing:
+                Play(time);
+                break;
+        }
+    }
+
+    private void Play(GameTime time)
     {
         if (actions.Pressed(Control.Build) && !input.Mouse.OverUi)
         {
@@ -53,6 +79,25 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies, Tow
         enemies.Update(time);
         towers.Update(time);
         shots.Update(time);
+
+        if (player.Lives <= 0)
+        {
+            screen.Set(Screen.Lost);
+        }
+        else if (waves.AllSpawned && enemies.All.Count == 0)
+        {
+            screen.Set(Screen.Won);
+        }
+    }
+
+    /// <summary>Everything back to how a game starts. Runs each time the game enters Playing.</summary>
+    private void NewGame()
+    {
+        player.Reset();
+        waves.Reset();
+        enemies.Clear();
+        towers.Clear();
+        shots.Clear();
     }
 
     public void Draw(View view)

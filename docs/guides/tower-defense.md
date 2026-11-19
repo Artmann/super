@@ -1106,3 +1106,200 @@ straight through to the ground. [Interfaces](../interfaces.md) has every view an
 modifier.
 
 ![Gold, lives and wave in the top-left corner, a hint along the bottom, and the first wave on the road](../media/outpost-6-waves.webp)
+
+## 7. A start and an end
+
+Right now the game starts the moment the window opens, and never ends. Let's add a title
+screen, a way to win, a way to lose, and a key to play again.
+
+### Naming the screens
+
+Like the controls, the screens are an enum. Add it to `Controls.cs`, along with two more
+controls:
+
+```csharp
+public enum Control
+{
+    Build,
+    Start,
+    Restart,
+}
+
+/// <summary>Where the game is: on the title, playing, or over.</summary>
+public enum Screen
+{
+    Title,
+    Playing,
+    Won,
+    Lost,
+}
+```
+
+Ask for `States<Screen>` in the game's constructor. Like `Actions<Control>`, Super makes
+it for you, so there's nothing to register:
+
+```csharp
+public sealed class OutpostGame(Field field, Player player, Enemies enemies, Towers towers, Shots shots, Waves waves, States<Screen> screen, Actions<Control> actions, Input input) : IGame
+```
+
+The game starts in the enum's first value, so it opens on `Title`.
+
+### Starting a new game
+
+`Load` binds the new controls and says what happens when a game begins:
+
+```csharp
+public void Load()
+{
+    actions.Bind(Control.Build, MouseButton.Left);
+    actions.Bind(Control.Start, Key.Space, MouseButton.Left);
+    actions.Bind(Control.Restart, Key.R);
+
+    screen.OnEnter(Screen.Playing, NewGame);
+}
+```
+
+`OnEnter` runs `NewGame` every time the game enters `Playing`, whether that's from the
+title or from the end of the last game:
+
+```csharp
+/// <summary>Everything back to how a game starts. Runs each time the game enters Playing.</summary>
+private void NewGame()
+{
+    player.Reset();
+    waves.Reset();
+    enemies.Clear();
+    towers.Clear();
+    shots.Clear();
+}
+```
+
+This is why every class got a `Clear` or `Reset` along the way. Playing again is just
+entering `Playing` again, and starting fresh is one method that puts each piece back.
+
+### Only playing while playing
+
+`Update` now looks at the screen first. The old body moves into a `Play` method, and
+only runs while playing:
+
+```csharp
+public void Update(GameTime time)
+{
+    switch (screen.Current)
+    {
+        case Screen.Title when actions.Pressed(Control.Start):
+        case Screen.Won or Screen.Lost when actions.Pressed(Control.Restart):
+            screen.Set(Screen.Playing);
+            break;
+        case Screen.Playing:
+            Play(time);
+            break;
+    }
+}
+```
+
+`Play` is everything `Update` did before, with the end of the game added at the bottom:
+
+```csharp
+private void Play(GameTime time)
+{
+    if (actions.Pressed(Control.Build) && !input.Mouse.OverUi)
+    {
+        // Follow the line from the camera through the cursor down to the ground, and build on that tile.
+        if (input.Mouse.Ray(Camera).Ground() is { } spot && field.TileAt(spot) is { } tile)
+        {
+            towers.TryBuild(tile.X, tile.Z);
+        }
+    }
+
+    waves.Update(time);
+    enemies.Update(time);
+    towers.Update(time);
+    shots.Update(time);
+
+    if (player.Lives <= 0)
+    {
+        screen.Set(Screen.Lost);
+    }
+    else if (waves.AllSpawned && enemies.All.Count == 0)
+    {
+        screen.Set(Screen.Won);
+    }
+}
+```
+
+You win when every wave has come out and every enemy is gone. Checking only "no enemies
+left" isn't enough, because that's also true in the gaps between waves, and right at the
+start.
+
+`Set` doesn't switch screens on the spot. It asks for the change, the rest of the tick
+finishes on the old screen, and then the switch happens. That matters here: left click
+is both `Start` and `Build`. The click that leaves the title happens in a tick that's
+still on `Title`, so `Play` doesn't run and no tower appears under the cursor. On the next
+tick you're playing, and clicks build as usual. [Game states](../states.md) has the
+details.
+
+### Showing the screens
+
+Each screen gets its own interface. Add a `Banner` to `Hud.cs`, for a big line of text
+and a small one in the middle of the screen:
+
+```csharp
+/// <summary>A big line and a small one in the middle of the screen, for the title and the end of a game.</summary>
+public sealed record Banner(string Title, string Hint) : UiView
+{
+    public override UiView Body => new VStack(Spacing: 8f)
+    {
+        new Text(Title).Bold().FontSize(40f),
+        new Text(Hint),
+    }
+    .Padding(24f)
+    .Background(Color.Hex("#10141C", 0.7f))
+    .FixedSize()
+    .IgnoresPointer()
+    .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity);
+}
+```
+
+It ignores the mouse so a click anywhere starts the game, even on the banner itself.
+Then `Ui` picks one for each screen:
+
+```csharp
+public UiView? Ui => screen.Current switch
+{
+    Screen.Title => new Banner("Outpost", "Click or press Space to start"),
+    Screen.Won => new Banner("You held the outpost!", "Press R to play again"),
+    Screen.Lost => new Banner("The outpost fell", "Press R to play again"),
+    _ => new Hud(player.Gold, player.Lives, waves.Number, Waves.Count),
+};
+```
+
+`Draw` doesn't change. The field, towers and enemies are drawn on every screen, so the
+title has the field behind it, and when you lose, you can see the enemies that got
+through.
+
+![The title screen, with "Outpost" over the empty field](../media/outpost-7-title.webp)
+
+### Scripts that start the game
+
+The `towers` script now has to get past the title first, so it presses Space before it
+clicks. And a `start` script that only starts the game is handy for screenshots:
+
+```csharp
+public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
+{
+    // Starts the game, for screenshots: --script start
+    ["start"] = new InputScript().Press(Key.Space),
+    // Starts, then builds a tower on the middle tile and one by the first bend: --script towers
+    ["towers"] = new InputScript().Press(Key.Space).Wait(1).Click(new Vector2(640, 360)).Wait(1).Click(new Vector2(411, 261)).Wait(5),
+};
+```
+
+Start a game, build nothing, and wait. With no towers, ten walkers reach the base in under
+a minute:
+
+```
+dotnet run -c Release -- --screenshot lost.png --script start --ticks 1500 --size 1280x720
+```
+
+![The game over screen, "The outpost fell", with walkers all along the road](../media/outpost-7-lost.webp)

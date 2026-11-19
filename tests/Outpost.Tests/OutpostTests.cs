@@ -7,7 +7,17 @@ namespace Outpost.Tests;
 
 public class OutpostTests
 {
-    private static HeadlessRun<OutpostGame> Start() => HeadlessGame.Create<OutpostGame>(1, services => services.AddOutpost());
+    /// <summary>A game on its title screen.</summary>
+    private static HeadlessRun<OutpostGame> Open() => HeadlessGame.Create<OutpostGame>(1, services => services.AddOutpost());
+
+    /// <summary>A game past the title screen, playing.</summary>
+    private static HeadlessRun<OutpostGame> Start()
+    {
+        var run = Open();
+        run.States<Screen>().Set(Screen.Playing);
+        run.Ticks(1);
+        return run;
+    }
 
     /// <summary>Holds the waves back, so a test has the road to itself.</summary>
     private static Enemies QuietRoad(HeadlessRun<OutpostGame> run)
@@ -275,5 +285,95 @@ public class OutpostTests
 
         Assert.Empty(run.Game.Towers.All);
         Assert.Equal(100, run.Game.Player.Gold);
+    }
+
+    [Fact]
+    public void The_game_opens_on_the_title()
+    {
+        using var run = Open();
+
+        run.Ticks(1);
+        Assert.Equal(Screen.Title, run.States<Screen>().Current);
+        Assert.Contains(run.ShownText, text => text.Text == "Outpost");
+
+        run.Ticks(30 * 10);
+        Assert.Empty(run.Game.Enemies.All);
+    }
+
+    [Fact]
+    public void Starting_with_a_click_builds_nothing()
+    {
+        using var run = Open();
+        run.Ticks(1);
+
+        // The middle of the screen is grass, so a click there while playing would build.
+        run.Input.Click(MouseButton.Left, at: run.ScreenSize / 2);
+        run.Ticks(1);
+
+        Assert.Equal(Screen.Playing, run.States<Screen>().Current);
+        Assert.Empty(run.Game.Towers.All);
+    }
+
+    [Fact]
+    public void Losing_every_life_ends_the_game()
+    {
+        using var run = Start();
+
+        run.Game.Player.Lives = 1;
+        run.Ticks(30 * 40);
+
+        Assert.Equal(Screen.Lost, run.States<Screen>().Current);
+        Assert.Contains(run.ShownText, text => text.Text == "The outpost fell");
+    }
+
+    [Fact]
+    public void Restarting_mid_wave_starts_clean()
+    {
+        using var run = Start();
+        var game = run.Game;
+        Assert.True(game.Towers.TryBuild(3, 2));
+        run.Ticks(30 * 20);
+        Assert.NotEmpty(game.Enemies.All);
+        Assert.NotEmpty(game.Shots.All);
+
+        game.Player.Lives = 0;
+        run.Ticks(1);
+        Assert.Equal(Screen.Lost, run.States<Screen>().Current);
+
+        run.Input.Press(Control.Restart);
+        run.Ticks(1);
+
+        Assert.Equal(Screen.Playing, run.States<Screen>().Current);
+        Assert.Equal(100, game.Player.Gold);
+        Assert.Equal(10, game.Player.Lives);
+        Assert.Empty(game.Towers.All);
+        Assert.Empty(game.Enemies.All);
+        Assert.Empty(game.Shots.All);
+        Assert.Equal(1, game.Waves.Number);
+    }
+
+    [Fact]
+    public void Winning_needs_every_enemy_gone()
+    {
+        using var run = Start();
+        var waves = run.Game.Waves;
+        waves.Gap = 1f / 30f;
+        waves.Pause = 1f / 30f;
+
+        for (int tick = 0; tick < 30 * 60 && !waves.AllSpawned; tick++)
+        {
+            run.Ticks(1);
+        }
+
+        Assert.True(waves.AllSpawned);
+        Assert.NotEmpty(run.Game.Enemies.All);
+        run.Ticks(1);
+        Assert.Equal(Screen.Playing, run.States<Screen>().Current);
+
+        run.Game.Enemies.Clear();
+        run.Ticks(1);
+
+        Assert.Equal(Screen.Won, run.States<Screen>().Current);
+        Assert.Contains(run.ShownText, text => text.Text == "You held the outpost!");
     }
 }

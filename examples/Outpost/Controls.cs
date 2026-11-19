@@ -4,4 +4,15 @@ namespace OutpostExample;
 public enum Control
 {
     Build,
+    Start,
+    Restart,
+}
+
+/// <summary>Where the game is: on the title, playing, or over.</summary>
+public enum Screen
+{
+    Title,
+    Playing,
+    Won,
+    Lost,
 }
