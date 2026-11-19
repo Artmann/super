@@ -321,7 +321,8 @@ tick keeps the last. The build can't read input, since it runs between ticks.
 
 Entities spawned straight on the world belong to no scene and outlive every `Go`, so keep a
 party, an inventory or the music there. `scenes.Current` is the open scene, or null before
-the first `Go`, and `scenes.Rebuild()` builds it again from the start, for a restart.
+the first `Go`, and `scenes.Rebuild()` builds it again from the start, for a restart. Right after a `Go` that hasn't swapped yet,
+`Rebuild` does nothing, since that scene is about to be built fresh anyway.
 
 Give `Go` a [transition](transitions.md) to cover the swap, such as
 `scenes.Go(scene => Crypt(scene, room: 2), Transition.Fade(0.6f))`. A fade swaps at the
