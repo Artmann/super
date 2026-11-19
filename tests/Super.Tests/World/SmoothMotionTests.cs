@@ -78,6 +78,47 @@ public class SmoothMotionTests
     }
 
     [Fact]
+    public void An_entity_that_stops_being_static_is_drawn_where_it_is()
+    {
+        using var run = HeadlessGame.Create<Slider>(seed: 1);
+        run.Ticks(2);
+        run.World.Add(run.Game.Entity, new Static());
+        run.Ticks(1);
+        run.World.Remove<Static>(run.Game.Entity);
+
+        run.Frame(0.25f);
+
+        Assert.Equal(6f, run.Drawn.Single().Transform.Translation.X);
+    }
+
+    [Fact]
+    public void A_transform_given_back_is_drawn_where_it_lands()
+    {
+        using var run = HeadlessGame.Create<Slider>(seed: 1);
+        var parked = run.World.Spawn(Transform.At(Vector3.Zero), new Model(ModelRef.Cube));
+        run.Ticks(1);
+        run.World.Remove<Transform>(parked);
+        run.Ticks(1);
+
+        run.World.Add(parked, Transform.At(new Vector3(100f, 0f, 0f)));
+        run.Frame(0.25f);
+
+        Assert.Equal(100f, run.Drawn.Single(drawn => drawn.Key == parked.Id).Transform.Translation.X);
+    }
+
+    [Fact]
+    public void A_swim_added_later_is_drawn_at_its_own_phase()
+    {
+        using var run = HeadlessGame.Create<Slider>(seed: 1);
+        run.Ticks(2);
+        run.World.Add(run.Game.Entity, new Swim(0.1f, 1f, 10f));
+
+        run.Frame(0.5f);
+
+        Assert.Equal(10f, run.Drawn.Single().Swim.Phase);
+    }
+
+    [Fact]
     public void A_child_follows_its_parent_between_ticks()
     {
         using var run = HeadlessGame.Create<Slider>(seed: 1);

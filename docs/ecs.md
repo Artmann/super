@@ -56,7 +56,8 @@ one is alive but has none yet, so this query won't visit it. A component added d
 the loop isn't there yet either: `Has` says false, and `Get` throws to say it arrives
 when the query ends. The changes are made in the order you asked for them, when the
 outermost query ends, even if the loop throws. One meant for an entity that's been
-destroyed by then is dropped.
+destroyed by then is dropped. If a handler throws while they're made, the rest are still
+made, and the first error is thrown after the last one.
 
 ## The world
 

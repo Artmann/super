@@ -1,3 +1,5 @@
+using System.Runtime.ExceptionServices;
+
 namespace Super;
 
 /// <summary>
@@ -13,6 +15,7 @@ internal sealed class PendingChanges
     private readonly HashSet<Entity> _destroying = [];
     private int _depth;
     private int _holding;
+    private int _shaping; // How many adds and removes wait.
     private bool _applying;
 
     private enum Kind
@@ -57,9 +60,14 @@ internal sealed class PendingChanges
         var values = (Values<T>)(_values[type] ??= new Values<T>());
         _changes.Add(new Change(Kind.Add, entity, type, values.Count));
         values.Add(in component);
+        _shaping++;
     }
 
-    public void Remove(Entity entity, int type) => _changes.Add(new Change(Kind.Remove, entity, type, -1));
+    public void Remove(Entity entity, int type)
+    {
+        _changes.Add(new Change(Kind.Remove, entity, type, -1));
+        _shaping++;
+    }
 
     // Components still waiting to be given to it never land, so their handlers never run.
     public void Destroy(Entity entity)
@@ -71,18 +79,28 @@ internal sealed class PendingChanges
     /// <summary>Runs the <c>OnAdded</c> handlers for a component that just landed, once the change is complete.</summary>
     public void Added(Entity entity, int type) => _changes.Add(new Change(Kind.Added, entity, type, -1));
 
-    /// <summary>Whether a component of this type is waiting to be added to the entity.</summary>
-    public bool IsAdding(Entity entity, int type)
+    /// <summary>
+    /// Whether the entity will have a component of this type once the waiting changes are made: true when the last
+    /// one waiting for it adds it, false when it removes it, and null when none is waiting.
+    /// </summary>
+    public bool? WillHave(Entity entity, int type)
     {
-        foreach (var change in _changes)
+        // Most writes in a query change values only, so with no add or remove waiting this costs nothing.
+        if (_shaping == 0)
         {
-            if (change.Kind == Kind.Add && change.Entity == entity && change.Type == type)
+            return null;
+        }
+
+        for (int i = _changes.Count - 1; i >= 0; i--)
+        {
+            var change = _changes[i];
+            if ((change.Kind is Kind.Add or Kind.Remove) && change.Entity == entity && change.Type == type)
             {
-                return true;
+                return change.Kind == Kind.Add;
             }
         }
 
-        return false;
+        return null;
     }
 
     private void ApplyIfDone(World world)
@@ -94,24 +112,36 @@ internal sealed class PendingChanges
         }
     }
 
-    // Walked by index, since making one change can queue another, which is made in the same pass.
+    // Walked by index, since making one change can queue another, which is made in the same pass. A handler that
+    // throws doesn't stop the changes after it: they're all made, then the first error is thrown.
     private void Apply(World world)
     {
+        ExceptionDispatchInfo? failure = null;
         _applying = true;
         try
         {
             for (int i = 0; i < _changes.Count; i++)
             {
                 var change = _changes[i];
-                if (world.IsAlive(change.Entity))
+                if (!world.IsAlive(change.Entity))
+                {
+                    continue;
+                }
+
+                try
                 {
                     Make(world, change);
+                }
+                catch (Exception problem)
+                {
+                    failure ??= ExceptionDispatchInfo.Capture(problem);
                 }
             }
         }
         finally
         {
             _applying = false;
+            _shaping = 0;
             _changes.Clear();
             _destroying.Clear();
             foreach (var values in _values)
@@ -119,6 +149,8 @@ internal sealed class PendingChanges
                 values?.Clear();
             }
         }
+
+        failure?.Throw();
     }
 
     private void Make(World world, Change change)

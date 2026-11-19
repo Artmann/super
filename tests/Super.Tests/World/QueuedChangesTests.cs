@@ -263,6 +263,59 @@ public class QueuedChangesTests
             Assert.Equal($"Entity {entity.Id} is not alive.", error.Message);
         }
     }
+
+    [Fact]
+    public void Adding_then_removing_a_new_type_inside_a_query_leaves_it_off()
+    {
+        var entity = Create(1f);
+
+        foreach (var row in _world.Query<Position>())
+        {
+            _world.Add(row.Entity, new Health(3));
+            _world.Remove<Health>(row.Entity);
+        }
+
+        Assert.False(_world.Has<Health>(entity));
+    }
+
+    [Fact]
+    public void Removing_then_adding_a_type_inside_a_query_leaves_the_new_value_on()
+    {
+        var entity = _world.Spawn(new Position(1f), new Health(3));
+
+        foreach (var row in _world.Query<Position>())
+        {
+            _world.Remove<Health>(row.Entity);
+            _world.Add(row.Entity, new Health(7));
+        }
+
+        Assert.Equal(7, _world.Get<Health>(entity).Value);
+    }
+
+    [Fact]
+    public void A_handler_that_throws_while_changes_are_made_does_not_stop_the_rest()
+    {
+        var first = _world.Spawn(new Position(1f), new Health(1));
+        var second = _world.Spawn(new Position(2f), new Health(2));
+        _world.OnRemoved<Health>(entity =>
+        {
+            if (entity == first)
+            {
+                throw new InvalidOperationException("Boom.");
+            }
+        });
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+        {
+            foreach (var row in _world.Query<Position>())
+            {
+                _world.Destroy(row.Entity);
+            }
+        });
+
+        Assert.Equal("Boom.", error.Message);
+        Assert.False(_world.IsAlive(second));
+    }
 }
 
 [Collection(SpawnAllocationCollection.Name)]

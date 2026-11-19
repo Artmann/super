@@ -17,12 +17,19 @@ internal sealed class RequiredComponents
         Add<Model, Transform>(Transform.Identity);
         Add<Animated, Transform>(Transform.Identity);
 
-        // Anything placed can move, and drawing blends it from where it was at the last tick.
-        Add<Transform, LastTick>(default);
+        // Anything placed can move, and drawing blends it from where it was at the last tick. A transform, a swim or
+        // a static that lands starts it afresh, so nothing glides from where it was before it was taken away, or
+        // from a tick that never saw its phase.
+        Add<Transform, LastTick>(default, replace: true);
+        Add<Swim, LastTick>(default, replace: true);
+        Add<Static, LastTick>(default, replace: true);
     }
 
-    /// <summary>Gives every entity that gets a <typeparamref name="TComponent"/> a <typeparamref name="TNeeded"/> it doesn't have.</summary>
-    public void Add<TComponent, TNeeded>(TNeeded value)
+    /// <summary>
+    /// Gives every entity that gets a <typeparamref name="TComponent"/> a <typeparamref name="TNeeded"/> it doesn't
+    /// have, or with <paramref name="replace"/>, sets it even when it has one.
+    /// </summary>
+    public void Add<TComponent, TNeeded>(TNeeded value, bool replace = false)
         where TNeeded : struct
     {
         int component = _types.TypeId<TComponent>();
@@ -42,7 +49,7 @@ internal sealed class RequiredComponents
 
         var list = _byType[component] ??= [];
         int existing = list.FindIndex(requirement => requirement.Needed == needed);
-        var requirement = new Requirement<TNeeded>(needed, value);
+        var requirement = new Requirement<TNeeded>(needed, value, replace);
         if (existing >= 0)
         {
             list[existing] = requirement;
@@ -98,12 +105,12 @@ internal sealed class RequiredComponents
         public abstract void ApplyTo(World world, Entity entity);
     }
 
-    private sealed class Requirement<T>(int needed, T value) : Requirement(needed)
+    private sealed class Requirement<T>(int needed, T value, bool replace) : Requirement(needed)
         where T : struct
     {
         public override void ApplyTo(World world, Entity entity)
         {
-            if (!world.Has<T>(entity))
+            if (replace || !world.Has<T>(entity))
             {
                 world.Add(entity, value);
             }

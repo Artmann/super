@@ -97,7 +97,7 @@ public sealed class World : ITickHook, IStateHook
         if (!slot.Archetype!.Mask.Has(type))
         {
             throw new InvalidOperationException(
-                Pending.IsAdding(entity, type)
+                Pending.WillHave(entity, type) == true
                     ? $"Entity {entity.Id}'s {typeof(T).Name} was added during a query and arrives when the query ends."
                     : $"Entity {entity.Id} has no {typeof(T).Name}.");
         }
@@ -150,14 +150,16 @@ public sealed class World : ITickHook, IStateHook
         ref var slot = ref _entities.Of(entity);
         type = Archetypes.TypeId<T>();
         bool added = !slot.Archetype!.Mask.Has(type);
+
+        // One it has that's waiting to be removed is given back after the removal, in the order they were asked for.
+        if (IsQuerying && (added || Pending.WillHave(entity, type) == false))
+        {
+            Pending.Add(entity, type, in component);
+            return false;
+        }
+
         if (added)
         {
-            if (IsQuerying)
-            {
-                Pending.Add(entity, type, in component);
-                return false;
-            }
-
             _entities.MoveTo(ref slot, Archetypes.With<T>(slot.Archetype, type));
             if (Archetypes.Reactions.HasAdded(type))
             {
@@ -174,14 +176,19 @@ public sealed class World : ITickHook, IStateHook
     /// <summary>Takes the component with this type ID away, or queues that during a query.</summary>
     internal void Remove(Entity entity, int type)
     {
-        if (!Has(entity, type))
+        if (IsQuerying)
         {
+            // It counts as having one that's waiting to be added, so the add and this removal are both made.
+            if (Pending.WillHave(entity, type) ?? Has(entity, type))
+            {
+                Pending.Remove(entity, type);
+            }
+
             return;
         }
 
-        if (IsQuerying)
+        if (!Has(entity, type))
         {
-            Pending.Remove(entity, type);
             return;
         }
 
