@@ -111,17 +111,21 @@ using Super;
 
 Game.StartWindowsGameLoop<Spinner>(new GameOptions { Title = "Spinner" });
 
-class Spinner : IGame
+class Spinner(World world) : IGame
 {
-    float angle;
+    Entity cube;
 
-    public void Update(GameTime time) => angle += time.TickSeconds;
-
-    public void Draw(View view)
+    public void Load()
     {
-        view.Camera(position: new Vector3(0, 2, 5), lookAt: Vector3.Zero);
-        view.Lights.Sun(direction: new Vector3(1, 2, 1), color: new Vector3(3f));
-        view.Model(key: 1, ModelRef.Cube, Matrix4x4.CreateRotationY(angle));
+        world.Spawn(new Camera(Position: new Vector3(0, 2, 5), Target: Vector3.Zero));
+        world.Spawn(new Sun(Direction: new Vector3(1, 2, 1), Color: new Vector3(3f)));
+        cube = world.Spawn(new Model(ModelRef.Cube));
+    }
+
+    public void Update(GameTime time)
+    {
+        ref var transform = ref world.Get<Transform>(cube);
+        transform.Rotation *= Quaternion.CreateFromAxisAngle(Vector3.UnitY, time.TickSeconds);
     }
 }
 ```
@@ -130,21 +134,26 @@ class Spinner : IGame
 built-in cube, so this runs with no files at all. There are
 [other built-in shapes](rendering.md#built-in-shapes) too, such as `ModelRef.Sphere`.
 
+Everything in the game lives in its [world](ecs.md): the camera, the sun and the cube are
+each an entity, and the world draws them every frame. `Update` turns the cube, and the
+world draws it turning smoothly between ticks. The game asks for its `World` in its
+constructor, the same way it asks for anything else Super gives it.
+
 A game implements `IGame`, which has six members. Only `Update` is required:
 
 | Member | When it runs | What it's for |
 | --- | --- | --- |
 | `Load()` | Once, before the first tick | Build the starting world and bind input |
 | `Update(GameTime)` | A fixed number of times per second, 30 by default | Change game state. The only place input can be read |
-| `Draw(View)` | Once per displayed frame, after the world has drawn its [entities](ecs.md#drawing-entities) | Describe what isn't an entity, such as this cube. It only reads state |
+| `Draw(View)` | Once per displayed frame, after the world has drawn its [entities](ecs.md#drawing-entities) | Optional. Draw by hand what isn't an entity, such as a glow that pulses with the frame. See [Drawing by hand](views.md). It only reads state |
 | `Ui` | Once per displayed frame | Describe the [interface](interfaces.md) on top. It only reads state |
 | `Scripts` | Once, after `Load` | Named input scripts for [`--script`](command-line.md#scripted-input) |
 | `CodeReloaded()` | At the start of the tick after [hot reload](hot-reload.md) changed the code | Rebuild what setup code made, often with `Reenter` |
 
-Keeping `Update` and `Draw` apart is the most important idea in Super. `Update` is the
-game. `Draw` only looks at it, so the game can run with no screen at all, and the
-display can run faster or slower than the simulation. `Draw` blends between the last
-two ticks so motion stays smooth; see [Drawing with views](views.md#smooth-motion).
+Keeping the game apart from how it looks is the most important idea in Super. `Update`
+is the game. Drawing only looks at it, so the game can run with no screen at all, and
+the display can run faster or slower than the simulation. Each frame blends between
+the last two ticks so motion stays smooth; see [Drawing entities](ecs.md#drawing-entities).
 
 `GameTime` has `Tick`, `TickSeconds`, `TicksPerSecond` and `TotalSeconds`. Take time
 from it rather than the system clock, so a seed always replays the same.
@@ -190,15 +199,13 @@ Game.StartWindowsGameLoop<MyColony>(new GameOptions { Title = "Colony" }, servic
     services.AddSingleton<IWeather, SeasonalWeather>();
 });
 
-class MyColony(Colony colony, Woodcutting woodcutting, IWeather weather, ColonyViews views) : IGame
+class MyColony(Woodcutting woodcutting, IWeather weather) : IGame
 {
     public void Update(GameTime time)
     {
         weather.Update(time);
         woodcutting.Update(time);
     }
-
-    public void Draw(View view) => views.Draw(colony, view);
 }
 ```
 
@@ -232,6 +239,8 @@ container, so it works just like ASP.NET. These are already registered:
 
 | Service | What it is |
 | --- | --- |
+| `World` | [The world](ecs.md): every entity, which it draws each frame |
+| `Scenes`, `Systems` | [Scenes](ecs.md#scenes) and [systems](ecs.md#systems) over the world |
 | `GameTime` | The current tick and tick length |
 | `GameRandom` | [Seeded random numbers](random.md) |
 | `Content` | Models, images, meshes, textures and [JSON catalogs](content.md) |
@@ -258,7 +267,7 @@ what lets [tests](testing.md) run in parallel.
 ## Next
 
 - [Working with coding agents](agents.md) if an agent is writing your game.
-- [Drawing with views](views.md) to put more on screen.
+- [The world](ecs.md) to put more on screen.
 - [Input](input.md) to make it playable.
 - [Change code while the game runs](hot-reload.md) to try changes without restarting.
 - [Build a tower defense](guides/tower-defense.md) to put it all together in a small, complete game.

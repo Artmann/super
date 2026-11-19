@@ -10,17 +10,21 @@ using Super;
 
 Game.StartWindowsGameLoop<Spinner>(new GameOptions { Title = "Spinner" });
 
-class Spinner : IGame
+class Spinner(World world) : IGame
 {
-    float angle;
+    Entity cube;
 
-    public void Update(GameTime time) => angle += time.TickSeconds;
-
-    public void Draw(View view)
+    public void Load()
     {
-        view.Camera(position: new Vector3(0, 2, 5), lookAt: Vector3.Zero);
-        view.Lights.Sun(direction: new Vector3(1, 2, 1), color: new Vector3(3f));
-        view.Model(key: 1, ModelRef.Cube, Matrix4x4.CreateRotationY(angle));
+        world.Spawn(new Camera(Position: new Vector3(0, 2, 5), Target: Vector3.Zero));
+        world.Spawn(new Sun(Direction: new Vector3(1, 2, 1), Color: new Vector3(3f)));
+        cube = world.Spawn(new Model(ModelRef.Cube));
+    }
+
+    public void Update(GameTime time)
+    {
+        ref var transform = ref world.Get<Transform>(cube);
+        transform.Rotation *= Quaternion.CreateFromAxisAngle(Vector3.UnitY, time.TickSeconds);
     }
 }
 ```

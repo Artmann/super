@@ -8,7 +8,7 @@ that doesn't exist yet; everything else works today.
 | [Getting started](getting-started.md) | Requirements, a first game, the game loop, packages and where your code goes |
 | [Guides](guides/README.md) | Step-by-step walkthroughs that build a whole game, starting with a tower defense |
 | [Working with coding agents](agents.md) | How an agent builds, runs, tests and sees a Super game |
-| [Drawing with views](views.md) | `Draw`, keys, view memory, smoothing, `Cached` and state versus view |
+| [The world](ecs.md) | Where everything in a game lives: spawning entities, the components the world draws, queries, sounds, scenes, state-scoped entities and systems |
 | [Cameras and clicking](cameras.md) | `Camera`, the camera helpers, orthographic and shifted views, and picking |
 | [Rendering](rendering.md) | Graphics settings for speed, lights, shadows, the sky, water, post-processing, meshes made by code and along splines, surface shaders, terrain and models |
 | [Animation](animation.md) | Rigged models, Mixamo clips, states, actions, blends, masks, root motion and joints |
@@ -28,7 +28,7 @@ that doesn't exist yet; everything else works today.
 | [Testing](testing.md) | Headless runs, seeds, invariants, played input and checking the screen |
 | [The command line](command-line.md) | `--screenshot`, `--record`, `--script` and capturing from code |
 | [Profiling](profiling.md) | `--profile` and reading its report |
-| [The ECS](ecs.md) | The world every game has: queries, drawing entities and entities scoped to a state |
+| [Drawing by hand](views.md) | `Draw` for what isn't an entity: keys, view memory, smoothing, `Cached`, particles, decals and fog volumes |
 | [Physics](physics.md) | `Super.Physics`: bodies that fall and collide, characters, trigger areas, rays and shape casts |
 | [What's not here yet](roadmap.md) | Known gaps and planned features |
 
