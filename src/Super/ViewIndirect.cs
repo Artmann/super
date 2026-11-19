@@ -193,16 +193,16 @@ public sealed class ViewIndirect
     /// moves or its box changes, and otherwise as <paramref name="update"/> says. With
     /// <see cref="ProbeUpdate.OnRequest"/>, change <paramref name="version"/> to ask for a new picture.
     /// Photographs are taken during play without stopping the game, one a frame. At most
-    /// <see cref="Renderer.MaxReflectionProbes"/> fit. See docs/rendering.md.
+    /// <see cref="RendererReflections.MaxProbes"/> fit. See docs/rendering.md.
     /// </summary>
     public void ReflectionProbe(
         int key, Vector3 position, Vector3 boxMin, Vector3 boxMax, float blend = 0.5f, float priority = 0f,
         ProbeUpdate update = ProbeUpdate.OnChange, int version = 0)
     {
-        if (_reflectionProbes.Count == Renderer.MaxReflectionProbes)
+        if (_reflectionProbes.Count == RendererReflections.MaxProbes)
         {
             throw new InvalidOperationException(
-                $"At most {Renderer.MaxReflectionProbes.ToString(CultureInfo.InvariantCulture)} reflection probes fit in a frame.");
+                $"At most {RendererReflections.MaxProbes.ToString(CultureInfo.InvariantCulture)} reflection probes fit in a frame.");
         }
 
         foreach (var placed in _reflectionProbes)

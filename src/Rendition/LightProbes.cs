@@ -228,7 +228,7 @@ internal sealed class LightProbes(VulkanContext context, EnvironmentMap environm
 }
 
 /// <summary>
-/// What a frame's light probe plan takes besides the view: <see cref="Renderer.ProbeLightingKey"/>, the direction
+/// What a frame's light probe plan takes besides the view: <see cref="RendererReflections.ProbeLightingKey"/>, the direction
 /// towards the sun that casts the frame's shadow, and the frame's number.
 /// </summary>
 internal readonly record struct ProbePlanInputs(int LightingKey, Vector3? ShadowSun, long FrameNumber);

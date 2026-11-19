@@ -16,10 +16,10 @@ public class ProbeSchedulerTests
             Lights = [new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(3f), CastsShadow = true }],
             Environment = new EnvironmentSettings { Intensity = 1f },
         };
-        int before = Renderer.ProbeLightingKey(view, environmentVersion: 1, RenderEffects.None);
+        int before = RendererReflections.ProbeLightingKey(view, environmentVersion: 1, RenderEffects.None);
 
-        Assert.NotEqual(before, Renderer.ProbeLightingKey(view, environmentVersion: 1, RenderEffects.Materials));
-        Assert.Equal(before, Renderer.ProbeLightingKey(view, environmentVersion: 1, RenderEffects.WearAndDirt));
+        Assert.NotEqual(before, RendererReflections.ProbeLightingKey(view, environmentVersion: 1, RenderEffects.Materials));
+        Assert.Equal(before, RendererReflections.ProbeLightingKey(view, environmentVersion: 1, RenderEffects.WearAndDirt));
     }
 
     [Fact]

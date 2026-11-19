@@ -21,7 +21,7 @@ internal sealed class ReflectionProbeUpdater(Renderer renderer)
         var wanted = WantedReflectionProbes(view, off);
         foreach (int slot in _schedule.Forget(wanted))
         {
-            renderer.RemoveReflectionProbe(new ReflectionProbeHandle(slot));
+            renderer.Reflections.Remove(new ReflectionProbeHandle(slot));
         }
 
         if (wanted.IsEmpty)
@@ -29,12 +29,12 @@ internal sealed class ReflectionProbeUpdater(Renderer renderer)
             return;
         }
 
-        int lighting = renderer.ReflectionLightingHash(frame);
+        int lighting = renderer.Reflections.LightingHash(frame);
         foreach (var request in wanted)
         {
             int slot = _schedule.SlotOf(request.Key);
-            int hash = HashCode.Combine(lighting, Renderer.ReflectionLightsHash(frame.LocalLights, request.Min, request.Max));
-            bool waiting = slot >= 0 && renderer.ReflectionProbeWaiting(new ReflectionProbeHandle(slot));
+            int hash = HashCode.Combine(lighting, RendererReflections.LightsHash(frame.LocalLights, request.Min, request.Max));
+            bool waiting = slot >= 0 && renderer.Reflections.Waiting(new ReflectionProbeHandle(slot));
             if (!_schedule.ShouldCapture(request, hash, waiting))
             {
                 continue;
@@ -43,11 +43,11 @@ internal sealed class ReflectionProbeUpdater(Renderer renderer)
             // The schedule hears of the request only once the renderer took it, so a throw leaves the two in step.
             if (slot >= 0)
             {
-                renderer.UpdateReflectionProbe(new ReflectionProbeHandle(slot), request.ToProbe());
+                renderer.Reflections.Update(new ReflectionProbeHandle(slot), request.ToProbe());
             }
             else
             {
-                slot = renderer.AddReflectionProbe(request.ToProbe()).Index;
+                slot = renderer.Reflections.Add(request.ToProbe()).Index;
             }
 
             _schedule.Asked(request, hash, slot);

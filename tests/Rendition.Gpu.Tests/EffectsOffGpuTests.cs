@@ -89,14 +89,14 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
             }
 
             var passes = new Dictionary<string, GpuPassWork>();
-            foreach (var work in gpu.Renderer.GpuWork)
+            foreach (var work in gpu.Renderer.Stats.GpuWork)
             {
                 passes[work.Name] = work;
                 output.WriteLine($"{work.Name,-20} {Show(work)}  (effects {(off == RenderEffects.None ? "on" : "off")})");
             }
 
             Assert.True(passes.Count > 0, "This GPU can't count the shaders its passes run, so these passes can't be checked.");
-            return new Measurement(passes, gpu.Renderer.DrawnTriangles.Shadows);
+            return new Measurement(passes, gpu.Renderer.Stats.DrawnTriangles.Shadows);
         }
         finally
         {

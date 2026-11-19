@@ -49,7 +49,7 @@ internal sealed class WindowProfiler(OsWindow window, SceneRenderer scene, Windo
 
         var (width, height) = window.FramebufferSize();
         var run = new ProfileRun(request.Title, request.Seed, firstTick, width, height, measured, gpu, stacks,
-            scene.CountModels(host.View, host.Content), scene.Renderer.DrawnTriangles);
+            scene.CountModels(host.View, host.Content), scene.Renderer.Stats.DrawnTriangles);
         File.WriteAllText(path, ProfileReport.Write(run));
         File.WriteAllText(Path.ChangeExtension(path, ".csv"), ProfileReport.WriteFrames(measured));
     }
@@ -61,8 +61,8 @@ internal sealed class WindowProfiler(OsWindow window, SceneRenderer scene, Windo
         float time = (float)host.Time.TotalSeconds;
         for (int frame = 0; frame < measured.Length; frame++)
         {
-            int idleWaits = scene.Renderer.GpuIdleWaits;
-            int captures = scene.Renderer.ReflectionCapturesDrawn;
+            int idleWaits = scene.Renderer.Stats.GpuIdleWaits;
+            int captures = scene.Renderer.Reflections.CapturesDrawn;
             long allocated = GC.GetAllocatedBytesForCurrentThread();
             long start = Stopwatch.GetTimestamp();
             int due = clock.Advance(step);
@@ -78,7 +78,7 @@ internal sealed class WindowProfiler(OsWindow window, SceneRenderer scene, Windo
             long shown = Stopwatch.GetTimestamp();
 
             double gpuTotal = 0.0;
-            foreach (ref readonly var pass in scene.Renderer.GpuTimes)
+            foreach (ref readonly var pass in scene.Renderer.Stats.GpuTimes)
             {
                 gpu[pass.Name] = gpu.GetValueOrDefault(pass.Name) + pass.Milliseconds;
                 gpuTotal += pass.Milliseconds;
@@ -89,11 +89,11 @@ internal sealed class WindowProfiler(OsWindow window, SceneRenderer scene, Windo
                 Stopwatch.GetElapsedTime(start, ticked).TotalMilliseconds,
                 Stopwatch.GetElapsedTime(ticked, drawn).TotalMilliseconds,
                 Stopwatch.GetElapsedTime(drawn, shown).TotalMilliseconds,
-                scene.Renderer.WaitMilliseconds,
+                scene.Renderer.Stats.WaitMilliseconds,
                 GC.GetAllocatedBytesForCurrentThread() - allocated,
                 gpuTotal,
-                scene.Renderer.GpuIdleWaits - idleWaits,
-                scene.Renderer.ReflectionCapturesDrawn - captures);
+                scene.Renderer.Stats.GpuIdleWaits - idleWaits,
+                scene.Renderer.Reflections.CapturesDrawn - captures);
         }
     }
 }

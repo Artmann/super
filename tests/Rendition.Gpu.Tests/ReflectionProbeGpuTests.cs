@@ -38,7 +38,7 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.ClearReflectionProbes();
+            gpu.Renderer.Reflections.Clear();
         }
     }
 
@@ -54,8 +54,8 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
 
             int idles = gpu.Context.Waits.WaitIdleCount;
             int submits = gpu.Context.Waits.SubmitAndWaitCount;
-            int captures = gpu.Renderer.ReflectionCapturesDrawn;
-            gpu.Renderer.UpdateReflectionProbe(probe, Probe(RoomMin, RoomMax));
+            int captures = gpu.Renderer.Reflections.CapturesDrawn;
+            gpu.Renderer.Reflections.Update(probe, Probe(RoomMin, RoomMax));
             Settle(scene, probe, scene.BlueWall);
             for (int frame = 0; frame < FramesBefore; frame++)
             {
@@ -64,7 +64,7 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
 
             Assert.Equal(idles, gpu.Context.Waits.WaitIdleCount);
             Assert.Equal(submits, gpu.Context.Waits.SubmitAndWaitCount);
-            Assert.Equal(captures + 1, gpu.Renderer.ReflectionCapturesDrawn);
+            Assert.Equal(captures + 1, gpu.Renderer.Reflections.CapturesDrawn);
 
             var after = Mirror(scene, scene.BlueWall);
             Assert.True(Redness(before) > 40f, $"The mirror is {TestPixels.Show(before)} before the update.");
@@ -73,7 +73,7 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.ClearReflectionProbes();
+            gpu.Renderer.Reflections.Clear();
         }
     }
 
@@ -97,13 +97,13 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
             var reflected = Mirror(scene, scene.BlueWall);
 
             Assert.Equal(8, Rendition.Vulkan.ProbeCubes.FirstCapacity);
-            Assert.Equal(9, gpu.Renderer.ReflectionProbeCount);
+            Assert.Equal(9, gpu.Renderer.Reflections.Count);
             Assert.True(Redness(reflected) > 40f, $"The mirror is {TestPixels.Show(reflected)} after the array grew.");
             Assert.Equal(errors, gpu.ValidationErrors);
         }
         finally
         {
-            gpu.Renderer.ClearReflectionProbes();
+            gpu.Renderer.Reflections.Clear();
         }
     }
 
@@ -117,17 +117,17 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
             Place(scene, Probe(RoomMin, RoomMax), scene.RedWall);
             var blue = Place(scene, Probe(RoomMin, RoomMax) with { Priority = 1f }, scene.BlueWall);
             var both = Mirror(scene, scene.BlueWall);
-            gpu.Renderer.RemoveReflectionProbe(blue);
+            gpu.Renderer.Reflections.Remove(blue);
             var left = Mirror(scene, scene.BlueWall);
 
             Assert.True(Redness(both) < -40f, $"The mirror is {TestPixels.Show(both)} with the blue probe first.");
             Assert.True(Redness(left) > 40f, $"The mirror is {TestPixels.Show(left)} once the blue probe is removed.");
-            Assert.Equal(1, gpu.Renderer.ReflectionProbeCount);
+            Assert.Equal(1, gpu.Renderer.Reflections.Count);
             Assert.Equal(errors, gpu.ValidationErrors);
         }
         finally
         {
-            gpu.Renderer.ClearReflectionProbes();
+            gpu.Renderer.Reflections.Clear();
         }
     }
 
@@ -148,7 +148,7 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.ClearReflectionProbes();
+            gpu.Renderer.Reflections.Clear();
         }
     }
 
@@ -163,19 +163,19 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
     // Adds a probe and draws frames with the wall given until its picture is taken.
     private ReflectionProbeHandle Place(Scene scene, in ReflectionProbe probe, DrawItem[] wall)
     {
-        var handle = gpu.Renderer.AddReflectionProbe(probe);
+        var handle = gpu.Renderer.Reflections.Add(probe);
         Settle(scene, handle, wall);
         return handle;
     }
 
     private void Settle(Scene scene, ReflectionProbeHandle handle, DrawItem[] wall)
     {
-        for (int frame = 0; frame < MostFramesToCapture && gpu.Renderer.ReflectionProbeWaiting(handle); frame++)
+        for (int frame = 0; frame < MostFramesToCapture && gpu.Renderer.Reflections.Waiting(handle); frame++)
         {
             gpu.Renderer.Render(scene.View(), scene.Draws(wall));
         }
 
-        Assert.False(gpu.Renderer.ReflectionProbeWaiting(handle), $"Probe {handle.Index} was still waiting for its picture.");
+        Assert.False(gpu.Renderer.Reflections.Waiting(handle), $"Probe {handle.Index} was still waiting for its picture.");
     }
 
     // The middle of the mirror, after a few frames with the wall given behind the camera.

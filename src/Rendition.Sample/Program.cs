@@ -291,7 +291,7 @@ unsafe
         // needs to be accurate at the bottom. A later frame draws the picture.
         if (placeProbe)
         {
-            renderer.AddReflectionProbe(new ReflectionProbe
+            renderer.Reflections.Add(new ReflectionProbe
             {
                 Position = new Vector3(0f, 0.6f, 0f),
                 BoxMin = new Vector3(-200f, -0.02f, -200f),

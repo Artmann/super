@@ -1453,7 +1453,7 @@ buffers, sync objects and the uniform buffer.
 A skipped pass records nothing but still calls `GpuTimer.Mark`, since the timer's pass names
 are fixed. Where the GPU has `pipelineStatisticsQuery`, the frame's timer also counts the
 vertex, fragment and compute shaders each pass runs, with one pipeline statistics query a pass
-begun and ended at the marks. `Renderer.GpuWork` hands them out beside `GpuTimes`. A skipped
+begun and ended at the marks. `Renderer.Stats.GpuWork` hands them out beside `GpuTimes`. A skipped
 pass counts exactly zero, while a pass that still runs counts every shader, even those that
 return at once, so `EffectsOffGpuTests` checks each switch by its count, not its time. Every image a later pass binds must still be in a valid layout, so a skipped
 pass moves its output from `Undefined` to `ShaderReadOnlyOptimal` instead (the sun's shadow
@@ -1483,7 +1483,7 @@ Ghosts are left as they are, since they're already a flat colour.
 `RenderEffects.WearAndDirt` skips no pass either. `applyLayers()` returns before reading the
 mask texture, so the surface keeps its own colour and roughness. It is bit 10, after
 `LightProbes` and `MultiscatterSpecular`. Probe captures and traces draw no wear or dirt, so
-it is in neither `ReflectionLightingHash` nor the light probes' lighting key, and flipping it
+it is in neither `Reflections.LightingHash` nor the light probes' lighting key, and flipping it
 updates no probe.
 
 Bits 19 to 28 skip no pass either; each is read where its effect is made:
@@ -1529,7 +1529,7 @@ the view's. With `Haze` off the fade is sent as 0 to 0. With `Underwater` off, `
 uniforms stay zero. With `Particles` off, nothing is uploaded.
 
 `EnvironmentLight` and `Emissive` change what a reflection probe photographs, so they are in
-`ReflectionLightingHash`, and `Emissive` is in the light probes' lighting key too. `Specular`
+`Reflections.LightingHash`, and `Emissive` is in the light probes' lighting key too. `Specular`
 and `HeightMaps` aren't, since captures draw no shine and no height. `Underwater` is in both,
 since the water changes the sunlight a probe sees.
 
@@ -1741,7 +1741,7 @@ ordinary sky change. `photographed()` turns the direction, reads the mip whose t
 about as wide as the target's, and adds the disc only where `draw.disc` is 1, so the sun
 shows in the sharp level and, through `lighting.frag`'s nothing-drawn branch, behind the
 scene, but the direct light gives everything else. `EnvironmentHash`,
-`ReflectionLightingHash` and `ProbeLightingKey` include the content hash or handle, the
+`Reflections.LightingHash` and `ProbeLightingKey` include the content hash or handle, the
 rotation and the exposure, so the bakes and probes see a new picture.
 
 ### Height fog
@@ -1769,7 +1769,7 @@ it with `RenderEffects.Fog` off and under water, and a density of 0 makes every 
 the fog. Light probe updates and reflection probe captures never apply fog
 (`probe_capture.frag` and `reflection_capture.frag` have none). Light probes and reflection probes therefore capture clear air: fog belongs to the
 view that looks through it, not to the light in the scene. That is why the fog is in neither
-the light probes' lighting key nor `ReflectionLightingHash`, and changing it recaptures nothing.
+the light probes' lighting key nor `Reflections.LightingHash`, and changing it recaptures nothing.
 
 Two limits follow from where the fog is drawn. Screen-space reflections read the previous
 finished frame, which is already fogged, so a reflected surface gets its fog once on the way
@@ -1963,21 +1963,21 @@ screen-space reflection.
 
 The probes live in one cube map array (`ProbeCubes`), RGBA16F with 128 × 128 faces
 and six mips, about 1 MB a probe. `ReflectionProbes` keeps which probe each cube holds, a
-line of probes waiting for a capture, and the blur. `Renderer.AddReflectionProbe` takes a
-cube and puts the probe at the back of the line; `UpdateReflectionProbe` puts it in line
+line of probes waiting for a capture, and the blur. `Renderer.Reflections.Add` takes a
+cube and puts the probe at the back of the line; `Reflections.Update` puts it in line
 again with a new placement, keeping its place if it's already waiting. The array starts with
 room for 8 and doubles, up to 64 (`ReflectionProbeOrder.MaxProbes`), when a probe is added
 with no cube free. Growing waits for the GPU, copies every cube into the bigger array so
 each probe keeps its place, and the renderer points the lighting set and the glass pass at
-the new view. A probe keeps its cube until `RemoveReflectionProbe` frees it for the next one
-added, so removing one leaves the rest as they are, and `ClearReflectionProbes` frees them all.
+the new view. A probe keeps its cube until `Reflections.Remove` frees it for the next one
+added, so removing one leaves the rest as they are, and `Reflections.Clear` frees them all.
 
 Each frame captures at most one probe, the one at the front of the line, and nothing waits
-for the GPU. `PlanReflectionCapture` takes it before the uniforms are written and has
+for the GPU. `FrameReflectionCapture.Plan` takes it before the uniforms are written and has
 `ReflectionCapturePass.Plan` keep the draws within 100 m (`ReflectionCapturePass.Reach`) that
 `ProbeCapturePass.Captures` allows, and plan a sun shadow map of its own: a 1024² `ProbeSunShadow`
 centred on the probe's box, reaching twice its half-diagonal, whose matrix goes to
-`FrameUniforms.ReflectionSunMatrix`. `RecordReflectionCapture` runs after the light probes'
+`FrameUniforms.ReflectionSunMatrix`. `FrameReflectionCapture.Record` runs after the light probes'
 update, inside the frame's command buffer. It draws the map, then the scene round the probe
 into the six faces of a 128² capture cube at once, as the light probes' capture does:
 `probe_capture.vert` with multiview, the shared `ProbeCapturePass.BeginFaces` and `DrawKept`,
@@ -1997,7 +1997,7 @@ barriers wait for earlier frames' fragment reads of the cube before the blur wri
 frame's own lighting waits for the blur, so the frame shows the new picture. The probe's
 placement is stored then, so a probe shows from the frame of its first capture. A frame that
 throws between planning and recording puts the probe back at the front (`PutBack`).
-`ReflectionCapturesDrawn` and `GpuWaits.WaitIdleCount` (`VulkanContext.Waits`) let tests and `--profile` check
+`Reflections.CapturesDrawn` and `GpuWaits.WaitIdleCount` (`VulkanContext.Waits`) let tests and `--profile` check
 that captures happen without stopping, and the GPU timer shows the capture and blur as the
 "Reflection probes" pass, after "Light probes".
 
@@ -2013,15 +2013,15 @@ pixel's cluster's bits from the lowest, which is the probe trusted most, and ble
 most four (`BLENDED_PROBES`): each takes what the ones before it left, fading out over its
 `blend` towards its box's sides, and the studio fills what's left.
 
-`Renderer.ReflectionLightingHash` sums up what lights every probe's picture: the light probes'
-`ProbeLightingKey` (the suns, the environment's version and intensity, the clear sky, whether
+`Renderer.Reflections.LightingHash` sums up what lights every probe's picture: the light probes'
+`RendererReflections.ProbeLightingKey` (the suns, the environment's version and intensity, the clear sky, whether
 sun shadows are drawn, and the `SunShadows`, `Materials`, `LightShadows`, `Emissive` and
 `Underwater` switches), the `LocalLights` and `EnvironmentLight` switches, the light probe box,
 whether the light probes are in use and have settled at least once since their storage was
 made, and the bakes drawn and whether one is still fading in (see "Each frame's bakes"). A
 probe captured while the light probes fill in is redone once they first settle. The live
 `ProbesSettled` isn't used, because it turns false whenever the camera crosses a cell of the two
-finest cascades or a light changes. `Renderer.ReflectionLightsHash` adds, per probe, the point
+finest cascades or a light changes. `RendererReflections.LightsHash` adds, per probe, the point
 and spot lights that reach its box: their keys, ranges, cones and shadow switches. Their colours
 and positions are left out, so a flickering candle or a swinging lantern, which moved 0.6 m and
 crossed any grid fine enough to matter, doesn't keep probes busy. The camera and the view's
@@ -3933,7 +3933,7 @@ through P/Invoke on the four calls of the FidelityFX API (`ffxCreateContext`,
 written out by hand. The library is looked for once; when it can't be loaded,
 `Upscale.Choose` falls back to TAA and says so once on the error stream, and when the
 context can't be made, `CreateTargets` does the same. The library reports the provider it
-picked, FSR 3.1.4 here, and `Renderer.UpscalerVersion` returns it.
+picked, FSR 3.1.4 here, and `Renderer.Stats.UpscalerVersion` returns it.
 
 FSR draws only while anti-aliasing is on and the render scale is 1 or less. It then owns
 both TAA's job and the finish pass's stretch: the G-buffer, HDR and depth stay at the scene
@@ -4421,7 +4421,7 @@ keeps each fading light, with `Radiance` scaled by 1 − fade, so the live light
 the bake as it comes in and the area never goes darker than either end. Light probes see the
 scaled light too, but they never freeze: each change of a light's radiance marks the probes in
 its range dirty, and settled probes keep being refreshed. A reflection capture made mid-fade
-would keep the half-faded picture, so `ReflectionLightingHash` holds whether any bake drawn is
+would keep the half-faded picture, so `Reflections.LightingHash` holds whether any bake drawn is
 still fading. It changes once more when the fade ends, and the capture after it matches one made
 when the level loads with the bake saved (`BakeFadeGpuTests`). With no fresh bake nothing is
 dropped, so frames look exactly as they would without baked areas, to the byte
@@ -4585,7 +4585,7 @@ by chunk index (`ChunkRelight.Lightmaps`, filled in `ChunkRelight.Find`). `Add` 
 in its own chunk's rects when `Chunks` gives it one, and in the space's otherwise. A copy whose
 chunk isn't relit, being pending, stale or unowned, gets chunk -1 and finds nothing among the
 space's rects, so it is lit live. A frame with no chunk draws exactly as before. A hash of the
-named files goes into `ReflectionLightingHash`, so reflection probes are taken again when a chunk
+named files goes into `Reflections.LightingHash`, so reflection probes are taken again when a chunk
 bake arrives or goes. A change of store or `Reloads` calls `ChunkBakePool.Clear`, which lets go
 of every entry the same deferred way, while a file the store forgot by itself (`TakeForgotten`) goes
 through `ChunkBakePool.Forget`, which touches that entry alone. A forgotten entry that isn't resident
@@ -4625,7 +4625,7 @@ page, or 1. A copy without a lightmap, and a ghost, writes 0 and a mask of 1.
 alpha above 0.5 takes `baked.rgb` times its diffuse colour in place of the soft light from the
 sky or probes, keeps its translucency, and its diffuse occlusion is the material's AO times
 `mix(1, screen AO, 0.5)` (`LIGHTMAP_OCCLUSION`), since the bake already holds the shade;
-specular occlusion is unchanged. `ReflectionLightingHash` adds the
+specular occlusion is unchanged. `Reflections.LightingHash` adds the
 loaded bake's inputs while lightmaps or the bake's probes are drawn, so the probes are captured
 again when the bake changes. With no bake, every pixel's alpha is 0 and the frame is the same to the byte.
 
