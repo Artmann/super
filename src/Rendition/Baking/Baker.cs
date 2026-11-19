@@ -19,10 +19,10 @@ internal sealed unsafe class Baker : IDisposable
     private readonly TexelValidity _validity;
 
     /// <exception cref="InvalidOperationException">The device can't trace rays, or can't write single-channel images from compute shaders.</exception>
-    public Baker(VulkanContext context, Renderer renderer)
+    public Baker(VulkanContext context, SceneStores stores)
     {
         _context = context;
-        var tracing = renderer.Tracing
+        var tracing = stores.Tracing
             ?? throw new InvalidOperationException("Baking needs a GPU that can trace rays, and this one can't.");
         if (!context.Abilities.StorageImageExtendedFormats)
         {
@@ -39,10 +39,10 @@ internal sealed unsafe class Baker : IDisposable
             new DescriptorPoolSize(DescriptorType.CombinedImageSampler, pages * 3));
 
         Pages = new TexelPages(context);
-        _draw = new TexelDraw(context, renderer, Pages);
-        _validity = new TexelValidity(context, renderer, tracing);
-        Tracing = new BakeTracePass(context, renderer, tracing);
-        Probes = new BakeProbePass(context, renderer, tracing);
+        _draw = new TexelDraw(context, stores, Pages);
+        _validity = new TexelValidity(context, stores, tracing);
+        Tracing = new BakeTracePass(context, stores, tracing);
+        Probes = new BakeProbePass(context, stores, tracing);
         Filtering = new BakeFilter(context);
         JobPools = new BakeJobPools(context);
     }

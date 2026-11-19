@@ -314,7 +314,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
             gpu.Renderer.SetEnvironment(EvenSky(radiance));
             gpu.RenderOneFrame();
 
-            var sky = gpu.Renderer.ProjectSky();
+            var sky = gpu.Renderer.FrameParts.SceneLighting.EnvironmentSky.Sh.Project();
 
             // An even sky of radiance L projects to its integral times Y0 in the constant band, 4 pi Y0 L = 3.5449 L, and
             // nothing in the linear band.
@@ -372,7 +372,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
     {
         DirectionalLight[] sun = [new() { Mode = LightMode.Realtime, Direction = Vector3.Normalize(towards) }];
         gpu.Renderer.Render(View(sun, new AnalyticSky { Turbidity = 3f }, 1f), []);
-        return gpu.Renderer.ProjectSky();
+        return gpu.Renderer.FrameParts.SceneLighting.EnvironmentSky.Sh.Project();
     }
 
     private static DirectionalLight Sun(Vector3 towards) => new()
@@ -448,7 +448,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
     // frame of it however many frames came between them.
     private byte[] Capture(FrameView view, DrawItem[] draws)
     {
-        for (int i = 0; i < NoisePeriod - 1 || gpu.Renderer.FrameNumber % NoisePeriod != 0; i++)
+        for (int i = 0; i < NoisePeriod - 1 || gpu.Renderer.FrameDrawer.FrameCameras.FrameNumber % NoisePeriod != 0; i++)
         {
             gpu.Renderer.Render(view, draws);
         }

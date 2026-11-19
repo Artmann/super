@@ -108,7 +108,7 @@ public sealed class SkyImageGpuTests(GpuFixture gpu)
         var view = gpu.View(DebugView.None);
         view.Environment.Sky = sky;
         gpu.Renderer.Render(view, []);
-        return gpu.Renderer.ProjectSky();
+        return gpu.Renderer.FrameParts.SceneLighting.EnvironmentSky.Sh.Project();
     }
 
     private byte[] Picture(SkyImageHandle image)

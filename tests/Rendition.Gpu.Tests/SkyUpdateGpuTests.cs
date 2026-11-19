@@ -20,9 +20,9 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
         int errors = gpu.ValidationErrors;
         var view = SunView(Towards(30f));
         gpu.Renderer.Render(view, []);
-        var before = gpu.Renderer.ProjectSky();
+        var before = gpu.Renderer.FrameParts.SceneLighting.EnvironmentSky.Sh.Project();
 
-        int rebakes = gpu.Renderer.SkyRebakes;
+        int rebakes = gpu.Renderer.FrameParts.SceneLighting.EnvironmentSky.Rebakes;
         int waits = gpu.Context.Waits.SubmitAndWaitCount;
         for (int frame = 1; frame <= 6; frame++)
         {
@@ -30,8 +30,8 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
         }
 
         Assert.Equal(waits, gpu.Context.Waits.SubmitAndWaitCount);
-        Assert.Equal(6, gpu.Renderer.SkyRebakes - rebakes);
-        var after = gpu.Renderer.ProjectSky();
+        Assert.Equal(6, gpu.Renderer.FrameParts.SceneLighting.EnvironmentSky.Rebakes - rebakes);
+        var after = gpu.Renderer.FrameParts.SceneLighting.EnvironmentSky.Sh.Project();
         float moved = Vector3.Distance(Rgb(before[0]), Rgb(after[0]));
         Assert.True(moved > 1e-3f, $"The sky's constant band moved {moved} after the sun turned 12 degrees.");
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -53,7 +53,7 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
             gpu.RenderOneFrame();
 
             // An even sky of radiance L projects to 4 pi Y0 L = 3.5449 L in the constant band.
-            AssertClose(3.5449f * colour, Rgb(gpu.Renderer.ProjectSky()[0]), 2e-3f);
+            AssertClose(3.5449f * colour, Rgb(gpu.Renderer.FrameParts.SceneLighting.EnvironmentSky.Sh.Project()[0]), 2e-3f);
         }
         finally
         {
@@ -76,11 +76,11 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
             // The bake is the first thing to see the sun towards B: no frame has drawn it.
             var bake = gpu.Renderer.Baking.Bake(RoomView(Towards(70f)), [cube], new BakeSettings(Room.TexelsPerMetre, BakeQuality.Preview));
             Assert.NotEmpty(bake);
-            var baked = gpu.Renderer.ProjectSky();
+            var baked = gpu.Renderer.FrameParts.SceneLighting.EnvironmentSky.Sh.Project();
 
             // A frame under B projects the sky the bake should have seen.
             gpu.Renderer.Render(RoomView(Towards(70f)), [cube]);
-            var drawn = gpu.Renderer.ProjectSky();
+            var drawn = gpu.Renderer.FrameParts.SceneLighting.EnvironmentSky.Sh.Project();
             for (int k = 0; k < 4; k++)
             {
                 AssertClose(Rgb(drawn[k]), Rgb(baked[k]), 1e-3f);
@@ -110,7 +110,7 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
                 gpu.RenderOneFrame();
             }
 
-            AssertClose(colour, gpu.Renderer.Last.Flat.Irradiance, 2e-3f);
+            AssertClose(colour, gpu.Renderer.FrameDrawer.FrameUniformWriter.Last.Flat.Irradiance, 2e-3f);
         }
         finally
         {
@@ -137,7 +137,7 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
                 gpu.RenderOneFrame();
             }
 
-            AssertClose(colour, gpu.Renderer.Last.Flat.Reflection, 2e-3f);
+            AssertClose(colour, gpu.Renderer.FrameDrawer.FrameUniformWriter.Last.Flat.Reflection, 2e-3f);
         }
         finally
         {
@@ -162,7 +162,7 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
 
         // The next frame reads back what the first one left in the roughest level.
         fresh.RenderOneFrame();
-        AssertClose(colour, fresh.Renderer.Last.Flat.Reflection, 2e-3f);
+        AssertClose(colour, fresh.Renderer.FrameDrawer.FrameUniformWriter.Last.Flat.Reflection, 2e-3f);
         Assert.Equal(errors, fresh.ValidationErrors);
     }
 

@@ -607,7 +607,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
     // frame of it however many frames came between them.
     private byte[] Capture(FrameView view, DrawItem[] draws)
     {
-        for (int i = 0; i < NoisePeriod - 1 || gpu.Renderer.FrameNumber % NoisePeriod != 0; i++)
+        for (int i = 0; i < NoisePeriod - 1 || gpu.Renderer.FrameDrawer.FrameCameras.FrameNumber % NoisePeriod != 0; i++)
         {
             gpu.Renderer.Render(view, draws);
         }

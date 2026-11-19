@@ -23,7 +23,7 @@ public sealed class GpuFixture : IDisposable
     /// <summary>A plain grey material: opaque, with no textures.</summary>
     public MaterialHandle Matte { get; }
 
-    internal VulkanContext Context => Renderer.Context;
+    internal VulkanContext Context => Renderer.FrameParts.SceneStores.Context;
 
     public GpuFixture()
         : this(disableRayTracing: false)

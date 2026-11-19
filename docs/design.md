@@ -1078,6 +1078,17 @@ rendering. Game-facing features belong in Super, which has the audio (see
 
 ## Frame structure
 
+`Renderer` is a thin public face over a few parts. `SceneStores` holds what assets, bakes and frames share: the
+device, the settings, the meshes, the bindless table, the uploads, what waits to be freed, the frame slots and the
+ray tracing structures. `SceneLighting` holds the shadow maps, the sky, the reflection and light probes and the fog,
+and `FrameStages` the stages below, from the G-buffer to the finish. `FrameTargets` keeps the swapchain and the
+scene's targets and makes them again when the window or a resolution changes, and `TargetDescriptors` points the
+passes at them. `FrameParts` hands these four to each step of a frame. `FrameDrawer` runs a frame: it keeps the
+targets, takes the effects and the bakes, plans the probes, has `FrameUniformWriter` write the uniforms,
+`FrameCameras` move the camera on, `FrameDrawPicker` pick the draws, `FrameRecorder` record the command buffer and
+`FramePresenter` acquire, submit and present. `RendererAssets`, `RendererBaking`, `RendererReflections` and
+`RendererStats` are the public groups `Renderer.Assets`, `Baking`, `Reflections` and `Stats`.
+
 ```
 ShadowPass    scene geometry   -> depth from the key light (1024, 2048 or 4096 square, up to 4 cascades)
               scene geometry   -> point and spot light shadows, tiles of one 4096 x 4096 atlas
@@ -1118,7 +1129,7 @@ lands on a window pixel's edge. The G-buffer and the images inside it (HDR, AO, 
 history), bloom's chain, the exposure histogram, the light clusters' tiles (`frame.screen`),
 the TAA jitter and the pixel size that picks a mesh's LOD all follow the G-buffer's extent,
 so they follow the scene size with no code of their own. When the scale changes, the next
-frame waits for the device to go idle once and rebuilds the targets (`RebuildTargets`), the
+frame waits for the device to go idle once and rebuilds the targets (`FrameTargets.Rebuild`), the
 same way a window resize does, and history starts again. Probes have their own small
 G-buffers, and `RenderScale` isn't part of `FrameView`, so it never changes the lighting
 hash or photographs a probe again. Each `GBuffer` keeps what its own images hold
@@ -1369,7 +1380,7 @@ depth as well as sideways, counts as lit.
 The image is `ShadowPass.Resolution` texels square, 2048 unless `RendererOptions.ShadowResolution`
 or `Renderer.Settings.ShadowResolution` (Super's `Graphics.Shadowing.ShadowResolution`) asks for 1024 or 4096.
 A change takes effect at the start of the next `Render`: the renderer waits for the device to
-go idle, `ShadowPass.Resize` replaces the image, and `WriteTargetDescriptors` points the AO,
+go idle, `ShadowPass.Resize` replaces the image, and `FrameTargets.WriteDescriptors` points the AO,
 lighting and particle sets at it. That rewrite also drops a held transition picture, as a
 window resize does. The texel size feeds `CreateMatrix`'s snapping, the normal offset and the
 shadow passes' detail choice.
@@ -1510,7 +1521,7 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
   material's emissive before the ghost's is set, and `probeRadiance` in `probe_light.glsl` leaves
   it out, so neither captures nor traced probes see glows. Bakes keep theirs.
 - `Vignette`, `Grain`, `Sharpening` and `ColorGrading` (bits 23 to 26) work on the CPU:
-  `PostGrade.Without` sets the matching `PostSettings` to neutral before `WriteUniforms` packs
+  `PostGrade.Without` sets the matching `PostSettings` to neutral before `FrameUniformWriter` packs
   them, and `finish.frag` already skips the sharpening work when its strength is 0.
 - `Culling` (bit 27) makes `DetailView.CanSee` true for every ball, for the camera, the
   cascades and the light tiles alike. `SimplerModels` (bit 28) hands `DetailView` a `MaxError`
@@ -2061,7 +2072,7 @@ fixed-grid probes: 64 × 64 tiles at `ProbeQuality.Low`, 84 × 83 at `Medium` an
 before. `EnsureStorage(quality)` makes them on the first frame with the probes on, and again,
 cleared, after `Renderer.Settings.ProbeQuality` (High by default, set from `Graphics.Lighting.ProbeQuality`) changes; `Release()` frees them when
 `RenderEffects.LightProbes` is switched off. Each of the three waits for the device once, in
-`ManageProbeStorage` (through `LightProbes.Ensure` and `Release`, `src/Rendition/LightProbes.cs`) before the frame's fence. With the switch off nothing else is allocated
+`SceneLighting.KeepProbeStorage` (through `LightProbes.Ensure` and `Release`, `src/Rendition/LightProbes.cs`) before the frame's fence. With the switch off nothing else is allocated
 and nothing is recorded, and switching it back on starts every probe uncaptured.
 
 A probe's irradiance alpha is its valid flag: 1 once it has been captured, 0 while it is still
@@ -2164,7 +2175,7 @@ so it fills in at a quarter an update rather than snapping. The test
 rooms and fails without the check. All of this is recorded into the frame's command buffer with
 barriers and no waits.
 
-Where the GPU can trace (`Renderer.Tracing` is set), `ProbeTracePass` replaces the capture, the
+Where the GPU can trace (`SceneStores.Tracing` is set), `ProbeTracePass` replaces the capture, the
 sun map and the fold. `probe_trace.comp` runs one workgroup of 128 invocations per probe of the
 batch, one ray each. The directions are a spherical Fibonacci set turned by a random rotation
 (Shoemake's) seeded by hashing the scheduler's `Frame` with the probe's cascade and slot, so each
@@ -2227,7 +2238,7 @@ diffuse light; specular still comes from screen-space reflections, reflection pr
 the sky. Soft light is now worked out in absolute units in `softLight()`: the sky cube times
 the environment intensity, or the probe value as captured.
 
-The probes update a few a frame inside `Renderer.Render`, with no waits. `ManageProbeStorage`
+The probes update a few a frame inside `Renderer.Render`, with no waits. `SceneLighting.KeepProbeStorage`
 runs before the frame's fence, as above. `LightProbes.Plan` runs before the frame's uniforms are
 written. Its `ProbeBatch` (`src/Rendition/ProbeBatch.cs`) moves the cascades to the camera and hands the `ScrollResult` to the scheduler, and
 queues a `probe_invalidate.comp` dispatch for each cascade that scrolled, which clears the tiles
@@ -2526,7 +2537,7 @@ metres and a trim of 0.5 of one mesh get sides of 63 and 14 at 20 texels a metre
 each, because a material's `Uv2` is unwrapped from only that material's triangles. The area
 comes from the `meshArea` callback, `(mesh, firstIndex, indexCount)`. `Renderer.Assets.CreateMesh`
 keeps a running total of each mesh's triangle areas (`LightmapLayout.CumulativeAreas`, four
-bytes a triangle), and `Renderer.AreaOf` reads a range from it with `LightmapLayout.RangeArea`
+bytes a triangle), and `SceneStores.AreaOf` reads a range from it with `LightmapLayout.RangeArea`
 as the difference of two entries, so a range past the end counts only what the mesh has.
 
 Pages are 2048 texels square and there are at most 8. Squares are sorted by side, largest
@@ -2612,7 +2623,7 @@ so the GPU tests run both.
 geometric normal, it sends 16 rays of 5 cm over the hemisphere, spread by a Fibonacci spiral
 even in the cosine and turned by a hash of the texel. It traces them with `trace.glsl` through
 the same acceleration structures the frame uses: `SetUpTexels` builds a top-level structure from
-all the draws with `TraceScene.Collect` and `Renderer.TraceFlagsOf`, so walls that aren't baked
+all the draws with `TraceScene.Collect` and `SceneStores.TraceFlagsOf`, so walls that aren't baked
 still count. A ray that hits the back of a one-sided surface means the texel is enclosed; when
 more than half do (`BakeGpu.InvalidShare`), the texel is invalid. A texel nothing covers is
 invalid too. The validity shader binds its own set 0 and the resource table as set 1.
@@ -3932,7 +3943,7 @@ through P/Invoke on the four calls of the FidelityFX API (`ffxCreateContext`,
 `ffxDestroyContext`, `ffxDispatch`, `ffxQuery`), with its chained descriptor structs
 written out by hand. The library is looked for once; when it can't be loaded,
 `Upscale.Choose` falls back to TAA and says so once on the error stream, and when the
-context can't be made, `CreateTargets` does the same. The library reports the provider it
+context can't be made, `FrameTargets.Rebuild` does the same. The library reports the provider it
 picked, FSR 3.1.4 here, and `Renderer.Stats.UpscalerVersion` returns it.
 
 FSR draws only while anti-aliasing is on and the render scale is 1 or less. It then owns
@@ -4491,7 +4502,7 @@ next call** (`Baking.LastFrame` included): keep what you need from it, not the f
 other garbage is from a store that allocates in `IsFresh`, which is the store's own. The
 resolver expects the chunks to have passed `BakeFiles.IsRigid`, which `Render` checks first.
 The sky is worked out once, from the original view: the second pass skips `EnvironmentSky.Follow`, and
-`WriteUniforms` reads the `SkySun` that `EnvironmentSky.Follow` stored rather than `SkyModel.Sun` of the view
+`FrameUniformWriter.Write` reads the `SkySun` that `EnvironmentSky.Follow` stored rather than `SkyModel.Sun` of the view
 it draws. So a dropped Baked sun keeps lighting the sky and keeps its disc, and the sky isn't
 baked again without it each frame (`BakedSunGpuTests`).
 
@@ -5097,7 +5108,7 @@ A space's probe band runs one `probeSpacing` in from all six faces of its box. `
 the three axes' `smoothstep(0, spacing, distance in from the nearer face)`, and `softLight` returns
 `mix(liveSoftLight, bakedProbeIrradiance, weight)`; where the bake's probes give -1 the weight is 0, and at 1 the
 bake's probes are returned alone. `frame.bakedProbeCounts.w` is 1 for the band, 0 with no fresh space bake, and 2
-for a hard box, which only `Renderer.BakedProbeBand`, an internal test hook, asks for. Either way the weight is then
+for a hard box, which only `FrameUniformWriter.BakedProbeBand`, an internal test hook, asks for. Either way the weight is then
 multiplied by `frame.bakedFade.x`, the space's fade. The space's lightmap has no
 band, as the space's static surfaces end inside its box.
 
@@ -5118,7 +5129,7 @@ prints nothing at start about it: the reason is only shown when something that n
 asked for, which today is `--debug-view trace`, whose start-up error carries it. Nothing else
 needs it, so a GPU that can't trace plays as before.
 
-`Renderer.Tracing` is a `RayTracing`, made only where `VulkanContext.CanTrace` is true; it is
+`SceneStores.Tracing` is a `RayTracing`, made only where `VulkanContext.CanTrace` is true; it is
 null everywhere else, and nothing below runs. Its `StructureBuilder` loads `KhrAccelerationStructure`
 from the device once, reads `minAccelerationStructureScratchOffsetAlignment` from the device's properties
 and keeps the shared scratch buffer; `BottomLevels` keeps the bottom-level structures and `TopLevelPool`

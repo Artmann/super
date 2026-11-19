@@ -20,11 +20,11 @@ internal sealed unsafe class BakeTracePass : IDisposable
     private readonly TraceScene _traceScene;
     private readonly BakeComputePass _pass;
 
-    public BakeTracePass(VulkanContext context, Renderer renderer, RayTracing tracing)
+    public BakeTracePass(VulkanContext context, SceneStores stores, RayTracing tracing)
     {
         _context = context;
         _tracing = tracing;
-        _traceScene = new TraceScene(renderer.TraceFlagsOf);
+        _traceScene = new TraceScene(stores.TraceFlagsOf);
 
         // The scene and geometry table, the page's position, geometric normal and validity read, the lights, the three
         // sums read and written, the sky, and a chunk's five transfer sums. Set 1 is the resource table again. Each job
@@ -34,7 +34,7 @@ internal sealed unsafe class BakeTracePass : IDisposable
             DescriptorType.AccelerationStructureKhr, DescriptorType.StorageBuffer, image, image, image,
             DescriptorType.StorageBuffer, image, image, image, DescriptorType.CombinedImageSampler,
             image, image, image, image, image);
-        _pass = new BakeComputePass(context, renderer, bindings, (uint)sizeof(BakeTraceConstants), "bake_trace.comp");
+        _pass = new BakeComputePass(context, stores, bindings, (uint)sizeof(BakeTraceConstants), "bake_trace.comp");
     }
 
     /// <summary>Records a build of the frame's top-level structure over <paramref name="draws"/>.</summary>
