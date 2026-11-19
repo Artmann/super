@@ -434,15 +434,15 @@ public sealed class LiveProbeTests(GpuFixture shared)
         using var gpu = new GpuFixture(disableRayTracing: true);
         var scene = ProbeScenes.RedWall(gpu, lightIsSpot: false);
         Render(gpu, scene, Vector3.Zero);
-        int unsettled = gpu.Renderer.ReflectionLightingHash(View(scene, Vector3.Zero));
+        int unsettled = gpu.Renderer.Reflections.LightingHash(View(scene, Vector3.Zero));
         Settle(gpu, scene);
-        int settled = gpu.Renderer.ReflectionLightingHash(View(scene, Vector3.Zero));
+        int settled = gpu.Renderer.Reflections.LightingHash(View(scene, Vector3.Zero));
 
         // Half a metre is one cell of cascade 0, so the move brings in a slab of new probes and the probes are no longer
         // settled; the reflections were captured with settled probes and must not be captured again for it.
         Render(gpu, scene, new Vector3(0.5f, 0f, 0f));
         Assert.False(gpu.Renderer.ProbesSettled);
-        int scrolled = gpu.Renderer.ReflectionLightingHash(View(scene, new Vector3(0.5f, 0f, 0f)));
+        int scrolled = gpu.Renderer.Reflections.LightingHash(View(scene, new Vector3(0.5f, 0f, 0f)));
 
         Assert.NotEqual(unsettled, settled);
         Assert.Equal(settled, scrolled);

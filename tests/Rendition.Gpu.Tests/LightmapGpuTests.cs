@@ -205,13 +205,13 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             var view = View(sky: 1f, TestEffects.OnlyBaked);
 
             gpu.Renderer.Render(view, [plane]);
-            int live = gpu.Renderer.ReflectionLightingHash(view);
+            int live = gpu.Renderer.Reflections.LightingHash(view);
             gpu.Renderer.Bakes = new Loaded(bake);
             gpu.Renderer.Render(view, [plane]);
-            int baked = gpu.Renderer.ReflectionLightingHash(view);
+            int baked = gpu.Renderer.Reflections.LightingHash(view);
             gpu.Renderer.Bakes = NoBakes.Instance;
             gpu.Renderer.Render(view, [plane]);
-            int liveAgain = gpu.Renderer.ReflectionLightingHash(view);
+            int liveAgain = gpu.Renderer.Reflections.LightingHash(view);
 
             Assert.NotEqual(live, baked);
             Assert.Equal(live, liveAgain);

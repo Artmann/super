@@ -43,7 +43,7 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
 
         // Reflection probes are photographed one a frame and each waits in line once at most, so after a frame for every
         // probe each holds a picture taken in the settled light.
-        Settle(host, time, scene.Renderer.ReflectionProbeCount);
+        Settle(host, time, scene.Renderer.Reflections.Count);
 
         host.Capture.Screenshot(path);
         Show(host, time);

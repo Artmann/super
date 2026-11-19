@@ -170,13 +170,13 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
             // A game captures its reflection probes again whenever this hash moves, so it must move once the fade ends:
             // a capture taken mid-fade would otherwise keep the half-faded room until something else changed.
             OneFrame(view, room, Start);
-            int live = gpu.Renderer.ReflectionLightingHash(view);
+            int live = gpu.Renderer.Reflections.LightingHash(view);
             store.Bake = bake;
             OneFrame(view, room, Start);
             OneFrame(view, room, Start + 0.25f);
-            int fading = gpu.Renderer.ReflectionLightingHash(view);
+            int fading = gpu.Renderer.Reflections.LightingHash(view);
             OneFrame(view, room, Start + 2f);
-            int faded = gpu.Renderer.ReflectionLightingHash(view);
+            int faded = gpu.Renderer.Reflections.LightingHash(view);
 
             // The same room loaded with its bake already saved: the first frame that names it shows the bake whole.
             var unnamed = view;
@@ -184,7 +184,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
             gpu.Renderer.Render(unnamed, room);
             OneFrame(view, room, Start + 3f);
             Assert.Equal(1f, gpu.Renderer.LastBakeFrame!.SpaceFade);
-            int loaded = gpu.Renderer.ReflectionLightingHash(view);
+            int loaded = gpu.Renderer.Reflections.LightingHash(view);
 
             Assert.NotEqual(live, fading);
             Assert.NotEqual(fading, faded);

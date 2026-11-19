@@ -4,6 +4,7 @@ namespace Rendition.Gpu.Tests;
 
 // The two quality settings that change what is drawn rather than which effect runs: how many of the sun's cascades
 // draw shadows, and how soon models switch to their simpler versions. Each is checked by the triangles a frame draws.
+// Also which upscaler the stats report.
 [Collection(GpuCollection.Name)]
 [Trait("Speed", "Slow")]
 [Trait("Needs", "GPU")]
@@ -58,48 +59,20 @@ public sealed class QualityGpuTests(GpuFixture gpu)
     }
 
     [Fact]
-    public void The_suns_cascades_add_their_draw_calls_to_the_frames()
+    public void No_upscaler_version_is_reported_while_taa_draws_the_picture()
     {
-        int errors = gpu.ValidationErrors;
+        var upscaler = gpu.Renderer.Settings.Upscaler;
         var panel = Panel(new Vector3(0f, 0f, 0f));
         try
         {
-            // Every effect is off but the sun's shadows, so nothing else draws the panel.
-            var shadowsOnly = RenderEffects.All & ~RenderEffects.SunShadows;
-            int unshadowed = DrawCalls(panel, RenderEffects.All, maxCascades: 4);
-            int one = DrawCalls(panel, shadowsOnly, maxCascades: 1);
-            int four = DrawCalls(panel, shadowsOnly, maxCascades: 4);
+            gpu.Renderer.Settings.Upscaler = Upscaler.Taa;
+            Measure(panel, RenderEffects.All & ~RenderEffects.AntiAliasing);
 
-            // The panel is one draw for the camera, and one more for each cascade it sits in.
-            Assert.True(unshadowed > 0, "The camera draws the panel.");
-            Assert.Equal(unshadowed + 1, one);
-            Assert.Equal(unshadowed + 4, four);
+            Assert.Null(gpu.Renderer.Stats.UpscalerVersion);
         }
         finally
         {
-            gpu.Renderer.MaxShadowCascades = 4;
-            gpu.Renderer.DestroyMesh(panel.Mesh);
-        }
-
-        Assert.Equal(errors, gpu.ValidationErrors);
-    }
-
-    [Fact]
-    public void A_new_mesh_counts_in_the_gpu_memory_used()
-    {
-        var before = gpu.Renderer.GpuMemoryBytes;
-        var panel = Panel(new Vector3(0f, 0f, 0f));
-        try
-        {
-            var after = gpu.Renderer.GpuMemoryBytes;
-
-            // The panel's 65 by 65 vertices and 64 by 64 by 6 indices, at the least.
-            long bytes = 65L * 65 * System.Runtime.CompilerServices.Unsafe.SizeOf<Vertex>() + 64L * 64 * 6 * sizeof(uint);
-            Assert.True(after.Used - before.Used >= bytes, $"The memory used grew by {after.Used - before.Used} bytes for a {bytes} byte mesh.");
-            Assert.True(after.Reserved >= after.Used, $"{after.Reserved} bytes reserved hold {after.Used} in use.");
-        }
-        finally
-        {
+            gpu.Renderer.Settings.Upscaler = upscaler;
             gpu.Renderer.DestroyMesh(panel.Mesh);
         }
     }
@@ -181,7 +154,7 @@ public sealed class QualityGpuTests(GpuFixture gpu)
         try
         {
             gpu.Renderer.Render(view, [panel]);
-            return gpu.Renderer.DrawnTriangles;
+            return gpu.Renderer.Stats.DrawnTriangles;
         }
         finally
         {

@@ -141,7 +141,7 @@ public class ReflectionProbeTests
         var view = new FrameView { Lights = sun, Environment = new EnvironmentSettings { Intensity = 1f } };
         view.Shadows.Center = new Vector3(1f, 0f, -5f);
         view.Shadows.Radius = 12f;
-        int before = Renderer.ReflectionLightingHash(view, environmentVersion: 1);
+        int before = RendererReflections.LightingHash(view, environmentVersion: 1);
 
         // What SceneRenderer does when the camera moves: the shadows follow its target.
         var reframed = view;
@@ -152,8 +152,8 @@ public class ReflectionProbeTests
         var sunTurned = view;
         sunTurned.Lights = turned;
 
-        Assert.Equal(before, Renderer.ReflectionLightingHash(reframed, environmentVersion: 1));
-        Assert.NotEqual(before, Renderer.ReflectionLightingHash(sunTurned, environmentVersion: 1));
+        Assert.Equal(before, RendererReflections.LightingHash(reframed, environmentVersion: 1));
+        Assert.NotEqual(before, RendererReflections.LightingHash(sunTurned, environmentVersion: 1));
     }
 
     [Fact]
@@ -162,7 +162,7 @@ public class ReflectionProbeTests
         var sun = new[] { new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(3f), CastsShadow = true } };
         var view = new FrameView { Lights = sun, Environment = new EnvironmentSettings { Intensity = 1f } };
         view.Shadows.Radius = 12f;
-        int before = Renderer.ReflectionLightingHash(view, environmentVersion: 1);
+        int before = RendererReflections.LightingHash(view, environmentVersion: 1);
 
         var brighter = view;
         brighter.Lights = new[] { sun[0] with { Radiance = new Vector3(4f) } };
@@ -183,16 +183,16 @@ public class ReflectionProbeTests
         var noWear = view;
         noWear.Off = RenderEffects.WearAndDirt;
 
-        Assert.NotEqual(before, Renderer.ReflectionLightingHash(brighter, 1));
-        Assert.NotEqual(before, Renderer.ReflectionLightingHash(dimSky, 1));
-        Assert.NotEqual(before, Renderer.ReflectionLightingHash(view, 2));
-        Assert.NotEqual(before, Renderer.ReflectionLightingHash(clearSky, 1));
-        Assert.NotEqual(before, Renderer.ReflectionLightingHash(noLightShadows, 1));
-        Assert.NotEqual(before, Renderer.ReflectionLightingHash(noLocalLights, 1));
-        Assert.Equal(before, Renderer.ReflectionLightingHash(noOcclusion, 1));
-        Assert.Equal(before, Renderer.ReflectionLightingHash(noContact, 1));
-        Assert.Equal(before, Renderer.ReflectionLightingHash(noMultiscatter, 1));
-        Assert.Equal(before, Renderer.ReflectionLightingHash(noWear, 1));
+        Assert.NotEqual(before, RendererReflections.LightingHash(brighter, 1));
+        Assert.NotEqual(before, RendererReflections.LightingHash(dimSky, 1));
+        Assert.NotEqual(before, RendererReflections.LightingHash(view, 2));
+        Assert.NotEqual(before, RendererReflections.LightingHash(clearSky, 1));
+        Assert.NotEqual(before, RendererReflections.LightingHash(noLightShadows, 1));
+        Assert.NotEqual(before, RendererReflections.LightingHash(noLocalLights, 1));
+        Assert.Equal(before, RendererReflections.LightingHash(noOcclusion, 1));
+        Assert.Equal(before, RendererReflections.LightingHash(noContact, 1));
+        Assert.Equal(before, RendererReflections.LightingHash(noMultiscatter, 1));
+        Assert.Equal(before, RendererReflections.LightingHash(noWear, 1));
     }
 
     [Fact]
@@ -201,18 +201,18 @@ public class ReflectionProbeTests
         // The lamp is 1 m outside the box's -x side, with a range of 2 m, so it reaches in. The far one is 20 m off.
         var lamp = new LocalLight { Key = 1, Position = new Vector3(-4f, 2f, 0f), Range = 2f, Radiance = new Vector3(5f) };
         var far = new LocalLight { Key = 2, Position = new Vector3(-24f, 2f, 0f), Range = 2f, Radiance = new Vector3(5f) };
-        int dark = Renderer.ReflectionLightsHash([], BoxMin, BoxMax);
-        int lit = Renderer.ReflectionLightsHash([lamp], BoxMin, BoxMax);
+        int dark = RendererReflections.LightsHash([], BoxMin, BoxMax);
+        int lit = RendererReflections.LightsHash([lamp], BoxMin, BoxMax);
 
         Assert.NotEqual(dark, lit);
-        Assert.NotEqual(lit, Renderer.ReflectionLightsHash([lamp with { Range = 3f }], BoxMin, BoxMax));
-        Assert.NotEqual(lit, Renderer.ReflectionLightsHash([lamp with { CastsShadow = true }], BoxMin, BoxMax));
-        Assert.Equal(lit, Renderer.ReflectionLightsHash([lamp with { Radiance = new Vector3(4f) }], BoxMin, BoxMax));
-        Assert.Equal(lit, Renderer.ReflectionLightsHash([lamp with { Position = new Vector3(-4.5f, 2.1f, 0.1f) }], BoxMin, BoxMax));
-        Assert.Equal(lit, Renderer.ReflectionLightsHash([lamp, far], BoxMin, BoxMax));
+        Assert.NotEqual(lit, RendererReflections.LightsHash([lamp with { Range = 3f }], BoxMin, BoxMax));
+        Assert.NotEqual(lit, RendererReflections.LightsHash([lamp with { CastsShadow = true }], BoxMin, BoxMax));
+        Assert.Equal(lit, RendererReflections.LightsHash([lamp with { Radiance = new Vector3(4f) }], BoxMin, BoxMax));
+        Assert.Equal(lit, RendererReflections.LightsHash([lamp with { Position = new Vector3(-4.5f, 2.1f, 0.1f) }], BoxMin, BoxMax));
+        Assert.Equal(lit, RendererReflections.LightsHash([lamp, far], BoxMin, BoxMax));
 
         // Swung out of reach, it's gone as far as the box can tell.
-        Assert.Equal(dark, Renderer.ReflectionLightsHash([lamp with { Position = new Vector3(-6f, 2f, 0f) }], BoxMin, BoxMax));
+        Assert.Equal(dark, RendererReflections.LightsHash([lamp with { Position = new Vector3(-6f, 2f, 0f) }], BoxMin, BoxMax));
     }
 
     private static bool CaptureIfDue(ReflectionProbeSchedule schedule, in ReflectionProbeRequest request, int hash)
