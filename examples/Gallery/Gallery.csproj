@@ -11,6 +11,7 @@
   <!-- Keys 1, 2 and 3 for live, baked and direct lighting, shared with the Hamlet. -->
   <ItemGroup>
     <Compile Include="..\Shared\LightingSwitch.cs" Link="LightingSwitch.cs" />
+    <Compile Include="..\Shared\Flicker.cs" Link="Flicker.cs" />
   </ItemGroup>
 
   <!-- The glow shader for the lamp room's floor panels and lamps. -->

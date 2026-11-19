@@ -10,14 +10,11 @@ namespace Gallery;
 /// with the rooms off its west side and the colonnade on its east side, and ends at the
 /// courtyard behind a glass screen.
 /// </summary>
-public sealed class Building(Content content, Dictionary<string, Surface> materials)
+public sealed class Building(World world, Content content, Dictionary<string, Surface> materials)
 {
     private const float Wall = GalleryShapes.Wall;
 
-    private readonly GalleryShapes _shapes = new(content, materials);
-
-    /// <summary>Everything to draw, each with its own place.</summary>
-    public IReadOnlyList<(ModelRef Mesh, Matrix4x4 Transform)> Pieces => _shapes.Pieces;
+    private readonly GalleryShapes _shapes = new(world, content, materials);
 
     public void Build()
     {

@@ -5,9 +5,10 @@ namespace Gallery;
 
 /// <summary>
 /// Places plain boxes, cylinders, cones and spheres in flat matte materials, and plaster walls and roofs with holes cut
-/// in them. Boxes and cylinders of the same size and material share one mesh. Everything is static.
+/// in them, each an entity in the world. Boxes and cylinders of the same size and material share one mesh. Everything
+/// is <see cref="Static"/>.
 /// </summary>
-public sealed class GalleryShapes(Content content, Dictionary<string, Surface> materials)
+public sealed class GalleryShapes(World world, Content content, Dictionary<string, Surface> materials)
 {
     /// <summary>How thick the walls and roofs are.</summary>
     public const float Wall = 0.3f;
@@ -16,10 +17,6 @@ public sealed class GalleryShapes(Content content, Dictionary<string, Surface> m
     private const float UvPerMetre = 0.5f;
 
     private readonly Dictionary<(Vector3 Size, string Material), ModelRef> _boxes = [];
-    private readonly List<(ModelRef Mesh, Matrix4x4 Transform)> _pieces = [];
-
-    /// <summary>Everything placed, each with its own place.</summary>
-    public IReadOnlyList<(ModelRef Mesh, Matrix4x4 Transform)> Pieces => _pieces;
 
     /// <summary>A hole in a wall or a roof, from one corner to the other in the wall's own two axes.</summary>
     public readonly record struct Hole(float From, float To, float Bottom, float Top);
@@ -108,7 +105,7 @@ public sealed class GalleryShapes(Content content, Dictionary<string, Surface> m
             _boxes[key] = mesh;
         }
 
-        _pieces.Add((mesh, Matrix4x4.CreateTranslation((min + max) / 2f)));
+        Place(mesh, (min + max) / 2f);
     }
 
     /// <summary>A cylinder standing on <paramref name="foot"/>.</summary>
@@ -125,15 +122,17 @@ public sealed class GalleryShapes(Content content, Dictionary<string, Surface> m
             _boxes[key] = mesh;
         }
 
-        _pieces.Add((mesh, Matrix4x4.CreateTranslation(foot + new Vector3(0f, height / 2f, 0f))));
+        Place(mesh, foot + new Vector3(0f, height / 2f, 0f));
     }
 
     /// <summary>A sphere around <paramref name="centre"/>.</summary>
     public void Sphere(Vector3 centre, float radius, string material)
     {
         var mesh = content.Mesh(Shapes.Sphere(radius, 48, 24, materials[material], uvPerMetre: UvPerMetre), isStatic: true);
-        _pieces.Add((mesh, Matrix4x4.CreateTranslation(centre)));
+        Place(mesh, centre);
     }
+
+    private void Place(ModelRef mesh, Vector3 at) => world.Spawn(Transform.At(at), new Model(mesh), new Static());
 
     private static Vector3 Round(Vector3 size) =>
         new(MathF.Round(size.X, 3), MathF.Round(size.Y, 3), MathF.Round(size.Z, 3));

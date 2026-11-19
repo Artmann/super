@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Super\Super.csproj" />
+    <Compile Include="..\Shared\Flicker.cs" Link="Flicker.cs" />
   </ItemGroup>
 
   <!-- The stone textures in content, and the props in the shared assets folder. -->

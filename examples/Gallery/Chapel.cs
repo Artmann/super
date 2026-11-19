@@ -1,20 +1,22 @@
 using System.Numerics;
+using Examples;
 using Rendition;
 using Super;
 
 namespace Gallery;
 
-/// <summary>What moves and flickers in the chapel: a lantern swinging on its chain over the aisle, and candles on the altar.</summary>
+/// <summary>
+/// What moves and flickers in the chapel: a lantern swinging on its chain over the aisle, and candles on the altar. The
+/// lantern's chain, frame, candle, light and flame all hang from one entity at the hook, which <see cref="Swing"/> turns.
+/// </summary>
 internal sealed class Chapel
 {
-    private const int LanternKey = 110;
-    private const int CandleKey = 120;
-    private const int FlameKey = 1_000_000;
-    private const int ModelKey = GalleryPlan.DynamicKey + 20;
-
     /// <summary>The chapel lantern hangs from a hook in the roof, over the aisle.</summary>
     private static readonly Vector3 LanternHook = new(-6.2f, 8f, -36f);
     private const float LanternChain = 4.4f;
+
+    /// <summary>The lantern's flame, and where its wick is under the hook.</summary>
+    private static readonly Vector3 LanternWick = new(0f, -LanternChain - 0.335f, 0f);
 
     /// <summary>A candle flame: small glowing puffs that read as one teardrop.</summary>
     private static readonly ParticleEffect Flame = new ParticleEffect().Add(new ParticleEmitter(count: 24, lifetime: 0.3f)
@@ -28,80 +30,94 @@ internal sealed class Chapel
         .Glow(5f)
         .Fade(0.05f, 0.6f));
 
-    private readonly List<(Vector3 Foot, float Height)> _candles = [];
-    private readonly ModelRef _metal;
-    private readonly ModelRef _wax;
+    private static readonly Vector3 LanternColor = new(1.8f, 1.05f, 0.4f);
 
-    /// <summary>Makes the lantern's metal in <paramref name="shade"/>, and the wax.</summary>
-    public Chapel(Content content, Surface shade)
+    private readonly World _world;
+    private readonly Entity _pivot;
+    private readonly Entity _lanternLight;
+    private readonly Entity _lanternFlame;
+    private bool _lit = true;
+
+    /// <summary>Hangs the lantern, its metal in <paramref name="shade"/>, and stands the candles on the altar.</summary>
+    public Chapel(World world, Content content, Surface shade)
     {
-        _metal = content.Mesh(Shapes.Box(Vector3.One, shade));
-        _wax = content.Mesh(Shapes.Cylinder(0.5f, 0.5f, 1f, 16, new Surface { Color = new Vector3(0.9f, 0.84f, 0.7f), Roughness = 0.6f }));
+        _world = world;
+        var metal = content.Mesh(Shapes.Box(Vector3.One, shade));
+        var wax = content.Mesh(Shapes.Cylinder(0.5f, 0.5f, 1f, 16, new Surface { Color = new Vector3(0.9f, 0.84f, 0.7f), Roughness = 0.6f }));
 
-        // Seven candles along the altar, of different heights.
-        float[] heights = [0.22f, 0.3f, 0.18f, 0.34f, 0.2f, 0.28f, 0.24f];
-        for (int i = 0; i < heights.Length; i++)
-        {
-            _candles.Add((new Vector3(-10.15f, 1.08f, -37.2f + i * 0.4f), heights[i]));
-        }
-    }
-
-    /// <summary>
-    /// Draws the chapel: the lantern swings with <paramref name="seconds"/>, the view's time, and the flames flicker
-    /// with <paramref name="flameSeconds"/>, the game's.
-    /// </summary>
-    public void Draw(View view, float seconds, float flameSeconds, bool lanternLit)
-    {
-        // The lantern swings on its chain along the aisle.
-        float swing = 0.14f * MathF.Sin(seconds * 1.6f);
-        var chain = Matrix4x4.CreateRotationZ(swing);
-        var lantern = LanternHook + Vector3.Transform(new Vector3(0f, -LanternChain, 0f), chain);
-        var place = chain * Matrix4x4.CreateTranslation(lantern);
-        view.Model(ModelKey, _metal, Matrix4x4.CreateScale(0.015f, LanternChain, 0.015f) * Matrix4x4.CreateTranslation(0f, LanternChain / 2f, 0f) * place);
-        view.Model(ModelKey + 1, _metal, Matrix4x4.CreateScale(0.28f, 0.06f, 0.28f) * Matrix4x4.CreateTranslation(0f, -0.03f, 0f) * place);
-        view.Model(ModelKey + 2, _metal, Matrix4x4.CreateScale(0.24f, 0.03f, 0.24f) * Matrix4x4.CreateTranslation(0f, -0.48f, 0f) * place);
-        int post = 0;
+        _pivot = world.Spawn(Transform.At(LanternHook));
+        Hang(metal, new Vector3(0f, -LanternChain / 2f, 0f), new Vector3(0.015f, LanternChain, 0.015f));
+        Hang(metal, new Vector3(0f, -LanternChain - 0.03f, 0f), new Vector3(0.28f, 0.06f, 0.28f));
+        Hang(metal, new Vector3(0f, -LanternChain - 0.48f, 0f), new Vector3(0.24f, 0.03f, 0.24f));
         foreach (var (px, pz) in new[] { (-0.11f, -0.11f), (0.11f, -0.11f), (-0.11f, 0.11f), (0.11f, 0.11f) })
         {
-            view.Model(ModelKey + 3 + post++, _metal, Matrix4x4.CreateScale(0.02f, 0.42f, 0.02f) * Matrix4x4.CreateTranslation(px, -0.27f, pz) * place);
+            Hang(metal, new Vector3(px, -LanternChain - 0.27f, pz), new Vector3(0.02f, 0.42f, 0.02f));
         }
 
-        view.Model(ModelKey + 10, _wax, Matrix4x4.CreateScale(0.05f, 0.12f, 0.05f) * Matrix4x4.CreateTranslation(0f, -0.405f, 0f) * place);
-        var wick = Vector3.Transform(new Vector3(0f, -0.335f, 0f), place);
-        if (lanternLit)
-        {
-            float lanternFlicker = 1f + 0.08f * MathF.Sin(flameSeconds * 9f) + 0.05f * MathF.Sin(flameSeconds * 23f);
-            view.Lights.Point(LanternKey, new PointLight(wick + new Vector3(0f, 0.05f, 0f), new Vector3(1.8f, 1.05f, 0.4f) * lanternFlicker, 9f) { Radius = 0.04f, Mode = LightMode.Mixed });
-            DrawFlame(view, FlameKey, wick, flameSeconds);
-        }
+        Hang(wax, new Vector3(0f, -LanternChain - 0.405f, 0f), new Vector3(0.05f, 0.12f, 0.05f));
+        _lanternLight = world.Spawn(Transform.Identity, LanternLight(), LanternFlicker(), new Parent(_pivot));
+        _lanternFlame = world.Spawn(Transform.At(LanternWick), new Emitter(Flame), new Parent(_pivot));
 
-        DrawCandles(view, flameSeconds);
+        Candles(world, wax);
+        Swing(0f);
     }
+
+    /// <summary>Swings the lantern on its chain along the aisle to where it is at <paramref name="seconds"/>.</summary>
+    public void Swing(float seconds)
+    {
+        _world.Get<Transform>(_pivot).Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, 0.14f * MathF.Sin(seconds * 1.6f));
+    }
+
+    /// <summary>Puts the lantern out, or lights it again: its light and its flame go and come back.</summary>
+    public void Light(bool lit)
+    {
+        if (lit == _lit)
+        {
+            return;
+        }
+
+        _lit = lit;
+        if (lit)
+        {
+            _world.Add(_lanternLight, LanternLight());
+            _world.Add(_lanternLight, LanternFlicker());
+            _world.Add(_lanternFlame, new Emitter(Flame));
+        }
+        else
+        {
+            _world.Remove<PointLight>(_lanternLight);
+            _world.Remove<Flicker>(_lanternLight);
+            _world.Remove<Emitter>(_lanternFlame);
+        }
+    }
+
+    private static PointLight LanternLight() =>
+        new(LanternWick + new Vector3(0f, 0.05f, 0f), LanternColor, 9f) { Radius = 0.04f, Mode = LightMode.Mixed };
+
+    private static Flicker LanternFlicker() => new(LanternColor, 0.08f, 9f, 0f, Ripple: 0.05f, RippleSpeed: 23f);
+
+    private void Hang(ModelRef mesh, Vector3 at, Vector3 scale) =>
+        _world.Spawn(new Transform(at, Quaternion.Identity, scale), new Model(mesh), new Parent(_pivot));
 
     /// <summary>
-    /// A row of candles on the altar, each flickering on its own, with no real-time shadows. They overlap each other, so
-    /// only the first three find a channel in the bake's shadow mask, which shades the building from them; the other
-    /// four have no shadows at all.
+    /// A row of seven candles on the altar, of different heights, each flickering on its own, with no real-time
+    /// shadows. They overlap each other, so only the first three find a channel in the bake's shadow mask, which shades
+    /// the building from them; the other four have no shadows at all.
     /// </summary>
-    private void DrawCandles(View view, float flameSeconds)
+    private static void Candles(World world, ModelRef wax)
     {
-        for (int i = 0; i < _candles.Count; i++)
+        float[] heights = [0.22f, 0.3f, 0.18f, 0.34f, 0.2f, 0.28f, 0.24f];
+        var color = new Vector3(0.4f, 0.19f, 0.055f);
+        for (int i = 0; i < heights.Length; i++)
         {
-            var (foot, height) = _candles[i];
-            view.Model(ModelKey + 20 + i, _wax, Matrix4x4.CreateScale(0.045f, height, 0.045f) * Matrix4x4.CreateTranslation(foot + new Vector3(0f, height / 2f, 0f)));
+            var foot = new Vector3(-10.15f, 1.08f, -37.2f + i * 0.4f);
+            float height = heights[i];
+            world.Spawn(new Transform(foot + new Vector3(0f, height / 2f, 0f), Quaternion.Identity, new Vector3(0.045f, height, 0.045f)), new Model(wax));
             var tip = foot + new Vector3(0f, height + 0.012f, 0f);
-            float flicker = 1f + 0.15f * MathF.Sin(flameSeconds * 13f + i * 1.7f) + 0.08f * MathF.Sin(flameSeconds * 29f + i);
-            view.Lights.Point(CandleKey + i, new PointLight(tip + new Vector3(0f, 0.03f, 0f), new Vector3(0.4f, 0.19f, 0.055f) * flicker, 3f) { Shadows = false, Mode = LightMode.Mixed });
-            DrawFlame(view, FlameKey + (i + 1) * 1000, tip, flameSeconds);
+            world.Spawn(
+                new PointLight(tip + new Vector3(0f, 0.03f, 0f), color, 3f) { Shadows = false, Mode = LightMode.Mixed },
+                new Flicker(color, 0.15f, 13f, i * 1.7f, Ripple: 0.08f, RippleSpeed: 29f, RipplePhase: i));
+            world.Spawn(Transform.At(tip), new Emitter(Flame));
         }
-    }
-
-    /// <summary>A flame that never goes out: this second's puffs and last second's, each under its own key.</summary>
-    private static void DrawFlame(View view, int key, Vector3 at, float flameSeconds)
-    {
-        int second = (int)flameSeconds;
-        float into = flameSeconds - second;
-        view.Effects.Particles(key + (second % 500), Flame, at, into);
-        view.Effects.Particles(key + ((second + 499) % 500), Flame, at, into + 1f);
     }
 }

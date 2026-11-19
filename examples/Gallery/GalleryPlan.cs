@@ -29,9 +29,6 @@ public static class GalleryPlan
     /// <summary>The lamp room's three lamps: the middle of each glowing disc.</summary>
     public static readonly Vector3[] Lamps = [new(-9f, 2.9f, -22.8f), new(-6.5f, 2.9f, -22.8f), new(-4f, 2.9f, -22.8f)];
 
-    /// <summary>The first draw key of what moves. The building's pieces take the keys below it.</summary>
-    public const int DynamicKey = 10_000;
-
     /// <summary>A box in the world, from one corner to the other.</summary>
     public readonly record struct Area(Vector3 Min, Vector3 Max)
     {
