@@ -46,16 +46,19 @@ public sealed class World : ITickHook, IStateHook
         }
 
         Archetypes.Touched(mask);
-        if (!Archetypes.Reactions.AnyRemoved)
+        if (Archetypes.Reactions.AnyRemoved)
+        {
+            // What the handlers change waits until the entity is gone, so nothing they give it outlives it.
+            using var held = Pending.Hold(this);
+            Archetypes.Reactions.RunRemoved(this, entity, mask);
+            _entities.Free(entity);
+        }
+        else
         {
             _entities.Free(entity);
-            return;
         }
 
-        // What the handlers change waits until the entity is gone, so nothing they give it outlives it.
-        using var held = Pending.Hold(this);
-        Archetypes.Reactions.RunRemoved(this, entity, mask);
-        _entities.Free(entity);
+        WorldHierarchy.DestroyChildren(this, entity);
     }
 
     public bool IsAlive(Entity entity) => _entities.IsAlive(entity);

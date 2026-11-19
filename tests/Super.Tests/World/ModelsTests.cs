@@ -141,12 +141,12 @@ public class ModelsTests
     }
 
     [Fact]
-    public void A_dead_parent_leaves_the_child_where_it_is()
+    public void A_child_given_a_dead_parent_draws_where_it_is()
     {
         var parent = Spawn(Transform.At(new Vector3(10f, 0f, 0f)));
+        _world.Destroy(parent);
         var child = Spawn(Transform.At(new Vector3(0f, 1f, 0f)));
         _world.Add(child, new Parent(parent));
-        _world.Destroy(parent);
 
         var drawn = Draw(0f);
 
