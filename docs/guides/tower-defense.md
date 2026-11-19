@@ -1303,3 +1303,172 @@ dotnet run -c Release -- --screenshot lost.png --script start --ticks 1500 --siz
 ```
 
 ![The game over screen, "The outpost fell", with walkers all along the road](../media/outpost-7-lost.webp)
+
+## 8. Testing your game
+
+You've been clicking around to check that things work. That's fine for a quick look, but
+it gets old, and it misses things. Super can run your game with no window at all, as fast
+as your machine goes, so a test can play a whole minute of Outpost in a blink and then
+check what happened.
+
+### A test project
+
+Make an ordinary xUnit project next to the game and point it at the game:
+
+```
+dotnet new xunit -o Outpost.Tests
+dotnet add Outpost.Tests reference Outpost
+```
+
+The test helpers live in `Super.Testing`, which comes with the Super package, so the test
+project gets them through the game and needs nothing else.
+
+### Starting a game in a test
+
+`HeadlessGame.Create` builds the game the same way the window does. It takes a seed and the
+same `AddOutpost` that `Program.cs` uses, so the test plays exactly the game you ship:
+
+```csharp
+using System.Numerics;
+using OutpostExample;
+using Super;
+using Super.Testing;
+
+public class OutpostTests
+{
+    /// <summary>A game on its title screen.</summary>
+    private static HeadlessRun<OutpostGame> Open(int seed = 1) => HeadlessGame.Create<OutpostGame>(seed, services => services.AddOutpost());
+
+    /// <summary>A game past the title screen, playing.</summary>
+    private static HeadlessRun<OutpostGame> Start(int seed = 1)
+    {
+        var run = Open(seed);
+        run.States<Screen>().Set(Screen.Playing);
+        run.Ticks(1);
+        return run;
+    }
+}
+```
+
+`run.Ticks(n)` plays that many ticks. At 30 ticks a second, `run.Ticks(30 * 40)` is forty
+seconds of play. `run.Game` is your `OutpostGame`, so a test can look at the gold, the
+towers and the enemies through the properties you gave it. `Start` jumps straight past the
+title, because most tests don't care about it.
+
+Here's a whole test. With one life left and no towers, the first walker to reach the base
+should end the game:
+
+```csharp
+[Fact]
+public void Losing_every_life_ends_the_game()
+{
+    using var run = Start();
+
+    run.Game.Player.Lives = 1;
+    run.Ticks(30 * 40);
+
+    Assert.Equal(Screen.Lost, run.States<Screen>().Current);
+    Assert.Contains(run.ShownText, text => text.Text == "The outpost fell");
+}
+```
+
+`run.ShownText` is every piece of text the interface is showing, so you can check the
+screen the player sees without looking at a picture.
+
+### Pressing buttons
+
+`run.Input` plays input the way a player would. You can click at a spot on the screen, or
+press one of your own controls directly, so the test keeps working if you change which key
+it's bound to later. This test
+loses a game in the middle of a wave, presses Restart, and checks that nothing from the old
+game is left:
+
+```csharp
+[Fact]
+public void Restarting_mid_wave_starts_clean()
+{
+    using var run = Start();
+    var game = run.Game;
+    Assert.True(game.Towers.TryBuild(3, 2));
+    run.Ticks(30 * 20);
+    Assert.NotEmpty(game.Enemies.All);
+    Assert.NotEmpty(game.Shots.All);
+
+    game.Player.Lives = 0;
+    run.Ticks(1);
+    Assert.Equal(Screen.Lost, run.States<Screen>().Current);
+
+    run.Input.Press(Control.Restart);
+    run.Ticks(1);
+
+    Assert.Equal(Screen.Playing, run.States<Screen>().Current);
+    Assert.Equal(100, game.Player.Gold);
+    Assert.Equal(10, game.Player.Lives);
+    Assert.Empty(game.Towers.All);
+    Assert.Empty(game.Enemies.All);
+    Assert.Empty(game.Shots.All);
+    Assert.Equal(1, game.Waves.Number);
+}
+```
+
+The two `NotEmpty` checks near the top matter. Without them, the test would pass even if
+the wave never got going, and then it wouldn't prove the restart cleared anything.
+
+### Rules that always hold
+
+Some things should be true on every single tick, like "gold never goes below zero". An
+invariant checks a rule after every tick and fails the test on the tick it breaks, so you
+find out when it went wrong, not just that it did:
+
+```csharp
+[Theory, Seeds(10)]
+public void Gold_never_goes_negative(int seed)
+{
+    using var run = Start(seed);
+    run.Invariant("gold never goes below zero", game => game.Player.Gold >= 0);
+
+    // Click somewhere new on the field every second, far more often than the player can pay.
+    for (int second = 0; second < 120; second++)
+    {
+        var spot = new Vector2(250 + second % 9 * 100, 250 + second / 9 % 4 * 100);
+        run.Input.Click(MouseButton.Left, at: spot);
+        run.Ticks(30);
+    }
+
+    Assert.NotEmpty(run.Game.Towers.All);
+}
+```
+
+`Seeds(10)` runs the test with ten different seeds. The seed changes where each enemy
+walks on the road, so each run plays a slightly different game. Two minutes of clicking all
+over the field tries to build far more towers than the gold allows.
+
+A good habit: when you write a test, break the code it checks on purpose and watch the test
+fail. If `TryBuild` forgets to check the gold, this test fails on its first seed. A test
+that passes either way isn't checking anything.
+
+Run them all with:
+
+```
+dotnet test Outpost.Tests
+```
+
+There's much more in [Testing](../testing.md), such as moving the mouse, reading where a
+view landed on screen and checking the camera.
+
+### Seeing it
+
+Tests tell you the rules work. To see what it looks like, the game itself can save a
+picture or a video without you touching the window. Every screenshot in this guide was made
+this way:
+
+```
+dotnet run -c Release -- --screenshot towers.png --script towers --seed 1 --ticks 300 --size 1280x720
+dotnet run -c Release -- --record towers.mp4 --seconds 10 --script towers --seed 1 --ticks 300
+```
+
+`--ticks` plays that many ticks first, as fast as it can, and `--seed` makes it the same
+game every time. `--script` plays one of the input scripts from `Scripts`, so the game gets
+past the title and builds its towers. With the same options you get the same picture, which
+makes it easy to compare before and after a change. [The command line](../command-line.md)
+lists every option.

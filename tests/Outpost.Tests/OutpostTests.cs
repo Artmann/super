@@ -8,12 +8,12 @@ namespace Outpost.Tests;
 public class OutpostTests
 {
     /// <summary>A game on its title screen.</summary>
-    private static HeadlessRun<OutpostGame> Open() => HeadlessGame.Create<OutpostGame>(1, services => services.AddOutpost());
+    private static HeadlessRun<OutpostGame> Open(int seed = 1) => HeadlessGame.Create<OutpostGame>(seed, services => services.AddOutpost());
 
     /// <summary>A game past the title screen, playing.</summary>
-    private static HeadlessRun<OutpostGame> Start()
+    private static HeadlessRun<OutpostGame> Start(int seed = 1)
     {
-        var run = Open();
+        var run = Open(seed);
         run.States<Screen>().Set(Screen.Playing);
         run.Ticks(1);
         return run;
@@ -375,5 +375,22 @@ public class OutpostTests
 
         Assert.Equal(Screen.Won, run.States<Screen>().Current);
         Assert.Contains(run.ShownText, text => text.Text == "You held the outpost!");
+    }
+
+    [Theory, Seeds(10)]
+    public void Gold_never_goes_negative(int seed)
+    {
+        using var run = Start(seed);
+        run.Invariant("gold never goes below zero", game => game.Player.Gold >= 0);
+
+        // Click somewhere new on the field every second, far more often than the player can pay.
+        for (int second = 0; second < 120; second++)
+        {
+            var spot = new Vector2(250 + second % 9 * 100, 250 + second / 9 % 4 * 100);
+            run.Input.Click(MouseButton.Left, at: spot);
+            run.Ticks(30);
+        }
+
+        Assert.NotEmpty(run.Game.Towers.All);
     }
 }
