@@ -16,10 +16,14 @@ internal sealed class ArchetypeTable
     {
         Empty = new Archetype(default, null, null, -1);
         Register(Empty);
+        Required = new RequiredComponents(this);
     }
 
     /// <summary>The archetype of an entity with no components, where every new entity starts.</summary>
     public Archetype Empty { get; }
+
+    /// <summary>What each component type brings with it, which <see cref="World.Add{T}"/> and Spawn apply.</summary>
+    public RequiredComponents Required { get; }
 
     /// <summary>The type's ID, registering it the first time it's asked for.</summary>
     public int TypeId<T>()

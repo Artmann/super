@@ -13,8 +13,16 @@ Game.StartWindowsGameLoop<Farm>(new GameOptions { Title = "Farm" }, services =>
 public record struct Position(Vector3 Value);
 public record struct Velocity(Vector3 Value);
 
-class Movement(World world)
+class Movement
 {
+    private readonly World world;
+
+    public Movement(World world)
+    {
+        this.world = world;
+        world.Spawn(new Position(Vector3.Zero), new Velocity(Vector3.UnitX));
+    }
+
     public void Update(GameTime time)
     {
         foreach (var row in world.Query<Position, Velocity>())
@@ -34,7 +42,8 @@ removing components or entities throws, so collect those and apply them after th
 
 | Call | What it does |
 | --- | --- |
-| `world.Create()` | Makes an entity |
+| `world.Spawn(a, b, ...)` | Makes an entity with up to four components. Add more with `Add` |
+| `world.Create()` | Makes an entity with no components |
 | `world.Add(entity, component)` | Adds a component, or replaces one of the same type |
 | `world.Remove<T>(entity)` | Removes a component |
 | `world.Has<T>(entity)` | Whether it has one |
@@ -44,15 +53,32 @@ removing components or entities throws, so collect those and apply them after th
 | `world.Count` | How many entities there are |
 
 ```csharp
-var sheep = world.Create();
-world.Add(sheep, new Position(Vector3.Zero));
-world.Add(sheep, new Velocity(Vector3.UnitX));
+var sheep = world.Spawn(new Position(Vector3.Zero), new Velocity(Vector3.UnitX));
 
 ref var position = ref world.Get<Position>(sheep);
 position.Value.Y = 1f;
 ```
 
 A world holds up to 256 component types, counting Super's own. Adding a 257th type throws.
+
+### Required components
+
+Some components only make sense with another, so the world adds it for you. A `Model` or
+an `Animated` entity without a `Transform` gets `Transform.Identity`, at the world's origin.
+A game can ask for the same with its own components:
+
+```csharp
+world.Require<Health, Armor>(new Armor(0));
+
+var guard = world.Spawn(new Health(100));           // gets Armor(0) too
+var knight = world.Spawn(new Health(100), new Armor(5)); // keeps its Armor(5)
+```
+
+A required component never replaces one the entity was given, in whichever order
+`Spawn` lists them, and requirements chain: if `Armor` requires something too, a guard
+gets that as well. It happens when the entity gets the component, through `Spawn` or
+`Add`; entities that already had it before the `Require` are left as they are. Asking
+a component to require itself, or to require one that already leads back to it, throws.
 
 ## Drawing entities
 
@@ -61,15 +87,15 @@ Rather than write that loop in every game, give entities Super's own components 
 `view.Models(world)` do it:
 
 ```csharp
-var sheep = world.Create();
-world.Add(sheep, Transform.At(new Vector3(3f, 0f, 1f)));
-world.Add(sheep, new Model(content.Model("farm/sheep.glb")));
-world.Add(sheep, new Smoothed());
+var sheep = world.Spawn(
+    Transform.At(new Vector3(3f, 0f, 1f)),
+    new Model(content.Model("farm/sheep.glb")),
+    new Smoothed());
 
-var bell = world.Create();
-world.Add(bell, Transform.At(new Vector3(0f, 0.8f, 0.5f), scale: 0.2f));
-world.Add(bell, new Model(content.Model("farm/bell.glb")));
-world.Add(bell, new Parent(sheep));
+var bell = world.Spawn(
+    Transform.At(new Vector3(0f, 0.8f, 0.5f), scale: 0.2f),
+    new Model(content.Model("farm/bell.glb")),
+    new Parent(sheep));
 
 public void Draw(View view)
 {
@@ -81,7 +107,7 @@ public void Draw(View view)
 
 | Component | What it does |
 | --- | --- |
-| `Transform` | Position, rotation and scale. `Transform.At` and `Transform.Facing` build common ones, and `Transform.From` takes a [spline](splines.md) pose |
+| `Transform` | Position, rotation and scale. `Transform.At` and `Transform.Facing` build common ones, and `Transform.From` takes a [spline](splines.md) pose. A `Model` or `Animated` entity gets `Transform.Identity` if it has none |
 | `Model` | A `ModelRef`, and an optional color that tints the model and keeps its textures, a `MeshMask` and a `DistanceFade` that [fades it out with distance](rendering.md#fading-with-distance) |
 | `Smoothed` | Blends the entity between ticks. Super remembers last tick's transform for you |
 | `Parent` | Counts the entity's transform from another entity's, so an attached thing follows |
