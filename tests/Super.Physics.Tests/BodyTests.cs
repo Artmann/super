@@ -280,7 +280,6 @@ public class BodyTests
         public void Load()
         {
             Ball = Place(world, new Vector3(0f, 50f, 0f), Collider.Ball(0.5f), Body.Dynamic(drag: 0f));
-            world.Add(Ball, new Smoothed());
         }
 
         public void Update(GameTime time)

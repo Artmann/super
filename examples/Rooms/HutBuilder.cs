@@ -29,7 +29,6 @@ internal sealed class HutBuilder(World world, States<Screen> screen, Catalog<Mot
             var spot = player + HutSpot;
             var hut = ScopedCube.Add(world, screen, Transform.At(spot with { Y = Buried }, 1.2f), HutColor);
             world.Add(hut, new Hut());
-            world.Add(hut, new Smoothed());
             world.Add(hut, new Rising(Tween.Between(Buried, Height, rise.Seconds).Ease(rise.Curve)));
         }
 

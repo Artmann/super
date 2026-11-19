@@ -243,7 +243,6 @@ public sealed class ForestGame(
         Scoped(Slab(new Vector3(0f, 0.7f, 0f), new Vector3(3f, 1.4f, 3f)), new Vector3(0.5f, 0.32f, 0.16f));
 
         _builder = Scoped(Transform.At(Builder.Position, 0.8f), new Vector3(0.9f, 0.45f, 0.15f));
-        world.Add(_builder, new Smoothed());
         ChangeWork();
 
         var trees = random.Stream("trees");

@@ -28,11 +28,9 @@ internal static class RagdollStanding
         if (pelvis)
         {
             Stand(live, ref transform, faceUp, floor);
-            if (world.Has<Smoothed>(entity))
-            {
-                // The pose is held where it was, so the entity mustn't be seen sliding to its new place.
-                world.Get<Smoothed>(entity).Previous = transform;
-            }
+
+            // The pose is held where it was, so the entity mustn't be seen sliding to its new place.
+            world.Teleport(entity, transform);
         }
 
         live.Pose.Freeze(live.Body, parts, live.Scale, transform, blendSeconds);

@@ -129,12 +129,12 @@ public sealed class World : ITickHook, IStateHook
         where T4 : struct =>
         new(this);
 
-    void ITickHook.BeforeUpdate() => SmoothedTransforms.Remember(this);
+    void ITickHook.BeforeUpdate() => LastTicks.Remember(this);
 
     void IStateHook.Exited<TState>(TState state) => ScopedEntities.DestroyScopedTo(this, state);
 
     // Whatever was just placed for the new state should appear there, not glide from the old one.
-    void IStateHook.Entered() => SmoothedTransforms.Remember(this);
+    void IStateHook.Entered() => LastTicks.Remember(this);
 
     /// <summary>The component type's ID, registering it the first time. Queries ask for theirs as they start.</summary>
     internal int TypeId<T>() => Archetypes.TypeId<T>();

@@ -116,7 +116,6 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
                 world.Add(entity, new Fish(kind, firstSchool + school));
                 world.Add(entity, new Model(_fishModels[kind]));
                 world.Add(entity, new Swim(SwimAmplitude, 1f, stream.Angle()));
-                world.Add(entity, new Smoothed());
             }
 
             firstSchool += details.Schools;

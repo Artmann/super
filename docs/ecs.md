@@ -137,8 +137,7 @@ Rather than write that loop in every game, give entities Super's own components 
 ```csharp
 var sheep = world.Spawn(
     Transform.At(new Vector3(3f, 0f, 1f)),
-    new Model(content.Model("farm/sheep.glb")),
-    new Smoothed());
+    new Model(content.Model("farm/sheep.glb")));
 
 var bell = world.Spawn(
     Transform.At(new Vector3(0f, 0.8f, 0.5f), scale: 0.2f),
@@ -157,18 +156,25 @@ public void Draw(View view)
 | --- | --- |
 | `Transform` | Position, rotation and scale. `Transform.At` and `Transform.Facing` build common ones, and `Transform.From` takes a [spline](splines.md) pose. A `Model` or `Animated` entity gets `Transform.Identity` if it has none |
 | `Model` | A `ModelRef`, and an optional color that tints the model and keeps its textures, a `MeshMask` and a `DistanceFade` that [fades it out with distance](rendering.md#fading-with-distance) |
-| `Smoothed` | Blends the entity between ticks. Super remembers last tick's transform for you |
 | `Parent` | Counts the entity's transform from another entity's, so an attached thing follows |
-| `Swim` | Bends the model like a swimming fish, with the phase blended too when `Smoothed` |
+| `Swim` | Bends the model like a swimming fish, with the phase blended between ticks too |
 | `Animated` | Draws the model in its `Animator`'s pose, which the game loop moves on each tick. Without a `Model`, it draws the rig's own model. See [Animation](animation.md) |
 | `Static` | Draws the model static, so its lighting can be baked. See [Static draws](#static-draws) |
 | `ScopedTo<T>` | Destroys the entity when that game state ends |
 | `Sound` | Plays a looping sound from the entity for as long as it has this. See [Sounds from entities](#sounds-from-entities) |
 | `Ambience` | Plays an ambience for as long as the entity has this |
 
-`Smoothed` means you don't keep a previous position yourself: the world takes a copy
-before each `Update`, and an entity's first frame shows it exactly where it is, so a
-loaded save doesn't glide into place.
+Every entity with a `Transform` is drawn moving smoothly between ticks, so you don't keep a
+previous position yourself: the world takes a copy before each `Update`, and `Models`
+blends from it. An entity's first frame shows it exactly where it is, so a loaded save
+doesn't glide into place, and a `Static` entity is always drawn where it is.
+
+When an entity jumps rather than moves, such as a respawn, a wrap at the edge of the map
+or a move to another room, place it with `Teleport` so it isn't seen sliding there:
+
+```csharp
+world.Teleport(player, Transform.At(spawnPoint));
+```
 
 These components are only data. A system that moves things writes `Transform`, and
 `Models` is a plain call you make in `Draw`, next to anything you still describe by hand.
@@ -200,12 +206,11 @@ fades out. There is nothing to call and no handle to keep:
 ```csharp
 var engine = world.Create();
 world.Add(engine, Transform.At(new Vector3(4f, 0f, 2f)));
-world.Add(engine, new Smoothed());
 world.Add(engine, new Sound(content.Sounds.Sound("sounds/engine.ogg"), Volume: 0.8f));
 ```
 
-With a `Transform` the sound sits where the entity is drawn (`Smoothed` and `Parent`
-count, as for `Models`) and follows it. Without one it's flat. The fields are `Clip`,
+With a `Transform` the sound sits where the entity is drawn (blended between
+ticks and following its `Parent`, as for `Models`) and follows it. Without one it's flat. The fields are `Clip`,
 `Volume` (1), `Channel` (`Effects`), `Near` (2 m) and `Far` (50 m); see
 [Audio](audio.md#sounds-and-ambiences-on-entities).
 
@@ -243,7 +248,7 @@ screen.OnEnter(Screen.House, () =>
 });
 ```
 
-A `Smoothed` entity moved in `OnEnter` appears at its new place, without gliding there.
+An entity moved in `OnEnter` appears at its new place, without gliding there.
 
 Destroying an entity doesn't destroy its children, so tag those too. A child left behind
 draws at its own transform, as if its parent were the world.

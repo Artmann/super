@@ -258,12 +258,11 @@ public class SoundTests
     }
 
     [Fact]
-    public void SmoothedSoundUsesTheBlendedPosition()
+    public void AMovingSoundUsesTheBlendedPosition()
     {
         using var run = Start();
         World world = run.Game.World;
         Entity entity = Make(run, run.Game.Creak, new Vector3(-10f, 0f, -5f));
-        world.Add(entity, new Smoothed());
         run.Ticks(2);
 
         run.Game.Step = () => world.Add(entity, Transform.At(new Vector3(10f, 0f, -5f)));
@@ -530,7 +529,6 @@ public class SoundTests
         for (int i = 0; i < entities.Length; i++)
         {
             entities[i] = Make(run, run.Game.Creak, new Vector3(i, 0f, -5f));
-            world.Add(entities[i], new Smoothed());
         }
 
         Entity ambient = world.Create();

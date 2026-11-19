@@ -13,7 +13,6 @@ public class WorldServiceTests
         {
             Entity = world.Create();
             world.Add(Entity, Transform.At(new Vector3(1f, 0f, 0f)));
-            world.Add(Entity, new Smoothed());
         }
 
         public void Update(GameTime time) => world.Get<Transform>(Entity).Position += Vector3.UnitX;
@@ -40,6 +39,6 @@ public class WorldServiceTests
 
         run.Ticks(2);
 
-        Assert.Equal(2f, run.World.Get<Smoothed>(run.Game.Entity).Previous.Position.X);
+        Assert.Equal(2f, run.World.Get<LastTick>(run.Game.Entity).Previous.Position.X);
     }
 }
