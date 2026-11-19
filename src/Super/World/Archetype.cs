@@ -1,5 +1,3 @@
-using System.Numerics;
-
 namespace Super;
 
 /// <summary>One component type's values in an archetype, packed side by side.</summary>
@@ -39,25 +37,30 @@ internal sealed class Column<T>(int capacity) : ComponentColumn
 internal sealed class Archetype
 {
     /// <summary>The most component types a world holds: one bit each in an archetype's mask.</summary>
-    internal const int MaxComponentTypes = 64;
+    internal const int MaxComponentTypes = ComponentMask.MaxTypes;
 
     private const int FirstCapacity = 16;
 
-    private readonly ComponentColumn?[] _columns = new ComponentColumn?[MaxComponentTypes];
+    // Sized to the archetype's highest type, so an archetype of a few early types stays small.
+    private readonly ComponentColumn?[] _columns;
 
-    public Archetype(ulong mask, Archetype? source, ComponentColumn? added, int addedType)
+    public Archetype(ComponentMask mask, Archetype? source, ComponentColumn? added, int addedType)
     {
         Mask = mask;
-        ulong remaining = mask;
-        while (remaining != 0)
+        int highest = -1;
+        for (int type = mask.Next(-1); type >= 0; type = mask.Next(type))
         {
-            int type = BitOperations.TrailingZeroCount(remaining);
-            remaining &= remaining - 1;
+            highest = type;
+        }
+
+        _columns = new ComponentColumn?[highest + 1];
+        for (int type = mask.Next(-1); type >= 0; type = mask.Next(type))
+        {
             _columns[type] = type == addedType ? added : source!._columns[type]!.CreateEmpty(FirstCapacity);
         }
     }
 
-    public ulong Mask { get; }
+    public ComponentMask Mask { get; }
 
     public int Count { get; private set; }
 
@@ -66,7 +69,7 @@ internal sealed class Archetype
     public Column<T> Column<T>(int type) => (Column<T>)_columns[type]!;
 
     /// <summary>The column for a component this archetype may not have. A type of -1 means it was never registered.</summary>
-    public Column<T>? ColumnOrNull<T>(int type) => type >= 0 ? _columns[type] as Column<T> : null;
+    public Column<T>? ColumnOrNull<T>(int type) => type >= 0 && type < _columns.Length ? _columns[type] as Column<T> : null;
 
     public int AddRow(Entity entity)
     {
@@ -89,11 +92,9 @@ internal sealed class Archetype
     /// <summary>Copies the components both archetypes share.</summary>
     public void CopyRowTo(Archetype target, int from, int to)
     {
-        ulong shared = Mask & target.Mask;
-        while (shared != 0)
+        var shared = Mask.And(target.Mask);
+        for (int type = shared.Next(-1); type >= 0; type = shared.Next(type))
         {
-            int type = BitOperations.TrailingZeroCount(shared);
-            shared &= shared - 1;
             _columns[type]!.CopyRowTo(target._columns[type]!, from, to);
         }
     }

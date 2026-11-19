@@ -26,7 +26,7 @@ public static class ViewExtensions
         try
         {
             int index = -1;
-            while (world.Archetypes.NextMatching(ref index, 1UL << types.Transform) is { } archetype)
+            while (world.Archetypes.NextMatching(ref index, default(ComponentMask).With(types.Transform)) is { } archetype)
             {
                 var rows = ModelRows.Of(archetype, types);
                 if (rows.Models is null && rows.Animated is null)
@@ -103,7 +103,7 @@ public static class ViewExtensions
             Smoothed = archetype.ColumnOrNull<Smoothed>(types.Smoothed)?.Values,
             Parents = archetype.ColumnOrNull<Parent>(types.Parent)?.Values,
             Swims = archetype.ColumnOrNull<Swim>(types.Swim)?.Values,
-            IsStatic = types.Static >= 0 && (archetype.Mask & (1UL << types.Static)) != 0,
+            IsStatic = types.Static >= 0 && archetype.Mask.Has(types.Static),
         };
 
         public void Draw(View view, World world, int i)

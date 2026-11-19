@@ -9,12 +9,12 @@ internal sealed class ArchetypeTable
     private const int MaxComponentTypes = Archetype.MaxComponentTypes;
 
     private readonly Dictionary<Type, int> _componentTypes = [];
-    private readonly Dictionary<ulong, Archetype> _byMask = [];
+    private readonly Dictionary<ComponentMask, Archetype> _byMask = [];
     private readonly List<Archetype> _all = [];
 
     public ArchetypeTable()
     {
-        Empty = new Archetype(0, null, null, -1);
+        Empty = new Archetype(default, null, null, -1);
         Register(Empty);
     }
 
@@ -42,12 +42,12 @@ internal sealed class ArchetypeTable
     public int TypeIdOrMissing<T>() => _componentTypes.TryGetValue(typeof(T), out int id) ? id : -1;
 
     /// <summary>The next archetype after <paramref name="index"/> that has rows and every type in <paramref name="mask"/>, or null.</summary>
-    public Archetype? NextMatching(ref int index, ulong mask)
+    public Archetype? NextMatching(ref int index, in ComponentMask mask)
     {
         while (++index < _all.Count)
         {
             var archetype = _all[index];
-            if (archetype.Count > 0 && (archetype.Mask & mask) == mask)
+            if (archetype.Count > 0 && archetype.Mask.ContainsAll(mask))
             {
                 return archetype;
             }
@@ -59,7 +59,7 @@ internal sealed class ArchetypeTable
     /// <summary>The archetype with <paramref name="source"/>'s types and <typeparamref name="T"/>, made the first time.</summary>
     public Archetype With<T>(Archetype source, int type)
     {
-        ulong mask = source.Mask | (1UL << type);
+        var mask = source.Mask.With(type);
         if (!_byMask.TryGetValue(mask, out var target))
         {
             target = new Archetype(mask, source, new Column<T>(16), type);
@@ -69,10 +69,10 @@ internal sealed class ArchetypeTable
         return target;
     }
 
-    /// <summary>The archetype with <paramref name="source"/>'s types less the one in <paramref name="bit"/>, made the first time.</summary>
-    public Archetype Without(Archetype source, ulong bit)
+    /// <summary>The archetype with <paramref name="source"/>'s types less <paramref name="type"/>, made the first time.</summary>
+    public Archetype Without(Archetype source, int type)
     {
-        ulong mask = source.Mask & ~bit;
+        var mask = source.Mask.Without(type);
         if (!_byMask.TryGetValue(mask, out var target))
         {
             target = new Archetype(mask, source, null, -1);
