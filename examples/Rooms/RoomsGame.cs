@@ -68,24 +68,16 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
     // The sparkle is the one model the game draws itself. Entities use IDs from zero, so it can't collide.
     public const int SparkleKey = CoinHunt.SparkleKey;
 
-    /// <summary>How far a door's lid lifts, and how long it takes.</summary>
-    public const float LidLift = 1f;
-    public const float LidSeconds = 0.3f;
+    /// <summary>How far a door's lid lifts.</summary>
+    public const float LidLift = RoomAreas.LidLift;
 
     public static readonly Vector3 HouseDoor = RoomAreas.HouseDoor;
     public static readonly Vector3 OutsideDoor = RoomAreas.OutsideDoor;
-
-    private const float DoorWakesWithin = 3f;
-
-    /// <summary>The fade through a door. The new room is built while the screen is black.</summary>
-    private static readonly Transition Door = Transition.Fade(0.5f);
 
     private readonly CoinHunt _coins = new(world, content.LoadAll<CoinKind>("coins"), random.Stream("coins"));
     private readonly HutBuilder _huts = new(world, scenes, content.LoadAll<Motion>("motions"));
     private readonly PlayerMover _player = new(world, input, actions);
     private RoomAreas _areas = null!;
-
-    public World World => world;
 
     public Entity Player => _player.Player;
 
@@ -134,7 +126,7 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
         actions.Bind(Control.Move, Keys.WASD, Keys.Arrows, GamepadStick.Left);
         actions.Bind(Control.Build, Key.E, GamepadButton.West);
 
-        _areas = new RoomAreas(content, _player, _coins);
+        _areas = new RoomAreas(world, content, _player, _coins);
         screen.OnEnter(Screen.Loading, _areas.Load);
         screen.OnEnter(Screen.Playing, () => GoTo(Room.House));
     }
@@ -173,7 +165,10 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
                 break;
         }
 
-        LiftLids(time);
+        if (CurrentRoom is not null)
+        {
+            _areas.LiftLids(time, _player.Position);
+        }
     }
 
     public void Draw(View view)
@@ -207,26 +202,16 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
         }
     }
 
-    /// <summary>Fades to <paramref name="next"/> when the player walks into <paramref name="door"/>, unless it's already going.</summary>
+    /// <summary>
+    /// Fades to <paramref name="next"/> when the player walks into <paramref name="door"/>, unless it's already going. The
+    /// new room is built while the screen is black.
+    /// </summary>
     private void Through(Vector3 door, Room next)
     {
         if (_player.Reached(door) && !scenes.IsChanging)
         {
-            GoTo(next, Door);
+            GoTo(next, Transition.Fade(0.5f));
         }
     }
 
-    /// <summary>Each door's lid lifts as the player comes close, and drops back down as they walk away.</summary>
-    private void LiftLids(GameTime time)
-    {
-        float step = LidLift / LidSeconds * time.TickSeconds;
-        foreach (var row in world.Query<DoorLid, Transform>())
-        {
-            ref var lid = ref row.First;
-            bool near = Vector3.Distance(_player.Position, lid.Door) < DoorWakesWithin;
-            float target = near ? LidLift : 0f;
-            lid.Lift = lid.Lift < target ? MathF.Min(target, lid.Lift + step) : MathF.Max(target, lid.Lift - step);
-            row.Second.Position = lid.Door + new Vector3(0f, 0.6f + lid.Lift, 0f);
-        }
-    }
 }

@@ -23,7 +23,7 @@ public class RoomsTests
         Assert.Equal(room, run.Game.CurrentRoom);
     }
 
-    private static Vector3 Player(HeadlessRun<RoomsGame> run) => run.Game.World.Get<Transform>(run.Game.Player).Position;
+    private static Vector3 Player(HeadlessRun<RoomsGame> run) => run.World.Get<Transform>(run.Game.Player).Position;
 
     /// <summary>Walks towards a spot, until the room changes or the player gets there, and waits out any fade.</summary>
     private static void WalkTo(HeadlessRun<RoomsGame> run, Vector3 target)
@@ -262,7 +262,7 @@ public class RoomsTests
     private static List<float> Lids(HeadlessRun<RoomsGame> run)
     {
         var heights = new List<float>();
-        foreach (var row in run.Game.World.Query<DoorLid, Transform>())
+        foreach (var row in run.World.Query<DoorLid, Transform>())
         {
             heights.Add(row.Second.Position.Y);
         }
@@ -273,7 +273,7 @@ public class RoomsTests
     private static int Rising(HeadlessRun<RoomsGame> run)
     {
         int count = 0;
-        foreach (var _ in run.Game.World.Query<Rising>())
+        foreach (var _ in run.World.Query<Rising>())
         {
             count++;
         }
@@ -286,14 +286,14 @@ public class RoomsTests
     {
         using var run = Start(1);
         Into(run, Room.House);
-        int house = run.Game.World.Count;
+        int house = run.World.Count;
         for (int i = 0; i < 5; i++)
         {
             Into(run, Room.Outside);
             Into(run, Room.House);
         }
 
-        Assert.Equal(house, run.Game.World.Count);
+        Assert.Equal(house, run.World.Count);
     }
 
     // The Z edge past the door is walked on a diagonal, since walking straight at a door goes through it.
