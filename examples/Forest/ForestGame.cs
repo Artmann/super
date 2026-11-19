@@ -109,6 +109,7 @@ public sealed class ForestGame(
     private SoundRef _hammering;
     private SoundRef _accept;
     private Entity _builder;
+    private Entity? _camera;
 
     public Builder Builder { get; } = new();
 
@@ -190,23 +191,10 @@ public sealed class ForestGame(
 
         Camera.Turn(new Vector2(OrbitSpeed * tick.TickSeconds, 0f));
         Camera.Update(new Vector3(0f, 1f, 0f));
-    }
-
-    public void Draw(View view)
-    {
-        view.Camera(Camera.At(view.Blend));
-        // Just after sunrise. The sun is low behind the trees across the clearing from where the camera starts, so
-        // their trunks and crowns cut its light into shafts through the morning mist as it comes towards the camera.
-        view.Lights.Sun(new Vector3(0.39f, 0.3f, -0.92f), new Vector3(3f, 2.5f, 1.9f));
-        view.Surroundings.Sky(new SkySettings
+        if (_camera is { } camera)
         {
-            Brightness = 1f,
-            Turbidity = 3f,
-            // Mist lying low in the clearing, thinning by e every 3.3 m up, so the treetops stand clear of it.
-            Fog = new FogSettings(Density: 0.02f, Height: 0f, Falloff: 0.3f, SunScatter: 0.6f),
-        });
-        // The first map covers the clearing and the second the trees round it, which cast the shafts.
-        view.Lights.Shadows(14f, 3);
+            world.Get<Camera>(camera) = Camera.Current;
+        }
     }
 
     /// <summary>1 to 4 step their channel's volume through full, half and off.</summary>
@@ -237,6 +225,23 @@ public sealed class ForestGame(
 
     private void BuildForest()
     {
+        // Just after sunrise. The sun is low behind the trees across the clearing from where the camera starts, so
+        // their trunks and crowns cut its light into shafts through the morning mist as it comes towards the camera.
+        var sky = world.Spawn(
+            new Sun(new Vector3(0.39f, 0.3f, -0.92f), new Vector3(3f, 2.5f, 1.9f)),
+            new Sky(new SkySettings
+            {
+                Brightness = 1f,
+                Turbidity = 3f,
+                // Mist lying low in the clearing, thinning by e every 3.3 m up, so the treetops stand clear of it.
+                Fog = new FogSettings(Density: 0.02f, Height: 0f, Falloff: 0.3f, SunScatter: 0.6f),
+            }),
+            // The first map covers the clearing and the second the trees round it, which cast the shafts.
+            new Shadows(14f, 3));
+        world.Add(sky, new ScopedTo<Place>(Place.Forest));
+        Camera.Update(new Vector3(0f, 1f, 0f));
+        _camera = world.Spawn(Camera.Current, new ScopedTo<Place>(Place.Forest));
+
         Scoped(Slab(new Vector3(0f, -0.25f, 0f), new Vector3(80f, 0.5f, 80f)), new Vector3(0.25f, 0.4f, 0.2f));
         Scoped(Slab(new Vector3(0f, 0.02f, 0f), new Vector3(5f, 0.05f, 5f)), new Vector3(0.45f, 0.38f, 0.3f));
         Scoped(Slab(new Vector3(0f, 0.7f, 0f), new Vector3(3f, 1.4f, 3f)), new Vector3(0.5f, 0.32f, 0.16f));

@@ -14,18 +14,16 @@ public enum Control
 }
 
 /// <summary>A spinning cube that changes to a random color at random times, and listens to the player.</summary>
-public class SpinningCube(GameRandom random, Actions<Control> actions) : IGame
+public class SpinningCube(World world, GameRandom random, Actions<Control> actions) : IGame
 {
-    private const int CubeKey = 1;
     private const float TurnsPerSecond = 0.1f;
     private const float SteerTurnsPerSecond = 0.5f;
 
     private readonly RandomStream _rolls = random.Stream("colors");
     private float _angle;
-    private float _previousAngle;
     private Vector2 _steered;
-    private Vector2 _previousSteered;
     private int _ticksUntilChange;
+    private Entity _cube;
 
     public Vector3 Color { get; private set; }
 
@@ -37,12 +35,13 @@ public class SpinningCube(GameRandom random, Actions<Control> actions) : IGame
         actions.Bind(Control.Cycle, Key.Space, GamepadButton.South, MouseButton.Left);
         actions.Bind(Control.Spin, Keys.WASD, Keys.Arrows, GamepadStick.Left);
         ChangeColor();
+        world.Spawn(new Camera(new Vector3(0f, 1.5f, 3.5f), Vector3.Zero));
+        world.Spawn(new Sun(new Vector3(1f, 2f, 1f), new Vector3(3f)));
+        _cube = world.Spawn(Spin(_angle, _steered), new Model(ModelRef.Cube, Color));
     }
 
     public void Update(GameTime time)
     {
-        _previousAngle = _angle;
-        _previousSteered = _steered;
         _angle += MathF.Tau * TurnsPerSecond * time.TickSeconds;
 
         // X steers around the upright axis and Y tips the cube over, on top of the steady spin.
@@ -59,19 +58,13 @@ public class SpinningCube(GameRandom random, Actions<Control> actions) : IGame
         {
             ChangeColor();
         }
+
+        world.Get<Transform>(_cube) = Spin(_angle, _steered);
+        world.Get<Model>(_cube) = new Model(ModelRef.Cube, Color);
     }
 
-    public void Draw(View view)
-    {
-        view.Camera(position: new Vector3(0f, 1.5f, 3.5f), lookAt: Vector3.Zero);
-        view.Lights.Sun(direction: new Vector3(1f, 2f, 1f), color: new Vector3(3f));
-
-        var transform = view.Smooth(Spin(_previousAngle, _previousSteered), Spin(_angle, _steered));
-        view.Model(CubeKey, ModelRef.Cube, transform, Color);
-    }
-
-    private static Matrix4x4 Spin(float angle, Vector2 steered) =>
-        Matrix4x4.CreateRotationY(angle + steered.X) * Matrix4x4.CreateRotationX(angle * 0.6f + steered.Y);
+    private static Transform Spin(float angle, Vector2 steered) =>
+        Transform.From(Matrix4x4.CreateRotationY(angle + steered.X) * Matrix4x4.CreateRotationX(angle * 0.6f + steered.Y));
 
     /// <summary>A vivid color at full saturation, chosen by its place around the color wheel.</summary>
     private static Vector3 ColorFromHue(float hue)

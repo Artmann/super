@@ -75,10 +75,6 @@ public sealed class CraftingGame(Content content) : IGame
     {
     }
 
-    public void Draw(View view)
-    {
-    }
-
     public UiView? Ui => new VStack(HorizontalAlignment.Leading, Gap + 4f)
     {
         new HStack(VerticalAlignment.Top, Gap + 4f)
