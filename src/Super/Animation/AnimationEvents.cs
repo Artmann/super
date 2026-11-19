@@ -371,7 +371,7 @@ internal sealed class TickEvents
             int joint = table.JointOf(window.Event);
             _events[i] = new AnimationEvent(
                 table.Events[window.Event].Name, kind, new ClipRef(window.Clip), weight,
-                joint >= 0 ? animator.JointCache.InModel(joint, animator.Pose.Version) : null);
+                joint >= 0 ? animator.Joints.At(joint, ahead: null) : null);
             _windows[i] = window;
         }
 

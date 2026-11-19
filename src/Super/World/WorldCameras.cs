@@ -21,8 +21,8 @@ public static class WorldCameras
         Newest.Of<Camera>(world) is { } entity ? Placed(world, entity, blend: 1f) : null;
 
     /// <summary>The newest camera blended between its last two ticks, or null when there's none.</summary>
-    internal static Camera? FrameCamera(World world, float blend) =>
-        Newest.Of<Camera>(world) is { } entity ? Placed(world, entity, blend) : null;
+    internal static Camera? FrameCamera(World world, float blend, float poseAhead) =>
+        Newest.Of<Camera>(world) is { } entity ? Placed(world, entity, blend, poseAhead) : null;
 
     /// <summary>Copies every camera into its <see cref="LastCamera"/>, before each Update.</summary>
     internal static void Remember(World world)
@@ -49,7 +49,7 @@ public static class WorldCameras
     }
 
     // A blend of 1 is the camera as it is now, which is all a camera with no last tick has.
-    private static Camera Placed(World world, Entity entity, float blend)
+    private static Camera Placed(World world, Entity entity, float blend, float? poseAhead = null)
     {
         var camera = world.Get<Camera>(entity);
         if (blend < 1f && world.Has<LastCamera>(entity) && world.Get<LastCamera>(entity) is { HasPrevious: true } last)
@@ -57,13 +57,20 @@ public static class WorldCameras
             camera = Camera.Lerp(in last.Previous, in camera, blend);
         }
 
-        Entity? frame = world.Has<Transform>(entity) ? entity : world.Has<Parent>(entity) ? world.Get<Parent>(entity).Value : null;
-        if (frame is not { } placedBy)
+        Matrix4x4 matrix;
+        if (world.Has<Transform>(entity))
+        {
+            matrix = WorldFrame.WorldMatrix(world, entity, blend, poseAhead);
+        }
+        else if (world.Has<Parent>(entity))
+        {
+            matrix = WorldFrame.ParentMatrix(world, entity, world.Get<Parent>(entity), blend, poseAhead);
+        }
+        else
         {
             return camera;
         }
 
-        var matrix = WorldFrame.WorldMatrix(world, placedBy, blend);
         return camera with
         {
             Position = Vector3.Transform(camera.Position, matrix),

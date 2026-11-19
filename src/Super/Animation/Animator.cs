@@ -23,7 +23,7 @@ public sealed class Animator
         _events = new EventTracker(controller);
         Moves = new AnimatorActions(controller.ActionType, controller.ActionCount, controller.Timing, _events.SweepAction, Rebuild);
         Pose = new AnimationPose(controller.Rig);
-        JointCache = new PoseJointCache(controller.Rig.Skeleton, (locals, scratch) => Pose.Evaluate(0f, locals, scratch, 1f));
+        Joints = new AnimatorJoints(controller.Rig.Skeleton, Pose);
         controller.GetState(state);
         Rebuild();
         controller.Rig.Runner?.Add(this);
@@ -97,8 +97,8 @@ public sealed class Animator
     /// <summary>Whether a change of state is still blending from the old clip.</summary>
     public bool IsCrossFading => _clock.FadeOut is not null;
 
-    /// <summary>Each joint in the model this tick, worked out when first asked for.</summary>
-    internal PoseJointCache JointCache { get; }
+    /// <summary>Each joint in the model, as of the tick and as drawn, worked out when first asked for.</summary>
+    internal AnimatorJoints Joints { get; }
 
     /// <summary>
     /// Where a joint is in the model this tick, such as the hand an arrow leaves from.
@@ -112,7 +112,7 @@ public sealed class Animator
             throw new ArgumentException($"The rig has no joint called {name}. It has: {string.Join(", ", Rig.Skeleton.Names)}.", nameof(name));
         }
 
-        return JointCache.InModel(joint, Pose.Version);
+        return Joints.At(joint, ahead: null);
     }
 
     /// <summary>Whether a window with this name is open now in any clip that counts, such as a hitbox mid-swing.</summary>
@@ -172,7 +172,7 @@ public sealed class Animator
     /// <summary>Lays the pose out again: the state, or the old state with the new one blending in over it, then the actions.</summary>
     private void Rebuild()
     {
-        JointCache.Invalidate();
+        Joints.Invalidate();
         Pose.Clear();
         var state = _controller.GetState(_clock.StateNumber);
         if (_clock.FadeOut is { } outgoing)

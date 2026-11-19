@@ -24,6 +24,6 @@ public static class ViewPlacement
             throw new InvalidOperationException($"Entity {entity.Id} has no Transform.");
         }
 
-        return WorldFrame.WorldMatrix(world, entity, view.Blend);
+        return WorldFrame.WorldMatrix(world, entity, view.Blend, view.Clock.PoseAhead);
     }
 }

@@ -21,7 +21,7 @@ internal static class WorldFrame
     /// <summary>Describes everything the world shows into a view that has just begun its frame.</summary>
     public static void Describe(View view, World world)
     {
-        if (WorldCameras.FrameCamera(world, view.Blend) is { } camera)
+        if (WorldCameras.FrameCamera(world, view.Blend, view.Clock.PoseAhead) is { } camera)
         {
             view.Camera(camera);
         }
@@ -172,7 +172,7 @@ internal static class WorldFrame
             var matrix = LastTicks is null ? Transforms[i].Matrix : Blended(in Transforms[i], in LastTicks[i], blend).Matrix;
             if (Parents is not null)
             {
-                matrix *= WorldMatrix(world, Parents[i].Value, blend);
+                matrix *= ParentMatrix(world, Entities[i], Parents[i], blend, view.Clock.PoseAhead);
             }
 
             if (Ghosts is not null)
@@ -255,10 +255,15 @@ internal static class WorldFrame
         return false;
     }
 
-    /// <summary>An entity's matrix in the world, following its own parents. A dead parent, or one with no transform, counts as the world itself.</summary>
-    internal static Matrix4x4 WorldMatrix(World world, Entity entity, float blend) => WorldMatrix(world, entity, blend, depth: 0);
+    /// <summary>
+    /// An entity's matrix in the world, following its own parents. A dead parent, or one with no transform, counts as the
+    /// world itself. A parent's bone is placed <paramref name="poseAhead"/> seconds past the last tick, as the skinned
+    /// model is drawn, or as of the tick when that's null, as physics needs.
+    /// </summary>
+    internal static Matrix4x4 WorldMatrix(World world, Entity entity, float blend, float? poseAhead = null) =>
+        WorldMatrix(world, entity, blend, poseAhead, depth: 0);
 
-    private static Matrix4x4 WorldMatrix(World world, Entity entity, float blend, int depth)
+    private static Matrix4x4 WorldMatrix(World world, Entity entity, float blend, float? poseAhead, int depth)
     {
         if (depth >= MaxParentDepth || !world.IsAlive(entity) || !world.Has<Transform>(entity))
         {
@@ -270,9 +275,38 @@ internal static class WorldFrame
         var matrix = blends ? Blended(in transform, in world.Get<LastTick>(entity), blend).Matrix : transform.Matrix;
         if (world.Has<Parent>(entity))
         {
-            matrix *= WorldMatrix(world, world.Get<Parent>(entity).Value, blend, depth + 1);
+            var parent = world.Get<Parent>(entity);
+            matrix *= OnBone(world, entity, parent, poseAhead, WorldMatrix(world, parent.Value, blend, poseAhead, depth + 1));
         }
 
         return matrix;
+    }
+
+    /// <summary>What a child's own matrix counts from: its parent's matrix in the world, and the bone's place in the parent's model when it names one.</summary>
+    internal static Matrix4x4 ParentMatrix(World world, Entity child, Parent parent, float blend, float? poseAhead) =>
+        OnBone(world, child, parent, poseAhead, WorldMatrix(world, parent.Value, blend, poseAhead, depth: 0));
+
+    private static Matrix4x4 OnBone(World world, Entity child, Parent parent, float? poseAhead, Matrix4x4 parentMatrix) =>
+        parent.Bone is null || !world.IsAlive(parent.Value) ? parentMatrix : BoneMatrix(world, child, parent, poseAhead) * parentMatrix;
+
+    private static Matrix4x4 BoneMatrix(World world, Entity child, Parent parent, float? poseAhead)
+    {
+        var animator = world.Has<Animated>(parent.Value) ? world.Get<Animated>(parent.Value).Value : null;
+        if (animator is null)
+        {
+            throw new InvalidOperationException(
+                $"Entity {child.Id}'s Parent names the bone {parent.Bone}, but its parent, entity {parent.Value.Id}, isn't Animated, so it has no bones.");
+        }
+
+        var skeleton = animator.Rig.Skeleton;
+        int joint = skeleton.IndexOf(parent.Bone!);
+        if (joint < 0)
+        {
+            throw new ArgumentException(
+                $"Entity {child.Id}'s Parent names the bone {parent.Bone}, but entity {parent.Value.Id}'s rig has no joint called that. It has: {string.Join(", ", skeleton.Names)}.",
+                nameof(parent));
+        }
+
+        return animator.Joints.At(joint, poseAhead);
     }
 }
