@@ -24,6 +24,7 @@ internal sealed class PendingChanges
         Remove,
         Destroy,
         Added,
+        Done, // An Added entry already run, before a removal of its component.
     }
 
     /// <summary>Whether a query is running, so changes to the world's shape have to wait.</summary>
@@ -130,6 +131,11 @@ internal sealed class PendingChanges
 
                 try
                 {
+                    if (change.Kind == Kind.Remove)
+                    {
+                        RunAddedBefore(world, change, i + 1);
+                    }
+
                     Make(world, change);
                 }
                 catch (Exception problem)
@@ -151,6 +157,21 @@ internal sealed class PendingChanges
         }
 
         failure?.Throw();
+    }
+
+    // A component added and then removed in the same query was still seen to land: its OnAdded handlers, waiting at the
+    // end of the list, run before the removal.
+    private void RunAddedBefore(World world, Change removal, int start)
+    {
+        for (int i = start; i < _changes.Count; i++)
+        {
+            var change = _changes[i];
+            if (change.Kind == Kind.Added && change.Entity == removal.Entity && change.Type == removal.Type)
+            {
+                _changes[i] = change with { Kind = Kind.Done };
+                Make(world, change);
+            }
+        }
     }
 
     private void Make(World world, Change change)

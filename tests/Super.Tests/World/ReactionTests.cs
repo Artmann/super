@@ -231,4 +231,24 @@ public class ReactionTests
         _world.Destroy(later);
         Assert.Equal(1, _world.Count);
     }
+
+    [Fact]
+    public void Adding_then_removing_in_one_query_runs_both_handlers()
+    {
+        int added = 0;
+        int removed = 0;
+        _world.OnAdded<Armor>(_ => added++);
+        _world.OnRemoved<Armor>(_ => removed++);
+        var entity = _world.Spawn(new Health(3));
+
+        foreach (var row in _world.Query<Health>())
+        {
+            _world.Add(row.Entity, new Armor(1));
+            _world.Remove<Armor>(row.Entity);
+        }
+
+        Assert.Equal(1, added);
+        Assert.Equal(1, removed);
+        Assert.False(_world.Has<Armor>(entity));
+    }
 }
