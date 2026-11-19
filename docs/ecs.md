@@ -71,7 +71,8 @@ made, and the first error is thrown after the last one.
 | `world.Get<T>(entity)` | A reference to a component, to read or change |
 | `world.Teleport(entity, transform)` | Sets its `Transform` so it's drawn there at once, not sliding there between ticks. See [Drawing entities](#drawing-entities) |
 | `world.Changed(entity)` | Says a `Static` entity was changed through `Get`, so it's drawn again. See [Static draws](#static-draws) |
-| `world.Destroy(entity)` | Removes the entity and its components |
+| `world.Destroy(entity)` | Removes the entity and its components, and destroys its children, and theirs |
+| `world.Children(entity)` | The entities whose `Parent` is this one, without their own children. It walks every parented entity, so keep it out of loops over many |
 | `world.IsAlive(entity)` | Whether it still exists. A destroyed entity's ID isn't confused with a new one |
 | `world.Count` | How many entities there are |
 
@@ -158,11 +159,11 @@ public void Draw(View view)
 | --- | --- |
 | `Transform` | Position, rotation and scale. `Transform.At` and `Transform.Facing` build common ones, and `Transform.From` takes a [spline](splines.md) pose. A `Model` or `Animated` entity gets `Transform.Identity` if it has none |
 | `Model` | A `ModelRef`, and an optional color that tints the model and keeps its textures, a `MeshMask` and a `DistanceFade` that [fades it out with distance](rendering.md#fading-with-distance) |
-| `Parent` | Counts the entity's transform from another entity's, so an attached thing follows |
+| `Parent` | Counts the entity's transform from another entity's, so an attached thing follows. Destroying the parent destroys it too |
 | `Swim` | Bends the model like a swimming fish, with the phase blended between ticks too |
 | `Animated` | Draws the model in its `Animator`'s pose, which the game loop moves on each tick. Without a `Model`, it draws the rig's own model. See [Animation](animation.md) |
 | `Static` | Draws the model static, so its lighting can be baked. See [Static draws](#static-draws) |
-| `ScopedTo<T>` | Destroys the entity when that game state ends |
+| `ScopedTo<T>` | Destroys the entity, and its children, when that game state ends |
 | `Sound` | Plays a looping sound from the entity for as long as it has this. See [Sounds from entities](#sounds-from-entities) |
 | `Ambience` | Plays an ambience for as long as the entity has this |
 | `Camera` | The frame is taken from the newest entity with one, blended between ticks and following its `Parent`. See [A camera entity](cameras.md#a-camera-entity) |
@@ -287,5 +288,5 @@ screen.OnEnter(Screen.House, () =>
 
 An entity moved in `OnEnter` appears at its new place, without gliding there.
 
-Destroying an entity doesn't destroy its children, so tag those too. A child left behind
-draws at its own transform, as if its parent were the world.
+Destroying an entity destroys its children too, so tag only the entity at the top: a door's
+handle goes with the door. A child moved to another parent first stays.
