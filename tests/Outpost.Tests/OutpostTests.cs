@@ -58,6 +58,54 @@ public class OutpostTests
     }
 
     [Fact]
+    public void A_walker_reaching_the_base_costs_a_life()
+    {
+        using var run = Start();
+        var enemies = run.Game.Enemies;
+        enemies.Clear();
+
+        enemies.Spawn(EnemyKind.Walker);
+        // The road is about 46 metres and a walker does 2 metres a second, so 25 seconds is plenty.
+        run.Ticks(30 * 25);
+
+        Assert.Equal(9, run.Game.Player.Lives);
+        Assert.Empty(enemies.All);
+    }
+
+    [Fact]
+    public void A_runner_gets_there_first()
+    {
+        using var run = Start();
+        var enemies = run.Game.Enemies;
+        enemies.Clear();
+
+        var walker = enemies.Spawn(EnemyKind.Walker);
+        var runner = enemies.Spawn(EnemyKind.Runner);
+        run.Ticks(30 * 13);
+
+        Assert.DoesNotContain(runner, enemies.All);
+        Assert.Contains(walker, enemies.All);
+    }
+
+    [Fact]
+    public void Hitting_to_zero_pays_the_reward()
+    {
+        using var run = Start();
+        var enemies = run.Game.Enemies;
+        enemies.Clear();
+
+        var walker = enemies.Spawn(EnemyKind.Walker);
+        enemies.Hit(walker, 1);
+        enemies.Hit(walker, 1);
+        Assert.Equal(100, run.Game.Player.Gold);
+        enemies.Hit(walker, 1);
+
+        Assert.Equal(110, run.Game.Player.Gold);
+        Assert.Equal(1, enemies.Killed);
+        Assert.Empty(enemies.All);
+    }
+
+    [Fact]
     public void Every_tile_is_drawn()
     {
         using var run = Start();
