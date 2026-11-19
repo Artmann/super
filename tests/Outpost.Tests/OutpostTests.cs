@@ -9,6 +9,14 @@ public class OutpostTests
 {
     private static HeadlessRun<OutpostGame> Start() => HeadlessGame.Create<OutpostGame>(1, services => services.AddOutpost());
 
+    /// <summary>Holds the waves back, so a test has the road to itself.</summary>
+    private static Enemies QuietRoad(HeadlessRun<OutpostGame> run)
+    {
+        run.Game.Waves.FirstDelay = float.MaxValue;
+        run.Game.Waves.Reset();
+        return run.Game.Enemies;
+    }
+
     [Fact]
     public void The_middle_tile_sits_at_the_origin()
     {
@@ -61,8 +69,7 @@ public class OutpostTests
     public void A_walker_reaching_the_base_costs_a_life()
     {
         using var run = Start();
-        var enemies = run.Game.Enemies;
-        enemies.Clear();
+        var enemies = QuietRoad(run);
 
         enemies.Spawn(EnemyKind.Walker);
         // The road is about 46 metres and a walker does 2 metres a second, so 25 seconds is plenty.
@@ -76,8 +83,7 @@ public class OutpostTests
     public void A_runner_gets_there_first()
     {
         using var run = Start();
-        var enemies = run.Game.Enemies;
-        enemies.Clear();
+        var enemies = QuietRoad(run);
 
         var walker = enemies.Spawn(EnemyKind.Walker);
         var runner = enemies.Spawn(EnemyKind.Runner);
@@ -91,8 +97,7 @@ public class OutpostTests
     public void Hitting_to_zero_pays_the_reward()
     {
         using var run = Start();
-        var enemies = run.Game.Enemies;
-        enemies.Clear();
+        var enemies = QuietRoad(run);
 
         var walker = enemies.Spawn(EnemyKind.Walker);
         enemies.Hit(walker, 1);
@@ -141,8 +146,7 @@ public class OutpostTests
     public void A_tower_by_the_road_kills_enemies()
     {
         using var run = Start();
-        var enemies = run.Game.Enemies;
-        enemies.Clear();
+        var enemies = QuietRoad(run);
 
         run.Game.Towers.TryBuild(3, 2);
         for (int i = 0; i < 3; i++)
@@ -161,8 +165,7 @@ public class OutpostTests
     public void Hitting_a_dead_enemy_again_pays_nothing()
     {
         using var run = Start();
-        var enemies = run.Game.Enemies;
-        enemies.Clear();
+        var enemies = QuietRoad(run);
 
         var walker = enemies.Spawn(EnemyKind.Walker);
         enemies.Hit(walker, 3);
@@ -176,8 +179,7 @@ public class OutpostTests
     public void A_shot_whose_target_died_vanishes()
     {
         using var run = Start();
-        var enemies = run.Game.Enemies;
-        enemies.Clear();
+        var enemies = QuietRoad(run);
 
         var walker = enemies.Spawn(EnemyKind.Walker);
         enemies.Hit(walker, 1);
@@ -195,8 +197,7 @@ public class OutpostTests
     public void A_tower_ignores_enemies_out_of_range()
     {
         using var run = Start();
-        var enemies = run.Game.Enemies;
-        enemies.Clear();
+        var enemies = QuietRoad(run);
 
         // The middle tile is about 15 metres from where the road starts.
         run.Game.Towers.TryBuild(7, 4);
@@ -214,5 +215,65 @@ public class OutpostTests
         run.Ticks(1);
 
         Assert.Equal(15 * 9, run.Drawn.Count(draw => draw.Key is >= 10_000 and < 20_000));
+    }
+
+    [Fact]
+    public void Wave_makeup_follows_the_table()
+    {
+        Assert.Equal(Enumerable.Repeat(EnemyKind.Walker, 5), Waves.Makeup(1));
+
+        var fifth = Waves.Makeup(5);
+        Assert.Equal(9, fifth.Count(kind => kind == EnemyKind.Walker));
+        Assert.Equal(3, fifth.Count(kind => kind == EnemyKind.Runner));
+        Assert.Equal(1, fifth.Count(kind => kind == EnemyKind.Brute));
+
+        var tenth = Waves.Makeup(10);
+        Assert.Equal(14, tenth.Count(kind => kind == EnemyKind.Walker));
+        Assert.Equal(8, tenth.Count(kind => kind == EnemyKind.Runner));
+        Assert.Equal(3, tenth.Count(kind => kind == EnemyKind.Brute));
+    }
+
+    [Fact]
+    public void A_wave_with_no_towers_costs_lives()
+    {
+        using var run = Start();
+
+        // 3 seconds before the first walker, and about 23 seconds for it to walk the road.
+        run.Ticks(30 * 40);
+
+        Assert.True(run.Game.Player.Lives < 10, $"Lives are still {run.Game.Player.Lives}.");
+    }
+
+    [Fact]
+    public void The_hud_shows_gold_lives_and_wave()
+    {
+        using var run = Start();
+
+        run.Ticks(1);
+
+        var shown = run.ShownText.Select(text => text.Text).ToList();
+        Assert.Contains("Gold 100", shown);
+        Assert.Contains("Lives 10", shown);
+        Assert.Contains("Wave 1/10", shown);
+    }
+
+    [Fact]
+    public void A_click_on_the_hud_builds_nothing()
+    {
+        using var run = Start();
+        // At the usual size the panel sits over the sky. Blown up, as a player might set it, it covers grass.
+        run.UiScale = 5f;
+        run.Ticks(1);
+
+        var hud = run.FrameOf("hud");
+        var middle = new Vector2(hud.X + hud.Width / 2, hud.Y + hud.Height / 2) * run.UiScale;
+        var ground = run.Game.Camera.Ray(middle, run.ScreenSize).Ground();
+        Assert.True(ground is { } spot && new Field().TileAt(spot) is { } tile && !new Field().IsRoad(tile.X, tile.Z), "The panel should cover grass.");
+
+        run.Input.Click(MouseButton.Left, at: middle);
+        run.Ticks(1);
+
+        Assert.Empty(run.Game.Towers.All);
+        Assert.Equal(100, run.Game.Player.Gold);
     }
 }

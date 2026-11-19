@@ -1,9 +1,10 @@
 using System.Numerics;
 using Super;
+using Super.Ui;
 
 namespace OutpostExample;
 
-public sealed class OutpostGame(Field field, Player player, Enemies enemies, Towers towers, Shots shots, Actions<Control> actions, Input input) : IGame
+public sealed class OutpostGame(Field field, Player player, Enemies enemies, Towers towers, Shots shots, Waves waves, Actions<Control> actions, Input input) : IGame
 {
     private static readonly Vector3 Grass = new(0.25f, 0.55f, 0.18f);
     private static readonly Vector3 Sand = new(0.8f, 0.6f, 0.3f);
@@ -22,6 +23,10 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies, Tow
 
     public Shots Shots => shots;
 
+    public Waves Waves => waves;
+
+    public UiView? Ui => new Hud(player.Gold, player.Lives, waves.Number, Waves.Count);
+
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
     {
         // Builds a tower on the middle tile and one by the first bend, for screenshots: --script towers
@@ -31,12 +36,6 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies, Tow
     public void Load()
     {
         actions.Bind(Control.Build, MouseButton.Left);
-
-        // Three walkers so there's something to watch. Waves replace these in chapter 6.
-        for (int i = 0; i < 3; i++)
-        {
-            enemies.Spawn(EnemyKind.Walker).Distance = i * 3f;
-        }
     }
 
     public void Update(GameTime time)
@@ -50,6 +49,7 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies, Tow
             }
         }
 
+        waves.Update(time);
         enemies.Update(time);
         towers.Update(time);
         shots.Update(time);

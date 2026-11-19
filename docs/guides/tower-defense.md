@@ -909,3 +909,200 @@ to the script, next to the road's first bend:
 Run the game, and the tower by the bend picks off the walkers one by one.
 
 ![A tower by the road's first bend firing a yellow shot at a walker](../media/outpost-5-shooting.webp)
+
+## 6. Waves and a HUD
+
+So far three walkers stroll in and that's it. A real tower defense sends wave after wave,
+each a bit harder than the last. And the player needs to see their gold and lives without
+guessing.
+
+### The waves
+
+There are 10 waves. Wave 1 is five walkers, and each wave after it has one more. Runners
+join from wave 3, and brutes from wave 5. Make `Waves.cs`:
+
+```csharp
+using Super;
+
+namespace OutpostExample;
+
+/// <summary>Sends the enemies out, one wave after another.</summary>
+public sealed class Waves
+{
+    public const int Count = 10;
+
+    private readonly Enemies _enemies;
+    private readonly Queue<EnemyKind> _left = new();
+    private float _wait;
+
+    public Waves(Enemies enemies)
+    {
+        _enemies = enemies;
+        Reset();
+    }
+
+    /// <summary>Seconds before the first enemy of the first wave, so the player can look around.</summary>
+    public float FirstDelay { get; set; } = 3f;
+
+    /// <summary>Seconds between two enemies of the same wave.</summary>
+    public float Gap { get; set; } = 0.8f;
+
+    /// <summary>Seconds between the last enemy of a wave and the first of the next.</summary>
+    public float Pause { get; set; } = 5f;
+
+    /// <summary>The wave that's coming or walking now, counting from 1.</summary>
+    public int Number { get; private set; }
+
+    /// <summary>True once the last enemy of the last wave is on the road.</summary>
+    public bool AllSpawned => Number == Count && _left.Count == 0;
+
+    /// <summary>Who walks in a wave: more walkers each time, runners from wave 3, brutes from wave 5.</summary>
+    public static IReadOnlyList<EnemyKind> Makeup(int wave)
+    {
+        int walkers = 4 + wave;
+        int runners = Math.Max(0, wave - 2);
+        int brutes = Math.Max(0, (wave - 3) / 2);
+
+        return
+        [
+            .. Enumerable.Repeat(EnemyKind.Walker, walkers),
+            .. Enumerable.Repeat(EnemyKind.Runner, runners),
+            .. Enumerable.Repeat(EnemyKind.Brute, brutes),
+        ];
+    }
+
+    public void Update(GameTime time)
+    {
+        if (AllSpawned)
+        {
+            return;
+        }
+
+        _wait -= time.DeltaSeconds;
+        if (_wait > 0f)
+        {
+            return;
+        }
+
+        if (_left.Count == 0)
+        {
+            Number++;
+            Queue(Number);
+        }
+
+        _enemies.Spawn(_left.Dequeue());
+        _wait = _left.Count > 0 ? Gap : Pause;
+    }
+
+    /// <summary>Back to the start of wave 1, for a new game.</summary>
+    public void Reset()
+    {
+        _left.Clear();
+        Number = 1;
+        Queue(1);
+        _wait = FirstDelay;
+    }
+
+    private void Queue(int wave)
+    {
+        foreach (var kind in Makeup(wave))
+        {
+            _left.Enqueue(kind);
+        }
+    }
+}
+```
+
+A wave is just a queue of enemy kinds. `Update` counts a timer down, and each time it runs
+out, the next enemy steps onto the road. When a wave's queue is empty, the timer waits a
+little longer before the next wave starts. The numbers are properties rather than
+constants so a test can change them, to speed the waves up or hold them back.
+
+`Makeup` is `static` and only does arithmetic, so it's easy to check on its own. If you'd
+rather write the waves out by hand, it's the one place to change.
+
+Add `.AddSingleton<Waves>()` to `AddOutpost`, add `Waves waves` to the game's constructor,
+and call it first in `Update`, so a new enemy can be shot on the tick it appears:
+
+```csharp
+waves.Update(time);
+enemies.Update(time);
+towers.Update(time);
+shots.Update(time);
+```
+
+Now the waves bring the enemies, so take out the loop in `Load` from chapter 3 that spawns
+three walkers. `Load` is back to one line:
+
+```csharp
+public void Load()
+{
+    actions.Bind(Control.Build, MouseButton.Left);
+}
+```
+
+### A HUD
+
+The interface in Super works a lot like SwiftUI. You don't create labels and then update
+them. Instead, your game has a `Ui` property that describes what the interface should look
+like right now, and Super calls it every frame. Gold changed? The next frame simply shows
+the new number.
+
+A piece of interface is a `record` that inherits `UiView` and has a `Body`. Its fields are
+the data it shows. Make `Hud.cs`:
+
+```csharp
+using Super;
+using Super.Ui;
+
+namespace OutpostExample;
+
+/// <summary>Gold, lives and the wave in the top-left corner, and a hint along the bottom.</summary>
+public sealed record Hud(int Gold, int Lives, int Wave, int Waves) : UiView
+{
+    private static readonly Color Panel = Color.Hex("#10141C", 0.7f);
+
+    public override UiView Body => new VStack(HorizontalAlignment.Leading)
+    {
+        new VStack(HorizontalAlignment.Leading, Spacing: 4f)
+        {
+            new Text($"Gold {Gold}").Bold(),
+            new Text($"Lives {Lives}"),
+            new Text($"Wave {Wave}/{Waves}"),
+        }
+        .Padding(12f)
+        .Background(Panel)
+        .FixedSize()
+        .Id("hud"),
+        new Spacer(),
+        new Text($"Click grass to build a tower ({Towers.Price} gold)")
+            .Padding(8f)
+            .Background(Panel)
+            .IgnoresPointer(),
+    }
+    .Padding(16f)
+    .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);
+}
+```
+
+From the outside in: the outer `VStack` fills the screen, with the stats panel at the top,
+a `Spacer` that pushes everything after it down, and the hint at the bottom. The panel is
+three lines of text on a see-through dark background. `.Id("hud")` gives it a name so a
+test can find it.
+
+Then give the game its `Ui`. It needs `using Super.Ui;` at the top:
+
+```csharp
+public UiView? Ui => new Hud(player.Gold, player.Lives, waves.Number, Waves.Count);
+```
+
+Because `Hud` is a record, two HUDs with the same numbers are equal, and Super uses that to
+skip work when nothing changed. You can make a new one every frame without worrying.
+
+Remember `!input.Mouse.OverUi` from chapter 4? Now it matters. The stats panel takes the
+mouse, so a click on it doesn't fall through and build a tower on the grass behind it.
+The hint uses `.IgnoresPointer()` to do the opposite: it's only words, so clicks go
+straight through to the ground. [Interfaces](../interfaces.md) has every view and
+modifier.
+
+![Gold, lives and wave in the top-left corner, a hint along the bottom, and the first wave on the road](../media/outpost-6-waves.webp)
