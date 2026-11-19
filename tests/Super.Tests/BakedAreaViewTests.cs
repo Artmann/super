@@ -31,7 +31,7 @@ public class BakedAreaViewTests
         view.Begin(0f);
 
         Assert.Null(view.Indirect.BakedSpace);
-        Assert.Empty(view.Indirect.BakedChunks);
+        Assert.Empty(view.Indirect.PlacedBakedChunks.ToArray());
         // With the old space gone a new one can be named.
         view.Indirect.BakedLighting("yard", Min, Max, 1f);
         Assert.Equal("yard", view.Indirect.BakedSpace?.Name);
@@ -129,7 +129,7 @@ public class BakedAreaViewTests
         Assert.Contains("letters, digits", space.Message);
         Assert.Contains($"\"{name}\"", chunk.Message);
         Assert.Null(view.Indirect.BakedSpace);
-        Assert.Empty(view.Indirect.BakedChunks);
+        Assert.Empty(view.Indirect.PlacedBakedChunks.ToArray());
     }
 
     [Fact]
@@ -145,7 +145,7 @@ public class BakedAreaViewTests
             view.Indirect.BakedChunk(chunk.Name, chunk.Transform, chunk.Min, chunk.Max);
         }
 
-        Assert.Equal([first, second, third], view.Indirect.BakedChunks);
+        Assert.Equal([first, second, third], view.Indirect.PlacedBakedChunks.ToArray());
     }
 
     [Fact]
@@ -158,7 +158,7 @@ public class BakedAreaViewTests
         view.Indirect.BakedChunk("barn", Matrix4x4.Identity, -Vector3.One, Vector3.One);
 
         Assert.Equal(8, view.Indirect.BakedSpace?.TexelsPerMetre);
-        Assert.Equal([40, 20], view.Indirect.BakedChunks.Select(chunk => chunk.TexelsPerMetre));
+        Assert.Equal([40, 20], view.Indirect.PlacedBakedChunks.ToArray().Select(chunk => chunk.TexelsPerMetre));
     }
 
     [Theory]
@@ -178,7 +178,7 @@ public class BakedAreaViewTests
         Assert.StartsWith(
             $"The baked chunk's lightmap density must be 1 to 200 texels a metre, not {texelsPerMetre}.", chunk.Message);
         Assert.Null(view.Indirect.BakedSpace);
-        Assert.Empty(view.Indirect.BakedChunks);
+        Assert.Empty(view.Indirect.PlacedBakedChunks.ToArray());
     }
 
     [Fact]
@@ -194,7 +194,7 @@ public class BakedAreaViewTests
             () => view.Indirect.BakedChunk("room", Matrix4x4.CreateTranslation(-20f, 0f, 0f), -Vector3.One, Vector3.One));
 
         Assert.Contains("256", error.Message);
-        Assert.Equal(256, view.Indirect.BakedChunks.Count);
+        Assert.Equal(256, view.Indirect.PlacedBakedChunks.Length);
     }
 
     [Fact]
@@ -207,7 +207,7 @@ public class BakedAreaViewTests
 
         Assert.Contains("\"room\"", error.Message);
         Assert.Contains("rotation and translation", error.Message);
-        Assert.Empty(view.Indirect.BakedChunks);
+        Assert.Empty(view.Indirect.PlacedBakedChunks.ToArray());
     }
 
     [Fact]
@@ -229,7 +229,7 @@ public class BakedAreaViewTests
 
         view.Indirect.BakedChunk("room", transform, -Vector3.One, Vector3.One);
 
-        Assert.Single(view.Indirect.BakedChunks);
+        Assert.Single(view.Indirect.PlacedBakedChunks.ToArray());
     }
 
     [Fact]
@@ -241,7 +241,7 @@ public class BakedAreaViewTests
             () => view.Indirect.BakedChunk("room", Matrix4x4.Identity, new Vector3(0f, 0f, 3f), new Vector3(1f, 1f, 2f)));
 
         Assert.Contains("along z", error.Message);
-        Assert.Empty(view.Indirect.BakedChunks);
+        Assert.Empty(view.Indirect.PlacedBakedChunks.ToArray());
     }
 
     [Fact]
@@ -254,9 +254,9 @@ public class BakedAreaViewTests
         view.Indirect.BakedChunk("room", here, -Vector3.One, Vector3.One);
         view.Indirect.BakedChunk("room", there, -Vector3.One, Vector3.One);
 
-        Assert.Equal(2, view.Indirect.BakedChunks.Count);
-        Assert.Equal(here, view.Indirect.BakedChunks[0].Transform);
-        Assert.Equal(there, view.Indirect.BakedChunks[1].Transform);
+        Assert.Equal(2, view.Indirect.PlacedBakedChunks.Length);
+        Assert.Equal(here, view.Indirect.PlacedBakedChunks[0].Transform);
+        Assert.Equal(there, view.Indirect.PlacedBakedChunks[1].Transform);
     }
 
     [Fact]
@@ -268,7 +268,7 @@ public class BakedAreaViewTests
         view.Indirect.BakedChunk("barn", Matrix4x4.Identity, -Vector3.One, Vector3.One);
         view.Indirect.BakedChunk("hall", Matrix4x4.Identity, -Vector3.One, Vector3.One, edgeBlend: 1f);
 
-        Assert.Equal([0f, 0.5f, 1f], view.Indirect.BakedChunks.Select(chunk => chunk.EdgeBlend));
+        Assert.Equal([0f, 0.5f, 1f], view.Indirect.PlacedBakedChunks.ToArray().Select(chunk => chunk.EdgeBlend));
     }
 
     [Fact]
@@ -292,7 +292,7 @@ public class BakedAreaViewTests
                 "The baked chunk \"room\"'s edge blend of 1.75 metres is more than half its box's smaller side across x and z, 3 metres.",
                 error.Message);
             Assert.Equal("edgeBlend", error.ParamName);
-            Assert.Single(view.Indirect.BakedChunks);
+            Assert.Single(view.Indirect.PlacedBakedChunks.ToArray());
         }
         finally
         {
@@ -317,7 +317,7 @@ public class BakedAreaViewTests
                 + "0.5 metres is the default; pass edgeBlend: 0 for a hard edge, or a smaller edge blend.",
                 error.Message);
             Assert.Equal("edgeBlend", error.ParamName);
-            Assert.Empty(view.Indirect.BakedChunks);
+            Assert.Empty(view.Indirect.PlacedBakedChunks.ToArray());
         }
         finally
         {
@@ -334,7 +334,7 @@ public class BakedAreaViewTests
             () => view.Indirect.BakedChunk("room", Matrix4x4.Identity, -Vector3.One, Vector3.One, edgeBlend: -0.25f));
 
         Assert.StartsWith("The baked chunk \"room\"'s edge blend must be 0 metres or more, not -0.25.", error.Message);
-        Assert.Empty(view.Indirect.BakedChunks);
+        Assert.Empty(view.Indirect.PlacedBakedChunks.ToArray());
     }
 
     [Fact]
@@ -346,7 +346,7 @@ public class BakedAreaViewTests
             () => view.Indirect.BakedChunk("room", Matrix4x4.Identity, -Vector3.One, Vector3.One, edgeBlend: float.NaN));
 
         Assert.StartsWith("The baked chunk \"room\"'s edge blend must be 0 metres or more, not NaN.", error.Message);
-        Assert.Empty(view.Indirect.BakedChunks);
+        Assert.Empty(view.Indirect.PlacedBakedChunks.ToArray());
     }
 
     [Fact]

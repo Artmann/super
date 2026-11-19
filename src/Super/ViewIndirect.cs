@@ -24,9 +24,10 @@ public sealed class ViewIndirect
     internal ProbeVolumeSettings? LightProbeVolume { get; private set; }
     internal BakedSpace? BakedSpace { get; private set; }
 
-    /// <summary>The baked chunks placed so far this frame, in the order they were placed.</summary>
-    internal IReadOnlyList<BakedChunk> BakedChunks => _bakedChunks;
+    /// <summary>Whether the world named this frame's baked space, so one call from Draw may still replace it.</summary>
+    internal bool BakedSpaceFromWorld { get; set; }
 
+    /// <summary>The baked chunks placed so far this frame, in the order they were placed.</summary>
     internal ReadOnlySpan<BakedChunk> PlacedBakedChunks => CollectionsMarshal.AsSpan(_bakedChunks);
 
     /// <summary>The reflection probes placed so far this frame, in the order they were placed.</summary>
@@ -117,17 +118,18 @@ public sealed class ViewIndirect
     /// <paramref name="min"/> to <paramref name="max"/>, holding baked probes <paramref name="probeSpacing"/> metres
     /// apart, at most <see cref="BakeFiles.MaxSpaceProbes"/>, with lightmaps of <paramref name="texelsPerMetre"/>
     /// texels for each metre of surface. Its bake is <c>lighting/&lt;name&gt;.lightbake</c>, made with
-    /// <c>--bake</c>, and a bake made at another density is stale. A second space in one frame throws. While the bake
-    /// is fresh, its lightmaps light the draws it holds in place of its <c>Baked</c> lights, which are no longer drawn
-    /// live, its shadow mask shadows its <c>Mixed</c> lights, and its probes light other draws inside the box. A
-    /// missing, stale or unreadable bake leaves the space lit live. See docs/rendering.md.
+    /// <c>--bake</c>, and a bake made at another density is stale. A second space in one frame throws, unless the
+    /// first came from the world, which one call from Draw replaces. While the bake is fresh, its lightmaps light the
+    /// draws it holds in place of its <c>Baked</c> lights, which are no longer drawn live, its shadow mask shadows its
+    /// <c>Mixed</c> lights, and its probes light other draws inside the box. A missing, stale or unreadable bake leaves
+    /// the space lit live. See docs/rendering.md.
     /// </summary>
     public void BakedLighting(
         string name, Vector3 min, Vector3 max, float probeSpacing,
         int texelsPerMetre = BakeSettings.DefaultTexelsPerMetre)
     {
         BakeFiles.CheckName(name);
-        if (BakedSpace is { } named)
+        if (BakedSpace is { } named && !BakedSpaceFromWorld)
         {
             throw new InvalidOperationException(
                 $"The baked space \"{named.Name}\" was already named this frame, so \"{name}\" can't be. A frame has at most one baked space.");
@@ -151,6 +153,7 @@ public sealed class ViewIndirect
         }
 
         BakedSpace = new BakedSpace(name, min, max, probeSpacing, texelsPerMetre);
+        BakedSpaceFromWorld = false;
     }
 
     /// <summary>
@@ -234,6 +237,7 @@ public sealed class ViewIndirect
         Bounce = new BounceSettings();
         LightProbeVolume = null;
         BakedSpace = null;
+        BakedSpaceFromWorld = false;
         _bakedChunks.Clear();
         _reflectionProbes.Clear();
     }

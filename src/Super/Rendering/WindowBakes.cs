@@ -17,11 +17,11 @@ internal sealed class WindowBakes(OsWindow window, SceneRenderer scene, WindowFr
     public int Bake(GameLoop host, long ticks, BakeQuality quality, string folder, out int failed)
     {
         float time = frames.PlayAndDraw(host, ticks);
-        var chunks = host.View.Indirect.BakedChunks;
+        var chunks = host.View.Indirect.PlacedBakedChunks.ToArray();
         var frame = scene.Renderer.Baking.LastFrame;
         var targets = BakeCommand.Targets(
             host.View.Indirect.BakedSpace is { } named ? BakeFiles.Space(named.Name) : null,
-            chunks.Count,
+            chunks.Length,
             chunk => frame!.ChunkFile(chunk));
 
         var (width, height) = window.FramebufferSize();

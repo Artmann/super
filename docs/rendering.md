@@ -726,8 +726,8 @@ A `BakedLighting` entity names a space: one fixed place, baked as it stands, sun
 holds baked probes `ProbeSpacing` metres apart, at most 4,096 of them, counted the same way as
 [light probes](#bounced-light), so 1 metre spacing covers about 15 by 15 by 15 metres. A frame
 has at most one space: when several entities have one the newest wins, and drawing by hand,
-`view.Indirect.BakedLighting(name, min, max, probeSpacing)` names it for one frame, where naming a
-second throws with both names. Its bake is
+`view.Indirect.BakedLighting(name, min, max, probeSpacing)` names it for one frame. A call from `Draw`
+replaces the world's space for that frame, and a second call by hand throws with both names. Its bake is
 `lighting/<name>.lightbake`. `TexelsPerMetre`, 20 by default (5 cm texels), sets how fine its
 lightmap is, from 1 to 200; anything else throws with the value. A `BakedPiece` takes the same
 `TexelsPerMetre` for a chunk.
@@ -1143,8 +1143,9 @@ On an M4 Mac a photograph takes about 0.7 ms of the GPU's time.
 At most 64 probes fit in a frame, and a sixty-fifth throws. Each probe takes about 1 MB of
 GPU memory. Room for 8 is made at the start and doubles when it runs out, up to 64, which
 waits for the GPU once. The position must be inside the box, `BoxMax` above `BoxMin` on
-every axis, `Blend` 0 or more, `Priority` a finite number, `Update` one of the three, and, drawing by hand, each
-key used once a frame. With `Graphics.Lighting.Reflections` off, no probes are photographed and shiny
+every axis, `Blend` 0 or more, `Priority` a finite number, `Update` one of the three, and each
+key used once a frame. A `ReflectionCapture` entity's key is its entity's id, so a probe drawn by hand next to
+them needs a key no entity has, such as a negative one. With `Graphics.Lighting.Reflections` off, no probes are photographed and shiny
 surfaces and glass reflect only the sky.
 
 ## The look of the picture
@@ -1614,7 +1615,8 @@ the transform as a matrix and a key that names the volume, the same as a decal's
 The frame that meets a bad fog volume throws, with a message naming what's wrong:
 
 - more than 64 fog volumes in a frame;
-- a key used twice in a frame, which only drawing by hand can do;
+- a key used twice in a frame. A `FogVolume` entity's key is its entity's id, so a volume drawn by hand
+  next to them needs a key no entity has, such as a negative one;
 - a shape that isn't one of the four;
 - a transform squashed flat on any axis, or holding a number that isn't finite;
 - a density below 0 or not finite, a colour channel or `EdgeFade` or `Noise` outside 0 to 1,
@@ -1867,7 +1869,8 @@ the ones the frame didn't use are let go and made again when next used.
 The frame that meets a bad decal throws, with a message naming what's wrong:
 
 - more than 256 decals in a frame;
-- a key used twice in a frame, which only drawing by hand can do;
+- a key used twice in a frame. A `Decal` entity's key is its entity's id, so a decal drawn by hand next to
+  them needs a key no entity has, such as a negative one;
 - a box squashed flat on any axis, or holding a number that isn't finite, since it can't be
   inverted;
 - a `DecalBlend` field outside 0 to 1;

@@ -98,6 +98,7 @@ internal static class WorldLights
         if (Newest<BakedLighting>(world) is { } baked)
         {
             view.Indirect.BakedLighting(baked.Name, baked.Min, baked.Max, baked.ProbeSpacing, baked.TexelsPerMetre);
+            view.Indirect.BakedSpaceFromWorld = true;
         }
     }
 

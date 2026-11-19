@@ -142,6 +142,11 @@ So a lid and a latch on one box can both use the box's ID, and a box and a tree 
 same ID can't get mixed up. Two calls from one line with one key share their memory, so
 give each its own key.
 
+Entities in the world are drawn with their entity's id as the key. Decals, fog volumes and reflection
+probes must each have a key of their own in a frame, and lights that share a key are left out of
+the bake (see [Moving lights](rendering.md#moving-lights)). So give the ones you draw by hand beside those entities
+keys no entity has, such as negative ones.
+
 ## Smooth motion
 
 Things that move in `Update` advance in steps, so the view blends between the last two
