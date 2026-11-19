@@ -578,15 +578,3 @@ Fog volumes show only where the volumetric fog reaches, out to
 [`Graphics.Atmosphere.VolumetricFog`](rendering.md#graphics-settings) is on.
 `Graphics.Atmosphere.FogVolumes` turns them off on their own, and `Graphics.Fastest()` turns both off.
 The grid's [cell size and slices](rendering.md#the-grids-cost) set how sharp their edges are.
-
-## Planned
-
-Attaching models to bones isn't built yet. Until then, `animator.Joint(name)` times the
-character's transform places a model on a bone by hand; see
-[Animation](animation.md#joints). This is the intended shape:
-
-```csharp
-// Planned: not in Super yet.
-var hand = view.Bone(colonist.Id, "hand_r");
-view.Model(colonist.AxeId, axe, hand);
-```

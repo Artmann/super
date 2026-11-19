@@ -446,6 +446,21 @@ Systems only change what it's doing, such as
 `world.Get<Animated>(fox).Value.Set(FoxState.Moving)`. Add a `Model` too when you want
 a tint, or to draw a different model with the same rig.
 
+To hold something in a hand, give it a `Parent` that names a bone of the character. Its
+`Transform` then counts from that joint, and it follows the joint between ticks just as
+smoothly as the character's own model:
+
+```csharp
+world.Spawn(
+    Transform.At(new Vector3(0f, 0.05f, 0f)),
+    new Model(content.Model("weapons/sword.glb")),
+    new Parent(fighter, Bone: "mixamorig:RightHand"));
+```
+
+A bone the rig lacks throws when the frame is drawn, naming the bone and the entity, and
+so does a bone on a parent that isn't `Animated`. Destroying the character destroys the
+sword too. Physics places a body on a bone where the joint is as of the tick.
+
 ## Limits
 
 - A model can have up to 256 joints, and a frame can draw up to 16,384 bones. Models
@@ -458,11 +473,10 @@ a tint, or to draw a different model with the same rig.
   frames.
 - Root motion only carries travel over the ground. Turns in a clip, such as a turn on
   the spot, stay in the pose and don't turn the character.
-- Attaching a separate model to a bone, such as a sword to a hand, isn't built in. Draw
-  it yourself at `animator.Joint(name)` times the character's transform; see
-  [Drawing with views](views.md#planned). A sword that is a mesh in the character's own
-  file already follows its hand, and a [mesh mask](views.md#showing-some-meshes) picks
-  which of several to show.
+- A separate model follows a bone only as an entity with a bone `Parent`. Drawn with
+  `view.Model`, place it yourself at `animator.Joint(name)` times the character's
+  transform. A sword that is a mesh in the character's own file already follows its
+  hand, and a [mesh mask](views.md#showing-some-meshes) picks which of several to show.
 - Events don't sync clips. Blends keep their clips in step by phase, not by markers such
   as a left foot down.
 - An event's sound plays once, where the joint was on that tick. It doesn't follow the

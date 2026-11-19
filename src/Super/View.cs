@@ -17,7 +17,8 @@ public sealed class View
 {
     private readonly List<ModelDraw> _models = [];
     private readonly ViewMemory _memory = new();
-    private ViewClock _clock = new(0, 0, 0f, 1f, 0f);
+    /// <summary>The frame and tick this view is drawing, and how far between ticks.</summary>
+    internal ViewClock Clock { get; private set; } = new(0, 0, 0f, 1f, 0f);
 
     internal Camera Shot { get; private set; }
 
@@ -53,7 +54,7 @@ public sealed class View
     public ReadOnlySpan<ModelDraw> Drawn => CollectionsMarshal.AsSpan(_models);
 
     /// <summary>How far the display is between the last tick and the next, from 0 to 1.</summary>
-    public float Blend => _clock.Blend;
+    public float Blend => Clock.Blend;
 
     /// <summary>Places the camera. Field of view is the vertical angle in radians.</summary>
     public void Camera(Vector3 position, Vector3 lookAt, float fieldOfView = MathF.PI / 4f) =>
@@ -138,7 +139,7 @@ public sealed class View
         // So the animator's clip sounds play where the model stands.
         pose?.Drawn = transform;
         _models.Add(new ModelDraw(
-            key, model, transform, options.Color, options.Swim, pose, pose is null ? 0f : _clock.PoseAhead, null, options.Meshes, options.Static, options.Fade));
+            key, model, transform, options.Color, options.Swim, pose, pose is null ? 0f : Clock.PoseAhead, null, options.Meshes, options.Static, options.Fade));
     }
 
     /// <summary>
@@ -154,8 +155,8 @@ public sealed class View
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0)
     {
-        double now = _clock.Now;
-        ref var motion = ref _memory.Motions.Touch(new MemorySite(key, file, line), _clock.FrameCount, out bool isNew);
+        double now = Clock.Now;
+        ref var motion = ref _memory.Motions.Touch(new MemorySite(key, file, line), Clock.FrameCount, out bool isNew);
         if (isNew)
         {
             motion = new ViewMotion(target, target, now, seconds);
@@ -178,7 +179,7 @@ public sealed class View
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0)
     {
-        ref var last = ref _memory.Kind<T>().Touch(new MemorySite(key, file, line), _clock.FrameCount, out bool isNew);
+        ref var last = ref _memory.Kind<T>().Touch(new MemorySite(key, file, line), Clock.FrameCount, out bool isNew);
         bool changed = !isNew && !EqualityComparer<T>.Default.Equals(last, value);
         last = value;
         return changed;
@@ -188,7 +189,7 @@ public sealed class View
     /// How long ago something happened, given the <see cref="GameTime.Tick"/> your Update
     /// saved at that moment. It's worked out from game time, so it needs no memory.
     /// </summary>
-    public float SecondsSince(long tick) => _clock.SecondsSince(tick);
+    public float SecondsSince(long tick) => Clock.SecondsSince(tick);
 
     /// <summary>
     /// Runs a function that draws models, then replays them without calling it again until
@@ -203,7 +204,7 @@ public sealed class View
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0)
     {
-        ref var slot = ref _memory.Recordings.Touch(new MemorySite(key, file, line), _clock.FrameCount, out bool isNew);
+        ref var slot = ref _memory.Recordings.Touch(new MemorySite(key, file, line), Clock.FrameCount, out bool isNew);
         var recording = slot ??= new ViewRecording();
         if (!isNew && recording.Version == version)
         {
@@ -222,8 +223,8 @@ public sealed class View
     internal void Begin(float blend, long tick = 0, float tickSeconds = 0f, float timeScale = 1f)
     {
         // What the last frame didn't draw goes now, before this frame can touch it.
-        _memory.Forget(_clock.FrameCount);
-        _clock = _clock.Next(blend, tick, tickSeconds, timeScale);
+        _memory.Forget(Clock.FrameCount);
+        Clock = Clock.Next(blend, tick, tickSeconds, timeScale);
         _models.Clear();
         Lights.Clear();
         Indirect.Clear();

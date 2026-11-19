@@ -159,7 +159,7 @@ public void Draw(View view)
 | --- | --- |
 | `Transform` | Position, rotation and scale. `Transform.At` and `Transform.Facing` build common ones, and `Transform.From` takes a [spline](splines.md) pose. A `Model` or `Animated` entity gets `Transform.Identity` if it has none |
 | `Model` | A `ModelRef`, and an optional color that tints the model and keeps its textures, a `MeshMask` and a `DistanceFade` that [fades it out with distance](rendering.md#fading-with-distance) |
-| `Parent` | Counts the entity's transform from another entity's, so an attached thing follows. Destroying the parent destroys it too |
+| `Parent` | Counts the entity's transform from another entity's, so an attached thing follows. Give a `Bone` to follow a joint of an `Animated` parent, such as a sword in a hand. Destroying the parent destroys it too |
 | `Swim` | Bends the model like a swimming fish, with the phase blended between ticks too |
 | `Animated` | Draws the model in its `Animator`'s pose, which the game loop moves on each tick. Without a `Model`, it draws the rig's own model. See [Animation](animation.md) |
 | `Static` | Draws the model static, so its lighting can be baked. See [Static draws](#static-draws) |

@@ -50,7 +50,7 @@ internal static class WorldEmitters
                 $"An emitter's Every must be more than zero seconds. Entity {entity.Id}'s Emitter has Every {emitter.Every}.");
         }
 
-        var matrix = WorldFrame.WorldMatrix(world, entity, view.Blend);
+        var matrix = WorldFrame.WorldMatrix(world, entity, view.Blend, view.Clock.PoseAhead);
         long last = (long)Math.Floor(now / emitter.Every);
         long first = last - (long)Math.Ceiling(emitter.Effect.Duration / emitter.Every);
         for (long start = last; start >= first; start--)

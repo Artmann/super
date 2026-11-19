@@ -65,13 +65,13 @@ internal static class WorldLights
         else if (typeof(T) == typeof(PointLight))
         {
             ref var point = ref Unsafe.As<T, PointLight>(ref value);
-            var matrix = WorldFrame.WorldMatrix(world, entity, view.Blend);
+            var matrix = WorldFrame.WorldMatrix(world, entity, view.Blend, view.Clock.PoseAhead);
             view.Lights.Point(entity.Id, point with { Position = Vector3.Transform(point.Position, matrix) });
         }
         else if (typeof(T) == typeof(SpotLight))
         {
             ref var spot = ref Unsafe.As<T, SpotLight>(ref value);
-            var matrix = WorldFrame.WorldMatrix(world, entity, view.Blend);
+            var matrix = WorldFrame.WorldMatrix(world, entity, view.Blend, view.Clock.PoseAhead);
             var direction = spot.Direction == Vector3.Zero ? Vector3.UnitZ : spot.Direction;
             view.Lights.Spot(entity.Id, spot with
             {

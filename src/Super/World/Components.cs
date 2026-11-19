@@ -25,13 +25,18 @@ internal struct LastTick
 
 /// <summary>
 /// Attaches an entity to another. Its own <see cref="Transform"/> then counts from the
-/// parent's, so an axe in a hand is an entity with a Parent and a small offset.
+/// parent's, so a lamp on a cart is an entity with a Parent and a small offset. Name a
+/// <paramref name="Bone"/> of an <see cref="Animated"/> parent's rig, such as "hand_l", to
+/// count from that joint instead, following it between ticks as the model is drawn.
+/// Destroying the parent destroys the child too.
 /// </summary>
-public record struct Parent(Entity Value);
+/// <param name="Value">The entity to count from.</param>
+/// <param name="Bone">A joint of the parent's rig to count from, or null for the parent itself.</param>
+public record struct Parent(Entity Value, string? Bone = null);
 
 /// <summary>
 /// Ties an entity to a state, so it's destroyed on leaving that state. Anything without
-/// this carries through. A parent's children aren't included, so tag them too.
+/// this carries through. Its children go with it, so only the entity at the top needs this.
 /// </summary>
 public record struct ScopedTo<TState>(TState State)
     where TState : struct, Enum;
