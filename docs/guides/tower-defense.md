@@ -535,3 +535,168 @@ for as long as it lives.
 
 Run it, and three walkers wander down the road to your base. You lose three lives, but
 nothing shows that yet. We'll get there.
+
+## 4. Building towers
+
+Now let's fight back. The player clicks a grass tile, pays 50 gold, and a tower goes up.
+
+### What the player can do
+
+In Super, you don't ask "is the left mouse button down?" in your game code. You name the
+things the player can do with an enum, and bind keys and buttons to them in one place. Make
+`Controls.cs`:
+
+```csharp
+namespace OutpostExample;
+
+/// <summary>Everything the player can do. Which key or button does it is set in OutpostGame.Load.</summary>
+public enum Control
+{
+    Build,
+}
+```
+
+Then the rest of the game only ever asks about `Control.Build`. If you later want building
+on a gamepad button too, that's one more binding, and nothing else changes. See
+[Input](../input.md) for everything a binding can be.
+
+### The towers
+
+Make `Towers.cs`:
+
+```csharp
+namespace OutpostExample;
+
+/// <summary>One tower, standing on a tile.</summary>
+public sealed class Tower
+{
+    public required int X { get; init; }
+
+    public required int Z { get; init; }
+}
+
+/// <summary>The towers the player has built.</summary>
+public sealed class Towers(Field field, Player player)
+{
+    public const int Price = 50;
+
+    private readonly List<Tower> _all = [];
+
+    public IReadOnlyList<Tower> All => _all;
+
+    /// <summary>Builds a tower on a tile, if it's grass, it's free, and the player can pay. Says whether it did.</summary>
+    public bool TryBuild(int x, int z)
+    {
+        bool onField = x >= 0 && x < Field.Width && z >= 0 && z < Field.Depth;
+        if (!onField || field.IsRoad(x, z) || _all.Any(tower => tower.X == x && tower.Z == z) || player.Gold < Price)
+        {
+            return false;
+        }
+
+        player.Gold -= Price;
+        _all.Add(new Tower { X = x, Z = z });
+        return true;
+    }
+
+    /// <summary>Takes every tower down, for a new game.</summary>
+    public void Clear() => _all.Clear();
+}
+```
+
+All the rules for building live in `TryBuild`: on the field, not on the road, not on
+another tower, and only if you can pay. Keeping them in one method makes them easy to
+test, which we'll do in chapter 8.
+
+Add `.AddSingleton<Towers>()` to `AddOutpost`.
+
+### Clicking on the ground
+
+The game needs three more things in its constructor: the towers, the player's
+`Actions<Control>`, and `Input` for the mouse. Both of those last two come from Super, so
+there's nothing to register.
+
+```csharp
+public sealed class OutpostGame(Field field, Player player, Enemies enemies, Towers towers, Actions<Control> actions, Input input) : IGame
+```
+
+Bind the left mouse button at the top of `Load`:
+
+```csharp
+actions.Bind(Control.Build, MouseButton.Left);
+```
+
+And build in `Update`, before the enemies walk:
+
+```csharp
+if (actions.Pressed(Control.Build) && !input.Mouse.OverUi)
+{
+    // Follow the line from the camera through the cursor down to the ground, and build on that tile.
+    if (input.Mouse.Ray(Camera).Ground() is { } spot && field.TileAt(spot) is { } tile)
+    {
+        towers.TryBuild(tile.X, tile.Z);
+    }
+}
+```
+
+`Pressed` is true only on the tick the button goes down, so holding it builds once.
+`OverUi` is true when the cursor is over the interface. We don't have one yet, but we will
+in chapter 6, and clicking a button shouldn't also build a tower under it.
+
+The cursor is a point on the screen, but tiles are in the world. `Mouse.Ray(Camera)` is the
+line from the camera through the cursor, out into the world. `Ground()` finds where that
+line meets the ground, or gives null if it never does, such as when you point at the sky.
+Then `TileAt` from chapter 1 turns that point into a tile. There's more on this in
+[Clicking on things](../cameras.md#clicking-on-things).
+
+Input is read in `Update`, never in `Draw`. Everything that changes the game happens in
+ticks, which is what keeps it repeatable.
+
+### Drawing the towers
+
+Each tower is a cylinder with a cone for a roof. Add the colours:
+
+```csharp
+private static readonly Vector3 TowerWall = new(0.9f, 0.85f, 0.75f);
+private static readonly Vector3 TowerRoof = new(0.2f, 0.4f, 0.9f);
+```
+
+And after the base in `Draw`:
+
+```csharp
+for (int i = 0; i < towers.All.Count; i++)
+{
+    var spot = field.Center(towers.All[i].X, towers.All[i].Z);
+    var wall = Matrix4x4.CreateScale(0.8f, 1.2f, 0.8f) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 0.6f, 0));
+    var roof = Matrix4x4.CreateScale(1.1f, 0.8f, 1.1f) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 1.6f, 0));
+    view.Model(20_000 + i, ModelRef.Cylinder, wall, TowerWall);
+    view.Model(30_000 + i, ModelRef.Cone, roof, TowerRoof);
+}
+```
+
+Towers are never taken down during a game, so a tower's place in the list makes a fine key.
+
+### A script for screenshots
+
+You can try it by running the game and clicking, but it's handy to have the game do it
+for you. A game can have named input scripts, which the `--script` option plays. Add this
+to `OutpostGame`:
+
+```csharp
+public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
+{
+    // Builds a tower on the middle tile, for screenshots: --script towers
+    ["towers"] = new InputScript().Wait(1).Click(new Vector2(640, 360)).Wait(5),
+};
+```
+
+Then this runs the game for two seconds with no window, clicking the middle of the screen,
+and saves what it looks like:
+
+```
+dotnet run -c Release -- --screenshot towers.png --script towers --ticks 60 --size 1280x720
+```
+
+![A tower with a blue roof on the middle tile, with walkers on the road](../media/outpost-4-towers.webp)
+
+This is also how this guide's pictures were made. See [The command line](../command-line.md)
+for more.

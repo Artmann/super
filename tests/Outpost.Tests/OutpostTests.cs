@@ -106,6 +106,38 @@ public class OutpostTests
     }
 
     [Fact]
+    public void Clicking_grass_builds_a_tower()
+    {
+        using var run = Start();
+        run.Ticks(1);
+
+        // The camera looks at the middle tile, so the middle of the screen is on it.
+        run.Input.Click(MouseButton.Left, at: run.ScreenSize / 2);
+        run.Ticks(1);
+
+        var tower = Assert.Single(run.Game.Towers.All);
+        Assert.Equal((7, 4), (tower.X, tower.Z));
+        Assert.Equal(50, run.Game.Player.Gold);
+    }
+
+    [Fact]
+    public void Building_needs_grass_and_gold()
+    {
+        using var run = Start();
+        var towers = run.Game.Towers;
+
+        Assert.False(towers.TryBuild(4, 3));
+        Assert.True(towers.TryBuild(7, 4));
+        Assert.False(towers.TryBuild(7, 4));
+        Assert.False(towers.TryBuild(-1, 0));
+        Assert.True(towers.TryBuild(3, 2));
+        Assert.False(towers.TryBuild(8, 4));
+
+        Assert.Equal(0, run.Game.Player.Gold);
+        Assert.Equal(2, towers.All.Count);
+    }
+
+    [Fact]
     public void Every_tile_is_drawn()
     {
         using var run = Start();

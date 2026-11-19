@@ -8,5 +8,6 @@ public static class OutpostServices
     public static IServiceCollection AddOutpost(this IServiceCollection services) => services
         .AddSingleton<Field>()
         .AddSingleton<Player>()
-        .AddSingleton<Enemies>();
+        .AddSingleton<Enemies>()
+        .AddSingleton<Towers>();
 }
