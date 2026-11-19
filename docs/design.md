@@ -34,6 +34,7 @@ the rest is not yet.
 | Camera boom | The game tests `BoomCamera.Arm` against its own walls and passes in the distance, by hand or with a `Super.Physics` shape cast | Super.Physics is optional, so the core can't call it, and this needs no delegate |
 | Orthographic shading | Super gives the renderer an eye far behind the camera | Shaders keep one way of finding the view direction |
 | Unchanging objects | `View.Cached`, by key and version number | Static worlds aren't described again each frame |
+| Static entities | `WorldFrame` draws `Static` archetypes through `View.Cached` under `ArchetypeTable.StaticVersion`, drawn first, then every other archetype afresh. `World` bumps the version when an entity whose mask has `Static` is given a value (`Put`), loses a component or is destroyed, and `world.Changed(entity)` bumps it by hand for a write through `Get` | A town of static pieces costs about what replaying a `View.Cached` list does (50,000 pieces in about 2.5 ms, against 2.3 ms for `Cached`), and the world needs no flag per entity. A static child of a moving parent doesn't follow it until something changes |
 | Dependency injection | `Microsoft.Extensions.DependencyInjection`, resolved at startup only | Familiar, makes fakes one line, and costs nothing per frame |
 | Global state | None | Many headless games can share one process |
 | Randomness | `GameRandom` with named streams from one seed | A new roll in one system doesn't disturb another |

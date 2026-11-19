@@ -45,6 +45,7 @@ public sealed class World : ITickHook, IStateHook
             return;
         }
 
+        Archetypes.Touched(mask);
         if (!Archetypes.Reactions.AnyRemoved)
         {
             _entities.Free(entity);
@@ -168,6 +169,7 @@ public sealed class World : ITickHook, IStateHook
         }
 
         slot.Archetype!.Column<T>(type).Values[slot.Row] = component;
+        Archetypes.Touched(slot.Archetype.Mask);
         return added;
     }
 
@@ -197,6 +199,7 @@ public sealed class World : ITickHook, IStateHook
 
         // Read after the handlers, which may have made entities and moved the slots.
         ref var slot = ref _entities.Of(entity);
+        Archetypes.Touched(slot.Archetype!.Mask);
         _entities.MoveTo(ref slot, Archetypes.Without(slot.Archetype!, type));
     }
 
