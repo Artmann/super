@@ -31,7 +31,7 @@ public enum FoxAction
 /// about when it stops, and Look turns its head without breaking stride. Each paw kicks up
 /// a little dust as it lands, from the clips' <c>step</c> events.
 /// </summary>
-public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
+public sealed class FoxGame(World world, Content content, Actions<Control> actions) : IGame
 {
     public const float WalkSpeed = 0.6f;
     public const float RunSpeed = 2.4f;
@@ -40,8 +40,6 @@ public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
     private const float PathRadius = 4f;
     private const float StopSpeed = 0.05f;
     private const float DustSeconds = 1f;
-    private const int FoxKey = 1;
-    private const int GroundKey = 2;
     private const int DustKey = 1000;
 
     /// <summary>A small puff of dry earth where a paw lands, settling as it drifts out.</summary>
@@ -59,7 +57,8 @@ public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
     private readonly List<Puff> _puffs = [];
     private Animator _animator = null!;
     private float _angle;
-    private float _previousAngle;
+    private Entity _fox;
+    private Entity _camera;
     private int _steps;
 
     /// <summary>How fast the fox wants to go, in metres per second.</summary>
@@ -92,6 +91,11 @@ public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
             .Action(FoxAction.Look, rig.Clip("Survey"), rig.Mask("b_Neck_04"), fadeSeconds: 0.4f);
         _animator = controller.Start(FoxState.Moving);
         _animator.Parameter = Speed;
+
+        world.Spawn(new Sun(new Vector3(0.4f, 1f, 0.3f), new Vector3(4f, 3.8f, 3.4f)), new Shadows(4f));
+        world.Spawn(new Transform(new Vector3(0f, -0.05f, 0f), Quaternion.Identity, new Vector3(40f, 0.1f, 40f)), new Model(ModelRef.Cube, new Vector3(0.33f, 0.45f, 0.22f)));
+        _fox = world.Spawn(Transform.From(FoxTransform(_angle)), new Animated(_animator));
+        _camera = world.Spawn(Camera(_angle));
     }
 
     public void Update(GameTime time)
@@ -104,8 +108,9 @@ public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
             ? MathF.Min(Speed + Acceleration * dt, TargetSpeed)
             : MathF.Max(Speed - Acceleration * dt, TargetSpeed);
 
-        _previousAngle = _angle;
         _angle += Speed / PathRadius * dt;
+        world.Get<Transform>(_fox) = Transform.From(FoxTransform(_angle));
+        world.Get<Camera>(_camera) = Camera(_angle);
 
         _animator.Set(Speed < StopSpeed ? FoxState.Idle : FoxState.Moving);
         _animator.Parameter = Speed;
@@ -139,20 +144,18 @@ public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
         return Matrix4x4.CreateRotationY(MathF.Atan2(heading.X, heading.Z)) * Matrix4x4.CreateTranslation(position);
     }
 
+    // Beside the fox and a little behind, looking down at it.
+    private static Camera Camera(float angle)
+    {
+        var position = FoxTransform(angle).Translation;
+        var heading = new Vector3(-MathF.Sin(angle), 0f, MathF.Cos(angle));
+        var side = Vector3.Normalize(position) * 2.6f;
+        return new Camera(position + side + new Vector3(0f, 1.1f, 0f) - heading * 0.8f, position + new Vector3(0f, 0.35f, 0f), MathF.PI / 5f);
+    }
+
+    // Only the dust is drawn here: each puff plays once, from the tick its paw landed.
     public void Draw(View view)
     {
-        float angle = float.Lerp(_previousAngle, _angle, view.Blend);
-        var fox = FoxTransform(angle);
-        var position = fox.Translation;
-        var heading = new Vector3(-MathF.Sin(angle), 0f, MathF.Cos(angle));
-
-        var side = Vector3.Normalize(position) * 2.6f;
-        view.Camera(position + side + new Vector3(0f, 1.1f, 0f) - heading * 0.8f, position + new Vector3(0f, 0.35f, 0f), MathF.PI / 5f);
-        view.Lights.Sun(new Vector3(0.4f, 1f, 0.3f), new Vector3(4f, 3.8f, 3.4f));
-        view.Lights.Shadows(4f);
-
-        view.Model(GroundKey, ModelRef.Cube, Matrix4x4.CreateScale(40f, 0.1f, 40f) * Matrix4x4.CreateTranslation(0f, -0.05f, 0f), new Vector3(0.33f, 0.45f, 0.22f));
-        view.Model(FoxKey, _animator, fox);
         foreach (var puff in _puffs)
         {
             view.Effects.Particles(DustKey + puff.Number, StepDust, puff.At, view.SecondsSince(puff.Tick));

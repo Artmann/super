@@ -10,7 +10,7 @@ namespace WaxExample;
 /// the others light creeps under it and the edge turns warm. The dark wall behind shows
 /// that the spread light stays on its own surface.
 /// </summary>
-public sealed class WaxTable(Content content) : IGame
+public sealed class WaxTable(World world, Content content) : IGame
 {
     /// <summary>Draws the right-hand twins without subsurface too.</summary>
     public static bool Plain { get; set; }
@@ -36,16 +36,18 @@ public sealed class WaxTable(Content content) : IGame
         Transmission = 0.4f,
     };
 
-    private readonly List<(ModelRef Model, Vector3 Position)> _pieces = [];
-    private ModelRef _table;
-    private ModelRef _wall;
-    private ModelRef _bar;
-
     public void Load()
     {
-        _table = content.Mesh(Shapes.Box(new Vector3(2.4f, 0.05f, 1.2f), new Surface { Color = new Vector3(0.35f, 0.25f, 0.18f), Roughness = 0.7f }));
-        _wall = content.Mesh(Shapes.Box(new Vector3(4f, 2f, 0.05f), new Surface { Color = new Vector3(0.05f, 0.06f, 0.08f), Roughness = 0.9f }));
-        _bar = content.Mesh(Shapes.Box(new Vector3(0.02f, 0.02f, 1.6f), new Surface { Color = new Vector3(0.1f), Roughness = 0.6f }));
+        world.Spawn(new Camera(new Vector3(0f, 0.45f, 1.25f), new Vector3(0f, 0.12f, 0f), 0.75f));
+        world.Spawn(new Sun(new Vector3(-1f, 0.55f, 0.5f), new Vector3(4f)), new Shadows(1.5f));
+        var table = content.Mesh(Shapes.Box(new Vector3(2.4f, 0.05f, 1.2f), new Surface { Color = new Vector3(0.35f, 0.25f, 0.18f), Roughness = 0.7f }));
+        var wall = content.Mesh(Shapes.Box(new Vector3(4f, 2f, 0.05f), new Surface { Color = new Vector3(0.05f, 0.06f, 0.08f), Roughness = 0.9f }));
+        var bar = content.Mesh(Shapes.Box(new Vector3(0.02f, 0.02f, 1.6f), new Surface { Color = new Vector3(0.1f), Roughness = 0.6f }));
+        world.Spawn(Transform.At(new Vector3(0f, -0.025f, 0f)), new Model(table));
+        world.Spawn(Transform.At(new Vector3(0f, 0.5f, -0.45f)), new Model(wall));
+
+        // Out of shot, between the light and the pieces, so its shadow crosses them all.
+        world.Spawn(new Transform(new Vector3(-1.1f, 0.75f, 0.45f), Quaternion.CreateFromAxisAngle(Vector3.UnitX, 0.6f), Vector3.One), new Model(bar));
 
         // Each pair stands plain on the left and scattering on the right.
         Pair(-0.6f, subsurface => Shapes.Sphere(0.11f, 48, 24, new Surface { Color = new Vector3(0.85f, 0.6f, 0.48f), Roughness = 0.5f, Subsurface = subsurface }), Skin, lift: 0.11f);
@@ -57,25 +59,9 @@ public sealed class WaxTable(Content content) : IGame
     {
     }
 
-    public void Draw(View view)
-    {
-        view.Camera(position: new Vector3(0f, 0.45f, 1.25f), lookAt: new Vector3(0f, 0.12f, 0f), fieldOfView: 0.75f);
-        view.Lights.Sun(direction: new Vector3(-1f, 0.55f, 0.5f), color: new Vector3(4f));
-        view.Lights.Shadows(1.5f);
-        view.Model(0, _table, Matrix4x4.CreateTranslation(0f, -0.025f, 0f));
-        view.Model(1, _wall, Matrix4x4.CreateTranslation(0f, 0.5f, -0.45f));
-
-        // Out of shot, between the light and the pieces, so its shadow crosses them all.
-        view.Model(2, _bar, Matrix4x4.CreateRotationX(0.6f) * Matrix4x4.CreateTranslation(-1.1f, 0.75f, 0.45f));
-        for (int i = 0; i < _pieces.Count; i++)
-        {
-            view.Model(i + 3, _pieces[i].Model, Matrix4x4.CreateTranslation(_pieces[i].Position));
-        }
-    }
-
     private void Pair(float x, Func<Subsurface, GeneratedMesh> make, Subsurface subsurface, float lift)
     {
-        _pieces.Add((content.Mesh(make(default)), new Vector3(x - 0.13f, lift, 0f)));
-        _pieces.Add((content.Mesh(make(Plain ? default : subsurface)), new Vector3(x + 0.13f, lift, 0f)));
+        world.Spawn(Transform.At(new Vector3(x - 0.13f, lift, 0f)), new Model(content.Mesh(make(default))));
+        world.Spawn(Transform.At(new Vector3(x + 0.13f, lift, 0f)), new Model(content.Mesh(make(Plain ? default : subsurface))));
     }
 }

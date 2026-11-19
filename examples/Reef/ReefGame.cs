@@ -9,7 +9,6 @@ namespace Reef;
 internal sealed class ReefGame(World world, ReefSettings settings, GameRandom random, GameTime time, Content content, GameStats stats) : IGame
 {
     private const float SwimAmplitude = 0.09f; // Of the model's length, which the transform scales to the real one.
-    private const int SeabedKey = -1; // Entity IDs count up from 0.
     private const float CameraOrbitSeconds = 240f;
     private const float CameraDistance = 52f;
     private const float CameraHeight = 9f;
@@ -49,13 +48,18 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
 
     private Boids _boids = null!;
     private ModelRef[] _fishModels = [];
-    private ModelRef _seabed;
+    private Entity _camera;
 
     public void Load()
     {
         var species = settings.Species;
         _fishModels = species.Select(kind => settings.Model(content, kind.Model)).ToArray();
-        _seabed = content.Mesh(Seabed.CreateMesh(settings.Material(content, "sand")));
+        world.Spawn(Transform.Identity, new Model(content.Mesh(Seabed.CreateMesh(settings.Material(content, "sand")))));
+        world.Spawn(
+            new Sun(new Vector3(0.35f, 1f, 0.2f), new Vector3(7f, 7.4f, 7f)),
+            new Shadows(25f, 3),
+            new Finish(new PostSettings { Contrast = 0.12f, Saturation = 0.12f, Vignette = 0.4f, Sharpen = 0.35f }));
+        _camera = world.Spawn(Camera(time.Tick));
 
         var clusters = SpawnCoral(random.Stream("coral"), random.Stream("rocks"));
         SpawnGrowth(clusters, random.Stream("growth"));
@@ -67,15 +71,15 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
         .Padding(16f)
         .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);
 
-    public void Update(GameTime gameTime) => _boids.Update(gameTime.TickSeconds);
+    public void Update(GameTime gameTime)
+    {
+        _boids.Update(gameTime.TickSeconds);
+        world.Get<Camera>(_camera) = Camera(gameTime.Tick);
+    }
 
+    // The water and the swell stay here: they aren't entities yet.
     public void Draw(View view)
     {
-        float angle = (float)(time.Tick + view.Blend) * time.TickSeconds * MathF.Tau / CameraOrbitSeconds;
-        var camera = new Vector3(MathF.Sin(angle) * CameraDistance, CameraHeight, MathF.Cos(angle) * CameraDistance);
-        view.Camera(camera, new Vector3(0f, 12f, 0f), 58f * MathF.PI / 180f);
-        view.Lights.Sun(new Vector3(0.35f, 1f, 0.2f), new Vector3(7f, 7.4f, 7f));
-        view.Lights.Shadows(25f, 3);
         view.Surroundings.Water(Water);
 
         // The swell rocks the seagrass and sea fans back and forth: the wind's direction flips with the surge, and its
@@ -83,9 +87,14 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
         float seconds = (float)(time.Tick + view.Blend) * time.TickSeconds;
         float surge = MathF.Sin(seconds * MathF.Tau / SurgeSeconds);
         view.Surroundings.Wind(SurgeDirection * MathF.Sign(surge), SurgeStrength * MathF.Abs(surge), gustiness: 0.3f);
-        view.Effects.Finish(new PostSettings { Contrast = 0.12f, Saturation = 0.12f, Vignette = 0.4f, Sharpen = 0.35f });
+    }
 
-        view.Model(SeabedKey, _seabed, Matrix4x4.Identity);
+    // The camera circles the reef slowly, once every few minutes.
+    private Camera Camera(long tick)
+    {
+        float angle = tick * time.TickSeconds * MathF.Tau / CameraOrbitSeconds;
+        var position = new Vector3(MathF.Sin(angle) * CameraDistance, CameraHeight, MathF.Cos(angle) * CameraDistance);
+        return new Camera(position, new Vector3(0f, 12f, 0f), 58f * MathF.PI / 180f);
     }
 
     private int SpawnFish(RandomStream stream)
