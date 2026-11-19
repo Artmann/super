@@ -50,6 +50,7 @@ internal sealed class RequiredComponents
                 $"{componentName} can't require {neededName}, because {neededName} already requires {componentName}.");
         }
 
+        Version++;
         var list = _byType[component] ??= [];
         int existing = list.FindIndex(requirement => requirement.Needed == needed);
         var requirement = new Requirement<TNeeded>(needed, value, replace);
@@ -62,6 +63,12 @@ internal sealed class RequiredComponents
             list.Add(requirement);
         }
     }
+
+    /// <summary>Goes up whenever a requirement is added or replaced, so spawn plans made before it are made again.</summary>
+    public int Version { get; private set; }
+
+    /// <summary>What <paramref name="type"/> brings, in the order it was asked for, or null for nothing.</summary>
+    public List<Requirement>? Of(int type) => _byType[type];
 
     /// <summary>Adds what <paramref name="type"/> needs to the entity, leaving what it already has.</summary>
     public void ApplyTo(World world, Entity entity, int type)
@@ -101,22 +108,30 @@ internal sealed class RequiredComponents
         return false;
     }
 
-    private abstract class Requirement(int needed)
+    /// <summary>One component that another brings: its type ID, its value, and whether it replaces one already there.</summary>
+    internal abstract class Requirement(int needed, bool replace)
     {
         public int Needed { get; } = needed;
 
+        public bool Replace { get; } = replace;
+
         public abstract void ApplyTo(World world, Entity entity);
+
+        /// <summary>Sets the value in a row of an archetype that has the type, for a spawn made in one move.</summary>
+        public abstract void WriteTo(Archetype archetype, int row);
     }
 
-    private sealed class Requirement<T>(int needed, T value, bool replace) : Requirement(needed)
+    private sealed class Requirement<T>(int needed, T value, bool replace) : Requirement(needed, replace)
         where T : struct
     {
         public override void ApplyTo(World world, Entity entity)
         {
-            if (replace || !world.Has<T>(entity))
+            if (Replace || !world.Has<T>(entity))
             {
                 world.Add(entity, value);
             }
         }
+
+        public override void WriteTo(Archetype archetype, int row) => archetype.Column<T>(Needed).Values[row] = value;
     }
 }

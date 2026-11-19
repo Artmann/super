@@ -26,39 +26,27 @@ public sealed class Scene
 
     /// <summary>Makes an entity that belongs to the scene, like <see cref="WorldSpawn.Spawn{T1}"/>.</summary>
     public Entity Spawn<T1>(in T1 first)
-        where T1 : struct
-    {
-        using var spawn = new WorldSpawn.Spawning(World, Id);
-        return spawn.Fill(in first);
-    }
+        where T1 : struct =>
+        new WorldSpawn.Spawning(World, Id).Fill(in first);
 
     /// <summary>Makes an entity that belongs to the scene, like <see cref="WorldSpawn.Spawn{T1, T2}"/>.</summary>
     public Entity Spawn<T1, T2>(in T1 first, in T2 second)
         where T1 : struct
-        where T2 : struct
-    {
-        using var spawn = new WorldSpawn.Spawning(World, Id);
-        return spawn.Fill(in first, in second);
-    }
+        where T2 : struct =>
+        new WorldSpawn.Spawning(World, Id).Fill(in first, in second);
 
     /// <summary>Makes an entity that belongs to the scene, like <see cref="WorldSpawn.Spawn{T1, T2, T3}"/>.</summary>
     public Entity Spawn<T1, T2, T3>(in T1 first, in T2 second, in T3 third)
         where T1 : struct
         where T2 : struct
-        where T3 : struct
-    {
-        using var spawn = new WorldSpawn.Spawning(World, Id);
-        return spawn.Fill(in first, in second, in third);
-    }
+        where T3 : struct =>
+        new WorldSpawn.Spawning(World, Id).Fill(in first, in second, in third);
 
     /// <summary>Makes an entity that belongs to the scene, like <see cref="WorldSpawn.Spawn{T1, T2, T3, T4}"/>.</summary>
     public Entity Spawn<T1, T2, T3, T4>(in T1 first, in T2 second, in T3 third, in T4 fourth)
         where T1 : struct
         where T2 : struct
         where T3 : struct
-        where T4 : struct
-    {
-        using var spawn = new WorldSpawn.Spawning(World, Id);
-        return spawn.Fill(in first, in second, in third, in fourth);
-    }
+        where T4 : struct =>
+        new WorldSpawn.Spawning(World, Id).Fill(in first, in second, in third, in fourth);
 }

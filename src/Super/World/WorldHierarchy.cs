@@ -4,59 +4,43 @@ namespace Super;
 public static class WorldHierarchy
 {
     /// <summary>
-    /// The entities whose <see cref="Parent"/> is this one, as they are now, without their own children. Found by
-    /// walking every parented entity, so keep it out of loops over many entities.
+    /// The entities whose <see cref="Parent"/> is this one, as they are now, without their own children, in no
+    /// particular order. Found in the child index, so it costs the same however many parented entities the world holds.
     /// </summary>
-    public static IReadOnlyList<Entity> Children(this World world, Entity entity)
-    {
-        List<Entity>? children = null;
-        Collect(world, entity, ref children);
-        return children ?? [];
-    }
+    public static IReadOnlyList<Entity> Children(this World world, Entity entity) =>
+        world.Archetypes.Children.CopyOf(world, entity);
 
     /// <summary>
     /// Destroys the entity's children, and theirs through <see cref="World.Destroy"/>. Called once the entity is gone,
     /// so a cycle of parents ends: an entity already dead is skipped.
     /// </summary>
+    // The child index finds them at once, however many parented entities the world holds. Each is checked against its
+    // component as well, in case a handler moved it away since.
     internal static void DestroyChildren(World world, Entity entity)
     {
-        List<Entity>? children = null;
-        Collect(world, entity, ref children);
-        if (children is null)
+        if (world.Archetypes.Children.Take(world, entity) is not { } children)
         {
             return;
         }
 
         foreach (var child in children)
         {
-            if (world.IsAlive(child))
+            if (world.IsAlive(child) && world.Has<Parent>(child) && world.ParentOf(child).Value == entity)
             {
                 world.Destroy(child);
             }
         }
+
+        world.Archetypes.Children.Return(children);
     }
 
-    // Rows are gathered first, since destroying a child moves the rows after it. The list is made only when there's a
-    // child, so destroying an entity with none allocates nothing.
-    private static void Collect(World world, Entity entity, ref List<Entity>? children)
+    /// <summary>
+    /// The entity's parent, read without marking the child index unsure as <see cref="World.Get{T}"/> does, since it
+    /// hands out no reference. The entity must have one.
+    /// </summary>
+    internal static Parent ParentOf(this World world, Entity entity)
     {
-        int parentType = world.Archetypes.TypeIdOrMissing<Parent>();
-        if (parentType < 0)
-        {
-            return;
-        }
-
-        int index = -1;
-        while (world.Archetypes.NextMatching(ref index, default(ComponentMask).With(parentType)) is { } archetype)
-        {
-            var parents = archetype.Column<Parent>(parentType).Values;
-            for (int i = 0; i < archetype.Count; i++)
-            {
-                if (parents[i].Value == entity)
-                {
-                    (children ??= []).Add(archetype.Entities[i]);
-                }
-            }
-        }
+        ref var slot = ref world.Entities.Of(entity);
+        return slot.Archetype!.Column<Parent>(world.Archetypes.Types.ParentType).Values[slot.Row];
     }
 }

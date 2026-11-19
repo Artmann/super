@@ -10,10 +10,11 @@ public readonly record struct Entity(int Id, int Generation);
 /// </summary>
 public sealed class World : ITickHook, IStateHook
 {
-    private readonly EntitySlots _entities = new();
-
     /// <summary>How many entities are alive.</summary>
-    public int Count => _entities.Count;
+    public int Count => Entities.Count;
+
+    /// <summary>Where each entity lives: its archetype and row.</summary>
+    internal EntitySlots Entities { get; } = new();
 
     /// <summary>The component types and archetypes, which queries walk, with what each type requires and sets off.</summary>
     internal ArchetypeTable Archetypes { get; } = new();
@@ -22,14 +23,14 @@ public sealed class World : ITickHook, IStateHook
     internal PendingChanges Pending { get; } = new();
 
     /// <summary>Whether a query is running, so changes to the world's shape wait until it ends.</summary>
-    internal bool IsQuerying => Pending.IsQuerying;
+    internal bool IsQuerying => Pending.Depth > 0;
 
     /// <summary>
     /// Makes an entity with no components. During a query it's alive at once, and components given to it arrive
     /// when the query ends.
     /// </summary>
     // A new entity sits in the empty archetype, which no query walks, so it can be made at any time.
-    public Entity Create() => _entities.Create(Archetypes.Empty);
+    public Entity Create() => Entities.Create(Archetypes.Empty, out _);
 
     /// <summary>
     /// Removes an entity. Its ID can be reused, but old handles to it stop being alive. During a query it stays
@@ -38,7 +39,7 @@ public sealed class World : ITickHook, IStateHook
     /// </summary>
     public void Destroy(Entity entity)
     {
-        var mask = _entities.Of(entity).Archetype!.Mask; // Throws now for a dead entity, even inside a query.
+        var mask = Entities.Of(entity).Archetype!.Mask; // Throws now for a dead entity, even inside a query.
         if (IsQuerying)
         {
             Pending.Destroy(entity);
@@ -51,17 +52,18 @@ public sealed class World : ITickHook, IStateHook
             // What the handlers change waits until the entity is gone, so nothing they give it outlives it.
             using var held = Pending.Hold(this);
             Archetypes.Reactions.RunRemoved(this, entity, mask);
-            _entities.Free(entity);
+            Entities.Free(entity);
         }
         else
         {
-            _entities.Free(entity);
+            Entities.Free(entity);
         }
 
+        Archetypes.Children.Unset(entity);
         WorldHierarchy.DestroyChildren(this, entity);
     }
 
-    public bool IsAlive(Entity entity) => _entities.IsAlive(entity);
+    public bool IsAlive(Entity entity) => Entities.IsAlive(entity);
 
     /// <summary>
     /// Gives the entity a component, or replaces the one it has. A component it didn't have also brings the
@@ -96,7 +98,7 @@ public sealed class World : ITickHook, IStateHook
     public ref T Get<T>(Entity entity)
         where T : struct
     {
-        ref var slot = ref _entities.Of(entity);
+        ref var slot = ref Entities.Of(entity);
         int type = Archetypes.TypeId<T>();
         if (!slot.Archetype!.Mask.Has(type))
         {
@@ -104,6 +106,12 @@ public sealed class World : ITickHook, IStateHook
                 Pending.WillHave(entity, type) == true
                     ? $"Entity {entity.Id}'s {typeof(T).Name} was added during a query and arrives when the query ends."
                     : $"Entity {entity.Id} has no {typeof(T).Name}.");
+        }
+
+        // A parent written through the reference is one the child index can't see.
+        if (typeof(T) == typeof(Parent))
+        {
+            Archetypes.Children.MarkUnsure();
         }
 
         return ref slot.Archetype.Column<T>(type).Values[slot.Row];
@@ -151,7 +159,7 @@ public sealed class World : ITickHook, IStateHook
     internal bool Put<T>(Entity entity, in T component, out int type)
         where T : struct
     {
-        ref var slot = ref _entities.Of(entity);
+        ref var slot = ref Entities.Of(entity);
         type = Archetypes.TypeId<T>();
         bool added = !slot.Archetype!.Mask.Has(type);
 
@@ -164,7 +172,7 @@ public sealed class World : ITickHook, IStateHook
 
         if (added)
         {
-            _entities.MoveTo(ref slot, Archetypes.With<T>(slot.Archetype, type));
+            Entities.MoveTo(ref slot, Archetypes.With(slot.Archetype, type));
             if (Archetypes.Reactions.HasAdded(type))
             {
                 Pending.Added(entity, type);
@@ -173,10 +181,15 @@ public sealed class World : ITickHook, IStateHook
 
         slot.Archetype!.Column<T>(type).Values[slot.Row] = component;
         Archetypes.Touched(slot.Archetype.Mask);
+        if (typeof(T) == typeof(Parent))
+        {
+            Archetypes.Children.Set(entity, slot.Archetype.Column<Parent>(type).Values[slot.Row].Value);
+        }
+
         return added;
     }
 
-    internal bool Has(Entity entity, int type) => _entities.Of(entity).Archetype!.Mask.Has(type);
+    internal bool Has(Entity entity, int type) => Entities.Of(entity).Archetype!.Mask.Has(type);
 
     /// <summary>Takes the component with this type ID away, or queues that during a query.</summary>
     internal void Remove(Entity entity, int type)
@@ -201,9 +214,13 @@ public sealed class World : ITickHook, IStateHook
         Archetypes.Reactions.RunRemoved(this, entity, type);
 
         // Read after the handlers, which may have made entities and moved the slots.
-        ref var slot = ref _entities.Of(entity);
+        ref var slot = ref Entities.Of(entity);
         Archetypes.Touched(slot.Archetype!.Mask);
-        _entities.MoveTo(ref slot, Archetypes.Without(slot.Archetype!, type));
+        Entities.MoveTo(ref slot, Archetypes.Without(slot.Archetype!, type));
+        if (type == Archetypes.Types.ParentType)
+        {
+            Archetypes.Children.Unset(entity);
+        }
     }
 
     internal void BeginIteration() => Pending.Begin();

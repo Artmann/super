@@ -55,10 +55,25 @@ public readonly ref struct Row<T1, T2, T3, T4>(Entity entity, ref T1 first, ref 
 }
 
 /// <summary>Walks the rows of each matching archetype in turn.</summary>
-internal ref struct ArchetypeCursor(World world, ComponentMask mask)
+internal ref struct ArchetypeCursor
 {
+    private readonly World world;
+    private readonly ComponentMask mask;
     private int _archetypeIndex = -1;
     private int _row = -1;
+
+    public ArchetypeCursor(World world, ComponentMask mask)
+    {
+        this.world = world;
+        this.mask = mask;
+
+        // The rows hand out references, so a parent written through one is one the child index can't see.
+        int parentType = world.Archetypes.Types.ParentType;
+        if (parentType >= 0 && mask.Has(parentType))
+        {
+            world.Archetypes.Children.MarkUnsure();
+        }
+    }
 
     public Archetype? Archetype { get; private set; }
 

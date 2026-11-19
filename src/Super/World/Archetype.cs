@@ -44,7 +44,12 @@ internal sealed class Archetype
     // Sized to the archetype's highest type, so an archetype of a few early types stays small.
     private readonly ComponentColumn?[] _columns;
 
-    public Archetype(ComponentMask mask, Archetype? source, ComponentColumn? added, int addedType)
+    // The archetypes one type more or less than this one, by that type's ID, found once and kept.
+    private Archetype?[] _with = [];
+    private Archetype?[] _without = [];
+
+    /// <summary>An archetype of the types in <paramref name="mask"/>, with columns of the kinds in <paramref name="kinds"/>.</summary>
+    public Archetype(ComponentMask mask, ComponentColumn[] kinds)
     {
         Mask = mask;
         int highest = -1;
@@ -56,7 +61,7 @@ internal sealed class Archetype
         _columns = new ComponentColumn?[highest + 1];
         for (int type = mask.Next(-1); type >= 0; type = mask.Next(type))
         {
-            _columns[type] = type == addedType ? added : source!._columns[type]!.CreateEmpty(FirstCapacity);
+            _columns[type] = kinds[type].CreateEmpty(FirstCapacity);
         }
     }
 
@@ -70,6 +75,15 @@ internal sealed class Archetype
 
     /// <summary>The column for a component this archetype may not have. A type of -1 means it was never registered.</summary>
     public Column<T>? ColumnOrNull<T>(int type) => type >= 0 && type < _columns.Length ? _columns[type] as Column<T> : null;
+
+    /// <summary>The archetype with this one's types and <paramref name="type"/>, if it was asked for before.</summary>
+    public Archetype? WithEdge(int type) => type < _with.Length ? _with[type] : null;
+
+    public Archetype? WithoutEdge(int type) => type < _without.Length ? _without[type] : null;
+
+    public Archetype RememberWith(int type, Archetype target) => Remember(ref _with, type, target);
+
+    public Archetype RememberWithout(int type, Archetype target) => Remember(ref _without, type, target);
 
     public int AddRow(Entity entity)
     {
@@ -126,5 +140,16 @@ internal sealed class Archetype
         }
 
         return moved;
+    }
+
+    private static Archetype Remember(ref Archetype?[] edges, int type, Archetype target)
+    {
+        if (type >= edges.Length)
+        {
+            Array.Resize(ref edges, type + 1);
+        }
+
+        edges[type] = target;
+        return target;
     }
 }

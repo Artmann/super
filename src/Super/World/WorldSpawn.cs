@@ -9,39 +9,63 @@ public static class WorldSpawn
     /// <summary>Stands for no scene, for an entity spawned straight on the world.</summary>
     internal const int NoScene = -1;
 
-    public static Entity Spawn<T1>(this World world, in T1 first)
-        where T1 : struct
+    /// <summary>
+    /// Finishes a spawn whose values are all written in its row: counts the change, indexes its parent, and runs the
+    /// <c>OnAdded</c> handlers of <paramref name="types"/>.
+    /// </summary>
+    internal static void Landed(World world, Entity entity, Archetype archetype, int row, int[] types)
     {
-        using var spawn = new Spawning(world, NoScene);
-        return spawn.Fill(in first);
+        var archetypes = world.Archetypes;
+        archetypes.Touched(archetype.Mask);
+        int parentType = archetypes.Types.ParentType;
+        if (parentType >= 0 && archetype.Mask.Has(parentType))
+        {
+            archetypes.Children.Set(entity, archetype.Column<Parent>(parentType).Values[row].Value);
+        }
+
+        bool anyHandlers = false;
+        foreach (int type in types)
+        {
+            anyHandlers |= archetypes.Reactions.HasAdded(type);
+        }
+
+        if (!anyHandlers)
+        {
+            return;
+        }
+
+        // The hold makes the handlers run as it ends, all queued, as when the components land one at a time.
+        using var held = world.Pending.Hold(world);
+        foreach (int type in types)
+        {
+            if (archetypes.Reactions.HasAdded(type))
+            {
+                world.Pending.Added(entity, type);
+            }
+        }
     }
+
+    public static Entity Spawn<T1>(this World world, in T1 first)
+        where T1 : struct =>
+        new Spawning(world, NoScene).Fill(in first);
 
     public static Entity Spawn<T1, T2>(this World world, in T1 first, in T2 second)
         where T1 : struct
-        where T2 : struct
-    {
-        using var spawn = new Spawning(world, NoScene);
-        return spawn.Fill(in first, in second);
-    }
+        where T2 : struct =>
+        new Spawning(world, NoScene).Fill(in first, in second);
 
     public static Entity Spawn<T1, T2, T3>(this World world, in T1 first, in T2 second, in T3 third)
         where T1 : struct
         where T2 : struct
-        where T3 : struct
-    {
-        using var spawn = new Spawning(world, NoScene);
-        return spawn.Fill(in first, in second, in third);
-    }
+        where T3 : struct =>
+        new Spawning(world, NoScene).Fill(in first, in second, in third);
 
     public static Entity Spawn<T1, T2, T3, T4>(this World world, in T1 first, in T2 second, in T3 third, in T4 fourth)
         where T1 : struct
         where T2 : struct
         where T3 : struct
-        where T4 : struct
-    {
-        using var spawn = new Spawning(world, NoScene);
-        return spawn.Fill(in first, in second, in third, in fourth);
-    }
+        where T4 : struct =>
+        new Spawning(world, NoScene).Fill(in first, in second, in third, in fourth);
 
     /// <summary>
     /// Gives every entity that gets a <typeparamref name="TComponent"/> a copy of <paramref name="value"/>, unless
@@ -53,44 +77,38 @@ public static class WorldSpawn
         world.Archetypes.Required.Add<TComponent, TNeeded>(value);
 
     /// <summary>
-    /// One spawn under way: the new entity, owned by a scene or by none when the scene is <see cref="NoScene"/>, with
-    /// its <c>OnAdded</c> handlers held back until the spawn is disposed, so they see every component.
+    /// One spawn: a new entity, owned by a scene or by none when the scene is <see cref="NoScene"/>. It goes straight
+    /// into the archetype its components and their required ones make, from a <see cref="SpawnPlan"/>, with every
+    /// value written in place. During a query the entity is alive at once, in the empty archetype that no query walks,
+    /// and the whole spawn waits as one change, made in the same single move when the query ends.
     /// </summary>
-    internal readonly struct Spawning : IDisposable
+    // A scene's tag goes on first, so OnAdded handlers see it, and the given components still win over required ones.
+    internal readonly struct Spawning(World world, int scene)
     {
-        private readonly World _world;
-        private readonly PendingChanges.Held _held;
-
-        // A scene's tag goes on first, so OnAdded handlers see it, and the given components still win over required ones.
-        public Spawning(World world, int scene)
-        {
-            _world = world;
-            Entity = world.Create();
-            _held = world.Pending.Hold(world);
-            if (scene != NoScene)
-            {
-                world.Put(Entity, new SceneMember(scene), out _);
-            }
-        }
-
-        public Entity Entity { get; }
+        // The row for a spawn that waits for a query.
+        private const int Queued = -1;
 
         public Entity Fill<T1>(in T1 first)
             where T1 : struct
         {
-            BringRequired(Place(in first));
-            return Entity;
+            int a = world.TypeId<T1>();
+            var plan = Plan(a, -1, -1, -1);
+            var entity = Start(plan, out int row);
+            Give(plan, row, a, in first);
+            return Finish(entity, plan, row);
         }
 
         public Entity Fill<T1, T2>(in T1 first, in T2 second)
             where T1 : struct
             where T2 : struct
         {
-            int a = Place(in first);
-            int b = Place(in second);
-            BringRequired(a);
-            BringRequired(b);
-            return Entity;
+            int a = world.TypeId<T1>();
+            int b = world.TypeId<T2>();
+            var plan = Plan(a, b, -1, -1);
+            var entity = Start(plan, out int row);
+            Give(plan, row, a, in first);
+            Give(plan, row, b, in second);
+            return Finish(entity, plan, row);
         }
 
         public Entity Fill<T1, T2, T3>(in T1 first, in T2 second, in T3 third)
@@ -98,13 +116,15 @@ public static class WorldSpawn
             where T2 : struct
             where T3 : struct
         {
-            int a = Place(in first);
-            int b = Place(in second);
-            int c = Place(in third);
-            BringRequired(a);
-            BringRequired(b);
-            BringRequired(c);
-            return Entity;
+            int a = world.TypeId<T1>();
+            int b = world.TypeId<T2>();
+            int c = world.TypeId<T3>();
+            var plan = Plan(a, b, c, -1);
+            var entity = Start(plan, out int row);
+            Give(plan, row, a, in first);
+            Give(plan, row, b, in second);
+            Give(plan, row, c, in third);
+            return Finish(entity, plan, row);
         }
 
         public Entity Fill<T1, T2, T3, T4>(in T1 first, in T2 second, in T3 third, in T4 fourth)
@@ -113,30 +133,73 @@ public static class WorldSpawn
             where T3 : struct
             where T4 : struct
         {
-            int a = Place(in first);
-            int b = Place(in second);
-            int c = Place(in third);
-            int d = Place(in fourth);
-            BringRequired(a);
-            BringRequired(b);
-            BringRequired(c);
-            BringRequired(d);
-            return Entity;
+            int a = world.TypeId<T1>();
+            int b = world.TypeId<T2>();
+            int c = world.TypeId<T3>();
+            int d = world.TypeId<T4>();
+            var plan = Plan(a, b, c, d);
+            var entity = Start(plan, out int row);
+            Give(plan, row, a, in first);
+            Give(plan, row, b, in second);
+            Give(plan, row, c, in third);
+            Give(plan, row, d, in fourth);
+            return Finish(entity, plan, row);
         }
 
-        public void Dispose() => _held.Dispose();
+        private SpawnPlan Plan(int a, int b, int c, int d) =>
+            world.Archetypes.Plans.For(scene == NoScene ? -1 : world.TypeId<SceneMember>(), a, b, c, d);
 
-        // The component's type ID, or -1 when the same type was already given earlier in the call.
-        private int Place<T>(in T component)
-            where T : struct =>
-            _world.Put(Entity, in component, out int type) ? type : -1;
-
-        private void BringRequired(int type)
+        private Entity Start(SpawnPlan plan, out int row)
         {
-            if (type >= 0)
+            Entity entity;
+            if (world.IsQuerying)
             {
-                _world.Archetypes.Required.ApplyTo(_world, Entity, type);
+                // A query may be walking the plan's archetype, so the entity waits in the empty one.
+                entity = world.Create();
+                world.Pending.Spawn(entity, plan);
+                row = Queued;
             }
+            else
+            {
+                entity = world.Entities.Create(plan.Target, out row);
+            }
+
+            if (scene != NoScene)
+            {
+                Give(plan, row, world.TypeId<SceneMember>(), new SceneMember(scene));
+            }
+
+            return entity;
+        }
+
+        // Given in call order, so a type given twice keeps the later value, as two adds would.
+        private void Give<T>(SpawnPlan plan, int row, int type, in T component)
+            where T : struct
+        {
+            if (row == Queued)
+            {
+                world.Pending.Values.Give(type, in component);
+            }
+            else
+            {
+                plan.Target.Column<T>(type).Values[row] = component;
+            }
+        }
+
+        private Entity Finish(Entity entity, SpawnPlan plan, int row)
+        {
+            if (row == Queued)
+            {
+                return entity;
+            }
+
+            foreach (var requirement in plan.Required)
+            {
+                requirement.WriteTo(plan.Target, row);
+            }
+
+            Landed(world, entity, plan.Target, row, plan.Landed);
+            return entity;
         }
     }
 }

@@ -64,7 +64,7 @@ public static class WorldCameras
         }
         else if (world.Has<Parent>(entity))
         {
-            matrix = WorldFrame.ParentMatrix(world, entity, world.Get<Parent>(entity), blend, poseAhead);
+            matrix = WorldFrame.ParentMatrix(world, entity, world.ParentOf(entity), blend, poseAhead);
         }
         else
         {
