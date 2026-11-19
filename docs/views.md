@@ -69,8 +69,10 @@ component on its entity instead. See [Audio](audio.md).
 `ModelOptions` holds everything a model draw can take beyond a colour: `Color`, `Swim` for a
 `SwimMotion` that bends a fish as it swims, `Meshes`, `Static` and `Fade`. Leave out what you don't need.
 
-The suns, point and spot lights, shadows, ambient occlusion, sky, finished look and
-outlines are components in the [world](ecs.md#drawing-entities). The view still takes
+The suns, point and spot lights, shadows, ambient occlusion, screen bounce, light probes,
+baked lighting, sky, water, puddles, wind, finished look and outlines are components in the
+[world](ecs.md#drawing-entities), such as `world.Spawn(new Wind(direction, 0.35f))`, and the
+calls below set them for one frame when drawing by hand. The view still takes
 `view.Lights.Point` and `view.Lights.Spot` for a light that only one frame shows, such as
 a muzzle flash. The rest of what a frame shows is set through parts of the view:
 

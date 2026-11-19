@@ -39,3 +39,44 @@ public readonly record struct Outlines(
     float Thickness = OutlineSettings.DefaultThickness,
     float FadeStart = OutlineSettings.DefaultFadeStart,
     float FadeEnd = OutlineSettings.DefaultFadeEnd);
+
+/// <summary>
+/// How much light surfaces on screen pass on to the surfaces near them, as a component, for
+/// <see cref="ViewIndirect.ScreenBounce"/>. The newest entity with one wins.
+/// </summary>
+public readonly record struct ScreenBounce(
+    float Strength = BounceSettings.DefaultStrength,
+    float Radius = BounceSettings.DefaultRadius);
+
+/// <summary>
+/// A box of light probes of the game's own, as a component, for <see cref="ViewIndirect.LightProbes"/>, which says what
+/// each value does and the limits it checks. The newest entity with one wins.
+/// </summary>
+public readonly record struct LightProbes(Vector3 Min, Vector3 Max, float Spacing);
+
+/// <summary>
+/// The one place whose lighting is baked, as a component, for <see cref="ViewIndirect.BakedLighting"/>, which says
+/// what each value does and the limits it checks. The newest entity with one wins.
+/// </summary>
+public readonly record struct BakedLighting(
+    string Name,
+    Vector3 Min,
+    Vector3 Max,
+    float ProbeSpacing,
+    int TexelsPerMetre = BakeSettings.DefaultTexelsPerMetre);
+
+/// <summary>Puts the whole frame underwater, as a component, for <see cref="ViewSurroundings.Water"/>. The newest entity with one wins.</summary>
+public readonly record struct Underwater(UnderwaterSettings Settings);
+
+/// <summary>
+/// Water standing at a height on the materials that ask for puddles, as a component, for
+/// <see cref="ViewSurroundings.Puddles"/>. The newest entity with one wins.
+/// </summary>
+public readonly record struct Puddles(float Level, float Band = PuddleSettings.DefaultBand);
+
+/// <summary>
+/// A breeze that sways the materials that ask for wind, as a component, for <see cref="ViewSurroundings.Wind"/>, which
+/// says what each value does and the limits it checks. Write it in <c>Update</c> for a wind that changes. The newest
+/// entity with one wins.
+/// </summary>
+public readonly record struct Wind(Vector3 Direction, float Strength, float Gustiness = WindSettings.DefaultGustiness);

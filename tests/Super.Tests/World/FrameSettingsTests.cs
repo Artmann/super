@@ -122,4 +122,92 @@ public class FrameSettingsTests
         Assert.Equal(3f, _view.Effects.OutlineSettings.Thickness);
         Assert.Equal(OutlineSettings.DefaultFadeEnd, _view.Effects.OutlineSettings.FadeEnd);
     }
+
+    [Fact]
+    public void Screen_bounce_sets_the_frames_bounce()
+    {
+        _world.Spawn(new ScreenBounce(Strength: 1.5f, Radius: 3f));
+
+        Describe();
+
+        Assert.Equal(new BounceSettings(1.5f, 3f), _view.Indirect.Bounce);
+    }
+
+    [Fact]
+    public void Light_probes_set_the_frames_probe_box()
+    {
+        _world.Spawn(new LightProbes(new Vector3(-1f, 0f, -4f), new Vector3(1f, 2.5f, 4f), 0.25f));
+
+        Describe();
+
+        Assert.Equal(new ProbeVolumeSettings(new Vector3(-1f, 0f, -4f), new Vector3(1f, 2.5f, 4f), 0.25f), _view.Indirect.LightProbeVolume);
+    }
+
+    [Fact]
+    public void Baked_lighting_names_the_frames_baked_space()
+    {
+        _world.Spawn(new BakedLighting("crypt", new Vector3(-8f, -1f, -12f), new Vector3(8f, 6f, 12f), 1f, TexelsPerMetre: 10));
+
+        Describe();
+
+        var space = _view.Indirect.BakedSpace;
+        Assert.Equal("crypt", space?.Name);
+        Assert.Equal(new Vector3(8f, 6f, 12f), space?.Max);
+        Assert.Equal(10, space?.TexelsPerMetre);
+    }
+
+    [Fact]
+    public void Underwater_puts_the_frame_underwater()
+    {
+        _world.Spawn(new Underwater(new UnderwaterSettings { Absorption = new Vector3(0.045f, 0.024f, 0.018f), SurfaceHeight = 30f }));
+
+        Describe();
+
+        Assert.Equal(new Vector3(0.045f, 0.024f, 0.018f), _view.Surroundings.WaterSettings.Absorption);
+        Assert.Equal(30f, _view.Surroundings.WaterSettings.SurfaceHeight);
+    }
+
+    [Fact]
+    public void Puddles_set_the_frames_water_level()
+    {
+        _world.Spawn(new Puddles(-0.045f, Band: 0.035f));
+
+        Describe();
+
+        Assert.Equal(new PuddleSettings(-0.045f, 0.035f), _view.Surroundings.PuddleSettings);
+    }
+
+    [Fact]
+    public void Wind_sets_the_frames_wind()
+    {
+        _world.Spawn(new Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f, Gustiness: 0.3f));
+
+        Describe();
+
+        Assert.Equal(new WindSettings(new Vector3(0.6f, 0f, -0.3f), 0.35f, 0.3f), _view.Surroundings.WindSettings);
+    }
+
+    [Fact]
+    public void The_newest_wind_wins()
+    {
+        _world.Spawn(new Wind(Vector3.UnitX, 0.1f));
+        var gale = _world.Spawn(new Wind(Vector3.UnitZ, 1f));
+
+        Describe();
+        Assert.Equal(1f, _view.Surroundings.WindSettings?.Strength);
+
+        _world.Destroy(gale);
+        Describe();
+        Assert.Equal(0.1f, _view.Surroundings.WindSettings?.Strength);
+    }
+
+    [Fact]
+    public void A_bad_wind_throws_with_the_view_message()
+    {
+        _world.Spawn(new Wind(Vector3.UnitX, -1f));
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(Describe);
+
+        Assert.StartsWith("The wind's strength must be 0 or more metres", error.Message);
+    }
 }
