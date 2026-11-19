@@ -8,15 +8,14 @@ namespace ShapesExample;
 /// front, turning slowly on a chequered floor whose texture tiles in metres. B switches the light the shapes and the
 /// floor bounce onto each other.
 /// </summary>
-public sealed class ShapeGallery(Content content, Input input, Graphics graphics) : IGame
+public sealed class ShapeGallery(World world, Content content, Input input, Graphics graphics) : IGame
 {
     private const float TurnsPerSecond = 0.05f;
     private const float Spacing = 1.6f;
 
     private readonly List<Exhibit> _exhibits = [];
-    private ModelRef _floor;
+    private readonly List<Entity> _entities = [];
     private float _angle;
-    private float _previousAngle;
 
     /// <summary>A shape on show: what it is, where it stands, how it's tipped, its colour, and whether it turns.</summary>
     private readonly record struct Exhibit(ModelRef Model, Vector3 Position, Matrix4x4 Tilt, Vector3 Color, bool Turns = true);
@@ -24,7 +23,7 @@ public sealed class ShapeGallery(Content content, Input input, Graphics graphics
     public void Load()
     {
         var chequer = content.Texture(Chequer(64, 32));
-        _floor = content.Mesh(Shapes.Plane(new Vector2(30f, 30f), surface: new Surface { ColorTexture = chequer, Color = Vector3.One, Roughness = 0.8f }, uvPerMetre: 0.5f));
+        var floor = content.Mesh(Shapes.Plane(new Vector2(30f, 30f), surface: new Surface { ColorTexture = chequer, Color = Vector3.One, Roughness = 0.8f }, uvPerMetre: 0.5f));
 
         // The built-in shapes are one unit wide and centred on zero, so each is lifted by half its height.
         Row(
@@ -47,32 +46,36 @@ public sealed class ShapeGallery(Content content, Input input, Graphics graphics
             Made(Shapes.Hex(0.55f, 0.25f), 0.125f, new Vector3(0.4f, 0.6f, 0.25f)),
             Made(Shapes.Box(new Vector3(1f, 0.4f, 0.6f)), 0.2f, new Vector3(0.65f, 0.3f, 0.3f)),
             Made(Shapes.Capsule(radius: 0.25f, height: 1.3f, segments: 24), 0.65f, new Vector3(0.85f, 0.75f, 0.4f)));
+
+        world.Spawn(new Camera(new Vector3(0f, 3.4f, 8.5f), new Vector3(0f, 0.4f, 0f), 0.75f));
+        world.Spawn(new Sun(new Vector3(-0.6f, 1.4f, 0.9f), new Vector3(3f)), new Shadows(15f, 2));
+        world.Spawn(Transform.Identity, new Model(floor));
+        for (int i = 0; i < _exhibits.Count; i++)
+        {
+            _entities.Add(world.Spawn(Placed(i), new Model(_exhibits[i].Model, _exhibits[i].Color)));
+        }
     }
 
     public void Update(GameTime time)
     {
-        _previousAngle = _angle;
         _angle += MathF.Tau * TurnsPerSecond * time.TickSeconds;
+        for (int i = 0; i < _exhibits.Count; i++)
+        {
+            world.Get<Transform>(_entities[i]) = Placed(i);
+        }
+
         if (input.Pressed(Key.B))
         {
             graphics.Lighting.ScreenBounce = !graphics.Lighting.ScreenBounce;
         }
     }
 
-    public void Draw(View view)
+    // Where an exhibit stands, turned by the angle the gallery is at now, each a radian on from the one before.
+    private Transform Placed(int i)
     {
-        view.Camera(position: new Vector3(0f, 3.4f, 8.5f), lookAt: new Vector3(0f, 0.4f, 0f), fieldOfView: 0.75f);
-        view.Lights.Sun(direction: new Vector3(-0.6f, 1.4f, 0.9f), color: new Vector3(3f));
-        view.Lights.Shadows(15f, 2);
-        view.Model(0, _floor, Matrix4x4.Identity);
-
-        float angle = float.Lerp(_previousAngle, _angle, view.Blend);
-        for (int i = 0; i < _exhibits.Count; i++)
-        {
-            var exhibit = _exhibits[i];
-            var turn = exhibit.Turns ? Matrix4x4.CreateRotationY(angle + i) : Matrix4x4.Identity;
-            view.Model(i + 1, exhibit.Model, exhibit.Tilt * turn * Matrix4x4.CreateTranslation(exhibit.Position), exhibit.Color);
-        }
+        var exhibit = _exhibits[i];
+        var turn = exhibit.Turns ? Matrix4x4.CreateRotationY(_angle + i) : Matrix4x4.Identity;
+        return Transform.From(exhibit.Tilt * turn * Matrix4x4.CreateTranslation(exhibit.Position));
     }
 
     private Exhibit Made(GeneratedMesh mesh, float lift, Vector3 color, Matrix4x4? tilt = null) =>
