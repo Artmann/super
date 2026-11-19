@@ -168,6 +168,7 @@ public void Draw(View view)
 | `Camera` | The frame is taken from the newest entity with one, blended between ticks and following its `Parent`. See [A camera entity](cameras.md#a-camera-entity) |
 | `Sun`, `PointLight`, `SpotLight` | Lights every frame. A point or spot light's position and direction count from the entity's `Transform` and `Parent`, and a sun's direction stays in the world. See [Lights](rendering.md#lights) |
 | `Sky`, `Shadows`, `AmbientOcclusion`, `Finish`, `Outlines` | The frame's sky, shadows, ambient occlusion, finished look and outlines, from the newest entity with one, as the view calls of the same names set them |
+| `Emitter` | Plays a particle effect at the entity for as long as it has one, a burst every `Every` seconds. See [Particles that loop](views.md#particles-that-loop) |
 | `Ghost` | Draws the entity's model as a see-through ghost, such as a building's placement preview, as `View.Model` with a `Ghost` does |
 | `Hidden` | Leaves the entity and everything parented under it out of the frame and the audio: no models, lights or sounds, and its sounds and ambiences fade out. Remove it to show them again |
 

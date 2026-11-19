@@ -404,6 +404,28 @@ public static ParticleEmitter Billows(this ParticleEmitter emitter, float opacit
 Build emitters and effects once, in `static readonly` fields, and drawing them
 allocates nothing.
 
+### Particles that loop
+
+A torch's flames or a chimney's smoke play for as long as the thing is there. Give its
+entity an `Emitter` instead of drawing bursts yourself:
+
+```csharp
+static readonly ParticleEmitter Flames = new ParticleEmitter(count: 70, lifetime: 0.5f)
+    .Over(1f)                               // born all through a second
+    .Velocity(new Vector3(0f, 0.45f, 0f))
+    .Glow(4f);
+
+world.Spawn(Transform.At(torch), new Emitter(Flames));
+```
+
+A new burst starts every `Every` seconds of game time, once a second unless you say
+otherwise, and each plays its whole `Duration`, so the bursts overlap and the effect
+never runs out. An effect born over one second, as these flames are, looks steady at
+the default. Each burst is keyed by the entity and when it started, so the same moment
+always looks the same, and the bursts from before the game began count too, so a torch
+is already burning on the first frame. The burst follows the entity's `Transform` and
+`Parent`, and `Hidden` stops it. `Every` must be more than zero seconds.
+
 ### How they look
 
 Particles are lit by the sun, the sky and point and spot lights, shaded by the sun's

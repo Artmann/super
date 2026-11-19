@@ -28,6 +28,7 @@ internal static class WorldFrame
 
         WorldLights.Describe(view, world);
         Models(view, world);
+        WorldEmitters.Describe(view, world);
     }
 
     /// <summary>
