@@ -8,11 +8,11 @@ You'll need to know C#, but nothing about games or Super. Each chapter adds one 
 ends with a game you can run, so you can stop at any point and still have something that
 works. The whole thing takes an hour or two.
 
-Everything is drawn with Super's built-in shapes, so there's nothing to download: no
-models, no textures, no sounds. The finished game is in
+Everything is drawn with simple shapes that Super makes for you, so there's nothing to
+download: no models, no textures, no sounds. The finished game is in
 [examples/Outpost](../../examples/Outpost) if you'd like to peek ahead.
 
-![Outpost in its second wave: red walkers on a sandy road winding across a green field, two blue-roofed towers beside it and a grey base at the end](../media/outpost.webp)
+![Outpost in its second wave, drawn as a cartoon: small red walkers on a sandy road winding across a soft green field on an island of soil ringed by trees, two blue-roofed towers beside the road and a red-roofed base at the end](../media/outpost.webp)
 
 What you'll need:
 
@@ -170,7 +170,7 @@ public static class OutpostServices
 }
 ```
 
-Keeping the list in one method means the tests in chapter 8 can use it too. Each new class
+Keeping the list in one method means the tests in chapter 9 can use it too. Each new class
 in this guide gets one more `AddSingleton` line here.
 
 Super has services of its own ready to ask for, such as `GameTime`, `Input` and
@@ -236,7 +236,7 @@ public Field()
         }
     }
 
-    Road = Spline.Through(Corners.Select(corner => Center(corner.X, corner.Z)).ToArray());
+    Road = Spline.Bezier(Knots());
 }
 
 /// <summary>The path enemies walk, through the middle of the road tiles.</summary>
@@ -247,16 +247,51 @@ public Vector3 BaseCenter => Center(Corners[^1].X, Corners[^1].Z);
 
 /// <summary>Whether a tile is part of the road.</summary>
 public bool IsRoad(int x, int z) => _road.Contains((x, z));
+
+/// <summary>
+/// The road's knots: straight lines between the corners, and a tight quarter circle at each
+/// corner that stays inside the corner's tile. A smooth curve through the corners themselves
+/// would swing wide of the road.
+/// </summary>
+private List<SplineKnot> Knots()
+{
+    const float Radius = 1f;
+    // Handles this long make a Bézier curve close to a quarter circle.
+    const float Handle = Radius * 0.55f;
+
+    var points = Corners.Select(corner => Center(corner.X, corner.Z)).ToArray();
+    var first = Vector3.Normalize(points[1] - points[0]);
+    var knots = new List<SplineKnot> { new(points[0], Out: first * Handle) };
+    for (int i = 1; i < points.Length - 1; i++)
+    {
+        var coming = Vector3.Normalize(points[i] - points[i - 1]);
+        var going = Vector3.Normalize(points[i + 1] - points[i]);
+        // Start turning half a tile before the corner and finish half a tile after it.
+        knots.Add(new SplineKnot(points[i] - coming * Radius, In: -coming * Handle, Out: coming * Handle));
+        knots.Add(new SplineKnot(points[i] + going * Radius, In: -going * Handle, Out: going * Handle));
+    }
+
+    var last = Vector3.Normalize(points[^1] - points[^2]);
+    knots.Add(new SplineKnot(points[^1], In: -last * Handle));
+    return knots;
+}
 ```
 
 `Field.cs` now needs `using Super;` at the top, for `Spline`.
 
 The set of road tiles is what building will check. `Road` is a
-[spline](../splines.md): a smooth curve through the middle of each corner tile. A spline
-knows its own length, and it can tell you the point any distance along it. That's exactly
-what an enemy needs. An enemy only has to remember how far it has walked, and the spline
-says where that is. It also rounds the corners a little, so enemies turn smoothly instead
-of snapping round.
+[spline](../splines.md), a curve through the middle of the road tiles. A spline knows its
+own length, and it can tell you the point any distance along it. That's exactly what an
+enemy needs. An enemy only has to remember how far it has walked, and the spline says where
+that is.
+
+`Knots` takes a little explaining. The easy way to make a spline is `Spline.Through`, which
+draws a smooth curve through the points you give it. Give it the corners, though, and it
+swings wide round each one, so enemies cut across the grass. So instead we make a Bézier
+spline, where each knot also has handles that pull the curve towards them. Each corner gets
+two knots, half a tile before it and half a tile after, with short handles pointing along
+the road. Between them the road bends in a tight quarter circle that stays inside the
+corner tile, and everywhere else it runs dead straight.
 
 Now draw it. In `OutpostGame`, add two more colours next to `Grass`:
 
@@ -506,7 +541,7 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies) : I
 ```
 
 `Load` runs once before the first tick. The `Player` and `Enemies` properties aren't needed
-by the game itself, but the tests in chapter 8 will use them to look inside.
+by the game itself, but the tests in chapter 9 will use them to look inside.
 
 The enemies can draw themselves. Add this to `Enemies`, which draws each one as a capsule.
 It takes the same `View` the game's `Draw` is given, so any class can add models to it:
@@ -624,7 +659,7 @@ public sealed class Towers(Field field, Player player)
 
 All the rules for building live in `TryBuild`: on the field, not on the road, not on
 another tower, and only if you can pay. Keeping them in one method makes them easy to
-test, which we'll do in chapter 8.
+test, which we'll do in chapter 9.
 
 Add `.AddSingleton<Towers>()` to `AddOutpost`.
 
@@ -1338,7 +1373,240 @@ dotnet run -c Release -- --screenshot lost.png --script start --ticks 1500 --siz
 
 ![The game over screen, "The outpost fell", with walkers all along the road](../media/outpost-7-lost.webp)
 
-## 8. Testing your game
+## 8. Giving it some style
+
+The game works, but it looks like a test level: bright plain shapes floating in the sky.
+Let's give it the soft, chunky look of a mobile game. We'll use calmer colours, shapes
+shaded as a cartoon with an ink line round them, and an island of soil with trees for the
+field to sit on.
+
+### Cartoon shapes
+
+The built-in shapes are drawn the physically based way, like real materials under real
+light. A cartoon wants something simpler: light that falls in a couple of flat bands, and a
+dark outline. That's a setting on a mesh's `Surface`, so we make our own copies of the
+shapes with it. Make `Look.cs`:
+
+```csharp
+using System.Numerics;
+using Super;
+
+namespace OutpostExample;
+
+/// <summary>
+/// The shapes Outpost draws with, made toon shaded with an ink outline. Each is white and the same size as the
+/// built-in shape it stands in for, so each part tints it with its own color and places it the same way.
+/// </summary>
+public sealed class Look(Content content)
+{
+    public ModelRef Cube { get; private set; }
+
+    /// <summary>A cube with no outline, for the tiles.</summary>
+    public ModelRef Tile { get; private set; }
+
+    public ModelRef Sphere { get; private set; }
+
+    public ModelRef Capsule { get; private set; }
+
+    public ModelRef Cylinder { get; private set; }
+
+    public ModelRef Cone { get; private set; }
+
+    /// <summary>Makes the shapes. Call it once, from the game's Load.</summary>
+    public void Load()
+    {
+        // Two flat bands of light, a soft rim where a shape turns away, and an ink line round it.
+        var cartoon = new Surface
+        {
+            Color = Vector3.One,
+            Roughness = 0.9f,
+            Toon = new Toon(Steps: 2, Rim: new Vector3(0.15f)),
+            Features = SurfaceFeatures.Outline,
+        };
+
+        Cube = content.Mesh(Shapes.Box(Vector3.One, surface: cartoon));
+        // Tiles sit side by side, so an outline on each would draw a heavy grid. They go without.
+        Tile = content.Mesh(Shapes.Box(Vector3.One, surface: cartoon with { Features = SurfaceFeatures.None }));
+        Sphere = content.Mesh(Shapes.Sphere(surface: cartoon));
+        Capsule = content.Mesh(Shapes.Capsule(surface: cartoon));
+        Cylinder = content.Mesh(Shapes.Cylinder(surface: cartoon));
+        Cone = content.Mesh(Shapes.Cone(surface: cartoon));
+    }
+}
+```
+
+`Content` is another of Super's own services. `content.Mesh` hands a mesh to the renderer
+and gives back a `ModelRef`, the same kind of thing as `ModelRef.Cube`, so it drops in
+wherever a built-in shape went. `Shapes` builds the meshes, and its sizes match the
+built-in shapes, so nothing has to move.
+
+Each shape is white. The colour you pass to `view.Model` tints the model's own colour, so
+white takes on whatever colour each part asks for. `Toon` sets the bands, and a rim adds a
+little light along the edge of each shape, which keeps the dark side from looking flat.
+[Toon shading and outlines](../rendering.md#toon-shading-and-outlines) has the rest.
+
+Add `Look` to `AddOutpost`, and ask for it in `OutpostGame`. Meshes are made once, so call
+`look.Load()` at the top of the game's `Load`. Then swap the shapes: the tiles take
+`look.Tile`, the base `look.Cube`, the enemies `look.Capsule`, the towers `look.Cylinder`
+and `look.Cone`, and the shots `look.Sphere`. `Enemies`, `Towers` and `Shots` each ask for
+a `Look` in their constructors, the same way they ask for the `Field`.
+
+### The scene around the field
+
+Next, the light and what's around the field. That's a part of its own, so make
+`Scenery.cs`. It moves the sun and sky out of the game's `Draw` too:
+
+```csharp
+using System.Numerics;
+using Rendition;
+using Super;
+
+namespace OutpostExample;
+
+/// <summary>What's around the field: the island of soil it stands on, and trees along its back and sides.</summary>
+public sealed class Scenery(Look look)
+{
+    /// <summary>How far the island reaches past the field at the back and sides, in metres.</summary>
+    private const float Margin = 2.5f;
+
+    private static readonly Vector3 Soil = new(0.52f, 0.37f, 0.27f);
+    private static readonly Vector3 Bark = new(0.45f, 0.32f, 0.24f);
+    private static readonly Vector3 Leaves = new(0.3f, 0.5f, 0.32f);
+
+    private readonly List<(Vector3 Spot, float Size)> _trees = Trees();
+
+    public void Draw(View view)
+    {
+        // A warm sun with crisp shadows, a dim sky so the sun does most of the lighting, and brown ink lines.
+        view.Lights.Sun(direction: new Vector3(0.8f, 1.6f, 1.2f), color: new Vector3(3.4f, 3.1f, 2.7f));
+        view.Lights.Shadows(radius: 30f, sunSize: 0.03f);
+        view.Surroundings.Sky(new SkySettings
+        {
+            Zenith = new Vector3(0.45f, 0.6f, 0.8f),
+            Horizon = new Vector3(0.85f, 0.88f, 0.9f),
+            Ground = new Vector3(0.45f, 0.62f, 0.72f),
+            Brightness = 0.5f,
+        });
+        view.Effects.Outlines(color: new Vector3(0.12f, 0.09f, 0.07f), thickness: 1.5f);
+        // A little more contrast clears the haze, and darker corners draw the eye to the field.
+        view.Effects.Finish(new PostSettings { Contrast = 0.15f, Vignette = 0.25f });
+
+        // The island runs out past the back and sides of the field, but stops at the front, which is near the camera.
+        float halfWidth = Field.Width * Field.TileSize / 2;
+        float halfDepth = Field.Depth * Field.TileSize / 2;
+        float back = -halfDepth - Margin;
+        float front = halfDepth + 0.2f;
+        var island = Matrix4x4.CreateScale(2 * (halfWidth + Margin), 1.4f, front - back)
+            * Matrix4x4.CreateTranslation(0, -0.9f, (back + front) / 2);
+        view.Model(2, look.Cube, island, Soil);
+
+        for (int i = 0; i < _trees.Count; i++)
+        {
+            var (spot, size) = _trees[i];
+            var trunk = Matrix4x4.CreateScale(0.3f * size, 0.6f * size, 0.3f * size) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 0.3f * size, 0));
+            var crown = Matrix4x4.CreateScale(1.4f * size, 2f * size, 1.4f * size) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 1.5f * size, 0));
+            view.Model(40_000 + i, look.Cylinder, trunk, Bark);
+            view.Model(50_000 + i, look.Cone, crown, Leaves);
+        }
+    }
+
+    /// <summary>A row of trees behind the field and down each side, not quite in line, so they look planted by hand.</summary>
+    private static List<(Vector3 Spot, float Size)> Trees()
+    {
+        float edgeX = Field.Width * Field.TileSize / 2 + Margin / 2;
+        float edgeZ = Field.Depth * Field.TileSize / 2 + Margin / 2;
+        var trees = new List<(Vector3, float)>();
+        for (int i = 0; i < 10; i++)
+        {
+            trees.Add((new Vector3(-14f + i * 3.1f, 0, -edgeZ + i % 2 * 0.5f), 0.8f + i % 3 * 0.2f));
+        }
+
+        for (int i = 0; i < 5; i++)
+        {
+            float z = -6f + i * 3.4f;
+            trees.Add((new Vector3(-edgeX - i % 2 * 0.3f, 0, z), 0.9f + i % 2 * 0.2f));
+            trees.Add((new Vector3(edgeX + (i + 1) % 2 * 0.3f, 0, z + 1f), 0.8f + i % 3 * 0.2f));
+        }
+
+        return trees;
+    }
+}
+```
+
+`PostSettings` lives in the renderer's own namespace, `Rendition`, which is why this file
+has one more `using`.
+
+A cartoon looks best with one strong light, so the sun is warm and bright and the sky is
+dimmed to half. Super evens out how bright the picture is on its own, the way your eyes
+do, so making everything darker wouldn't change much. What matters is how strong the sun
+is next to the sky, because that sets how deep the shade is. A small `sunSize` gives the
+shadows crisp edges, which suits the flat bands. The outlines are a dark brown rather than
+black, which is softer on the eye. The finish adds a little contrast and darkens the
+corners of the picture. [The look of the picture](../rendering.md#the-look-of-the-picture)
+lists everything else it can do.
+
+The island is one big cube of soil under the field, and each tree is a cylinder with a cone
+on top. The trees never change, so we work out where they stand once, when `Scenery` is
+made. They have keys from 40,000 and 50,000, out of the way of everything else.
+
+Add `Scenery` to `AddOutpost` next to `Look`, ask for it in `OutpostGame`, and start the
+game's `Draw` with it, in place of the sun and sky:
+
+```csharp
+public void Draw(View view)
+{
+    view.Camera(Camera);
+    scenery.Draw(view);
+
+    // ...the tiles, the base, towers, enemies and shots, as before...
+}
+```
+
+### Calmer colours
+
+Bright, pure colours look like plastic. Pull each one a little towards grey and warm it up.
+Here are the colours in `OutpostGame`, with a red roof for the base:
+
+```csharp
+private static readonly Vector3 Grass = new(0.42f, 0.66f, 0.34f);
+private static readonly Vector3 Sand = new(0.9f, 0.76f, 0.52f);
+private static readonly Vector3 Stone = new(0.55f, 0.53f, 0.58f);
+private static readonly Vector3 BaseRoof = new(0.85f, 0.42f, 0.36f);
+```
+
+Draw the roof as a cone on top of the base, after the base box:
+
+```csharp
+var baseRoof = Matrix4x4.CreateScale(2.1f, 1.2f, 2.1f) * Matrix4x4.CreateTranslation(field.BaseCenter + new Vector3(0, 2.2f, 0));
+view.Model(3, look.Cone, baseRoof, BaseRoof);
+```
+
+The towers get a cream wall and a slate blue roof, and the shots a warm yellow:
+
+```csharp
+private static readonly Vector3 Wall = new(0.92f, 0.88f, 0.8f);
+private static readonly Vector3 Roof = new(0.38f, 0.52f, 0.75f);
+```
+
+```csharp
+private static readonly Vector3 Glow = new(1f, 0.88f, 0.5f);
+```
+
+The enemies looked a little big next to the towers, so they shrink too. Here are their
+new stats in `Enemies`:
+
+```csharp
+EnemyKind.Walker => new(Health: 3, Speed: 2f, Reward: 10, Size: 0.4f, Color: new Vector3(0.88f, 0.38f, 0.32f)),
+EnemyKind.Runner => new(Health: 2, Speed: 4f, Reward: 6, Size: 0.3f, Color: new Vector3(0.92f, 0.78f, 0.42f)),
+EnemyKind.Brute => new(Health: 10, Speed: 1.2f, Reward: 25, Size: 0.65f, Color: new Vector3(0.58f, 0.46f, 0.7f)),
+```
+
+How far a tower reaches doesn't depend on size, and shots aim for the middle of whatever
+size the enemy is, so the game plays the same.
+
+![Outpost as a cartoon: soft green tiles with a sandy road on a brown island, a ring of cone-shaped trees, cream towers with blue roofs, a stone base with a red roof, and small red walkers, all with dark brown outlines](../media/outpost-8-style.webp)
+
+## 9. Testing your game
 
 You've been clicking around to check that things work. That's fine for a quick look, but
 it gets old, and it misses things. Super can run your game with no window at all, as fast
@@ -1519,7 +1787,7 @@ past the title and builds its towers. With the same options you get the same pic
 makes it easy to compare before and after a change. [The command line](../command-line.md)
 lists every option.
 
-## 9. Where to go next
+## 10. Where to go next
 
 That's a whole game: a title, ten waves, towers, gold, lives, and a way to win or lose,
 with tests that play it for you. Outpost is yours now, so change it. Here are a few

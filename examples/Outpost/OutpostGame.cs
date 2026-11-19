@@ -4,11 +4,12 @@ using Super.Ui;
 
 namespace OutpostExample;
 
-public sealed class OutpostGame(Field field, Player player, Enemies enemies, Towers towers, Shots shots, Waves waves, States<Screen> screen, Actions<Control> actions, Input input) : IGame
+public sealed class OutpostGame(Field field, Look look, Scenery scenery, Player player, Enemies enemies, Towers towers, Shots shots, Waves waves, States<Screen> screen, Actions<Control> actions, Input input) : IGame
 {
-    private static readonly Vector3 Grass = new(0.25f, 0.55f, 0.18f);
-    private static readonly Vector3 Sand = new(0.8f, 0.6f, 0.3f);
-    private static readonly Vector3 Stone = new(0.3f, 0.3f, 0.32f);
+    private static readonly Vector3 Grass = new(0.42f, 0.66f, 0.34f);
+    private static readonly Vector3 Sand = new(0.9f, 0.76f, 0.52f);
+    private static readonly Vector3 Stone = new(0.55f, 0.53f, 0.58f);
+    private static readonly Vector3 BaseRoof = new(0.85f, 0.42f, 0.36f);
 
     public Camera Camera { get; } = new(new Vector3(0, 22, 16), Vector3.Zero) { WideAs = 16f / 9f };
 
@@ -40,6 +41,8 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies, Tow
 
     public void Load()
     {
+        look.Load();
+
         actions.Bind(Control.Build, MouseButton.Left);
         actions.Bind(Control.Start, Key.Space, MouseButton.Left);
         actions.Bind(Control.Restart, Key.R);
@@ -100,13 +103,7 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies, Tow
     public void Draw(View view)
     {
         view.Camera(Camera);
-        view.Lights.Sun(direction: new Vector3(1, 2, 1), color: new Vector3(3f));
-        view.Surroundings.Sky(new SkySettings
-        {
-            Zenith = new Vector3(0.25f, 0.45f, 0.85f),
-            Horizon = new Vector3(0.75f, 0.85f, 0.95f),
-            Ground = new Vector3(0.08f, 0.12f, 0.06f),
-        });
+        scenery.Draw(view);
 
         for (int z = 0; z < Field.Depth; z++)
         {
@@ -114,12 +111,14 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies, Tow
             {
                 var tile = Matrix4x4.CreateScale(1.96f, 0.2f, 1.96f)
                     * Matrix4x4.CreateTranslation(field.Center(x, z) - new Vector3(0, 0.1f, 0));
-                view.Model(10_000 + z * Field.Width + x, ModelRef.Cube, tile, field.IsRoad(x, z) ? Sand : Grass);
+                view.Model(10_000 + z * Field.Width + x, look.Tile, tile, field.IsRoad(x, z) ? Sand : Grass);
             }
         }
 
         var baseBox = Matrix4x4.CreateScale(1.6f) * Matrix4x4.CreateTranslation(field.BaseCenter + new Vector3(0, 0.8f, 0));
-        view.Model(1, ModelRef.Cube, baseBox, Stone);
+        var baseRoof = Matrix4x4.CreateScale(2.1f, 1.2f, 2.1f) * Matrix4x4.CreateTranslation(field.BaseCenter + new Vector3(0, 2.2f, 0));
+        view.Model(1, look.Cube, baseBox, Stone);
+        view.Model(3, look.Cone, baseRoof, BaseRoof);
 
         towers.Draw(view);
         enemies.Draw(view);

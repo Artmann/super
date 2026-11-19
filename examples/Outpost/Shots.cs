@@ -17,12 +17,12 @@ public sealed class Shot
 }
 
 /// <summary>Every shot in the air. A shot flies at its target and hits it when it gets there.</summary>
-public sealed class Shots(Enemies enemies)
+public sealed class Shots(Enemies enemies, Look look)
 {
     public const float Speed = 14f;
     public const int Damage = 1;
 
-    private static readonly Vector3 Glow = new(1f, 0.8f, 0.1f);
+    private static readonly Vector3 Glow = new(1f, 0.88f, 0.5f);
 
     private readonly List<Shot> _all = [];
     private int _nextId;
@@ -73,7 +73,7 @@ public sealed class Shots(Enemies enemies)
             var size = Matrix4x4.CreateScale(0.4f);
             var previous = size * Matrix4x4.CreateTranslation(shot.PreviousPosition);
             var current = size * Matrix4x4.CreateTranslation(shot.Position);
-            view.Model(200_000 + shot.Id, ModelRef.Sphere, view.Smooth(previous, current), Glow);
+            view.Model(200_000 + shot.Id, look.Sphere, view.Smooth(previous, current), Glow);
         }
     }
 

@@ -15,7 +15,7 @@ public sealed class Tower
 }
 
 /// <summary>The towers the player has built, and their shooting.</summary>
-public sealed class Towers(Field field, Player player, Enemies enemies, Shots shots)
+public sealed class Towers(Field field, Player player, Look look, Enemies enemies, Shots shots)
 {
     public const int Price = 50;
     public const float Range = 5f;
@@ -24,8 +24,8 @@ public sealed class Towers(Field field, Player player, Enemies enemies, Shots sh
     /// <summary>How high above its tile a tower's shots start, at the top of its wall.</summary>
     private static readonly Vector3 Muzzle = new(0, 1.2f, 0);
 
-    private static readonly Vector3 Wall = new(0.9f, 0.85f, 0.75f);
-    private static readonly Vector3 Roof = new(0.2f, 0.4f, 0.9f);
+    private static readonly Vector3 Wall = new(0.92f, 0.88f, 0.8f);
+    private static readonly Vector3 Roof = new(0.38f, 0.52f, 0.75f);
 
     private readonly List<Tower> _all = [];
 
@@ -83,8 +83,8 @@ public sealed class Towers(Field field, Player player, Enemies enemies, Shots sh
             var spot = field.Center(_all[i].X, _all[i].Z);
             var wall = Matrix4x4.CreateScale(0.8f, 1.2f, 0.8f) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 0.6f, 0));
             var roof = Matrix4x4.CreateScale(1.1f, 0.8f, 1.1f) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 1.6f, 0));
-            view.Model(20_000 + i, ModelRef.Cylinder, wall, Wall);
-            view.Model(30_000 + i, ModelRef.Cone, roof, Roof);
+            view.Model(20_000 + i, look.Cylinder, wall, Wall);
+            view.Model(30_000 + i, look.Cone, roof, Roof);
         }
     }
 

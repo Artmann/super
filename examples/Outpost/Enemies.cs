@@ -35,7 +35,7 @@ public sealed class Enemy
 }
 
 /// <summary>Every enemy on the road: spawning them, walking them to the base, and hitting them.</summary>
-public sealed class Enemies(Field field, Player player, GameRandom random)
+public sealed class Enemies(Field field, Player player, Look look, GameRandom random)
 {
     private readonly List<Enemy> _all = [];
     private readonly RandomStream _offsets = random.Stream("enemies");
@@ -48,9 +48,9 @@ public sealed class Enemies(Field field, Player player, GameRandom random)
 
     public static EnemyStats Stats(EnemyKind kind) => kind switch
     {
-        EnemyKind.Walker => new(Health: 3, Speed: 2f, Reward: 10, Size: 0.6f, Color: new Vector3(0.8f, 0.15f, 0.1f)),
-        EnemyKind.Runner => new(Health: 2, Speed: 4f, Reward: 6, Size: 0.45f, Color: new Vector3(0.95f, 0.8f, 0.1f)),
-        EnemyKind.Brute => new(Health: 10, Speed: 1.2f, Reward: 25, Size: 1f, Color: new Vector3(0.45f, 0.15f, 0.6f)),
+        EnemyKind.Walker => new(Health: 3, Speed: 2f, Reward: 10, Size: 0.4f, Color: new Vector3(0.88f, 0.38f, 0.32f)),
+        EnemyKind.Runner => new(Health: 2, Speed: 4f, Reward: 6, Size: 0.3f, Color: new Vector3(0.92f, 0.78f, 0.42f)),
+        EnemyKind.Brute => new(Health: 10, Speed: 1.2f, Reward: 25, Size: 0.65f, Color: new Vector3(0.58f, 0.46f, 0.7f)),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "There's no such enemy."),
     };
 
@@ -118,7 +118,7 @@ public sealed class Enemies(Field field, Player player, GameRandom random)
             var scale = Matrix4x4.CreateScale(stats.Size);
             var previous = scale * Matrix4x4.CreateTranslation(enemy.PreviousPosition + lift);
             var current = scale * Matrix4x4.CreateTranslation(enemy.Position + lift);
-            view.Model(100_000 + enemy.Id, ModelRef.Capsule, view.Smooth(previous, current), stats.Color);
+            view.Model(100_000 + enemy.Id, look.Capsule, view.Smooth(previous, current), stats.Color);
         }
     }
 
