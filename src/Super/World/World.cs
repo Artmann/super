@@ -11,16 +11,18 @@ public readonly record struct Entity(int Id, int Generation);
 public sealed class World : ITickHook, IStateHook
 {
     private readonly EntitySlots _entities = new();
-    private readonly PendingChanges _pending = new();
 
     /// <summary>How many entities are alive.</summary>
     public int Count => _entities.Count;
 
-    /// <summary>The component types and archetypes, which queries walk.</summary>
+    /// <summary>The component types and archetypes, which queries walk, with what each type requires and sets off.</summary>
     internal ArchetypeTable Archetypes { get; } = new();
 
+    /// <summary>The changes waiting for a query or a spawn to finish.</summary>
+    internal PendingChanges Pending { get; } = new();
+
     /// <summary>Whether a query is running, so changes to the world's shape wait until it ends.</summary>
-    internal bool IsQuerying => _pending.IsQuerying;
+    internal bool IsQuerying => Pending.IsQuerying;
 
     /// <summary>
     /// Makes an entity with no components. During a query it's alive at once, and components given to it arrive
@@ -31,17 +33,27 @@ public sealed class World : ITickHook, IStateHook
 
     /// <summary>
     /// Removes an entity. Its ID can be reused, but old handles to it stop being alive. During a query it stays
-    /// alive, with its components, until the query ends.
+    /// alive, with its components, until the query ends. <c>OnRemoved</c> handlers run for each of its components
+    /// first.
     /// </summary>
     public void Destroy(Entity entity)
     {
+        var mask = _entities.Of(entity).Archetype!.Mask; // Throws now for a dead entity, even inside a query.
         if (IsQuerying)
         {
-            _entities.Of(entity); // Throws now for a dead entity, as it would outside a query.
-            _pending.Destroy(entity);
+            Pending.Destroy(entity);
             return;
         }
 
+        if (!Archetypes.Reactions.AnyRemoved)
+        {
+            _entities.Free(entity);
+            return;
+        }
+
+        // What the handlers change waits until the entity is gone, so nothing they give it outlives it.
+        using var held = Pending.Hold(this);
+        Archetypes.Reactions.RunRemoved(this, entity, mask);
         _entities.Free(entity);
     }
 
@@ -54,10 +66,14 @@ public sealed class World : ITickHook, IStateHook
     public void Add<T>(Entity entity, T component)
         where T : struct
     {
-        if (Put(entity, in component, out int type))
+        if (!Put(entity, in component, out int type))
         {
-            Archetypes.Required.ApplyTo(this, entity, type);
+            return;
         }
+
+        // The handlers wait for the required components, so they see the entity whole.
+        using var held = Pending.Hold(this);
+        Archetypes.Required.ApplyTo(this, entity, type);
     }
 
     /// <summary>
@@ -70,7 +86,7 @@ public sealed class World : ITickHook, IStateHook
 
     public bool Has<T>(Entity entity)
         where T : struct =>
-        _entities.Of(entity).Archetype!.Mask.Has(Archetypes.TypeId<T>());
+        Has(entity, Archetypes.TypeId<T>());
 
     /// <summary>The entity's component, by reference so it can be changed.</summary>
     public ref T Get<T>(Entity entity)
@@ -81,7 +97,7 @@ public sealed class World : ITickHook, IStateHook
         if (!slot.Archetype!.Mask.Has(type))
         {
             throw new InvalidOperationException(
-                _pending.IsAdding(entity, type)
+                Pending.IsAdding(entity, type)
                     ? $"Entity {entity.Id}'s {typeof(T).Name} was added during a query and arrives when the query ends."
                     : $"Entity {entity.Id} has no {typeof(T).Name}.");
         }
@@ -124,7 +140,8 @@ public sealed class World : ITickHook, IStateHook
     internal int TypeId<T>() => Archetypes.TypeId<T>();
 
     /// <summary>
-    /// Sets the component without bringing its required ones. Returns whether the entity got a type it didn't have.
+    /// Sets the component without bringing its required ones. Returns whether the entity got a type it didn't have,
+    /// and queues that type's <c>OnAdded</c> handlers, which the caller holds off until its change is complete.
     /// During a query a new type waits for the query to end, and is added through <see cref="Add{T}"/> then.
     /// </summary>
     internal bool Put<T>(Entity entity, in T component, out int type)
@@ -137,36 +154,46 @@ public sealed class World : ITickHook, IStateHook
         {
             if (IsQuerying)
             {
-                _pending.Add(entity, type, in component);
+                Pending.Add(entity, type, in component);
                 return false;
             }
 
             _entities.MoveTo(ref slot, Archetypes.With<T>(slot.Archetype, type));
+            if (Archetypes.Reactions.HasAdded(type))
+            {
+                Pending.Added(entity, type);
+            }
         }
 
         slot.Archetype!.Column<T>(type).Values[slot.Row] = component;
         return added;
     }
 
+    internal bool Has(Entity entity, int type) => _entities.Of(entity).Archetype!.Mask.Has(type);
+
     /// <summary>Takes the component with this type ID away, or queues that during a query.</summary>
     internal void Remove(Entity entity, int type)
     {
-        ref var slot = ref _entities.Of(entity);
-        if (!slot.Archetype!.Mask.Has(type))
+        if (!Has(entity, type))
         {
             return;
         }
 
         if (IsQuerying)
         {
-            _pending.Remove(entity, type);
+            Pending.Remove(entity, type);
             return;
         }
 
-        _entities.MoveTo(ref slot, Archetypes.Without(slot.Archetype, type));
+        using var held = Pending.Hold(this);
+        Archetypes.Reactions.RunRemoved(this, entity, type);
+
+        // Read after the handlers, which may have made entities and moved the slots.
+        ref var slot = ref _entities.Of(entity);
+        _entities.MoveTo(ref slot, Archetypes.Without(slot.Archetype!, type));
     }
 
-    internal void BeginIteration() => _pending.Begin();
+    internal void BeginIteration() => Pending.Begin();
 
-    internal void EndIteration() => _pending.End(this);
+    internal void EndIteration() => Pending.End(this);
 }

@@ -25,6 +25,9 @@ internal sealed class ArchetypeTable
     /// <summary>What each component type brings with it, which <see cref="World.Add{T}"/> and Spawn apply.</summary>
     public RequiredComponents Required { get; }
 
+    /// <summary>The handlers run when components land on entities or leave them.</summary>
+    public Reactions Reactions { get; } = new();
+
     /// <summary>The type's ID, registering it the first time it's asked for.</summary>
     public int TypeId<T>()
     {
