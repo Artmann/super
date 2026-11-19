@@ -262,3 +262,4 @@ what lets [tests](testing.md) run in parallel.
 - [Drawing with views](views.md) to put more on screen.
 - [Input](input.md) to make it playable.
 - [Change code while the game runs](hot-reload.md) to try changes without restarting.
+- [Build a tower defense](guides/tower-defense.md) to put it all together in a small, complete game.

@@ -6,6 +6,7 @@ that doesn't exist yet; everything else works today.
 | Page | What it covers |
 | --- | --- |
 | [Getting started](getting-started.md) | Requirements, a first game, the game loop, packages and where your code goes |
+| [Guides](guides/README.md) | Step-by-step walkthroughs that build a whole game, starting with a tower defense |
 | [Working with coding agents](agents.md) | How an agent builds, runs, tests and sees a Super game |
 | [Drawing with views](views.md) | `Draw`, keys, view memory, smoothing, `Cached` and state versus view |
 | [Cameras and clicking](cameras.md) | `Camera`, the camera helpers, orthographic and shifted views, and picking |
