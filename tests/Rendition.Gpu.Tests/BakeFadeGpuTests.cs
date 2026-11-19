@@ -245,7 +245,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         {
             var error = Assert.Throws<ArgumentOutOfRangeException>(() => gpu.Renderer.Baking.FadeSeconds = -0.5f);
 
-            Assert.Contains("BakeFadeSeconds must be from 0 to 10, not -0.5.", error.Message);
+            Assert.Contains("FadeSeconds must be from 0 to 10, not -0.5.", error.Message);
             Assert.Equal(fadeBefore, gpu.Renderer.Baking.FadeSeconds);
         }
         finally
@@ -264,7 +264,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
 
         var error = Assert.Throws<ArgumentOutOfRangeException>(() => gpu.Renderer.Baking.FadeSeconds = seconds);
 
-        Assert.Contains($"BakeFadeSeconds must be from 0 to 10, not {shown}.", error.Message);
+        Assert.Contains($"FadeSeconds must be from 0 to 10, not {shown}.", error.Message);
         Assert.Equal(fadeBefore, gpu.Renderer.Baking.FadeSeconds);
     }
 
