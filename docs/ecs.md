@@ -100,6 +100,34 @@ gets that as well. It happens when the entity gets the component, through `Spawn
 `Add`; entities that already had it before the `Require` are left as they are. Asking
 a component to require itself, or to require one that already leads back to it, throws.
 
+### Reacting to components
+
+Some work belongs to the moment a component arrives or goes: setting up a light for a new
+torch, dropping loot when a monster loses its `Health`. Ask the world to run it then:
+
+```csharp
+world.OnAdded<Torch>(torch => lights.Add(torch));
+world.OnRemoved<Health>(monster =>
+{
+    var at = world.Get<Transform>(monster).Position;
+    world.Spawn(Transform.At(at), new Model(_coinModel));
+});
+```
+
+`OnAdded` runs when the component lands on an entity that had none. Replacing the value
+with `Add` doesn't run it again. It waits until everything the same `Spawn` or `Add` brings
+is on the entity, required components too, so a handler can read any of them.
+
+`OnRemoved` runs just before the component goes, through `Remove` or `Destroy`, so the
+handler can still read it, and a destroyed entity is still alive inside it. `Destroy` runs
+the handlers for each of the entity's components.
+
+A handler can spawn, destroy, add and remove like any other code. Those changes wait until
+the handler returns, the same as inside a query. A component added inside a query lands
+when the query ends, so its `OnAdded` runs then. An entity spawned and destroyed inside the
+same query never got its components, so neither kind of handler runs for it. Handlers for
+one type run in the order they were added.
+
 ## Drawing entities
 
 Most entities are drawn the same way: a model at a transform, keyed by the entity's ID.
