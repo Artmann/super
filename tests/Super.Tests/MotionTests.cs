@@ -20,7 +20,7 @@ public class MotionTests
     private static readonly Matrix4x4 Camera = Matrix4x4.CreateOrthographic(16f, 9f, 0.1f, 100f);
 
     // Wind blowing east at strength 0.3, gusty by half, as the Courtyard has it.
-    private static readonly Vector4 Breeze = Wind.Pack(Vector3.UnitX, 0.3f, 0.5f);
+    private static readonly Vector4 Breeze = Rendition.Passes.Wind.Pack(Vector3.UnitX, 0.3f, 0.5f);
 
     [Fact]
     public void A_still_object_under_a_still_camera_has_no_motion()
@@ -94,7 +94,7 @@ public class MotionTests
     public void Swaying_grass_has_motion_where_the_base_has_none()
     {
         // A blade 1 m tall standing still under a still camera: its foot stays put while its tip moves as far as
-        // Wind.Sway says it moved between the two frames' times.
+        // Rendition.Passes.Wind.Sway says it moved between the two frames' times.
         const float time = 4.2f;
         // A quarter of a second between the frames, as after a stall. The wind is slow, so over an ordinary frame the tip
         // moves a tenth of a pixel or less, too little to tell from rounding.
@@ -113,7 +113,7 @@ public class MotionTests
         Assert.Equal(Vector2.Zero, foot);
         var rest = new Vector3(-1f, -1f, -5f);
         var wind = new WindSettings(Vector3.UnitX, 0.3f, 0.5f);
-        var moved = Wind.Sway(rest, 1f, wind, time) - Wind.Sway(rest, 1f, wind, previousTime);
+        var moved = Rendition.Passes.Wind.Sway(rest, 1f, wind, time) - Rendition.Passes.Wind.Sway(rest, 1f, wind, previousTime);
         Assert.True(moved.Length() > 0.005f, $"The tip only moved {moved.Length()} m between the frames, too little to tell.");
 
         // Each centimetre is a pixel; screen y runs down, as Vulkan's does, while the world's runs up.

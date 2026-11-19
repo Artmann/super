@@ -20,8 +20,8 @@ public class PuddleTests
     {
         string shader = SurfaceShader();
 
-        Assert.Equal(Puddles.Shore, ShaderConstant(shader, "PUDDLE_SHORE"), Tolerance);
-        Assert.Equal(Puddles.RippleAmplitude, ShaderConstant(shader, "RIPPLE_AMPLITUDE"), Tolerance);
+        Assert.Equal(Rendition.Passes.Puddles.Shore, ShaderConstant(shader, "PUDDLE_SHORE"), Tolerance);
+        Assert.Equal(Rendition.Passes.Puddles.RippleAmplitude, ShaderConstant(shader, "RIPPLE_AMPLITUDE"), Tolerance);
     }
 
     [Theory]
@@ -39,7 +39,7 @@ public class PuddleTests
     [Fact]
     public void The_shaders_water_reflects_what_Puddles_says_straight_on()
     {
-        Assert.Equal(Puddles.WaterF0, ShaderConstant(Shader("common.glsl"), "WATER_F0"), Tolerance);
+        Assert.Equal(Rendition.Passes.Puddles.WaterF0, ShaderConstant(Shader("common.glsl"), "WATER_F0"), Tolerance);
     }
 
     // The lighting sets water's f0 and dims its colour by the share the reflection leaves, so its
@@ -64,8 +64,8 @@ public class PuddleTests
     [Fact]
     public void Water_seen_straight_down_reflects_two_percent()
     {
-        Assert.Equal(0.02f, Puddles.WaterFresnel(1f), Tolerance);
-        Assert.Equal(0.98f, Puddles.WaterBody(1f), Tolerance);
+        Assert.Equal(0.02f, Rendition.Passes.Puddles.WaterFresnel(1f), Tolerance);
+        Assert.Equal(0.98f, Rendition.Passes.Puddles.WaterBody(1f), Tolerance);
     }
 
     // A standing eye sees a puddle a few metres off at about 75 degrees from straight down,
@@ -73,15 +73,15 @@ public class PuddleTests
     [Fact]
     public void Water_seen_from_a_standing_eye_reflects_a_quarter()
     {
-        Assert.Equal(0.2525586f, Puddles.WaterFresnel(0.25f), Tolerance);
-        Assert.Equal(0.7474414f, Puddles.WaterBody(0.25f), Tolerance);
+        Assert.Equal(0.2525586f, Rendition.Passes.Puddles.WaterFresnel(0.25f), Tolerance);
+        Assert.Equal(0.7474414f, Rendition.Passes.Puddles.WaterBody(0.25f), Tolerance);
     }
 
     [Fact]
     public void Water_seen_at_grazing_reflects_everything_and_shows_no_body()
     {
-        Assert.Equal(1f, Puddles.WaterFresnel(0f), Tolerance);
-        Assert.Equal(0f, Puddles.WaterBody(0f), Tolerance);
+        Assert.Equal(1f, Rendition.Passes.Puddles.WaterFresnel(0f), Tolerance);
+        Assert.Equal(0f, Rendition.Passes.Puddles.WaterBody(0f), Tolerance);
     }
 
     private static string SurfaceShader() => Shader("surface.glsl");
@@ -120,7 +120,7 @@ public class PuddleTests
     [Fact]
     public void Below_the_level_is_water()
     {
-        var (water, damp) = Puddles.Wetness(surfaceHeight: -0.02f, level: 0f, band: 0.08f);
+        var (water, damp) = Rendition.Passes.Puddles.Wetness(surfaceHeight: -0.02f, level: 0f, band: 0.08f);
 
         Assert.Equal(1f, water, Tolerance);
         Assert.Equal(1f, damp, Tolerance);
@@ -130,7 +130,7 @@ public class PuddleTests
     public void Half_a_band_up_is_half_damp()
     {
         // 4 cm above the water with an 8 cm band: half way from the waterline to dry.
-        var (water, damp) = Puddles.Wetness(surfaceHeight: 0.04f, level: 0f, band: 0.08f);
+        var (water, damp) = Rendition.Passes.Puddles.Wetness(surfaceHeight: 0.04f, level: 0f, band: 0.08f);
 
         Assert.Equal(0f, water, Tolerance);
         Assert.Equal(0.5f, damp, Tolerance);
@@ -139,7 +139,7 @@ public class PuddleTests
     [Fact]
     public void Above_the_band_is_dry()
     {
-        var (water, damp) = Puddles.Wetness(surfaceHeight: 0.1f, level: 0f, band: 0.08f);
+        var (water, damp) = Rendition.Passes.Puddles.Wetness(surfaceHeight: 0.1f, level: 0f, band: 0.08f);
 
         Assert.Equal(0f, water, Tolerance);
         Assert.Equal(0f, damp, Tolerance);
@@ -149,8 +149,8 @@ public class PuddleTests
     public void A_groove_in_a_high_wall_never_floods()
     {
         // The bottom of a 3 cm groove in a wall 2 m up still lies 1.97 m above the water.
-        float surface = Puddles.SurfaceHeight(worldY: 2f, height: 0f, heightDepth: 0.03f);
-        var (water, damp) = Puddles.Wetness(surface, level: 0f, band: 0.08f);
+        float surface = Rendition.Passes.Puddles.SurfaceHeight(worldY: 2f, height: 0f, heightDepth: 0.03f);
+        var (water, damp) = Rendition.Passes.Puddles.Wetness(surface, level: 0f, band: 0.08f);
 
         Assert.Equal(1.97f, surface, Tolerance);
         Assert.Equal(0f, water, Tolerance);
@@ -162,9 +162,9 @@ public class PuddleTests
     {
         // Mud whose face is 1 cm above the water: a pixel at the top of the height map stays dry
         // of water, but one at the bottom of its 3 cm hollows lies 2 cm under it.
-        Assert.Equal(0.01f, Puddles.SurfaceHeight(worldY: 0.01f, height: 1f, heightDepth: 0.03f), Tolerance);
-        Assert.Equal(-0.02f, Puddles.SurfaceHeight(worldY: 0.01f, height: 0f, heightDepth: 0.03f), Tolerance);
-        Assert.Equal(-0.005f, Puddles.SurfaceHeight(worldY: 0.01f, height: 0.5f, heightDepth: 0.03f), Tolerance);
+        Assert.Equal(0.01f, Rendition.Passes.Puddles.SurfaceHeight(worldY: 0.01f, height: 1f, heightDepth: 0.03f), Tolerance);
+        Assert.Equal(-0.02f, Rendition.Passes.Puddles.SurfaceHeight(worldY: 0.01f, height: 0f, heightDepth: 0.03f), Tolerance);
+        Assert.Equal(-0.005f, Rendition.Passes.Puddles.SurfaceHeight(worldY: 0.01f, height: 0.5f, heightDepth: 0.03f), Tolerance);
     }
 
     [Theory]
@@ -199,8 +199,8 @@ public class PuddleTests
     [Fact]
     public void No_band_leaves_only_the_water()
     {
-        Assert.Equal((1f, 1f), Puddles.Wetness(surfaceHeight: -0.01f, level: 0f, band: 0f));
-        Assert.Equal((0f, 0f), Puddles.Wetness(surfaceHeight: 0.001f, level: 0f, band: 0f));
+        Assert.Equal((1f, 1f), Rendition.Passes.Puddles.Wetness(surfaceHeight: -0.01f, level: 0f, band: 0f));
+        Assert.Equal((0f, 0f), Rendition.Passes.Puddles.Wetness(surfaceHeight: 0.001f, level: 0f, band: 0f));
     }
 
     [Fact]
@@ -225,12 +225,12 @@ public class PuddleTests
     {
         var settings = new PuddleSettings(-0.045f, 0.08f);
 
-        Assert.Equal(new Vector4(-0.045f, 0.08f, 1f, 0f), Puddles.Pack(-0.045f, 0.08f));
-        Assert.Equal(new Vector4(-0.045f, 0.08f, 1f, 0f), Puddles.Pack(settings, RenderEffects.None));
-        Assert.Equal(Vector4.Zero, Puddles.Pack(null, RenderEffects.None));
-        Assert.Equal(Vector4.Zero, Puddles.Pack(settings, RenderEffects.Puddles));
+        Assert.Equal(new Vector4(-0.045f, 0.08f, 1f, 0f), Rendition.Passes.Puddles.Pack(-0.045f, 0.08f));
+        Assert.Equal(new Vector4(-0.045f, 0.08f, 1f, 0f), Rendition.Passes.Puddles.Pack(settings, RenderEffects.None));
+        Assert.Equal(Vector4.Zero, Rendition.Passes.Puddles.Pack(null, RenderEffects.None));
+        Assert.Equal(Vector4.Zero, Rendition.Passes.Puddles.Pack(settings, RenderEffects.Puddles));
 
         // Other effects off leave the puddles alone.
-        Assert.Equal(new Vector4(-0.045f, 0.08f, 1f, 0f), Puddles.Pack(settings, RenderEffects.All & ~RenderEffects.Puddles));
+        Assert.Equal(new Vector4(-0.045f, 0.08f, 1f, 0f), Rendition.Passes.Puddles.Pack(settings, RenderEffects.All & ~RenderEffects.Puddles));
     }
 }

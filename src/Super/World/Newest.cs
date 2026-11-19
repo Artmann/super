@@ -17,6 +17,12 @@ internal sealed class Newest
         Track<AmbientOcclusion>(types);
         Track<Finish>(types);
         Track<Outlines>(types);
+        Track<ScreenBounce>(types);
+        Track<LightProbes>(types);
+        Track<BakedLighting>(types);
+        Track<Underwater>(types);
+        Track<Puddles>(types);
+        Track<Wind>(types);
     }
 
     /// <summary>The entity that got a <typeparamref name="T"/> most recently and still has it, or null.</summary>

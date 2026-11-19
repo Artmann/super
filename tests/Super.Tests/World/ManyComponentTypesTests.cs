@@ -73,9 +73,10 @@ public class ManyComponentTypesTests
             }
         }
 
-        // Super registers thirteen: Model, Transform, Animated, Swim, Static, Camera, Sky, Shadows, AmbientOcclusion,
-        // Finish, Outlines and the internal LastTick and LastCamera.
-        Assert.Equal(243, depth);
+        // Super registers nineteen: Model, Transform, Animated, Swim, Static, Camera, Sky, Shadows, AmbientOcclusion,
+        // ScreenBounce, LightProbes, BakedLighting, Underwater, Puddles, Wind, Finish, Outlines and the internal
+        // LastTick and LastCamera.
+        Assert.Equal(237, depth);
         Assert.IsType<InvalidOperationException>(refused);
         Assert.Equal("A world holds at most 256 component types.", refused!.Message);
         Assert.True(HasNumbered(world, entity, depth - 1));

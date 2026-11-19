@@ -5,8 +5,8 @@ namespace Super;
 
 /// <summary>
 /// What the world puts in a frame's lights and settings by itself: every <see cref="Sun"/>, <see cref="PointLight"/> and
-/// <see cref="SpotLight"/>, and the newest <see cref="Sky"/>, <see cref="Shadows"/>, <see cref="AmbientOcclusion"/>,
-/// <see cref="Finish"/> and <see cref="Outlines"/>, each through the view call it stands for, so it's checked the same.
+/// <see cref="SpotLight"/>, and the newest of each frame setting, such as <see cref="Sky"/> or
+/// <see cref="Wind"/>, each through the view call it stands for, so it's checked the same.
 /// </summary>
 internal static class WorldLights
 {
@@ -84,32 +84,73 @@ internal static class WorldLights
     /// <summary>The newest of each setting, through its view call. A setting no entity has leaves the view's own.</summary>
     private static void Settings(View view, World world)
     {
-        if (Newest.Of<Sky>(world) is { } sky)
-        {
-            view.Surroundings.Sky(world.Get<Sky>(sky).Settings);
-        }
+        LightSettings(view, world);
+        SurroundingSettings(view, world);
+    }
 
-        if (Newest.Of<Shadows>(world) is { } shadowed)
+    private static void LightSettings(View view, World world)
+    {
+        if (Newest<Shadows>(world) is { } shadows)
         {
-            var shadows = world.Get<Shadows>(shadowed);
             view.Lights.Shadows(shadows.Radius, shadows.Cascades, shadows.SunSize, shadows.Contact);
         }
 
-        if (Newest.Of<AmbientOcclusion>(world) is { } occluded)
+        if (Newest<AmbientOcclusion>(world) is { } occlusion)
         {
-            var occlusion = world.Get<AmbientOcclusion>(occluded);
             view.Indirect.AmbientOcclusion(occlusion.Radius, occlusion.Strength);
         }
 
-        if (Newest.Of<Finish>(world) is { } finished)
+        if (Newest<ScreenBounce>(world) is { } bounce)
         {
-            view.Effects.Finish(world.Get<Finish>(finished).Settings);
+            view.Indirect.ScreenBounce(bounce.Strength, bounce.Radius);
         }
 
-        if (Newest.Of<Outlines>(world) is { } outlined)
+        if (Newest<LightProbes>(world) is { } probes)
         {
-            var outlines = world.Get<Outlines>(outlined);
+            view.Indirect.LightProbes(probes.Min, probes.Max, probes.Spacing);
+        }
+
+        if (Newest<BakedLighting>(world) is { } baked)
+        {
+            view.Indirect.BakedLighting(baked.Name, baked.Min, baked.Max, baked.ProbeSpacing, baked.TexelsPerMetre);
+        }
+    }
+
+    private static void SurroundingSettings(View view, World world)
+    {
+        if (Newest<Sky>(world) is { } sky)
+        {
+            view.Surroundings.Sky(sky.Settings);
+        }
+
+        if (Newest<Underwater>(world) is { } water)
+        {
+            view.Surroundings.Water(water.Settings);
+        }
+
+        if (Newest<Puddles>(world) is { } puddles)
+        {
+            view.Surroundings.Puddles(puddles.Level, puddles.Band);
+        }
+
+        if (Newest<Wind>(world) is { } wind)
+        {
+            view.Surroundings.Wind(wind.Direction, wind.Strength, wind.Gustiness);
+        }
+
+        if (Newest<Finish>(world) is { } finish)
+        {
+            view.Effects.Finish(finish.Settings);
+        }
+
+        if (Newest<Outlines>(world) is { } outlines)
+        {
             view.Effects.Outlines(outlines.Color, outlines.Thickness, outlines.FadeStart, outlines.FadeEnd);
         }
     }
+
+    /// <summary>The newest entity's <typeparamref name="T"/>, or null when no entity has one.</summary>
+    private static T? Newest<T>(World world)
+        where T : struct =>
+        Super.Newest.Of<T>(world) is { } holder ? world.Get<T>(holder) : null;
 }

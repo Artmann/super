@@ -81,10 +81,10 @@ next frame follows, so it can back an options menu.
 | `Shadowing.LightShadows` | Point and spot lights shine through walls |
 | `Lighting.LocalLights` | Point and spot lights give no light: none is clustered, shadowed or lit onto the [light probes](#bounced-light), so the sun and the sky light the scene alone. Light a bake already holds stays, and no bake is redone. `BakedLighting` drops it too |
 | `Lighting.AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. A material's [occlusion map](#occlusion-maps) still darkens its own cracks. [`AmbientOcclusion`](#ambient-occlusion) only changes [how far and how dark](#ambient-occlusion). The [screen bounce](#light-bounced-across-the-screen) goes with it |
-| `Lighting.ScreenBounce` | Surfaces on screen no longer [light their neighbours](#light-bounced-across-the-screen): the floor under a red ball stays its own colour, and a glowing panel lights nothing round it unless the light probes see it. The light probes still bounce light. It saves about 0.6 ms of GPU time a frame at 1920 by 1080 on an RTX 4060 Ti. `view.Indirect.ScreenBounce` only changes how far and how much. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
+| `Lighting.ScreenBounce` | Surfaces on screen no longer [light their neighbours](#light-bounced-across-the-screen): the floor under a red ball stays its own colour, and a glowing panel lights nothing round it unless the light probes see it. The light probes still bounce light. It saves about 0.6 ms of GPU time a frame at 1920 by 1080 on an RTX 4060 Ti. A `ScreenBounce` entity only changes how far and how much. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
 | `Lighting.OcclusionHistory` | The [ambient occlusion](#ambient-occlusion) and the [screen bounce](#light-bounced-across-the-screen) are no longer averaged over the last frames. Each frame's grain is blurred away over a wider patch instead, so creases and the shade under things turn softer and small detail, such as the gap round a chest's lid, washes out. It saves about 0.1 ms of GPU time a frame at `OcclusionResolution.Half` and about 0.9 ms at `Full`, at 1600 by 900 on an RTX 4060 Ti, and four small images. `Graphics.Fastest()` turns it off |
 | `Lighting.MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
-| `Lighting.LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.Indirect.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
+| `Lighting.LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
 | `Lighting.ProbeQuality` | How many [light probes](#bounced-light) follow the camera and how many are redrawn a frame. `High`, the default and the best look, keeps 32 × 16 × 32 probes in each of the four boxes and redraws 32 a frame, for about 170 MB. `Medium` keeps 24 × 12 × 24 and redraws 16, for about 73 MB. `Low` keeps 16 × 8 × 16 and redraws 8, for about 43 MB, so the boxes reach half as far, the bounce fills in more slowly at the start and is slower to follow lights that move. Anything else is refused. A change starts every probe again on the next frame, which waits for the GPU once. `Graphics.Fastest()` sets `Low`, so turning the probes back on stays cheap |
 | `Lighting.Reflections` | Shiny surfaces, water and glass reflect only the sky: not what's on screen, and no [reflection probes](#reflections) are photographed |
 | `Lighting.ReflectionResolution` | Not a switch: how many pixels look for what the screen shows in them each frame. At `Half`, the default, one pixel in four does, a different one each frame, and the pixels between take theirs from the ones round them on the same surface. Anti-aliasing blends the frames, so a still reflection looks the same as at `Full`, where every pixel looks every frame for up to four times the cost. `Full` keeps a reflection sharper while it moves fast, and is the one to pick with `AntiAliasing` off. Anything else is refused. A change rebuilds the scene's targets before the next frame, which waits for the GPU once. `GraphicsQuality.Ultra` sets `Full` |
@@ -95,7 +95,7 @@ next frame follows, so it can back an options menu.
 | `Atmosphere.Haze` | Distant things keep their colours instead of fading into the sky between `SkySettings.HazeStart` and `HazeEnd`. The sky's own colour stays |
 | `Atmosphere.AerialPerspective` | Under a [physical sky](#the-sky), far surfaces keep their colours instead of fading into the air with distance. A view with its own haze gets that either way. It costs almost nothing |
 | `Atmosphere.Stars` | A [physical sky](#night) at night has no stars. The moon stays. They cost a little per sky pixel, so they stay on even in `Graphics.Fastest()` |
-| `Atmosphere.Underwater` | `view.Surroundings.Water` is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
+| `Atmosphere.Underwater` | An `Underwater` entity is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
 | `Atmosphere.VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps, and under water no shafts of light. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
 | `Atmosphere.FogVolumes` | The [fog volumes](views.md#fog-volumes) a view places are left out, and only the scene's own fog fills the volumetric fog. They show only while `VolumetricFog` is on too. `Graphics.Fastest()` turns it off |
 | `Atmosphere.VolumetricFogCellSize` | Not a switch: how many scene pixels across, each way, one cell of the [volumetric fog's](#volumetric-fog) grid covers, from 4 to 32. 8 is the default. Smaller cells show finer shafts and sharper edges on fog volumes; each halving costs about four times the memory and work. The size is after `RenderScale`. Anything else is refused. A change remakes the grid before the next frame, which waits for the GPU once and starts its history again. See [the grid's cost](#the-grids-cost) |
@@ -104,8 +104,8 @@ next frame follows, so it can back an options menu.
 | `Picture.DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
 | `Surfaces.Particles` | No [particles](views.md#particles) are drawn, and none is uploaded. The game can still emit them |
 | `Surfaces.Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Effects.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
-| `Surfaces.Puddles` | Every surface is dry, whatever level `view.Surroundings.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
-| `Surfaces.Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever `view.Surroundings.Wind` sets, and so do their shadows |
+| `Surfaces.Puddles` | Every surface is dry, whatever level a `Puddles` entity sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
+| `Surfaces.Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever a `Wind` entity sets, and so do their shadows |
 | `Baking.BakedLighting` | Every bake is ignored, so each [baked area](#baked-lighting) is lit live, as if it had never been baked: lights its bake holds are drawn again. It shows what a bake changes. A bake costs less than the live light it stands in for, so `Graphics.Fastest()` leaves it on |
 | `Baking.BakeOnArrival` | Areas with no bake, or a stale one, stay lit live instead of [baking as the game runs](#baking-without-a-build-step), and a running bake stops |
 | `Baking.BakeBudget` | Not a switch: the GPU milliseconds a [background bake](#baking-without-a-build-step) may take a frame, from 0.5 to 33. Null, the default, gives 4 from source and 2 in a published game |
@@ -540,8 +540,10 @@ two keep them, with and without the average over frames.
 ## Light bounced across the screen
 
 ```csharp
-view.Indirect.ScreenBounce(strength: 1.5f, radius: 3f);
+world.Spawn(new ScreenBounce(Strength: 1.5f, Radius: 3f));
 ```
+
+Drawing by hand, `view.Indirect.ScreenBounce(strength, radius)` sets it for one frame.
 
 Light that lands on a surface the camera sees also lights the surfaces next to it: a red
 ball tints the floor under it red, a sunlit floor lights the underside of a table, and a
@@ -615,7 +617,7 @@ at most 8 million triangles round its probes, which is about 9 probes in Courtya
 way there is no pause while loading: the scene starts lit by the sky and fills in over the
 first frames, nearest probes first. Drawn this way at `High`, the near probes have all been
 drawn after about a thousand frames in a light scene (nearer four thousand in Courtyard).
-Without a `view.Indirect.LightProbes` box of your own, the first seconds after a load can look blotchy,
+Without a `LightProbes` box of your own, the first seconds after a load can look blotchy,
 as neighbouring probes have been drawn different numbers of times, until each has been redone
 a few times and they even out.
 After that the oldest probes are redone in turn, so objects that move or appear show up in the
@@ -633,17 +635,19 @@ and the new row starts dark and is drawn next.
 ![The same corner of the Courtyard with its probes drawn by rasterising on the left and by tracing rays on the right, at the same tick: the two come out nearly the same in colour, the traced side a shade brighter, as by tick 300 the rasterized probes are still filling in](media/probes-courtyard-paths.webp)
 
 ```csharp
-view.Indirect.LightProbes(min: new(-1f, 0f, -4f), max: new(1f, 2.5f, 4f), spacing: 0.25f);
+world.Spawn(new LightProbes(Min: new(-1f, 0f, -4f), Max: new(1f, 2.5f, 4f), Spacing: 0.25f));
 ```
 
-`view.Indirect.LightProbes` adds a box of probes of your own on top, for a place that needs finer
+A `LightProbes` entity adds a box of probes of your own on top, for a place that needs finer
 detail than the camera's probes give, such as a narrow corridor at 0.25 metres. Inside it,
 and up to a spacing round it, its probes win over the camera's. The box may hold at most 4,096
 probes, so 1 metre spacing covers about 15 by 15 by 15 metres; a bigger box throws when it is
-set. `spacing` must be more than zero, and `max` above `min` on every axis. A new box starts
-its probes again. Gallery keeps one over the whole building: in its rooms the camera's probes
+set. `Spacing` must be more than zero, and `Max` above `Min` on every axis. A new box starts
+its probes again. A frame has one box, and when several entities have one, the newest wins.
+Gallery keeps one over the whole building: in its rooms the camera's probes
 alone left the walls and floors blotchy in a screenshot, and the box's probes, 1.65 metres
-apart, light them smoothly.
+apart, light them smoothly. Drawing by hand, `view.Indirect.LightProbes(min, max, spacing)`
+sets the box for one frame.
 
 Each probe also notes how far away the surfaces it sees are, so a point behind a wall from a
 probe gets nothing from it, and light doesn't leak into a room from the probes outside. Traced
@@ -668,7 +672,7 @@ A [screenshot](command-line.md#screenshots) waits for the probes near the camera
 up to 2,048 frames, so it shows the bounce as it will be rather than still filling in.
 
 `--debug-view probes` shows the probes themselves, over the lit scene. Every probe of the finest
-box and of your `view.Indirect.LightProbes` box is a small sphere; the three coarser boxes aren't shown.
+box and of your `LightProbes` box is a small sphere; the three coarser boxes aren't shown.
 Each point of a sphere shows the
 light that probe gives a white surface facing the same way, so a probe beside a red wall is red
 on the wall's side. The spheres are 0.15 of their probes' spacing in radius, 7.5 cm in the
@@ -684,7 +688,7 @@ command line](command-line.md).
 ## Baked lighting
 
 ```csharp
-view.Indirect.BakedLighting("crypt", min: new(-8f, -1f, -12f), max: new(8f, 6f, 12f), probeSpacing: 1f);
+world.Spawn(new BakedLighting("crypt", Min: new(-8f, -1f, -12f), Max: new(8f, 6f, 12f), ProbeSpacing: 1f));
 
 foreach (var house in village.Houses)
 {
@@ -718,11 +722,13 @@ switch its lighting.
 
 ![The colour room before and after baking: softer contact shade under the bust's plinth, and the walls' colour bleeds onto the floor much as before](media/gallery-colour-room-baked.webp)
 
-`BakedLighting` names a space: one fixed place, baked as it stands, sun included. Its box also
-holds baked probes `probeSpacing` metres apart, at most 4,096 of them, counted the same way as
+A `BakedLighting` entity names a space: one fixed place, baked as it stands, sun included. Its box also
+holds baked probes `ProbeSpacing` metres apart, at most 4,096 of them, counted the same way as
 [light probes](#bounced-light), so 1 metre spacing covers about 15 by 15 by 15 metres. A frame
-has at most one space, and naming a second throws with both names. Its bake is
-`lighting/<name>.lightbake`. `texelsPerMetre`, 20 by default (5 cm texels), sets how fine its
+has at most one space: when several entities have one the newest wins, and drawing by hand,
+`view.Indirect.BakedLighting(name, min, max, probeSpacing)` names it for one frame, where naming a
+second throws with both names. Its bake is
+`lighting/<name>.lightbake`. `TexelsPerMetre`, 20 by default (5 cm texels), sets how fine its
 lightmap is, from 1 to 200; anything else throws with the value. `view.Indirect.BakedChunk` takes the same
 parameter for a chunk.
 
@@ -1604,11 +1610,11 @@ and its light probes. `--profile` from [the command line](command-line.md) lists
 
 ## Water
 
-`view.Surroundings.Water` puts the camera underwater, with light absorbed by depth, moving caustics on
+An `Underwater` entity puts the camera underwater, with light absorbed by depth, moving caustics on
 sunlit surfaces and shafts of light:
 
 ```csharp
-view.Surroundings.Water(new UnderwaterSettings
+world.Spawn(new Underwater(new UnderwaterSettings
 {
     Absorption = new Vector3(0.045f, 0.024f, 0.018f),   // per metre; red should be largest
     ShallowColor = new Vector3(0.11f, 0.42f, 0.55f),
@@ -1618,8 +1624,11 @@ view.Surroundings.Water(new UnderwaterSettings
     CausticScale = 0.11f,
     ShaftStrength = 0.11f,
     ShaftDistance = 55f,
-});
+}));
 ```
+
+When several entities have one, the newest wins. Drawing by hand,
+`view.Surroundings.Water(settings)` puts one frame underwater.
 
 Leaving `Absorption` at zero means there's no water. The [Reef example](../examples/Reef)
 uses this. Red goes first, so colours fade towards blue and green with distance: at a red
@@ -1641,14 +1650,17 @@ The shafts need [`Graphics.Atmosphere.VolumetricFog`](#graphics-settings). With 
 
 ## Puddles
 
-`view.Surroundings.Puddles` lets water stand in the low places of the ground, with no mesh for the water.
+A `Puddles` entity lets water stand in the low places of the ground, with no mesh for the water.
 It takes the water's height in metres and, optionally, how far above it the ground is damp,
 8 cm unless given:
 
 ```csharp
-view.Surroundings.Puddles(-0.045f);          // water at 4.5 cm below 0, damp for 8 cm above it
-view.Surroundings.Puddles(0.2f, band: 0.03f); // higher water and a narrower damp band
+world.Spawn(new Puddles(-0.045f));              // water at 4.5 cm below 0, damp for 8 cm above it
+world.Spawn(new Puddles(0.2f, Band: 0.03f));    // higher water and a narrower damp band
 ```
+
+When several entities have one, the newest wins. Drawing by hand,
+`view.Surroundings.Puddles(level, band)` sets the level for one frame.
 
 ![The Courtyard puddle before, a flat grey sheet, and after, dark silty water at the level that mirrors the flagstones, the grass and the wall behind it](media/puddles-before-after.webp)
 
@@ -1689,17 +1701,20 @@ below the yard and a band of 3.5 cm.
 
 ## Wind
 
-`view.Surroundings.Wind` sets a breeze that bends grass and leaves. It takes the way the wind blows, how
+A `Wind` entity sets a breeze that bends grass and leaves. It takes the way the wind blows, how
 strong it is and, optionally, how gusty, from 0 for steady to 1 for gusty, 0.5 unless given:
 
 ```csharp
-view.Surroundings.Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f);         // a fresh breeze, gusty by half
-view.Surroundings.Wind(Vector3.UnitX, 0.1f, gustiness: 0f);         // a light, steady air from the west
+world.Spawn(new Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f));      // a fresh breeze, gusty by half
+world.Spawn(new Wind(Vector3.UnitX, 0.1f, Gustiness: 0f));      // a light, steady air from the west
 ```
 
 The strength is how far, in metres, it leans the tip of a blade of grass 1 m tall. Only the
 way along the ground counts, so a wind's direction needs some x or z, and a strength of 0 is
-a calm with no direction needed. Each frame starts calm, like the other view settings.
+a calm with no direction needed. When several entities have one, the newest wins, and with
+none the air is calm. A bad wind throws when the frame that meets it is drawn. Drawing by
+hand, `view.Surroundings.Wind(direction, strength, gustiness)` sets it for one frame, and each
+frame starts calm.
 
 ![The Courtyard's grass in a calm, standing straight, and in a breeze of 0.35 on the same tick, leaning to the right](media/wind-before-after.webp)
 
@@ -1723,12 +1738,12 @@ is measured straight up. Culling knows how far a swaying part can reach, so gras
 edge of the screen or of a shadow doesn't pop in or out as it leans.
 
 Wind works underwater too. The [Reef](../examples/Reef) rocks its seagrass and sea fans with
-the swell by setting a wind each frame whose strength follows a slow sine and whose direction
+the swell by changing its wind each tick so its strength follows a slow sine and its direction
 flips as the sine crosses zero, so the lean swings smoothly from one side to the other:
 
 ```csharp
 float surge = MathF.Sin(seconds * MathF.Tau / 7f);
-view.Surroundings.Wind(surgeDirection * MathF.Sign(surge), 0.45f * MathF.Abs(surge), gustiness: 0.3f);
+world.Get<Wind>(wind) = new Wind(surgeDirection * MathF.Sign(surge), 0.45f * MathF.Abs(surge), Gustiness: 0.3f);
 ```
 [`Graphics.Surfaces.Wind`](#graphics-settings) turns it off, and
 `Graphics.Fastest()` turns it off. The Courtyard blows a breeze of 0.35 across its grass, with
@@ -2031,9 +2046,9 @@ the bricks still show through, and it never floats off the surface or flickers a
 Keep `dithered` for things that should fade as a whole, such as a leaf or a cobweb.
 
 `puddles` lets water stand on the material wherever it lies below the level the game sets
-with `view.Surroundings.Puddles`, and makes it damp for a band above. See [Puddles](#puddles).
+with a `Puddles` entity, and makes it damp for a band above. See [Puddles](#puddles).
 
-`wind` sways the material in the breeze the game sets with `view.Surroundings.Wind`: `true` for grass, or
+`wind` sways the material in the breeze the game sets with a `Wind` entity: `true` for grass, or
 `{ "sway": 0.08 }` for a share of the lean, for something stiffer. A share below 0 stops the
 cook. See [Wind](#wind).
 

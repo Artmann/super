@@ -21,7 +21,7 @@ public class WindTests
     [InlineData(12.5f)]
     public void No_strength_is_no_sway(float time)
     {
-        var sway = Wind.Sway(new Vector3(1.3f, 0.4f, -2.2f), heightAboveBase: 0.8f, new WindSettings(East, Strength: 0f, Gustiness: 0.5f), time);
+        var sway = Rendition.Passes.Wind.Sway(new Vector3(1.3f, 0.4f, -2.2f), heightAboveBase: 0.8f, new WindSettings(East, Strength: 0f, Gustiness: 0.5f), time);
 
         Assert.Equal(Vector3.Zero, sway);
     }
@@ -32,8 +32,8 @@ public class WindTests
         // At the origin at time 0 the flutter is at the middle of its swing, so only the lean is left: with no
         // gusts it is the strength times the height squared, 0.3 × 1² downwind and 0.3 × 0.5² = 0.075 half way up.
         var steady = new WindSettings(East, 0.3f, Gustiness: 0f);
-        Assert.Equal(new Vector3(0.3f, 0f, 0f), Wind.Sway(Vector3.Zero, 1f, steady, time: 0f));
-        Assert.Equal(new Vector3(0.075f, 0f, 0f), Wind.Sway(Vector3.Zero, 0.5f, steady, time: 0f));
+        Assert.Equal(new Vector3(0.3f, 0f, 0f), Rendition.Passes.Wind.Sway(Vector3.Zero, 1f, steady, time: 0f));
+        Assert.Equal(new Vector3(0.075f, 0f, 0f), Rendition.Passes.Wind.Sway(Vector3.Zero, 0.5f, steady, time: 0f));
     }
 
     [Theory]
@@ -45,8 +45,8 @@ public class WindTests
         // the rise from the move downwind leaves only the lean.
         var position = new Vector3(x, 0f, z);
         var wind = new WindSettings(East, 0.35f, 0.5f);
-        var tip = Wind.Sway(position, 1f, wind, time);
-        var half = Wind.Sway(position, 0.5f, wind, time);
+        var tip = Rendition.Passes.Wind.Sway(position, 1f, wind, time);
+        var half = Rendition.Passes.Wind.Sway(position, 0.5f, wind, time);
         float leanTip = tip.X - tip.Y;
         float leanHalf = half.X - half.Y;
 
@@ -60,7 +60,7 @@ public class WindTests
         var position = new Vector3(0.7f, 6.5f, 1.9f);
 
         var wind = new WindSettings(East, 0.35f, 0.5f);
-        Assert.Equal(Wind.Sway(position, 1f, wind, 2.3f), Wind.Sway(position, 4f, wind, 2.3f));
+        Assert.Equal(Rendition.Passes.Wind.Sway(position, 1f, wind, 2.3f), Rendition.Passes.Wind.Sway(position, 4f, wind, 2.3f));
     }
 
     [Theory]
@@ -70,7 +70,7 @@ public class WindTests
     [InlineData(0f, 41.9f)]
     public void Sway_never_moves_the_base(float heightAboveBase, float time)
     {
-        var sway = Wind.Sway(new Vector3(-3.2f, 0.05f, 4.4f), heightAboveBase, new WindSettings(new Vector3(0.6f, 0f, -0.3f), 1f, 1f), time);
+        var sway = Rendition.Passes.Wind.Sway(new Vector3(-3.2f, 0.05f, 4.4f), heightAboveBase, new WindSettings(new Vector3(0.6f, 0f, -0.3f), 1f, 1f), time);
 
         Assert.Equal(Vector3.Zero, sway);
     }
@@ -81,8 +81,8 @@ public class WindTests
         var position = new Vector3(2.1f, 1.4f, -0.6f);
         var wind = new WindSettings(new Vector3(0.6f, 0f, -0.3f), 0.35f, 0.5f);
 
-        var first = Wind.Sway(position, 0.9f, wind, 3.7f);
-        var later = Wind.Sway(position, 0.9f, wind, 3.8f);
+        var first = Rendition.Passes.Wind.Sway(position, 0.9f, wind, 3.7f);
+        var later = Rendition.Passes.Wind.Sway(position, 0.9f, wind, 3.8f);
 
         Assert.NotEqual(first, later);
     }
@@ -92,7 +92,7 @@ public class WindTests
     {
         // At 0.625 s the 0.4 Hz flutter is a quarter of the way round, at its peak, and at the origin its phase is 0.
         // It moves along the diagonal between downwind and up, 0.02 / √2 = 0.0141421 m on each.
-        var sway = Wind.Sway(Vector3.Zero, 1f, new WindSettings(East, 0.3f, Gustiness: 0f), time: 0.625f);
+        var sway = Rendition.Passes.Wind.Sway(Vector3.Zero, 1f, new WindSettings(East, 0.3f, Gustiness: 0f), time: 0.625f);
 
         Assert.Equal(0.3141421f, sway.X, Tolerance);
         Assert.Equal(0.0141421f, sway.Y, Tolerance);
@@ -103,12 +103,12 @@ public class WindTests
     public void A_material_with_half_the_sway_leans_half_as_far_but_flutters_as_much()
     {
         var steady = new WindSettings(East, 0.3f, 0f);
-        var full = Wind.Sway(Vector3.Zero, 1f, steady, 0.625f, sway: 1f);
-        var half = Wind.Sway(Vector3.Zero, 1f, steady, 0.625f, sway: 0.5f);
+        var full = Rendition.Passes.Wind.Sway(Vector3.Zero, 1f, steady, 0.625f, sway: 1f);
+        var half = Rendition.Passes.Wind.Sway(Vector3.Zero, 1f, steady, 0.625f, sway: 0.5f);
 
         Assert.Equal(0.15f, full.X - half.X, Tolerance);
         Assert.Equal(full.Y, half.Y, Tolerance);
-        Assert.Equal(Vector3.Zero, Wind.Sway(Vector3.Zero, 1f, steady, 0.625f, sway: 0f));
+        Assert.Equal(Vector3.Zero, Rendition.Passes.Wind.Sway(Vector3.Zero, 1f, steady, 0.625f, sway: 0f));
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public class WindTests
         {
             for (int z = -40; z <= 40; z++)
             {
-                float factor = Wind.GustFactor(new Vector3(x * 0.37f, 0f, z * 0.37f), East, 0.5f, time: 0f);
+                float factor = Rendition.Passes.Wind.GustFactor(new Vector3(x * 0.37f, 0f, z * 0.37f), East, 0.5f, time: 0f);
                 lowest = MathF.Min(lowest, factor);
                 highest = MathF.Max(highest, factor);
             }
@@ -130,7 +130,7 @@ public class WindTests
 
         Assert.InRange(lowest, 0.6f, 0.65f);
         Assert.InRange(highest, 0.95f, 1f);
-        Assert.Equal(1f, Wind.GustFactor(new Vector3(4.2f, 0f, -1.3f), East, gustiness: 0f, time: 2f));
+        Assert.Equal(1f, Rendition.Passes.Wind.GustFactor(new Vector3(4.2f, 0f, -1.3f), East, gustiness: 0f, time: 2f));
     }
 
     [Fact]
@@ -140,11 +140,11 @@ public class WindTests
         var here = new Vector3(1.1f, 0f, 2.6f);
 
         // Twenty seconds later the gust that was here is 3 m downwind.
-        float now = Wind.GustFactor(here, direction, 0.5f, time: 1f);
-        float later = Wind.GustFactor(here + direction * 3f, direction, 0.5f, time: 21f);
+        float now = Rendition.Passes.Wind.GustFactor(here, direction, 0.5f, time: 1f);
+        float later = Rendition.Passes.Wind.GustFactor(here + direction * 3f, direction, 0.5f, time: 21f);
 
         Assert.Equal(now, later, Tolerance);
-        Assert.NotEqual(now, Wind.GustFactor(here, direction, 0.5f, time: 21f), Tolerance);
+        Assert.NotEqual(now, Rendition.Passes.Wind.GustFactor(here, direction, 0.5f, time: 21f), Tolerance);
     }
 
     [Fact]
@@ -153,14 +153,14 @@ public class WindTests
         // (3, 1, 4) flattens to (3, 0, 4), which is 5 long, so 0.5 of it is (0.3, 0, 0.4).
         var settings = new WindSettings(new Vector3(3f, 1f, 4f), 0.5f, 0.25f);
 
-        Assert.Equal(new Vector4(0.3f, 0f, 0.4f, 0.25f), Wind.Pack(settings, RenderEffects.None));
-        Assert.Equal(Vector4.Zero, Wind.Pack(null, RenderEffects.None));
-        Assert.Equal(Vector4.Zero, Wind.Pack(settings, RenderEffects.Wind));
-        Assert.Equal(Vector4.Zero, Wind.Pack(settings with { Strength = 0f }, RenderEffects.None));
-        Assert.Equal(Vector4.Zero, Wind.Pack(new WindSettings(Vector3.UnitY, 0.5f), RenderEffects.None));
+        Assert.Equal(new Vector4(0.3f, 0f, 0.4f, 0.25f), Rendition.Passes.Wind.Pack(settings, RenderEffects.None));
+        Assert.Equal(Vector4.Zero, Rendition.Passes.Wind.Pack(null, RenderEffects.None));
+        Assert.Equal(Vector4.Zero, Rendition.Passes.Wind.Pack(settings, RenderEffects.Wind));
+        Assert.Equal(Vector4.Zero, Rendition.Passes.Wind.Pack(settings with { Strength = 0f }, RenderEffects.None));
+        Assert.Equal(Vector4.Zero, Rendition.Passes.Wind.Pack(new WindSettings(Vector3.UnitY, 0.5f), RenderEffects.None));
 
         // Other effects off leave the wind alone.
-        Assert.Equal(new Vector4(0.3f, 0f, 0.4f, 0.25f), Wind.Pack(settings, RenderEffects.All & ~RenderEffects.Wind));
+        Assert.Equal(new Vector4(0.3f, 0f, 0.4f, 0.25f), Rendition.Passes.Wind.Pack(settings, RenderEffects.All & ~RenderEffects.Wind));
     }
 
     [Fact]
@@ -240,12 +240,12 @@ public class WindTests
     {
         string shader = WindShader();
 
-        Assert.Equal(Wind.GustSpeed, ShaderConstant(shader, "WIND_GUST_SPEED"), Tolerance);
-        Assert.Equal(Wind.GustSize, ShaderConstant(shader, "WIND_GUST_SIZE"), Tolerance);
-        Assert.Equal(Wind.Flutter, ShaderConstant(shader, "WIND_FLUTTER"), Tolerance);
-        Assert.Equal(Wind.FlutterHz, ShaderConstant(shader, "WIND_FLUTTER_HZ"), Tolerance);
-        Assert.Equal(Wind.FlutterStrength, ShaderConstant(shader, "WIND_FLUTTER_STRENGTH"), Tolerance);
-        Assert.Equal(Wind.FullHeight, ShaderConstant(shader, "WIND_FULL_HEIGHT"), Tolerance);
+        Assert.Equal(Rendition.Passes.Wind.GustSpeed, ShaderConstant(shader, "WIND_GUST_SPEED"), Tolerance);
+        Assert.Equal(Rendition.Passes.Wind.GustSize, ShaderConstant(shader, "WIND_GUST_SIZE"), Tolerance);
+        Assert.Equal(Rendition.Passes.Wind.Flutter, ShaderConstant(shader, "WIND_FLUTTER"), Tolerance);
+        Assert.Equal(Rendition.Passes.Wind.FlutterHz, ShaderConstant(shader, "WIND_FLUTTER_HZ"), Tolerance);
+        Assert.Equal(Rendition.Passes.Wind.FlutterStrength, ShaderConstant(shader, "WIND_FLUTTER_STRENGTH"), Tolerance);
+        Assert.Equal(Rendition.Passes.Wind.FullHeight, ShaderConstant(shader, "WIND_FULL_HEIGHT"), Tolerance);
         Assert.Equal(2f * MathF.PI, ShaderConstant(shader, "WIND_TAU"), Tolerance);
     }
 
@@ -277,7 +277,7 @@ public class WindTests
     {
         // The words were worked out in Python with arbitrary-size integers masked to 32 bits, the way the GPU's
         // uints wrap, so a slip in the C# shifts or casts, as for a negative cell, shows.
-        Assert.Equal(word / 4294967295f, Wind.Hash(x, y));
+        Assert.Equal(word / 4294967295f, Rendition.Passes.Wind.Hash(x, y));
     }
 
     [Theory]
@@ -334,10 +334,10 @@ public class WindTests
     {
         var settings = new WindSettings(new Vector3(3f, 1f, 4f), 0.5f);
 
-        Assert.Equal(0.5f, Wind.Strength(settings, RenderEffects.None), 1e-6f);
-        Assert.Equal(0f, Wind.Strength(settings, RenderEffects.Wind));
-        Assert.Equal(0f, Wind.Strength(null, RenderEffects.None));
-        Assert.Equal(0f, Wind.Strength(new WindSettings(Vector3.UnitY, 0.5f), RenderEffects.None));
+        Assert.Equal(0.5f, Rendition.Passes.Wind.Strength(settings, RenderEffects.None), 1e-6f);
+        Assert.Equal(0f, Rendition.Passes.Wind.Strength(settings, RenderEffects.Wind));
+        Assert.Equal(0f, Rendition.Passes.Wind.Strength(null, RenderEffects.None));
+        Assert.Equal(0f, Rendition.Passes.Wind.Strength(new WindSettings(Vector3.UnitY, 0.5f), RenderEffects.None));
     }
 
     [Fact]
