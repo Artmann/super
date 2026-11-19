@@ -26,6 +26,7 @@ internal static class WorldFrame
             view.Camera(camera);
         }
 
+        WorldLights.Describe(view, world);
         Models(view, world);
     }
 

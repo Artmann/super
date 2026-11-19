@@ -336,6 +336,16 @@ view.Lights.Sun(new Vector3(1f, 2f, 1f), new Vector3(3f), shadows: true);
 
 Marking two suns in one frame throws.
 
+A sun can be a component instead, and the [world](ecs.md) adds it to every frame before
+`Draw` runs. Its direction stays in the world, whatever entity it's on:
+
+```csharp
+world.Spawn(new Sun(new Vector3(1f, 2f, 1f), new Vector3(3f), CastsShadows: true));
+```
+
+This section's lights, shadows, ambient occlusion, sky, finish and outlines all work this
+way. A call in `Draw` still wins over the world's for that frame.
+
 ### Point and spot lights
 
 ![The Crypt example: torches, candelabras, a lantern's beam and 126 candles](media/crypt.webp)
@@ -345,6 +355,17 @@ view.Lights.Point(torch.Id, new PointLight(torch.Flame, new Vector3(3.2f, 1.5f, 
 view.Lights.Point(candle.Id, new PointLight(candle.Wick, new Vector3(0.12f, 0.06f, 0.02f), 1.4f) { Shadows = false });
 view.Lights.Spot(lantern.Id, new SpotLight(lantern.Position, -Vector3.UnitY, new Vector3(6f, 5.5f, 4.5f), 7f)
     { InnerAngle = 0.25f, OuterAngle = 0.4f });
+```
+
+As components, each light is keyed by its entity's ID, and its position and direction
+count from the entity's `Transform` and `Parent`. So `default` puts the light at the
+entity, a spot light with no direction points along the entity's +z, and a lantern
+carried by a character goes where the character goes:
+
+```csharp
+world.Spawn(Transform.At(flame), new PointLight(default, new Vector3(3.2f, 1.5f, 0.5f), 9f) { Radius = 0.5f });
+world.Spawn(Transform.At(new Vector3(0.3f, 1.2f, 0.4f)), new Parent(guard),   // shines where the guard faces
+    new SpotLight(default, default, new Vector3(6f, 5.5f, 4.5f), 7f) { InnerAngle = 0.25f, OuterAngle = 0.4f });
 ```
 
 A point light shines every way from a spot, like a candle or a torch, and a spot light
@@ -432,6 +453,10 @@ bake saw. A light without a channel, a surface without a lightmap, and every lig
 view.Lights.Shadows(40f, cascades: 3);
 ```
 
+As a component, put `new Shadows(40f, Cascades: 3)` on any entity, such as one made for
+the level. When several entities have one, the newest wins, and taking it away gives the
+one before back. Ambient occlusion, the sky, the finish and outlines work the same way.
+
 The first number is the radius of the sharpest shadow map, in metres. Each extra cascade
 covers three times the radius of the one before. The cascades are laid along what the
 camera sees: the sharpest one starts at the camera, and each next one picks up where the
@@ -482,6 +507,8 @@ only sees the front leaf.
 ```csharp
 view.Indirect.AmbientOcclusion(radius: 1.2f, strength: 0.7f);
 ```
+
+The component is `new AmbientOcclusion(Radius: 1.2f, Strength: 0.7f)`.
 
 Corners, creases and the ground under things get less of the soft light from the sky,
 because the surfaces around them hide part of it. `radius` is how far, in metres, a point
@@ -1117,7 +1144,7 @@ view.Effects.Finish(new PostSettings
 });
 ```
 
-Leaving a value at zero leaves that part unchanged. `Lift` adds colour to the dark parts
+The component is `new Finish(new PostSettings { ... })`. Leaving a value at zero leaves that part unchanged. `Lift` adds colour to the dark parts
 and fades out towards white, so shade takes a tint and white stays white. `Gain` makes
 each channel that much brighter, by its share, so it shows most in the highlights.
 
@@ -1254,7 +1281,8 @@ The picture above uses a stronger lens than the Courtyard's own f/8 and 35 mm, s
 
 Without a sky the world sits in a plain grey studio. `view.Surroundings.Sky` gives it a gradient from
 the ground up through the horizon to straight up, which shows behind everything, lights
-the scene from all around and shows in reflections:
+the scene from all around and shows in reflections. On an entity it's
+`new Sky(new SkySettings { ... })`:
 
 ```csharp
 view.Surroundings.Sky(new SkySettings
@@ -2597,6 +2625,8 @@ with the rest. The view sets how every outline looks:
 ```csharp
 view.Effects.Outlines(color: new Vector3(0.05f, 0.03f, 0.02f), thickness: 2f, fadeStart: 20f, fadeEnd: 40f);
 ```
+
+The component is `new Outlines(Color: ..., Thickness: 2f, FadeStart: 20f, FadeEnd: 40f)`.
 
 The colour is linear light, black when left out. The thickness is in the picture's pixels,
 from 0 for none to 8, whatever the render scale, 1.5 by default; the lines fade out from

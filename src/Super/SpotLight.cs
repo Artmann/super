@@ -7,7 +7,8 @@ namespace Super;
 /// A light that shines one way in a cone, such as a lantern's beam, for <see cref="ViewLights.Spot"/>. It's full
 /// inside the inner angle and fades to nothing at the outer one; both are measured from the direction, in radians,
 /// and the outer must be under a right angle. The direction needn't be one unit long. Otherwise it's like a
-/// <see cref="PointLight"/>, though it costs a sixth as much shadow.
+/// <see cref="PointLight"/>, though it costs a sixth as much shadow. On an entity, the position and direction count from
+/// its <see cref="Transform"/> and <see cref="Parent"/>, and a zero direction points along the entity's +z.
 /// </summary>
 public readonly record struct SpotLight(Vector3 Position, Vector3 Direction, Vector3 Color, float Range)
 {

@@ -6,7 +6,8 @@ namespace Super;
 /// <summary>
 /// A light that shines every way from a point, such as a candle or a torch, for <see cref="ViewLights.Point"/>. The
 /// color is how bright it is on a surface a metre away, and it dims with the square of the distance, reaching nothing
-/// at the range, in metres. See "Point and spot lights" in docs/rendering.md.
+/// at the range, in metres. On an entity, the position counts from its <see cref="Transform"/> and <see cref="Parent"/>, so
+/// <c>default</c> sits at the entity; in a view call it is in the world. See "Point and spot lights" in docs/rendering.md.
 /// </summary>
 public readonly record struct PointLight(Vector3 Position, Vector3 Color, float Range)
 {
