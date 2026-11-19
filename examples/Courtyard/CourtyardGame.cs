@@ -27,11 +27,6 @@ public sealed class CourtyardGame(World world, Content content, Input input, Gra
     /// <summary>The Courtyard's list in <see cref="DecalFolder"/>, content/decals/courtyard.json.</summary>
     public const string DecalListId = "courtyard";
 
-    private readonly List<(Matrix4x4 Box, Surface Surface)> _stains = [];
-    private readonly List<(Matrix4x4 Box, Surface Surface, DecalBlend Blend)> _placed = [];
-    private List<Matrix4x4> _gravelBoxes = [];
-    private Surface? _gravel;
-
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
     {
         // The courtyard in plain clay, through the same key a player presses.
@@ -50,6 +45,9 @@ public sealed class CourtyardGame(World world, Content content, Input input, Gra
     {
         CourtyardYard.Spawn(world, content.Model("models/courtyard.glb"));
 
+        // The decals are spawned in the order they lie: the damp, the drip off the sill and the rust on the wall, so the
+        // drip lies over the damp; then the hand-placed ones; then the gravel, so the gravel round the barrel lies over
+        // the dirt there.
         // The damp is darkened past the grime's own colour so it reads from across the yard: wet brick goes
         // a good deal darker than dry.
         var damp = content.Surface("materials/grime.material.cs") with { Color = new Vector3(0.5f) };
@@ -63,19 +61,22 @@ public sealed class CourtyardGame(World world, Content content, Input input, Gra
                 Stain.Drip => drip,
                 _ => rust,
             };
-            _stains.Add((box, surface));
+            world.Spawn(Transform.From(box), new Decal(surface));
         }
 
         // The hand-placed decals: dirt round everything that stands on the ground, rust, moss, wet ground and boot
         // prints. Each names its material, and a list that names one that wasn't cooked stops here.
         foreach (var decal in content.LoadAll<DecalList>(DecalFolder)[DecalListId].Decals)
         {
-            _placed.Add((decal.Box(), content.Surface(decal.Material), decal.Blend));
+            world.Spawn(Transform.From(decal.Box()), new Decal(content.Surface(decal.Material), decal.Blend));
         }
 
         // Gravel kicked off the flagstones into the mud, along both edges of the path and round the barrel.
-        _gravel = content.Surface("materials/gravel.material.cs");
-        _gravelBoxes = GravelSpills.Boxes(GravelSeed);
+        var gravel = content.Surface("materials/gravel.material.cs");
+        foreach (var box in GravelSpills.Boxes(GravelSeed))
+        {
+            world.Spawn(Transform.From(box), new Decal(gravel, GravelBlend));
+        }
     }
 
     public void Update(GameTime time)
@@ -106,36 +107,6 @@ public sealed class CourtyardGame(World world, Content content, Input input, Gra
         if (input.Pressed(Key.V))
         {
             graphics.Atmosphere.VolumetricFog = !graphics.Atmosphere.VolumetricFog;
-        }
-    }
-
-    /// <summary>The baked space, the reflection probe, the puddles, the wind and the decals.</summary>
-    public void Draw(View view)
-    {
-        CourtyardYard.Surroundings(view);
-
-        // The yard is one baked space, "courtyard", over the whole model with a little to spare. The decals (the damp,
-        // the drip and the rust) stay live.
-        view.Indirect.BakedLighting("courtyard", new Vector3(-16.5f, -0.5f, -18.75f), new Vector3(14.5f, 10f, 12.5f), 1.6f);
-
-        // The damp, the drip off the sill and the rust, laid onto the wall so the drip lies over the damp.
-        for (int i = 0; i < _stains.Count; i++)
-        {
-            view.Effects.Decal(i, _stains[i].Box, _stains[i].Surface);
-        }
-
-        // The hand-placed decals, keyed after the stains and drawn before the gravel, so the gravel round the barrel
-        // lies over the dirt there.
-        for (int i = 0; i < _placed.Count; i++)
-        {
-            view.Effects.Decal(_stains.Count + i, _placed[i].Box, _placed[i].Surface, _placed[i].Blend);
-        }
-
-        // The gravel off the path, keyed after both.
-        int first = _stains.Count + _placed.Count;
-        for (int i = 0; i < _gravelBoxes.Count; i++)
-        {
-            view.Effects.Decal(first + i, _gravelBoxes[i], _gravel!, GravelBlend);
         }
     }
 }

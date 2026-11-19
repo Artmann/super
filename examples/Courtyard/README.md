@@ -25,7 +25,7 @@ one, and three slumped grain sacks: one tied at the neck with a ragged ruffle ab
 twine, and two with their mouths folded flat. Behind the window is a small room. Out of
 frame, up-sun to the left, stands a tree. Its bricks, stone, mud, wood, sacking, whitewash,
 rusty hoop iron and window glass are [material graphs](../../docs/materials.md) that are
-cooked into textures when the game builds. A fresh breeze from `view.Surroundings.Wind` sways the grass,
+cooked into textures when the game builds. A fresh breeze, a `Wind` entity, sways the grass,
 and a little of it reaches the ivy and the tree's leaves, and their shadows sway with them.
 See [Wind](../../docs/rendering.md#wind).
 
@@ -89,7 +89,7 @@ with one a metre apart the shot looked the same. See
 Ambient occlusion over 0.8 m at full strength darkens the corners and the foot of each wall.
 A reflection probe at head height in the middle of the yard lets the window and the puddle
 mirror the wall, the deck and the house rather than only the sky. Water stands 4.5 cm below
-the yard's zero with `view.Surroundings.Puddles(-0.045f, band: 0.035f)`, so the hollow dug in the mud
+the yard's zero with a `new Puddles(-0.045f, Band: 0.035f)` entity, so the hollow dug in the mud
 fills, the deepest boot prints hold a little, and the mud darkens for the last 3.5 cm down to
 it. A wider band would darken the flagstones round the puddle too. See
 [Puddles](../../docs/rendering.md#puddles).
@@ -299,7 +299,7 @@ stain quads are gone: `WallStains` lays the damp, the drip and the rust as decal
 | --- | --- |
 | `Program.cs` | Starts the courtyard, or the lineup with `--lineup` and the leaves with `--leaves` |
 | `CourtyardGame.cs` | It spawns the yard, loads the hand-placed decal list, lays it with the wall's stains and the gravel, and turns the materials, fog, volumetric fog, auto exposure and decals off and on with M, F, V, E and D |
-| `CourtyardYard.cs` | The camera, the model, spawned `Static` so the bake holds it, and as entities the sun and its shadows, the sky and its fog, the lantern and the room's light, and the finish; and the reflection probe, the puddle level and the wind, placed every frame |
+| `CourtyardYard.cs` | The camera, the model, spawned `Static` so the bake holds it, and as entities the sun and its shadows, the sky and its fog, the lantern and the room's light, and the finish, the baked space, the reflection probe, the puddle level and the wind |
 | `WallStains.cs` | Where the grime decals lie on the wall: the damp along its foot, the dirty water under the sill and the rust under the anchor plates |
 | `GravelSpills.cs` | Where the gravel decals lie: spills along both edges of both arms of the path and round the barrel's foot, kept off the middle of the path, the puddle and the wall |
 | `DecalCatalog.cs` | `DecalList` and `PlacedDecal`, the shape of a hand-placed decal list, and how a decal's position, size, facing and turn make its box |

@@ -19,6 +19,9 @@ public sealed class LeavesGame(World world, Content content) : IGame
     {
         world.Spawn(new Camera(new Vector3(0.1f, 0.85f, 2.4f), new Vector3(0.1f, 0.45f, -0.3f), 0.66f));
 
+        // A breeze to sway the leaves.
+        world.Spawn(new Wind(new Vector3(0.6f, 0f, -0.3f), 0.2f));
+
         // An afternoon sun from the front right, high enough to light the ground, and a clear sky to fill the shade.
         world.Spawn(
             new Sun(new Vector3(0.55f, 0.65f, 0.6f), new Vector3(6f, 5.7f, 5.1f)),
@@ -43,12 +46,6 @@ public sealed class LeavesGame(World world, Content content) : IGame
 
     public void Update(GameTime time)
     {
-    }
-
-    /// <summary>The breeze, which is placed every frame.</summary>
-    public void Draw(View view)
-    {
-        view.Surroundings.Wind(new Vector3(0.6f, 0f, -0.3f), 0.2f);
     }
 
     private void Place(GeneratedMesh mesh, Vector3 at) => world.Spawn(Transform.At(at), new Model(content.Mesh(mesh)));

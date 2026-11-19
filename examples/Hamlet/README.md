@@ -36,8 +36,8 @@ another's: a part inside two boxes would be baked into the wrong one.
 
 ## Baked lighting
 
-Each building calls `view.Indirect.BakedChunk` with its kind's name (`cottage`, `workshop`,
-`tower` or `well`), its plan's box and its placement, at 10 texels a metre. The well and
+Each building spawns a `BakedPiece` entity with its kind's name (`cottage`, `workshop`,
+`tower` or `well`), its plan's box, at its placement, at 10 texels a metre. The well and
 the tower are narrow, so their edge blend is 0.4 metres; the others keep the default
 0.5. Every part is an entity, and every one is `Static` except the glowing bulbs and coals, which
 brighten and dim through the day, and the lit window panes. The ground and the cart stay dynamic and are lit by the

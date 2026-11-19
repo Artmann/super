@@ -10,6 +10,9 @@ namespace Hamlet;
 /// </summary>
 internal sealed class VillageScene
 {
+    /// <summary>The lightmap density of every building's bake.</summary>
+    internal const int TexelsPerMetre = 10;
+
     private readonly World _world;
     private readonly Content _content;
     private readonly Village _village;
@@ -77,27 +80,21 @@ internal sealed class VillageScene
         _cart.Destroy(_world);
     }
 
-    /// <summary>A building's entities: a part for each of its plan's parts, a light for each lamp, and a pane and a light for each window.</summary>
-    private sealed record BuildingEntities(Building Building, Entity[] Parts, Entity[] Lamps, Entity[] Panes, Entity[] WindowLights)
+    /// <summary>
+    /// A building's entities: its baked chunk, a part for each of its plan's parts, a light for each lamp, and a pane and a
+    /// light for each window.
+    /// </summary>
+    private sealed record BuildingEntities(Building Building, Entity Chunk, Entity[] Parts, Entity[] Lamps, Entity[] Panes, Entity[] WindowLights)
     {
         public static BuildingEntities Spawn(World world, Building building, ModelRef pane)
         {
             var plan = building.Plan;
             var at = Transform.From(building.Placement);
-            var parts = new Entity[plan.Parts.Length];
-            for (int p = 0; p < parts.Length; p++)
-            {
-                var part = plan.Parts[p];
-                Vector3? tint = part.Tint switch
-                {
-                    PartTint.Roof => plan.RoofColor,
-                    PartTint.Accent => plan.AccentColor,
-                    _ => null,
-                };
 
-                // What glows changes colour as its lamps flicker, so it stays out of the bake.
-                parts[p] = part.Glows ? world.Spawn(at, new Model(part.Model, tint)) : world.Spawn(at, new Model(part.Model, tint), new Static());
-            }
+            // The chunk's box is its plan's, placed where the village put it, so every copy of a plan shares one bake.
+            var chunk = world.Spawn(at, new BakedPiece(plan.Name, plan.Min, plan.Max, TexelsPerMetre, plan.EdgeBlend));
+
+            var parts = SpawnParts(world, plan, at);
 
             var lamps = new Entity[plan.Lamps.Length];
             for (int j = 0; j < lamps.Length; j++)
@@ -116,7 +113,26 @@ internal sealed class VillageScene
                 windowLights[w] = world.Spawn(WindowLight(building, window, 0f), new Hidden());
             }
 
-            return new BuildingEntities(building, parts, lamps, panes, windowLights);
+            return new BuildingEntities(building, chunk, parts, lamps, panes, windowLights);
+        }
+
+        // A part for each of the plan's parts. What glows changes colour as its lamps flicker, so it stays out of the bake.
+        private static Entity[] SpawnParts(World world, BuildingPlan plan, Transform at)
+        {
+            var parts = new Entity[plan.Parts.Length];
+            for (int p = 0; p < parts.Length; p++)
+            {
+                var part = plan.Parts[p];
+                Vector3? tint = part.Tint switch
+                {
+                    PartTint.Roof => plan.RoofColor,
+                    PartTint.Accent => plan.AccentColor,
+                    _ => null,
+                };
+                parts[p] = part.Glows ? world.Spawn(at, new Model(part.Model, tint)) : world.Spawn(at, new Model(part.Model, tint), new Static());
+            }
+
+            return parts;
         }
 
         /// <summary>Sets the lamps and the glowing parts and windows to <paramref name="glow"/>.</summary>
@@ -153,6 +169,7 @@ internal sealed class VillageScene
 
         public void Destroy(World world)
         {
+            world.Destroy(Chunk);
             foreach (var group in (ReadOnlySpan<Entity[]>)[Parts, Lamps, Panes, WindowLights])
             {
                 foreach (var entity in group)

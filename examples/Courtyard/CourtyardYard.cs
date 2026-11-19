@@ -5,14 +5,12 @@ using Super;
 namespace Courtyard;
 
 /// <summary>
-/// The yard and how it is lit and finished: the camera, the model, the sun and its shadows, the sky and its fog, the
-/// lantern and the room's light, and the camera's finish, as entities; and the reflection probe, the puddle level and
-/// the wind, which are placed every frame.
+/// The yard and how it is lit and finished, as entities: the camera, the model, the sun and its shadows, the sky and its
+/// fog, the lantern and the room's light, the camera's finish, the baked space, the reflection probe, the puddle level
+/// and the wind.
 /// </summary>
 public static class CourtyardYard
 {
-    private const int YardProbeKey = 1;
-
     // The model keeps Blender's origin (keepOrigin in its sidecar), so a point from
     // art/courtyard.py is the same here, with Blender's z as y and its y as -z.
     // The middle of the bulb in the wall lantern (build_lamp), 0.31 m out from the wall.
@@ -22,7 +20,7 @@ public static class CourtyardYard
     // left, so its walls fall off from warm to dark.
     private static readonly Vector3 RoomLamp = new(1.6f, 3.9f, -7.4f);
 
-    /// <summary>Spawns the camera, the <paramref name="yard"/> model, the daylight, the lamps and the finish.</summary>
+    /// <summary>Spawns the camera, the <paramref name="yard"/> model, the daylight, the lamps, the finish and the surroundings.</summary>
     public static void Spawn(World world, ModelRef yard)
     {
         // Standing back at eye height, off to the right and turned left towards the window, as
@@ -37,23 +35,32 @@ public static class CourtyardYard
 
         Daylight(world);
         Lamps(world);
+        Surroundings(world);
         world.Spawn(GradePicture());
     }
 
-    /// <summary>The reflection probe, the puddles and the wind, placed every frame.</summary>
-    public static void Surroundings(View view)
+    /// <summary>The baked space, the reflection probe, the puddles and the wind.</summary>
+    private static void Surroundings(World world)
     {
+        // The yard is one baked space, "courtyard", over the whole model with a little to spare. The decals (the damp,
+        // the drip and the rust) stay live.
+        world.Spawn(new BakedLighting("courtyard", new Vector3(-16.5f, -0.5f, -18.75f), new Vector3(14.5f, 10f, 12.5f), 1.6f));
+
         // A reflection probe at head height in the middle of the yard, so the window and the
-        // puddle mirror the wall, the deck and the house rather than only the sky.
-        view.Indirect.ReflectionProbe(YardProbeKey, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));
+        // puddle mirror the wall, the deck and the house rather than only the sky. Its box runs
+        // from (-3, -1, -10) to (10, 6, 7) in the world.
+        world.Spawn(
+            Transform.At(new Vector3(3.5f, 1.6f, -1.5f)),
+            new ReflectionCapture(BoxMin: new(-6.5f, -2.6f, -8.5f), BoxMax: new(6.5f, 4.4f, 8.5f)));
+
         // Water stands 4.5 cm below the yard's zero, in the hollow the script dug in the mud, so
         // the hollow fills, the deepest boot prints hold a little, and the mud darkens for the
         // last 3.5 cm down to it. A wider band would darken the flagstones round the puddle too.
-        view.Surroundings.Puddles(-0.045f, band: 0.035f);
+        world.Spawn(new Puddles(-0.045f, Band: 0.035f));
 
         // A fresh breeze across the yard sways the grass, and a little of it reaches the ivy and the tree's crown,
         // whose materials sway less in the cook sidecar.
-        view.Surroundings.Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f);
+        world.Spawn(new Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f));
     }
 
     /// <summary>The sun, the sky, the shadows and the ambient occlusion.</summary>

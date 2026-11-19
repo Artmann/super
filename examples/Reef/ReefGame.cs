@@ -59,7 +59,8 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
             new Sun(new Vector3(0.35f, 1f, 0.2f), new Vector3(7f, 7.4f, 7f)),
             new Shadows(25f, 3),
             new Finish(new PostSettings { Contrast = 0.12f, Saturation = 0.12f, Vignette = 0.4f, Sharpen = 0.35f }));
-        _camera = world.Spawn(Camera(time.Tick));
+        // The camera is under the water, and the swell rides with it.
+        _camera = world.Spawn(Camera(time.Tick), new Underwater(Water), Surge(time.Tick));
 
         var clusters = SpawnCoral(random.Stream("coral"), random.Stream("rocks"));
         SpawnGrowth(clusters, random.Stream("growth"));
@@ -75,18 +76,15 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
     {
         _boids.Update(gameTime.TickSeconds);
         world.Get<Camera>(_camera) = Camera(gameTime.Tick);
+        world.Get<Wind>(_camera) = Surge(gameTime.Tick);
     }
 
-    // The water and the swell stay here: they aren't entities yet.
-    public void Draw(View view)
+    // The swell at a tick, as wind. It rocks the seagrass and sea fans back and forth: the wind's direction flips with
+    // the surge, and its strength goes through zero, so the lean swings smoothly from one side to the other.
+    private Wind Surge(long tick)
     {
-        view.Surroundings.Water(Water);
-
-        // The swell rocks the seagrass and sea fans back and forth: the wind's direction flips with the surge, and its
-        // strength goes through zero, so the lean swings smoothly from one side to the other.
-        float seconds = (float)(time.Tick + view.Blend) * time.TickSeconds;
-        float surge = MathF.Sin(seconds * MathF.Tau / SurgeSeconds);
-        view.Surroundings.Wind(SurgeDirection * MathF.Sign(surge), SurgeStrength * MathF.Abs(surge), gustiness: 0.3f);
+        float surge = MathF.Sin(tick * time.TickSeconds * MathF.Tau / SurgeSeconds);
+        return new Wind(SurgeDirection * MathF.Sign(surge), SurgeStrength * MathF.Abs(surge), Gustiness: 0.3f);
     }
 
     // The camera circles the reef slowly, once every few minutes.
