@@ -56,7 +56,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -102,7 +102,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
                 Horizon = new Vector3(0.4f),
                 Floor = new Vector3(0.2f),
             });
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -153,7 +153,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -180,7 +180,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
             new(new Vector3(1f, 1f, 0f), Vector3.UnitZ, tangent, Vector2.Zero) { Uv2 = new Vector2(1f, 0f) },
             new(new Vector3(-1f, 1f, 0f), Vector3.UnitZ, tangent, Vector2.Zero) { Uv2 = new Vector2(0f, 0f) },
         ];
-        var fold = gpu.Renderer.CreateMesh(vertices, [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
+        var fold = gpu.Renderer.Assets.CreateMesh(vertices, [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
         gpu.RenderOneFrame(); // Uploads the mesh.
         try
         {
@@ -237,7 +237,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(fold);
+            gpu.Renderer.Assets.DestroyMesh(fold);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -291,7 +291,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -304,7 +304,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         var (boxVertices, boxIndices) = TestMeshes.Cube();
-        var box = gpu.Renderer.CreateMesh(boxVertices, boxIndices);
+        var box = gpu.Renderer.Assets.CreateMesh(boxVertices, boxIndices);
         gpu.RenderOneFrame(); // Uploads the box.
         try
         {
@@ -357,8 +357,8 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMesh(box);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(box);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -411,7 +411,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -480,7 +480,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -520,7 +520,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -645,7 +645,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
             vertices[i].Uv2 = vertices[i].Uv;
         }
 
-        var handle = gpu.Renderer.CreateMesh(vertices, indices);
+        var handle = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame(); // Uploads the mesh.
         return handle;
     }

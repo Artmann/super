@@ -244,19 +244,30 @@ public sealed unsafe class Renderer : IDisposable
         Stats = new RendererStats(_context.Waits, _gpuTimer, gpuWork, () => _upscaling ? _fsrPass.Version : null);
         WriteTargetDescriptors();
 
-        Baking = CreateBaking();
+        var textures = new TextureAssets((_context, _uploads, _resources, _retired), StopBakesThat, _finish);
+        Baking = CreateBaking(textures);
+        Assets = new RendererAssets(new MeshAssets((_context, _uploads, _retired, _tracing), _meshStore, StopBakesThat), textures,
+            new MaterialAssets((_context, _resources, _retired, _tracing), StopBakesThat, _opaque.Pass, textures));
         Reflections = new RendererReflections((_probes, _reflectionCapture), (_sky, LightProbes, Baking.Frame), ProbeCubesGrew);
     }
 
+    /// <summary>
+    /// What the renderer draws with: meshes, models, textures, materials, surface shaders and the overlay's atlas.
+    /// </summary>
+    public RendererAssets Assets { get; }
+
+    // Stops the background bake when it reads what is about to be let go.
+    private void StopBakesThat(Func<BakeJob, bool> reads) => Baking.Background.StopIfReads(reads);
+
     // Makes the bakes' parts: where bakes are read from, the chunk bakes on the GPU, the frame's baked areas, the jobs
     // that bake and the bakes made in the background.
-    private RendererBaking CreateBaking()
+    private RendererBaking CreateBaking(TextureAssets textures)
     {
         // Bakes are asked through this, so a bake that can't be read counts as missing until the store reloads.
         var readableBakes = new ReadableBakes();
         var chunkPool = new ChunkBakePool(_context, _resources, ChunkBakePool.ChunkUploadBudget, readableBakes.ChunkUnreadable);
         var areaInputs = new AreaInputs(_meshStore.PartBounds, () => EnvironmentHash);
-        var spaceBake = new SpaceBake(readableBakes, data => CreateTexture(data, TextureEdges.Clamp), DestroyTexture);
+        var spaceBake = new SpaceBake(readableBakes, data => textures.Create(data, TextureEdges.Clamp), textures.Destroy);
         var frameBakes = new FrameBakes(readableBakes, chunkPool, _retired, areaInputs, spaceBake);
         var bakeJobs = new BakeJobs(_context, new PreparedBakers(_context, _sky.Map, () => new Baker(_context, this)),
             _meshStore, _resources, areaInputs);
@@ -270,23 +281,6 @@ public sealed unsafe class Renderer : IDisposable
     {
         WriteTargetDescriptors();
         _blend.WriteProbes(_sky.Map.Sampler, _probes.Cubes.View);
-    }
-
-    /// <summary>
-    /// Hands a mesh's bytes to the next frame's command buffer rather than waiting for
-    /// the GPU, so it can be drawn in that same frame.
-    /// </summary>
-    public MeshHandle CreateMesh(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices)
-    {
-        var traceInput = GpuBuffer.TraceInput(_context);
-        var vertexBuffer = GpuBuffer.CreateDeviceLocalStaged(_context, vertices, BufferUsageFlags.VertexBufferBit | traceInput, out var vertexStaging);
-        _uploads.Add(vertexStaging, vertexBuffer);
-        var indexBuffer = GpuBuffer.CreateDeviceLocalStaged(_context, indices, BufferUsageFlags.IndexBufferBit | traceInput, out var indexStaging);
-        _uploads.Add(indexStaging, indexBuffer);
-        return _meshStore.AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length)
-        {
-            CumulativeAreas = LightmapLayout.CumulativeAreas(vertices, indices),
-        });
     }
 
     /// <summary>
@@ -318,157 +312,6 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>How rays treat a material, for <see cref="TraceScene.Collect"/>.</summary>
     internal TraceFlags TraceFlagsOf(MaterialHandle material) =>
         TraceEncoding.TraceFlagsFor(_resources.Materials[material].Cutouts, _resources.Materials[material].Flags);
-
-    /// <summary>
-    /// Lets go of a mesh and its detail entries. Returns at once; the memory comes back
-    /// two frames later, when no frame in flight can read it. Drawing with the handle
-    /// after this is a caller mistake that isn't checked.
-    /// </summary>
-    public void DestroyMesh(MeshHandle mesh)
-    {
-        var live = _meshStore.TakeMesh(mesh);
-
-        // A mesh made this frame may still be waiting for its bytes. That copy must not
-        // run into a buffer that is about to be freed.
-        _uploads.Cancel(live.Vertices);
-        _uploads.Cancel(live.Indices);
-        _retired.AfterLastSubmitted.FreedMeshes.Add(live);
-
-        // A background bake still tracing it would read freed buffers.
-        Baking.Background.StopIfReads(job => job.Area.Uses(mesh));
-
-        // Its structures read its buffers, and its handle may go to another mesh, so they go with it.
-        _tracing?.Forget(mesh);
-    }
-
-    /// <summary>
-    /// Lets go of a texture. Its slot reads as white once it's released, for whatever takes
-    /// the slot next. A material that still names it must not be drawn after this.
-    /// </summary>
-    public void DestroyTexture(TextureHandle texture)
-    {
-        if (_resources.Defaults.Holds(texture) || !_resources.Textures.IsLive(texture.Index))
-        {
-            throw new ArgumentException("The texture does not exist.", nameof(texture));
-        }
-
-        QueueTextureDestroy(texture.Index);
-    }
-
-    /// <summary>Lets go of a texture array, with the same rules as <see cref="DestroyTexture"/>.</summary>
-    public void DestroyTextureArray(TextureArrayHandle array)
-    {
-        if (_resources.Defaults.Holds(array) || !_resources.TextureArrays.IsLive(array.Index))
-        {
-            throw new ArgumentException("The texture array does not exist.", nameof(array));
-        }
-
-        _uploads.Cancel(_resources.TextureArrays.MarkDying(array.Index));
-        _retired.AfterLastSubmitted.FreedTextureArrays.Add(array.Index);
-    }
-
-    /// <summary>Lets go of a material slot. Draws that still use it are a caller mistake.</summary>
-    public void DestroyMaterial(MaterialHandle material)
-    {
-        if (!_resources.Materials.IsLive(material))
-        {
-            throw new ArgumentException("The material does not exist.", nameof(material));
-        }
-
-        QueueMaterialDestroy(material.Index);
-    }
-
-    /// <summary>
-    /// Destroys everything <see cref="CreateModel"/> or <see cref="CreateDrawItem"/> made
-    /// for these parts: their mesh, their materials and the textures those name. Parts
-    /// that share a material, or a material already destroyed, are passed over.
-    /// </summary>
-    public void DestroyModel(ReadOnlySpan<DrawItem> parts)
-    {
-        if (parts.IsEmpty)
-        {
-            return;
-        }
-
-        foreach (ref readonly var part in parts)
-        {
-            if (!_resources.Materials.IsLive(part.Material))
-            {
-                continue;
-            }
-
-            foreach (int texture in _resources.Materials.TexturesOf(part.Material))
-            {
-                var handle = new TextureHandle(texture);
-                if (texture >= 0 && !_resources.Defaults.Holds(handle) && _resources.Textures.IsLive(handle.Index))
-                {
-                    QueueTextureDestroy(texture);
-                }
-            }
-
-            QueueMaterialDestroy(part.Material.Index);
-        }
-
-        DestroyMesh(parts[0].Mesh);
-    }
-
-    /// <summary>Marks a live texture as gone, drops any copy still waiting for it, and queues its release.</summary>
-    private void QueueTextureDestroy(int slot)
-    {
-        _shadowWorld++;
-        // A background bake whose materials read it would trace a freed image.
-        Baking.Background.StopIfReads(job => BakeReadsTexture(job, slot));
-
-        _uploads.Cancel(_resources.Textures.MarkDying(slot));
-        _retired.AfterLastSubmitted.FreedTextures.Add(slot);
-    }
-
-    // Whether a material of one of the job's draws names the texture in this slot.
-    private bool BakeReadsTexture(BakeJob job, int slot)
-    {
-        foreach (ref readonly var draw in job.Area.Draws.AsSpan())
-        {
-            if (!_resources.Materials.IsLive(draw.Material))
-            {
-                continue;
-            }
-
-            foreach (int texture in _resources.Materials.TexturesOf(draw.Material))
-            {
-                if (texture == slot)
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private void QueueMaterialDestroy(int slot)
-    {
-        _shadowWorld++;
-        // The slot may go to a material with a different opaque flag, so no structure may keep using it, and a
-        // background bake tracing those structures can't go on.
-        var material = new MaterialHandle(slot);
-        Baking.Background.StopIfReads(job => job.Area.Uses(material));
-        _tracing?.ForgetMaterial(material);
-        _resources.Materials.MarkDying(slot);
-        _retired.AfterLastSubmitted.FreedMaterials.Add(slot);
-    }
-
-    /// <summary>
-    /// Uploads a mesh as one draw that the renderer can skip when it's out of view, and
-    /// simplify when it's small on screen. Pass <paramref name="simplify"/> false for
-    /// meshes whose every vertex matters, like terrain chunks that must meet their
-    /// neighbours exactly.
-    /// </summary>
-    public DrawItem CreateDrawItem(
-        ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, MaterialHandle material, bool simplify = true)
-    {
-        ModelPart[] parts = [new ModelPart { IndexCount = (uint)indices.Length }];
-        return CreateDetailedMesh(vertices, indices, parts, [material], simplify)[0];
-    }
 
     /// <summary>
     /// Replaces what surfaces reflect. Nothing waits: the next frame redraws the environment before anything reads it,
@@ -511,65 +354,6 @@ public sealed unsafe class Renderer : IDisposable
     internal LastFrame Last { get; } = new();
 
     /// <summary>
-    /// Hands a texture's bytes to the next frame's command buffer rather than waiting for
-    /// the GPU, so it can be sampled in that same frame. <paramref name="edges"/> says what is
-    /// read past the texture's edge, for every material that uses it: an atlas such as a
-    /// <see cref="MaterialWeathering.Mask"/> wants <see cref="TextureEdges.Clamp"/>.
-    /// </summary>
-    public TextureHandle CreateTexture(TextureData data, TextureEdges edges = TextureEdges.Repeat)
-    {
-        var texture = new GpuTexture(_context, new TextureShape(data.Width, data.Height, data.Kind, (uint)data.Mips.Length, Format: data.Format));
-        _uploads.Add(texture.CreateStaging([data]), texture);
-        try
-        {
-            return _resources.AddTexture(texture, edges);
-        }
-        catch
-        {
-            // A full table has already let the texture go, so its copy must never ride a frame.
-            _uploads.Cancel(texture);
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// Stacks same-sized images into one texture that shaders read by layer, uploaded the
-    /// same way as <see cref="CreateTexture"/>. Every layer must have the first layer's
-    /// size, kind, format and mip count.
-    /// </summary>
-    public TextureArrayHandle CreateTextureArray(ReadOnlySpan<TextureData> layers)
-    {
-        if (layers.IsEmpty)
-        {
-            throw new ArgumentException("A texture array needs at least one layer.", nameof(layers));
-        }
-
-        var first = layers[0];
-        for (int i = 1; i < layers.Length; i++)
-        {
-            var layer = layers[i];
-            if (layer.Width != first.Width || layer.Height != first.Height || layer.Kind != first.Kind || layer.Format != first.Format
-                || layer.Mips.Length != first.Mips.Length)
-            {
-                throw new ArgumentException(
-                    $"Layer {i} is {layer.Width}x{layer.Height} {layer.Kind} {layer.Format} with {layer.Mips.Length} mips, " +
-                    $"but layer 0 is {first.Width}x{first.Height} {first.Kind} {first.Format} with {first.Mips.Length} mips.",
-                    nameof(layers));
-            }
-        }
-
-        var texture = new GpuTexture(_context, new TextureShape(first.Width, first.Height, first.Kind, (uint)first.Mips.Length, (uint)layers.Length, first.Format) { Array = true });
-        _uploads.Add(texture.CreateStaging(layers), texture);
-        return _resources.AddTextureArray(texture);
-    }
-
-    /// <summary>
-    /// Replaces the image that <see cref="FrameExtras.Overlay"/> quads read from. Only its
-    /// alpha is used. Waits for the GPU, so it isn't for every frame.
-    /// </summary>
-    public void SetOverlayAtlas(TextureData data) => _finish.SetOverlayAtlas(data);
-
-    /// <summary>
     /// The reflection probes, which let surfaces in a box reflect what is really there, and the hashes that say when
     /// to capture them again.
     /// </summary>
@@ -607,235 +391,6 @@ public sealed unsafe class Renderer : IDisposable
     private int PlanProbes(in FrameView view, ReadOnlySpan<DrawItem> draws) =>
         LightProbes.Plan(view, draws, _switches.DrawnLocalLights(view),
             new ProbePlanInputs(RendererReflections.ProbeLightingKey(view, _sky.Version, _switches.Off), _switches.ShadowSun(view), _frameNumber));
-
-    /// <summary>
-    /// Adds a surface shader from compiled SPIR-V. It decides how a material's surface
-    /// looks and is lit like any other. See docs/design.md for how to write one. This is
-    /// slow, so call it while loading.
-    /// </summary>
-    /// <param name="spirv">The compiled code.</param>
-    /// <param name="name">
-    /// The compiled file the code came from, without <c>.spv</c>, such as <c>terrain.frag</c>, when it is one in the
-    /// <c>shaders</c> folder next to the program. <see cref="ReloadShaders"/> then reads it again when it changes.
-    /// </param>
-    public SurfaceShaderHandle CreateSurfaceShader(byte[] spirv, string? name = null)
-    {
-        const uint spirvMagic = 0x07230203;
-        if (spirv.Length < 20 || spirv.Length % sizeof(uint) != 0 || BitConverter.ToUInt32(spirv, 0) != spirvMagic)
-        {
-            throw new ArgumentException("This is not compiled SPIR-V code.", nameof(spirv));
-        }
-
-        return _opaque.Pass.AddShader(spirv, name);
-    }
-
-    /// <summary>
-    /// Builds every pipeline that uses one of these shaders again, from the compiled files in the <c>shaders</c>
-    /// folder as they are now, and returns how many it built. Names are the files' without <c>.spv</c>, such as
-    /// <c>lighting.frag</c>. Needs <see cref="RendererOptions.LiveShaders"/>, and does nothing without it. It waits
-    /// for the GPU, so call it between frames. A shader that changed what it reads or writes, not only how, needs
-    /// a restart.
-    /// </summary>
-    public int ReloadShaders(IReadOnlySet<string> names)
-    {
-        _shadowWorld++;
-        return PipelineFactory.Reload(_context, names);
-    }
-
-    public MaterialHandle CreateMaterial(in Material material)
-    {
-        ValidateMaterial(material);
-        return _resources.Materials.Add(material);
-    }
-
-    /// <summary>
-    /// Changes an existing material, for things that change colour during play. Unlike
-    /// <see cref="CreateMaterial"/>, this doesn't use up one of the limited material slots.
-    /// </summary>
-    public void UpdateMaterial(MaterialHandle handle, in Material material)
-    {
-        ValidateMaterial(material);
-        // A destroyed material's structures are already gone, so only a live one is checked.
-        bool traced = _tracing is not null && _resources.Materials.IsLive(handle);
-        var opaqueBefore = traced ? TraceEncoding.GeometryFlagsFor(_resources.Materials[handle].Cutouts, _resources.Materials[handle].Flags) : default;
-        _resources.Materials.Update(handle, material);
-        if (traced
-            && TraceEncoding.GeometryFlagsFor(_resources.Materials[handle].Cutouts, _resources.Materials[handle].Flags) != opaqueBefore)
-        {
-            // Structures bake each part's opaque flag in, so ones drawn in this material are rebuilt when next traced.
-            // A background bake's held top level still points at the old ones, so it stops first.
-            Baking.Background.StopIfReads(job => job.Area.Uses(handle));
-            _tracing!.ForgetMaterial(handle);
-        }
-    }
-
-    private void ValidateMaterial(in Material material)
-    {
-        if (material.Problem() is { } problem)
-        {
-            throw new ArgumentException($"The material's {problem}", nameof(material));
-        }
-
-        if (material.Custom.Shader is { } shader)
-        {
-            ValidateShader(material, shader);
-        }
-
-        ValidateShaderTextures(material);
-    }
-
-    // Throws for a surface shader that doesn't exist, or on a transparent material, which can't use one yet.
-    private void ValidateShader(in Material material, SurfaceShaderHandle shader)
-    {
-        if (shader.Index <= 0 || shader.Index >= _opaque.Pass.ShaderCount)
-        {
-            throw new ArgumentException("The material's shader does not exist.", nameof(material));
-        }
-
-        if ((material.Flags & MaterialFlags.Transparent) != 0)
-        {
-            throw new ArgumentException("Transparent materials can't use a surface shader yet.", nameof(material));
-        }
-    }
-
-    // Throws for a shader texture or texture array the material names that doesn't exist.
-    private void ValidateShaderTextures(in Material material)
-    {
-        for (int i = 0; i < ShaderTextures.Length; i++)
-        {
-            if (material.Custom.Textures[i] is { } texture && !_resources.Textures.IsLive(texture.Index))
-            {
-                throw new ArgumentException($"The material's shader texture {i} does not exist.", nameof(material));
-            }
-
-            if (material.Custom.Arrays[i] is { } array && !_resources.TextureArrays.IsLive(array.Index))
-            {
-                throw new ArgumentException($"The material's shader texture array {i} does not exist.", nameof(material));
-            }
-        }
-    }
-
-    /// <summary>
-    /// Uploads a cooked model and returns one draw per part. <paramref name="finish"/>, given each
-    /// material's index and what the model holds, can change it before it's made, such as to give it
-    /// the surface shader <see cref="ModelData.ShaderOf"/> names. <see cref="DestroyModel"/> frees
-    /// every texture a material names, its shader textures too, so give each model textures of its own.
-    /// </summary>
-    public DrawItem[] CreateModel(ModelData model, Func<int, Material, Material>? finish = null)
-    {
-        var textures = new TextureHandle[model.Textures.Length];
-        for (int i = 0; i < textures.Length; i++)
-        {
-            textures[i] = CreateTexture(model.Textures[i], model.EdgesOf(i));
-        }
-
-        var materials = new MaterialHandle[model.Materials.Length];
-        for (int i = 0; i < materials.Length; i++)
-        {
-            var material = MaterialOf(model.Materials[i], textures);
-            if (model.MaskOf(i) is { } masks)
-            {
-                material.Weathering = new MaterialWeathering { Mask = textures[masks.Texture], Wear = masks.Wear, Dirt = masks.Dirt };
-            }
-
-            if (model.OcclusionOf(i) is >= 0 and int occlusion)
-            {
-                material.Textures.Occlusion = textures[occlusion];
-            }
-
-            if (model.ToonOf(i) is { } toon)
-            {
-                material.Toon = new ToonShading { Steps = toon.Steps, Ramp = toon.Ramp >= 0 ? textures[toon.Ramp] : null, Rim = toon.Rim };
-            }
-
-            materials[i] = CreateMaterial(finish is null ? material : finish(i, material));
-        }
-
-        // A posed skeleton can reach well outside the rest pose, so a skinned part's
-        // culling sphere is doubled rather than culled too early at the screen's edge.
-        float radiusScale = model.Skeleton is null ? 1f : 2f;
-        return CreateDetailedMesh(model.Vertices, model.Indices, model.Parts, materials, radiusScale: radiusScale);
-    }
-
-    /// <summary>
-    /// The material a cooked model's material makes, with its texture indices turned into <paramref name="textures"/>'
-    /// handles and -1 for none. The mask and occlusion textures come separately, from <see cref="ModelData.MaskOf"/>
-    /// and <see cref="ModelData.OcclusionOf"/>.
-    /// </summary>
-    internal static Material MaterialOf(in ModelMaterial source, ReadOnlySpan<TextureHandle> textures)
-    {
-        static TextureHandle? Texture(int index, ReadOnlySpan<TextureHandle> textures) => index >= 0 ? textures[index] : null;
-
-        return new Material
-        {
-            BaseColor = source.BaseColor,
-            Metallic = source.Metallic,
-            Roughness = source.Roughness,
-            AlphaCutoff = source.AlphaCutoff,
-            Textures = new MaterialTextures
-            {
-                BaseColor = Texture(source.BaseColorTexture, textures),
-                Normal = Texture(source.NormalTexture, textures),
-                Surface = Texture(source.SurfaceTexture, textures),
-                Emissive = Texture(source.EmissiveTexture, textures),
-            },
-            Emissive = source.Emissive,
-            Clearcoat = source.Clearcoat,
-            Height = new MaterialHeight { Texture = Texture(source.HeightTexture, textures), Depth = source.HeightDepth },
-            Detail = new MaterialDetail
-            {
-                Color = Texture(source.DetailColorTexture, textures),
-                Normal = Texture(source.DetailNormalTexture, textures),
-                Scale = source.DetailScale,
-            },
-            Flags = source.Flags,
-            Glass = new MaterialGlass { Ior = source.Ior },
-            Subsurface = source.Subsurface,
-            Translucency = source.Translucency,
-            Wind = source.Wind,
-        };
-    }
-
-    private DrawItem[] CreateDetailedMesh(
-        ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, ReadOnlySpan<ModelPart> parts,
-        ReadOnlySpan<MaterialHandle> materials, bool simplify = true, float radiusScale = 1f)
-    {
-        var allIndices = new List<uint>(indices.ToArray());
-        var draws = new DrawItem[parts.Length];
-        var details = new int[parts.Length];
-        for (int i = 0; i < parts.Length; i++)
-        {
-            ref readonly var part = ref parts[i];
-            var partIndices = indices.Slice((int)part.FirstIndex, (int)part.IndexCount);
-            var detail = simplify
-                ? MeshDetail.Build(vertices, partIndices, allIndices)
-                : MeshDetail.Full(vertices, partIndices);
-            details[i] = _meshStore.AddDetail(detail with { Radius = detail.Radius * radiusScale });
-            draws[i] = new DrawItem
-            {
-                FirstIndex = part.FirstIndex,
-                IndexCount = part.IndexCount,
-                Material = materials[part.Material],
-                Transform = Matrix4x4.Identity,
-                Detail = new DetailHandle(details[i]),
-            };
-        }
-
-        var mesh = CreateMesh(vertices, CollectionsMarshal.AsSpan(allIndices));
-        _meshStore.LiveMesh(mesh).Details = details;
-        foreach (ref var draw in draws.AsSpan())
-        {
-            draw.Mesh = mesh;
-        }
-
-        return draws;
-    }
-
-    /// <summary>
-    /// The sphere around a part, in the model's units, before its draw's transform. A part without detail is the
-    /// point at its origin.
-    /// </summary>
-    public BakeSphere BoundsOf(DetailHandle detail) => _meshStore.PartBounds(detail);
 
     public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws) =>
         RenderTinted(SkyModel.Tinted(view, ref _tintedLights), draws);

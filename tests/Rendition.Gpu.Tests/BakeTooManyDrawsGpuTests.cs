@@ -35,7 +35,7 @@ public sealed class BakeTooManyDrawsGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -61,7 +61,7 @@ public sealed class BakeTooManyDrawsGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -108,7 +108,7 @@ public sealed class BakeTooManyDrawsGpuTests(GpuFixture gpu)
             vertices[i].Uv2 = vertices[i].Uv;
         }
 
-        var handle = gpu.Renderer.CreateMesh(vertices, indices);
+        var handle = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame(); // Uploads the mesh.
         return handle;
     }

@@ -21,16 +21,16 @@ public sealed class OcclusionMapGpuTests(GpuFixture gpu)
     public void The_occlusion_texture_darkens_the_side_its_uv_set_puts_black_on(bool onUv2)
     {
         int errors = gpu.ValidationErrors;
-        var occlusion = gpu.Renderer.CreateTexture(
+        var occlusion = gpu.Renderer.Assets.CreateTexture(
             TextureData.FromPixels(2, 1, TextureKind.Linear, [0, 0, 0, 255, 255, 255, 255, 255]), TextureEdges.Clamp);
-        var plain = gpu.Renderer.CreateMaterial(Matte());
-        var occluded = gpu.Renderer.CreateMaterial(Matte() with
+        var plain = gpu.Renderer.Assets.CreateMaterial(Matte());
+        var occluded = gpu.Renderer.Assets.CreateMaterial(Matte() with
         {
             Textures = new MaterialTextures { Occlusion = occlusion },
             Flags = onUv2 ? MaterialFlags.OcclusionOnUv2 : MaterialFlags.None,
         });
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh([.. vertices.Select(v => v with { Uv2 = new Vector2(1f - v.Uv.X, v.Uv.Y) })], indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh([.. vertices.Select(v => v with { Uv2 = new Vector2(1f - v.Uv.X, v.Uv.Y) })], indices);
         try
         {
             byte[] without = Capture(Quad(mesh, indices, plain));
@@ -47,10 +47,10 @@ public sealed class OcclusionMapGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(mesh);
-            gpu.Renderer.DestroyMaterial(plain);
-            gpu.Renderer.DestroyMaterial(occluded);
-            gpu.Renderer.DestroyTexture(occlusion);
+            gpu.Renderer.Assets.DestroyMesh(mesh);
+            gpu.Renderer.Assets.DestroyMaterial(plain);
+            gpu.Renderer.Assets.DestroyMaterial(occluded);
+            gpu.Renderer.Assets.DestroyTexture(occlusion);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);

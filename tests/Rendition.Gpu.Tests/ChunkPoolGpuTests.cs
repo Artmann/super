@@ -518,14 +518,14 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             {
                 while (true)
                 {
-                    fillers.Add(gpu.Renderer.CreateTexture(tiny));
+                    fillers.Add(gpu.Renderer.Assets.CreateTexture(tiny));
                 }
             };
             var full = Assert.Throws<InvalidOperationException>(fill);
             Assert.Equal("The renderer holds at most 1024 textures.", full.Message);
             for (int i = 0; i < 3; i++)
             {
-                gpu.Renderer.DestroyTexture(fillers[^1]);
+                gpu.Renderer.Assets.DestroyTexture(fillers[^1]);
                 fillers.RemoveAt(fillers.Count - 1);
             }
 
@@ -561,10 +561,10 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             // The three pages that went in have gone back: exactly three textures fit again.
             for (int i = 0; i < 3; i++)
             {
-                fillers.Add(gpu.Renderer.CreateTexture(tiny));
+                fillers.Add(gpu.Renderer.Assets.CreateTexture(tiny));
             }
 
-            var stillFull = Assert.Throws<InvalidOperationException>(() => fillers.Add(gpu.Renderer.CreateTexture(tiny)));
+            var stillFull = Assert.Throws<InvalidOperationException>(() => fillers.Add(gpu.Renderer.Assets.CreateTexture(tiny)));
             Assert.Equal("The renderer holds at most 1024 textures.", stillFull.Message);
         }
         finally
@@ -572,7 +572,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             Console.SetError(error);
             foreach (var filler in fillers)
             {
-                gpu.Renderer.DestroyTexture(filler);
+                gpu.Renderer.Assets.DestroyTexture(filler);
             }
 
             store.Release();
@@ -676,7 +676,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
     {
         gpu.Renderer.Baking.Bakes = NoBakes.Instance;
         gpu.RenderOneFrame();
-        gpu.Renderer.DestroyMesh(quad);
+        gpu.Renderer.Assets.DestroyMesh(quad);
     }
 
     // A chunk 4 metres across round its origin, where its wall stands.
@@ -716,7 +716,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             vertices[i].Uv2 = vertices[i].Uv;
         }
 
-        var handle = gpu.Renderer.CreateMesh(vertices, indices);
+        var handle = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame(); // Uploads the mesh.
         return handle;
     }

@@ -17,7 +17,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var (vertices, indices) = TestMeshes.Cube();
-        var cube = gpu.Renderer.CreateDrawItem(vertices, indices, gpu.Matte) with { BakeId = BakeIds.Of(1, 0) };
+        var cube = gpu.Renderer.Assets.CreateDrawItem(vertices, indices, gpu.Matte) with { BakeId = BakeIds.Of(1, 0) };
         DirectionalLight[] suns =
         [
             new()
@@ -56,7 +56,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
-            gpu.Renderer.DestroyMesh(cube.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(cube.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -68,7 +68,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
     public void Frame_without_a_baked_local_light_tints_the_sun_once()
     {
         var (vertices, indices) = TestMeshes.Cube();
-        var cube = gpu.Renderer.CreateDrawItem(vertices, indices, gpu.Matte) with { BakeId = BakeIds.Of(1, 0) };
+        var cube = gpu.Renderer.Assets.CreateDrawItem(vertices, indices, gpu.Matte) with { BakeId = BakeIds.Of(1, 0) };
         var view = gpu.View(DebugView.None);
         view.Environment.Sky = new AnalyticSky { Turbidity = 3.5f };
         view.Lights = new DirectionalLight[]
@@ -110,7 +110,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
-            gpu.Renderer.DestroyMesh(cube.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(cube.Mesh);
         }
     }
 
@@ -120,7 +120,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
     public void Fill_left_after_the_baked_sun_is_dropped_keeps_its_colour()
     {
         var (vertices, indices) = TestMeshes.Cube();
-        var cube = gpu.Renderer.CreateDrawItem(vertices, indices, gpu.Matte) with { BakeId = BakeIds.Of(1, 0) };
+        var cube = gpu.Renderer.Assets.CreateDrawItem(vertices, indices, gpu.Matte) with { BakeId = BakeIds.Of(1, 0) };
         var fill = new Vector3(0.4f, 0.3f, 0.2f);
         var view = gpu.View(DebugView.None);
         view.Environment.Sky = new AnalyticSky { Turbidity = 3.5f };
@@ -153,7 +153,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
-            gpu.Renderer.DestroyMesh(cube.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(cube.Mesh);
         }
     }
 

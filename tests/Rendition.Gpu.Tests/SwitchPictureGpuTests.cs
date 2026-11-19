@@ -218,9 +218,9 @@ public sealed class SwitchPictureGpuTests(GpuFixture gpu, ITestOutputHelper outp
         public DrawItem Quad(Material material, Matrix4x4 transform)
         {
             var quad = TestMeshes.Quad();
-            var handle = gpu.Renderer.CreateMaterial(material);
+            var handle = gpu.Renderer.Assets.CreateMaterial(material);
             materials.Add(handle);
-            var item = gpu.Renderer.CreateDrawItem(quad.Vertices, quad.Indices, handle) with { Transform = transform };
+            var item = gpu.Renderer.Assets.CreateDrawItem(quad.Vertices, quad.Indices, handle) with { Transform = transform };
             meshes.Add(item.Mesh);
             return item;
         }
@@ -229,12 +229,12 @@ public sealed class SwitchPictureGpuTests(GpuFixture gpu, ITestOutputHelper outp
         {
             foreach (var mesh in meshes)
             {
-                gpu.Renderer.DestroyMesh(mesh);
+                gpu.Renderer.Assets.DestroyMesh(mesh);
             }
 
             foreach (var material in materials)
             {
-                gpu.Renderer.DestroyMaterial(material);
+                gpu.Renderer.Assets.DestroyMaterial(material);
             }
         }
     }

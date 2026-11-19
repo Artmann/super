@@ -66,7 +66,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -99,7 +99,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -129,7 +129,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -147,8 +147,8 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             255, 255, 255, 255, 255, 255, 255, 255,
             128, 255, 255, 255, 128, 255, 255, 255,
         ];
-        var mask = gpu.Renderer.CreateTexture(TextureData.FromPixels(4, 1, TextureKind.Linear, pixels), TextureEdges.Clamp);
-        var worn = gpu.Renderer.CreateMaterial(new Material
+        var mask = gpu.Renderer.Assets.CreateTexture(TextureData.FromPixels(4, 1, TextureKind.Linear, pixels), TextureEdges.Clamp);
+        var worn = gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f),
             Roughness = 0.8f,
@@ -186,7 +186,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -220,7 +220,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -233,9 +233,9 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         var quad = CreateQuad();
         // A normal map leaning 60 degrees towards the quad's tangent, +x: n = (sin 60, 0, cos 60) = (0.866, 0, 0.5),
         // packed as n * 0.5 + 0.5 = (238, 128, 191).
-        var normals = gpu.Renderer.CreateTexture(
+        var normals = gpu.Renderer.Assets.CreateTexture(
             TextureData.FromPixels(4, 4, TextureKind.Linear, Fill(16, 238, 128, 191), normalMap: true), TextureEdges.Clamp);
-        var leaning = gpu.Renderer.CreateMaterial(new Material
+        var leaning = gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f),
             Roughness = 1f,
@@ -269,7 +269,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -359,7 +359,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             Console.SetError(error);
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -389,12 +389,12 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             {
                 while (true)
                 {
-                    fillers.Add(gpu.Renderer.CreateTexture(tiny));
+                    fillers.Add(gpu.Renderer.Assets.CreateTexture(tiny));
                 }
             };
             var full = Assert.Throws<InvalidOperationException>(fill);
             Assert.Equal("The renderer holds at most 1024 textures.", full.Message);
-            gpu.Renderer.DestroyTexture(fillers[^1]);
+            gpu.Renderer.Assets.DestroyTexture(fillers[^1]);
             fillers.RemoveAt(fillers.Count - 1);
             RenderFrames(plane, 4);
 
@@ -405,13 +405,13 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             // Once the frames in flight are done, the page it made has gone back, so one texture fits again.
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             RenderFrames(plane, 4);
-            fillers.Add(gpu.Renderer.CreateTexture(tiny));
+            fillers.Add(gpu.Renderer.Assets.CreateTexture(tiny));
         }
         finally
         {
             foreach (var filler in fillers)
             {
-                gpu.Renderer.DestroyTexture(filler);
+                gpu.Renderer.Assets.DestroyTexture(filler);
             }
 
             // Let the frames in flight finish so the fillers' slots are free for the tests after this one.
@@ -422,7 +422,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             }
 
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -457,7 +457,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -515,7 +515,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             vertices[i].Uv2 = vertices[i].Uv;
         }
 
-        var handle = gpu.Renderer.CreateMesh(vertices, indices);
+        var handle = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame(); // Uploads the mesh.
         return handle;
     }

@@ -86,8 +86,8 @@ public sealed class FogVolumeGpuTests(GpuFixture gpu, ITestOutputHelper output)
     {
         int errors = gpu.ValidationErrors;
         var quad = TestMeshes.Quad();
-        var material = gpu.Renderer.CreateMaterial(new Material { BaseColor = colour, Roughness = 0.9f });
-        var wall = gpu.Renderer.CreateDrawItem(quad.Vertices, quad.Indices, material)
+        var material = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = colour, Roughness = 0.9f });
+        var wall = gpu.Renderer.Assets.CreateDrawItem(quad.Vertices, quad.Indices, material)
             with { Transform = Matrix4x4.CreateScale(20f) * Matrix4x4.CreateTranslation(0f, 0f, -4f) };
         try
         {
@@ -95,8 +95,8 @@ public sealed class FogVolumeGpuTests(GpuFixture gpu, ITestOutputHelper output)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(wall.Mesh);
-            gpu.Renderer.DestroyMaterial(material);
+            gpu.Renderer.Assets.DestroyMesh(wall.Mesh);
+            gpu.Renderer.Assets.DestroyMaterial(material);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);

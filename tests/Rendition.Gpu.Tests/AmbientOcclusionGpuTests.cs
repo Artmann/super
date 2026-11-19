@@ -45,7 +45,7 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu, ITestOutputHelper o
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(quad.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -85,7 +85,7 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu, ITestOutputHelper o
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(quad.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -112,7 +112,7 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu, ITestOutputHelper o
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(quad.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -147,7 +147,7 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu, ITestOutputHelper o
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(quad.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -178,7 +178,7 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu, ITestOutputHelper o
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(quad.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -217,7 +217,7 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu, ITestOutputHelper o
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(quad.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -248,7 +248,7 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu, ITestOutputHelper o
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(quad.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -359,7 +359,7 @@ public sealed class AmbientOcclusionGpuTests(GpuFixture gpu, ITestOutputHelper o
     private DrawItem CreateQuad()
     {
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         return new DrawItem
         {
             Mesh = mesh,

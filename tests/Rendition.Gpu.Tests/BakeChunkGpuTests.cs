@@ -57,7 +57,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -91,7 +91,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -127,7 +127,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -183,7 +183,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -195,7 +195,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = Vector4.One, Roughness = 0.8f });
+        var white = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = Vector4.One, Roughness = 0.8f });
         try
         {
             // A lone plane sees nothing to bounce the sun from, and its own view of the sun is the runtime's.
@@ -226,7 +226,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -284,7 +284,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -343,7 +343,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -378,7 +378,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -390,11 +390,11 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var glow = gpu.Renderer.CreateMaterial(new Material
+        var glow = gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = Vector4.One, Roughness = 0.8f, Emissive = new Vector3(2f),
         });
-        var swayingGlow = gpu.Renderer.CreateMaterial(new Material
+        var swayingGlow = gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = Vector4.One, Roughness = 0.8f, Emissive = new Vector3(2f), Wind = 0.5f,
         });
@@ -430,7 +430,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -503,7 +503,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
             vertices[i].Uv2 = vertices[i].Uv;
         }
 
-        var handle = gpu.Renderer.CreateMesh(vertices, indices);
+        var handle = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame(); // Uploads the mesh.
         return handle;
     }

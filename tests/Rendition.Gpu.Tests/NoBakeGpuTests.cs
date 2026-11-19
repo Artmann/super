@@ -37,7 +37,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(cube.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(cube.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -61,7 +61,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(cube.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(cube.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -83,7 +83,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(cube.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(cube.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -111,7 +111,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
-            gpu.Renderer.DestroyMesh(cube.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(cube.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -138,7 +138,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
-            gpu.Renderer.DestroyMesh(cube.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(cube.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -171,7 +171,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
-            gpu.Renderer.DestroyMesh(cube.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(cube.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -180,7 +180,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
     private DrawItem Cube()
     {
         var (vertices, indices) = TestMeshes.Cube();
-        return gpu.Renderer.CreateDrawItem(vertices, indices, gpu.Matte) with
+        return gpu.Renderer.Assets.CreateDrawItem(vertices, indices, gpu.Matte) with
         {
             Transform = Matrix4x4.CreateRotationY(0.5f) * Matrix4x4.CreateRotationX(0.3f),
         };

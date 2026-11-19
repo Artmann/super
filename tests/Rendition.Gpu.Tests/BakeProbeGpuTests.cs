@@ -69,7 +69,7 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -125,7 +125,7 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -193,7 +193,7 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -205,7 +205,7 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var black = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 0.8f });
+        var black = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 0.8f });
         try
         {
             // A black floor well below, so nothing bounces, and no sky: the probe's only light is the lamp's own.
@@ -228,8 +228,8 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(black);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(black);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -284,7 +284,7 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
             vertices[i].Uv2 = vertices[i].Uv;
         }
 
-        var handle = gpu.Renderer.CreateMesh(vertices, indices);
+        var handle = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame(); // Uploads the mesh.
         return handle;
     }

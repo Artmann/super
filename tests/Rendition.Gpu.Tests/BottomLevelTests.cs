@@ -17,7 +17,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
         var tracing = gpu.Renderer.Tracing!;
         int before = tracing.BottomLevelCount;
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame();
         TracePart[] parts = [new(0, 6, gpu.Matte)];
 
@@ -28,7 +28,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
         Assert.NotEqual(0ul, first);
         Assert.Equal(first, second);
         Assert.Equal(before + 1, tracing.BottomLevelCount);
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -40,7 +40,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
         var tracing = gpu.Renderer.Tracing!;
         int before = tracing.BottomLevelCount;
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame();
 
         ulong whole = 0, half = 0, split = 0;
@@ -53,7 +53,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
 
         Assert.Equal(3, new HashSet<ulong> { whole, half, split }.Count);
         Assert.Equal(before + 3, tracing.BottomLevelCount);
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -65,11 +65,11 @@ public sealed class BottomLevelTests(GpuFixture gpu)
         var tracing = gpu.Renderer.Tracing!;
         int before = tracing.BottomLevelCount;
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame();
         gpu.Context.SubmitAndWait(cmd => tracing.BottomLevel(cmd, mesh, [new(0, 6, gpu.Matte)]));
 
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         Assert.Equal(before, tracing.BottomLevelCount);
 
         // The structure is released once the frames that might read it are done, like the mesh's buffers.
@@ -89,7 +89,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
         var tracing = gpu.Renderer.Tracing!;
         int before = tracing.BottomLevelCount;
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         TracePart[] parts = [new(0, 6, gpu.Matte)];
 
         var error = Assert.Throws<InvalidOperationException>(
@@ -105,7 +105,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
         ulong address = 0;
         gpu.Context.SubmitAndWait(cmd => address = tracing.BottomLevel(cmd, mesh, parts));
         Assert.NotEqual(0ul, address);
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -117,9 +117,9 @@ public sealed class BottomLevelTests(GpuFixture gpu)
         var tracing = gpu.Renderer.Tracing!;
         int before = tracing.BottomLevelCount;
         var opaque = new Material { BaseColor = new Vector4(1f), Roughness = 0.5f };
-        var material = gpu.Renderer.CreateMaterial(opaque);
+        var material = gpu.Renderer.Assets.CreateMaterial(opaque);
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame();
         TracePart[] parts = [new(0, 6, material)];
         TracePart[] matte = [new(0, 6, gpu.Matte)];
@@ -132,10 +132,10 @@ public sealed class BottomLevelTests(GpuFixture gpu)
         });
 
         // A change that keeps it opaque leaves the structure alone.
-        gpu.Renderer.UpdateMaterial(material, opaque with { Roughness = 0.9f });
+        gpu.Renderer.Assets.UpdateMaterial(material, opaque with { Roughness = 0.9f });
         Assert.Equal(before + 2, tracing.BottomLevelCount);
 
-        gpu.Renderer.UpdateMaterial(material, opaque with { Flags = MaterialFlags.Transparent });
+        gpu.Renderer.Assets.UpdateMaterial(material, opaque with { Flags = MaterialFlags.Transparent });
         Assert.Equal(before + 1, tracing.BottomLevelCount);
 
         ulong rebuilt = 0, matteAgain = 0;
@@ -148,8 +148,8 @@ public sealed class BottomLevelTests(GpuFixture gpu)
         Assert.NotEqual(first, rebuilt);
         Assert.Equal(untouched, matteAgain);
         Assert.Equal(before + 2, tracing.BottomLevelCount);
-        gpu.Renderer.DestroyMesh(mesh);
-        gpu.Renderer.DestroyMaterial(material);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMaterial(material);
         for (int i = 0; i < 3; i++)
         {
             gpu.RenderOneFrame();
@@ -165,9 +165,9 @@ public sealed class BottomLevelTests(GpuFixture gpu)
         int errors = gpu.ValidationErrors;
         var tracing = gpu.Renderer.Tracing!;
         int before = tracing.BottomLevelCount;
-        var material = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(1f), Roughness = 0.5f });
+        var material = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(1f), Roughness = 0.5f });
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame();
         gpu.Context.SubmitAndWait(cmd =>
         {
@@ -175,11 +175,11 @@ public sealed class BottomLevelTests(GpuFixture gpu)
             tracing.BottomLevel(cmd, mesh, [new(0, 6, gpu.Matte)]);
         });
 
-        gpu.Renderer.DestroyMaterial(material);
+        gpu.Renderer.Assets.DestroyMaterial(material);
 
         // Only the structure drawn in the destroyed material goes; its slot may come back as a see-through one.
         Assert.Equal(before + 1, tracing.BottomLevelCount);
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         for (int i = 0; i < 3; i++)
         {
             gpu.RenderOneFrame();
@@ -194,7 +194,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     {
         using var fresh = new GpuFixture(disableRayTracing: true);
         var (vertices, indices) = TestMeshes.Quad();
-        fresh.Renderer.CreateMesh(vertices, indices);
+        fresh.Renderer.Assets.CreateMesh(vertices, indices);
         fresh.RenderOneFrame();
 
         Assert.False(fresh.Renderer.CanTrace);

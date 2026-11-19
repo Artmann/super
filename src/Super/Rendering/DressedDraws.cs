@@ -100,7 +100,7 @@ internal sealed class DressedDraws(Renderer renderer, UploadedItems items)
 
         for (int p = 0; p < parts.Length; p++)
         {
-            _partBounds[p] = renderer.BoundsOf(parts[p].Detail);
+            _partBounds[p] = renderer.Assets.BoundsOf(parts[p].Detail);
         }
 
         return _partBounds.AsSpan(0, parts.Length);

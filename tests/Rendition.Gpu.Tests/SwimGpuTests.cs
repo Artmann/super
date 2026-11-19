@@ -22,7 +22,7 @@ public sealed class SwimGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         try
         {
             var quad = new DrawItem { Mesh = mesh, IndexCount = (uint)indices.Length, Material = gpu.Matte };
@@ -43,7 +43,7 @@ public sealed class SwimGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(mesh);
+            gpu.Renderer.Assets.DestroyMesh(mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);

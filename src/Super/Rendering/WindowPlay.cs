@@ -117,7 +117,7 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
 
         try
         {
-            scene.Renderer.ReloadShaders(changed);
+            scene.Renderer.Assets.ReloadShaders(changed);
         }
         catch (Exception e)
         {

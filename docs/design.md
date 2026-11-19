@@ -891,7 +891,7 @@ materials as `ModelData.MaterialShaders`, empty or one entry (or none) per mater
 shader's file name, its parameters as `Vector4`s padded with zeros, and the source names of its
 textures. Rendition can't resolve names, so `ItemReads.PrepareModel` reads the shaders and
 cooked textures on the loading thread, and `ItemUploads.UploadModel` makes them and hands them to
-`Renderer.CreateModel` through its `finish` callback, which can change each material before it is
+`Renderer.Assets.CreateModel` through its `finish` callback, which can change each material before it is
 made. The shaders are kept for the renderer's life, one per name. The textures are made for each
 model, since `DestroyModel` frees every texture its materials name.
 
@@ -1033,7 +1033,7 @@ compiled since the last call, and is one lock and a count when there are none.
 is a `LivePipeline`, which holds the handle and converts to it, so passes bind it as they
 did. With the option on, `PipelineFactory.Create` also copies the description and keeps a
 function that builds the pipeline again, and the context lists every live pipeline.
-`Renderer.ReloadShaders` rebuilds the ones that use a named shader, waits for the device to
+`Renderer.Assets.ReloadShaders` rebuilds the ones that use a named shader, waits for the device to
 be idle, and destroys the old handles. A surface shader is made from bytes, so
 `CreateSurfaceShader` takes the name of its compiled file as well, and a rebuild reads the
 file again. Without the option nothing is copied or listed, which is how screenshots,
@@ -2524,7 +2524,7 @@ scales, so its two thirds power is how much area scales for a uniform scale (a 2
 4x). A non-uniform scale is approximated by its geometric mean. So a wall of 10 square
 metres and a trim of 0.5 of one mesh get sides of 63 and 14 at 20 texels a metre, not 65
 each, because a material's `Uv2` is unwrapped from only that material's triangles. The area
-comes from the `meshArea` callback, `(mesh, firstIndex, indexCount)`. `Renderer.CreateMesh`
+comes from the `meshArea` callback, `(mesh, firstIndex, indexCount)`. `Renderer.Assets.CreateMesh`
 keeps a running total of each mesh's triangle areas (`LightmapLayout.CumulativeAreas`, four
 bytes a triangle), and `Renderer.AreaOf` reads a range from it with `LightmapLayout.RangeArea`
 as the difference of two entries, so a range past the end counts only what the mesh has.
@@ -3013,7 +3013,7 @@ a material of its own once (colour, normal and surface textures, no flags) and h
 renderer `FrameView.Extras.Decals`. It keeps those materials, with the frame each was last used,
 until content unloads; past `MaxDecalMaterials` (512, twice what a frame can use) it lets go
 of every one the current frame didn't use, so a new `Surface` value each frame can't fill the
-material slots. `Renderer.DestroyMaterial` holds the slot until the frames in flight finish. `DecalBatch.Pack` checks them again and packs each one into a
+material slots. `Renderer.Assets.DestroyMaterial` holds the slot until the frames in flight finish. `DecalBatch.Pack` checks them again and packs each one into a
 160-byte `GpuDecal`: the box, its inverse, the four weights and the material index.
 `DecalPass` keeps those in a host-visible vertex buffer for each frame in flight, read as
 per-instance attributes, so the frame set is unchanged, and draws all of them in one
@@ -3155,12 +3155,12 @@ a shader only changes what it cares about. A shader can also read `inUv`, `inPos
 and `frame`. Each material carries eight `vec4`s in `shaderParameters`, four textures
 read with `shaderTexture(slot, uv)` and four texture arrays read with
 `shaderLayer(slot, uv, layer)`, where a fractional layer blends two layers. Unset slots
-read white. A texture array comes from `Renderer.CreateTextureArray`, which stacks
+read white. A texture array comes from `Renderer.Assets.CreateTextureArray`, which stacks
 same-sized images with the same mip count. Terrain uses this: one array of ground
 colours, one of their normal maps, a splat texture in a slot and thresholds in the
 parameters, as `examples/Terrain/Shaders/terrain.frag` shows. A game compiles
 the shader with `glslc`, with `src/Rendition/Shaders` on the include path, and passes
-the result to `Renderer.CreateSurfaceShader`, then sets `Material.Custom.Shader`. Importing
+the result to `Renderer.Assets.CreateSurfaceShader`, then sets `Material.Custom.Shader`. Importing
 `src/Shaders.targets` does the compiling. `src/Rendition.Sample/Shaders/glow_bands.frag`
 is a working example, shown by `--glow`.
 
@@ -4065,7 +4065,9 @@ a shown one `Game` multiplies the interface scale by `GameWindow.PixelsPerPoint`
 Meshes and textures are made during play, so neither creating nor destroying one
 may wait for the GPU.
 
-Uploads ride the next frame. `CreateMesh`, `CreateDrawItem`, `CreateTexture` and
+Uploads ride the next frame. `Renderer.Assets` (`RendererAssets`) hands meshes to `MeshAssets`, textures
+and the overlay's atlas to `TextureAssets`, and materials and surface shaders to `MaterialAssets`, which checks
+each material with `MaterialChecks`. `CreateMesh`, `CreateDrawItem`, `CreateTexture` and
 `CreateTextureArray` copy their bytes into a staging buffer and queue the copy in
 `UploadQueue`. The next `Render` records every queued copy, with its layout
 transitions, at the start of its command buffer, so a resource made before a
@@ -4208,7 +4210,7 @@ doubles, so a chunk hundreds of metres from the origin keeps its edges to well u
 millimetre. `IntoChunk` is the one inverse every bake uses: for the owner checks, a chunk's
 bake ids and its lights' hashes.
 
-A draw's sphere comes from `Renderer.BoundsOf(detail)`, the sphere `MeshDetail` found around
+A draw's sphere comes from `Renderer.Assets.BoundsOf(detail)`, the sphere `MeshDetail` found around
 the part in the model's units; a part without detail is the point at its origin, radius 0.
 `BakeAreas.Transform` moves it into the world: the centre goes through the transform and the
 radius grows by its largest axis scale, the same as culling does. `BakeAreas.Union` grows one
@@ -4223,7 +4225,7 @@ other, so the result holds every part but isn't always the tightest sphere.
 also calls `BakeIdentity.Assign` (`src/Super/Rendering/BakeIdentity.cs`) with a `BakeIdDraw` (the
 model's identity, tint and transform) and the frame's `BakeIdAreas` (its baked space and chunks, and the
 `BakeIdScratch` the ids are worked out in). `Dress` is static and takes the part spheres as an argument, so
-tests run it without a GPU; `DressedDraws` reads the spheres from `Renderer.BoundsOf` into a buffer it keeps.
+tests run it without a GPU; `DressedDraws` reads the spheres from `Renderer.Assets.BoundsOf` into a buffer it keeps.
 
 `Assign` moves the sphere of each shown part into the world and asks `OwnerOfModel` which
 baked area owns the model. When a chunk owns it, the draw's transform is made relative to the

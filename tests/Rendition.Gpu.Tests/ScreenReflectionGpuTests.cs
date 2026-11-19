@@ -133,8 +133,8 @@ public sealed class ScreenReflectionGpuTests(GpuFixture gpu)
         {
             _gpu = gpu;
             var (vertices, indices) = TestMeshes.Quad();
-            _mesh = gpu.Renderer.CreateMesh(vertices, indices);
-            _glow = gpu.Renderer.CreateMaterial(new Material
+            _mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
+            _glow = gpu.Renderer.Assets.CreateMaterial(new Material
             {
                 BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 1f, Emissive = new Vector3(1f, 0f, 0f),
             });
@@ -156,9 +156,9 @@ public sealed class ScreenReflectionGpuTests(GpuFixture gpu)
 
         public void Dispose()
         {
-            _gpu.Renderer.DestroyMesh(_mesh);
-            _gpu.Renderer.DestroyMaterial(_glow);
-            _gpu.Renderer.DestroyMaterial(_mirror);
+            _gpu.Renderer.Assets.DestroyMesh(_mesh);
+            _gpu.Renderer.Assets.DestroyMaterial(_glow);
+            _gpu.Renderer.Assets.DestroyMaterial(_mirror);
         }
     }
 }

@@ -63,8 +63,8 @@ unsafe
         EnableValidation = validation,
     });
 
-    renderer.SetOverlayAtlas(SolidAtlas());
-    OverlayQuad[] overlay = OverlayQuads(OverlayQuad.For(renderer.CreateTexture(Checkerboard())));
+    renderer.Assets.SetOverlayAtlas(SolidAtlas());
+    OverlayQuad[] overlay = OverlayQuads(OverlayQuad.For(renderer.Assets.CreateTexture(Checkerboard())));
 
     DrawItem[] draws;
     bool placeProbe = false;
@@ -75,9 +75,9 @@ unsafe
     {
         var floor = new DrawItem
         {
-            Mesh = renderer.CreateMesh(Ground.Vertices, Ground.Indices),
+            Mesh = renderer.Assets.CreateMesh(Ground.Vertices, Ground.Indices),
             IndexCount = (uint)Ground.Indices.Length,
-            Material = renderer.CreateMaterial(new Material
+            Material = renderer.Assets.CreateMaterial(new Material
             {
                 BaseColor = new Vector4(0.13f, 0.13f, 0.14f, 1f),
                 Roughness = 0.26f,
@@ -85,7 +85,7 @@ unsafe
             Transform = Matrix4x4.Identity,
         };
         var model = ModelFile.Read(modelPath);
-        draws = [.. renderer.CreateModel(model), floor];
+        draws = [.. renderer.Assets.CreateModel(model), floor];
         placeProbe = true;
 
         // Frames the model by its size, so a person and a car both fill the window.
@@ -114,15 +114,15 @@ unsafe
             BaseColor = new Vector4(0.9f, 0.55f, 0.2f, 1f),
             Metallic = 0.9f,
             Roughness = 0.35f,
-            Custom = new CustomSurface { Shader = glow ? renderer.CreateSurfaceShader(LoadShader("glow_bands.frag")) : null },
+            Custom = new CustomSurface { Shader = glow ? renderer.Assets.CreateSurfaceShader(LoadShader("glow_bands.frag")) : null },
         };
         glowing.Custom.Parameters[0] = new Vector4(4f, 1.2f, 0.3f, 3f);
-        var material = renderer.CreateMaterial(glowing);
+        var material = renderer.Assets.CreateMaterial(glowing);
         draws =
         [
             new DrawItem
             {
-                Mesh = renderer.CreateMesh(Cube.Vertices, Cube.Indices),
+                Mesh = renderer.Assets.CreateMesh(Cube.Vertices, Cube.Indices),
                 IndexCount = (uint)Cube.Indices.Length,
                 Material = material,
             },
@@ -209,26 +209,26 @@ unsafe
         // Each churn frame throws away last frame's textured cube, still in flight, and makes a new one.
         if (churn is { } previous)
         {
-            renderer.DestroyModel([previous]);
+            renderer.Assets.DestroyModel([previous]);
             churn = null;
         }
 
         if (check && frame < churnFrames)
         {
-            var texture = renderer.CreateTexture(new TextureData
+            var texture = renderer.Assets.CreateTexture(new TextureData
             {
                 Width = 2,
                 Height = 2,
                 Kind = TextureKind.Color,
                 Mips = [[255, 64, 64, 255, 64, 255, 64, 255, 64, 64, 255, 255, 255, 255, 64, 255]],
             });
-            var churnMaterial = renderer.CreateMaterial(new Material
+            var churnMaterial = renderer.Assets.CreateMaterial(new Material
             {
                 BaseColor = Vector4.One,
                 Textures = new MaterialTextures { BaseColor = texture },
                 Roughness = 0.5f,
             });
-            var item = renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, churnMaterial, simplify: frame % 2 == 0);
+            var item = renderer.Assets.CreateDrawItem(Cube.Vertices, Cube.Indices, churnMaterial, simplify: frame % 2 == 0);
             item.Transform = Matrix4x4.CreateTranslation(1.5f, 0f, 0f);
             churn = item;
         }

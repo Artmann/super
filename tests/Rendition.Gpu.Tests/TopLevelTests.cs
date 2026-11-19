@@ -33,7 +33,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
         var tracing = gpu.Renderer.Tracing!;
         int before = tracing.BottomLevelCount;
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame();
         TracePart[] parts = [new(0, 6, gpu.Matte)];
         TraceInstance[] instances =
@@ -59,7 +59,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
         }
 
         Assert.Equal(before + 1, tracing.BottomLevelCount);
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -99,7 +99,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
         int errors = gpu.ValidationErrors;
         var tracing = gpu.Renderer.Tracing!;
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame();
         TracePart[] parts = [new(0, 6, gpu.Matte)];
 
@@ -114,7 +114,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
             Assert.Equal(count, built.GeometryCount);
         }
 
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         for (int i = 0; i < 3; i++)
         {
             gpu.RenderOneFrame();
@@ -131,14 +131,14 @@ public sealed class TopLevelTests(GpuFixture gpu)
         var tracing = gpu.Renderer.Tracing!;
         int before = tracing.BottomLevelCount;
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         DrawItem[] draws = [new() { Mesh = mesh, IndexCount = 6, Material = gpu.Matte, Transform = Matrix4x4.Identity }];
 
         // The mesh's bytes ride this same frame, so the build has to come after the frame's uploads.
         gpu.RenderOneFrame(draws, DebugView.Trace);
 
         Assert.Equal(before + 1, tracing.BottomLevelCount);
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         for (int i = 0; i < 3; i++)
         {
             gpu.RenderOneFrame();
@@ -156,7 +156,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
         int before = tracing.BottomLevelCount;
         int builds = tracing.TopLevelBuilds;
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         DrawItem[] draws = [new() { Mesh = mesh, IndexCount = 6, Material = gpu.Matte, Transform = Matrix4x4.Identity }];
 
         // Light probes trace their updates where the GPU can, so they are switched off to leave a frame with nothing to trace.
@@ -164,7 +164,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
 
         Assert.Equal(before, tracing.BottomLevelCount);
         Assert.Equal(builds, tracing.TopLevelBuilds);
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -175,7 +175,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
         int errors = gpu.ValidationErrors;
         var tracing = gpu.Renderer.Tracing!;
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         DrawItem[] draws = [new() { Mesh = mesh, IndexCount = 6, Material = gpu.Matte, Transform = Matrix4x4.Identity }];
         gpu.RenderOneFrame();
 
@@ -183,7 +183,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
 
         // Render doesn't wait for the GPU, so the frame that built the top level over this mesh may still be running.
         int released = tracing.BottomLevelsReleased;
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         Assert.Equal(released, tracing.BottomLevelsReleased);
 
         for (int i = 0; i < 3; i++)

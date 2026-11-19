@@ -117,27 +117,27 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
         var quad = TestMeshes.Quad();
         var cube = TestMeshes.Cube();
 
-        var floorMaterial = renderer.CreateMaterial(new Material
+        var floorMaterial = renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0.6f, 0.6f, 0.6f, 1f), Roughness = 0.4f, Flags = MaterialFlags.Puddles,
         });
-        var panelMaterial = renderer.CreateMaterial(new Material
+        var panelMaterial = renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0.2f, 0.6f, 0.2f, 1f), Roughness = 0.8f, Wind = 1f,
         });
-        var glowMaterial = renderer.CreateMaterial(new Material
+        var glowMaterial = renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = Vector4.One, Roughness = 1f, Emissive = new Vector3(4f),
         });
-        var cubeMaterial = renderer.CreateMaterial(new Material
+        var cubeMaterial = renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0.8f, 0.5f, 0.3f, 1f), Roughness = 0.3f, Metallic = 1f,
         });
-        var decalMaterial = renderer.CreateMaterial(new Material
+        var decalMaterial = renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0.1f, 0.05f, 0.02f, 1f), Roughness = 1f,
         });
-        var skinMaterial = renderer.CreateMaterial(new Material
+        var skinMaterial = renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0.85f, 0.6f, 0.48f, 1f),
             Roughness = 0.5f,
@@ -145,7 +145,7 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
         });
 
         DrawItem Place((Vertex[] Vertices, uint[] Indices) mesh, MaterialHandle material, Matrix4x4 transform) =>
-            renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, material) with { Transform = transform };
+            renderer.Assets.CreateDrawItem(mesh.Vertices, mesh.Indices, material) with { Transform = transform };
 
         DrawItem[] draws =
         [
@@ -239,12 +239,12 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
     {
         foreach (var draw in scene.Draws)
         {
-            gpu.Renderer.DestroyMesh(draw.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(draw.Mesh);
         }
 
         foreach (var material in scene.Materials)
         {
-            gpu.Renderer.DestroyMaterial(material);
+            gpu.Renderer.Assets.DestroyMaterial(material);
         }
     }
 

@@ -39,7 +39,7 @@ public sealed class ShaderReloadGpuTests(GpuFixture shared) : IDisposable
             File.Copy(magenta, compiled, overwrite: true);
 
             // One pipeline draws with finish.frag, and nothing else is built again.
-            Assert.Equal(1, gpu.Renderer.ReloadShaders(new HashSet<string> { "finish.frag" }));
+            Assert.Equal(1, gpu.Renderer.Assets.ReloadShaders(new HashSet<string> { "finish.frag" }));
             Assert.Equal((255, 0, 255), Middle(gpu));
         }
         finally
@@ -47,12 +47,12 @@ public sealed class ShaderReloadGpuTests(GpuFixture shared) : IDisposable
             File.WriteAllBytes(compiled, original);
         }
 
-        Assert.Equal(1, gpu.Renderer.ReloadShaders(new HashSet<string> { "finish.frag" }));
+        Assert.Equal(1, gpu.Renderer.Assets.ReloadShaders(new HashSet<string> { "finish.frag" }));
         var after = Middle(gpu);
         int furthest = Math.Max(Math.Abs(after.R - before.R), Math.Max(Math.Abs(after.G - before.G), Math.Abs(after.B - before.B)));
         Assert.True(furthest <= 8, $"The frame reads {after} with the real shader back, not the {before} it started as.");
 
-        Assert.Equal(0, gpu.Renderer.ReloadShaders(new HashSet<string> { "no_such_shader.frag" }));
+        Assert.Equal(0, gpu.Renderer.Assets.ReloadShaders(new HashSet<string> { "no_such_shader.frag" }));
         Assert.Equal(0, gpu.ValidationErrors);
     }
 
@@ -67,8 +67,8 @@ public sealed class ShaderReloadGpuTests(GpuFixture shared) : IDisposable
         try
         {
             using var gpu = new GpuFixture(disableRayTracing: false, liveShaders: true);
-            var shader = gpu.Renderer.CreateSurfaceShader(File.ReadAllBytes(compiled), SurfaceName);
-            var material = gpu.Renderer.CreateMaterial(new Material
+            var shader = gpu.Renderer.Assets.CreateSurfaceShader(File.ReadAllBytes(compiled), SurfaceName);
+            var material = gpu.Renderer.Assets.CreateMaterial(new Material
             {
                 BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f),
                 Roughness = 0.8f,
@@ -77,7 +77,7 @@ public sealed class ShaderReloadGpuTests(GpuFixture shared) : IDisposable
             var (vertices, indices) = TestMeshes.Quad();
             var quad = new DrawItem
             {
-                Mesh = gpu.Renderer.CreateMesh(vertices, indices),
+                Mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices),
                 IndexCount = (uint)indices.Length,
                 Material = material,
                 Transform = Matrix4x4.Identity,
@@ -85,7 +85,7 @@ public sealed class ShaderReloadGpuTests(GpuFixture shared) : IDisposable
             var before = Middle(gpu, quad);
 
             File.Copy(glowing, compiled, overwrite: true);
-            int built = gpu.Renderer.ReloadShaders(new HashSet<string> { SurfaceName });
+            int built = gpu.Renderer.Assets.ReloadShaders(new HashSet<string> { SurfaceName });
 
             var after = Middle(gpu, quad);
             Assert.True(built > 0, "No pipeline was built again for the surface shader.");
@@ -101,7 +101,7 @@ public sealed class ShaderReloadGpuTests(GpuFixture shared) : IDisposable
     [Fact]
     public void A_renderer_made_without_live_shaders_builds_nothing_again()
     {
-        Assert.Equal(0, shared.Renderer.ReloadShaders(new HashSet<string> { "finish.frag" }));
+        Assert.Equal(0, shared.Renderer.Assets.ReloadShaders(new HashSet<string> { "finish.frag" }));
     }
 
     private static (int R, int G, int B) Middle(GpuFixture gpu, params DrawItem[] draws)
