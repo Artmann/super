@@ -283,7 +283,7 @@ internal static class WorldFrame
                 return false;
             }
 
-            entity = world.Get<Parent>(entity).Value;
+            entity = world.ParentOf(entity).Value;
         }
 
         return false;
@@ -309,7 +309,7 @@ internal static class WorldFrame
         var matrix = blends ? Blended(in transform, in world.Get<LastTick>(entity), blend).Matrix : transform.Matrix;
         if (world.Has<Parent>(entity))
         {
-            var parent = world.Get<Parent>(entity);
+            var parent = world.ParentOf(entity);
             matrix *= OnBone(world, entity, parent, poseAhead, WorldMatrix(world, parent.Value, blend, poseAhead, depth + 1));
         }
 

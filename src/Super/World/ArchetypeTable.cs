@@ -6,21 +6,26 @@ namespace Super;
 /// </summary>
 internal sealed class ArchetypeTable
 {
-    private const int MaxComponentTypes = Archetype.MaxComponentTypes;
-
-    private readonly Dictionary<Type, int> _componentTypes = [];
     private readonly Dictionary<ComponentMask, Archetype> _byMask = [];
     private readonly List<Archetype> _all = [];
-    private int _staticType = -1;
-    private int _hiddenType = -1;
 
     public ArchetypeTable()
     {
-        Empty = new Archetype(default, null, null, -1);
+        Empty = new Archetype(default, Types.Kinds);
         Register(Empty);
         Required = new RequiredComponents(this);
         Newest = new Newest(this);
+        Plans = new SpawnPlans(this);
     }
+
+    /// <summary>The world's component type IDs.</summary>
+    public ComponentTypes Types { get; } = new();
+
+    /// <summary>Where each kind of spawn lands, so a spawn moves its entity once.</summary>
+    public SpawnPlans Plans { get; }
+
+    /// <summary>The children of each entity, so destroying one finds its children at once.</summary>
+    public ChildIndex Children { get; } = new();
 
     /// <summary>The archetype of an entity with no components, where every new entity starts.</summary>
     public Archetype Empty { get; }
@@ -46,39 +51,19 @@ internal sealed class ArchetypeTable
     /// </summary>
     public void Touched(in ComponentMask mask)
     {
-        if ((_staticType >= 0 && mask.Has(_staticType)) || (_hiddenType >= 0 && mask.Has(_hiddenType)))
+        int staticType = Types.StaticType;
+        int hiddenType = Types.HiddenType;
+        if ((staticType >= 0 && mask.Has(staticType)) || (hiddenType >= 0 && mask.Has(hiddenType)))
         {
             StaticVersion++;
         }
     }
 
     /// <summary>The type's ID, registering it the first time it's asked for.</summary>
-    public int TypeId<T>()
-    {
-        if (!_componentTypes.TryGetValue(typeof(T), out int id))
-        {
-            if (_componentTypes.Count == MaxComponentTypes)
-            {
-                throw new InvalidOperationException($"A world holds at most {MaxComponentTypes} component types.");
-            }
-
-            id = _componentTypes.Count;
-            _componentTypes.Add(typeof(T), id);
-            if (typeof(T) == typeof(Static))
-            {
-                _staticType = id;
-            }
-            else if (typeof(T) == typeof(Hidden))
-            {
-                _hiddenType = id;
-            }
-        }
-
-        return id;
-    }
+    public int TypeId<T>() => Types.TypeId<T>();
 
     /// <summary>The type's ID, or -1 if no entity has ever had it. Unlike TypeId, this registers nothing.</summary>
-    public int TypeIdOrMissing<T>() => _componentTypes.TryGetValue(typeof(T), out int id) ? id : -1;
+    public int TypeIdOrMissing<T>() => Types.TypeIdOrMissing<T>();
 
     /// <summary>The next archetype after <paramref name="index"/> that has rows and every type in <paramref name="mask"/>, or null.</summary>
     public Archetype? NextMatching(ref int index, in ComponentMask mask)
@@ -95,26 +80,18 @@ internal sealed class ArchetypeTable
         return null;
     }
 
-    /// <summary>The archetype with <paramref name="source"/>'s types and <typeparamref name="T"/>, made the first time.</summary>
-    public Archetype With<T>(Archetype source, int type)
-    {
-        var mask = source.Mask.With(type);
-        if (!_byMask.TryGetValue(mask, out var target))
-        {
-            target = new Archetype(mask, source, new Column<T>(16), type);
-            Register(target);
-        }
-
-        return target;
-    }
+    /// <summary>The archetype with <paramref name="source"/>'s types and <paramref name="type"/>, made the first time.</summary>
+    public Archetype With(Archetype source, int type) => source.WithEdge(type) ?? source.RememberWith(type, Find(source.Mask.With(type)));
 
     /// <summary>The archetype with <paramref name="source"/>'s types less <paramref name="type"/>, made the first time.</summary>
-    public Archetype Without(Archetype source, int type)
+    public Archetype Without(Archetype source, int type) =>
+        source.WithoutEdge(type) ?? source.RememberWithout(type, Find(source.Mask.Without(type)));
+
+    private Archetype Find(ComponentMask mask)
     {
-        var mask = source.Mask.Without(type);
         if (!_byMask.TryGetValue(mask, out var target))
         {
-            target = new Archetype(mask, source, null, -1);
+            target = new Archetype(mask, Types.Kinds);
             Register(target);
         }
 

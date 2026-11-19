@@ -4,18 +4,16 @@ namespace Super;
 
 /// <summary>
 /// The changes to a world's shape made while a query runs: adding a component an entity lacks, removing one it has,
-/// and destroying it. They wait in call order and are made when the outermost query ends, so the rows a query is
-/// walking never move under it. Added values are kept in one typed list per component type, so nothing boxes.
-/// <c>OnAdded</c> handlers wait here too, so they run once the change that landed their component is complete.
+/// spawning, and destroying. They wait in call order and are made when the outermost query ends, so the rows a query
+/// is walking never move under it. Their values wait in <see cref="Values"/>. <c>OnAdded</c> handlers wait here too,
+/// so they run once the change that landed their component is complete.
 /// </summary>
 internal sealed class PendingChanges
 {
     private readonly List<Change> _changes = [];
-    private readonly Values?[] _values = new Values?[ComponentMask.MaxTypes];
     private readonly HashSet<Entity> _destroying = [];
-    private int _depth;
     private int _holding;
-    private int _shaping; // How many adds and removes wait.
+    private int _shaping; // How many adds, removes and spawns wait.
     private bool _applying;
 
     private enum Kind
@@ -25,17 +23,21 @@ internal sealed class PendingChanges
         Destroy,
         Added,
         Done, // An Added entry already run, before a removal of its component.
+        Spawn, // A whole spawn, made in one move when the query ends.
     }
 
-    /// <summary>Whether a query is running, so changes to the world's shape have to wait.</summary>
-    public bool IsQuerying => _depth > 0;
+    /// <summary>The values the waiting adds and spawns give.</summary>
+    public PendingValues Values { get; } = new();
 
-    public void Begin() => _depth++;
+    /// <summary>How many queries are running. Above 0, changes to the world's shape have to wait.</summary>
+    public int Depth { get; private set; }
+
+    public void Begin() => Depth++;
 
     /// <summary>Ends a query, making every waiting change when it was the outermost one.</summary>
     public void End(World world)
     {
-        _depth--;
+        Depth--;
         ApplyIfDone(world);
     }
 
@@ -52,9 +54,17 @@ internal sealed class PendingChanges
     public void Add<T>(Entity entity, int type, in T component)
         where T : struct
     {
-        var values = (Values<T>)(_values[type] ??= new Values<T>());
-        _changes.Add(new Change(Kind.Add, entity, type, values.Count));
-        values.Add(in component);
+        _changes.Add(new Change(Kind.Add, entity, type, Values.Keep(type, in component)));
+        _shaping++;
+    }
+
+    /// <summary>
+    /// Queues a spawn of an entity made in the empty archetype, which lands in the plan's archetype in one move when the
+    /// query ends. Its values follow through <see cref="PendingValues.Give{T}"/>, straight after.
+    /// </summary>
+    public void Spawn(Entity entity, SpawnPlan plan)
+    {
+        _changes.Add(new Change(Kind.Spawn, entity, -1, Values.Spawn(plan)));
         _shaping++;
     }
 
@@ -93,6 +103,12 @@ internal sealed class PendingChanges
             {
                 return change.Kind == Kind.Add;
             }
+
+            // A spawn comes before every other change to its entity, so nothing earlier can say otherwise.
+            if (change.Kind == Kind.Spawn && change.Entity == entity)
+            {
+                return Values.PlanOf(change.Index).Target.Mask.Has(type) ? true : null;
+            }
         }
 
         return null;
@@ -101,7 +117,7 @@ internal sealed class PendingChanges
     private void ApplyIfDone(World world)
     {
         // A query or handler run while the changes are being made leaves its own to the pass already under way.
-        if (_depth == 0 && _holding == 0 && _changes.Count > 0 && !_applying)
+        if (Depth == 0 && _holding == 0 && _changes.Count > 0 && !_applying)
         {
             Apply(world);
         }
@@ -139,10 +155,7 @@ internal sealed class PendingChanges
             _shaping = 0;
             _changes.Clear();
             _destroying.Clear();
-            foreach (var values in _values)
-            {
-                values?.Clear();
-            }
+            Values.Clear();
         }
 
         failure?.Throw();
@@ -169,7 +182,10 @@ internal sealed class PendingChanges
         switch (change.Kind)
         {
             case Kind.Add when !_destroying.Contains(change.Entity):
-                _values[change.Type]!.AddTo(world, change.Entity, change.Index);
+                Values.AddTo(world, change.Entity, change.Type, change.Index);
+                break;
+            case Kind.Spawn when !_destroying.Contains(change.Entity):
+                Values.Land(world, change.Entity, change.Index);
                 break;
             case Kind.Remove:
                 RunAddedBefore(world, change, at + 1);
@@ -195,25 +211,4 @@ internal sealed class PendingChanges
     }
 
     private readonly record struct Change(Kind Kind, Entity Entity, int Type, int Index);
-
-    private abstract class Values
-    {
-        public abstract void AddTo(World world, Entity entity, int index);
-
-        public abstract void Clear();
-    }
-
-    private sealed class Values<T> : Values
-        where T : struct
-    {
-        private readonly List<T> _list = [];
-
-        public int Count => _list.Count;
-
-        public void Add(in T value) => _list.Add(value);
-
-        public override void AddTo(World world, Entity entity, int index) => world.Add(entity, _list[index]);
-
-        public override void Clear() => _list.Clear();
-    }
 }

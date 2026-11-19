@@ -97,7 +97,7 @@ made, and the first error is thrown after the last one.
 | `world.Teleport(entity, transform)` | Sets its `Transform` so it's drawn there at once, not sliding there between ticks. See [Drawing entities](#drawing-entities) |
 | `world.Changed(entity)` | Says a `Static` entity was changed through `Get`, so it's drawn again. See [Static draws](#static-draws) |
 | `world.Destroy(entity)` | Removes the entity and its components, and destroys its children, and theirs |
-| `world.Children(entity)` | The entities whose `Parent` is this one, without their own children. It walks every parented entity, so keep it out of loops over many |
+| `world.Children(entity)` | The entities whose `Parent` is this one, without their own children, in no particular order. It reads an index, so it's quick however many parented entities there are |
 | `world.IsAlive(entity)` | Whether it still exists. A destroyed entity's ID isn't confused with a new one |
 | `world.Count` | How many entities there are |
 
@@ -109,6 +109,18 @@ position.Value.Y = 1f;
 ```
 
 A world holds up to 256 component types, counting Super's own. Adding a 257th type throws.
+
+Spawning is cheap enough to do by the thousand every frame. A `Spawn` puts the entity
+straight where its components belong, with its required components, and allocates nothing
+once the world has seen that mix of components. On a desktop, spawning a `Transform` and a
+`Model` takes about 40 nanoseconds, and destroying it about 25. Giving all the components
+in one `Spawn` is about five times faster than `Create` followed by an `Add` for each,
+which moves the entity once per component.
+
+Destroying an entity finds its children at once, however many parented entities the
+world holds. To move a child to another parent, `Add` it a new `Parent`. Writing one
+through `Get<Parent>` or a query over `Parent` works too, but then the next destroy
+has to look over every parented entity once to catch up.
 
 ### Required components
 

@@ -66,6 +66,115 @@ public class HierarchyTests
     }
 
     [Fact]
+    public void A_child_moved_by_reference_goes_with_its_new_parent()
+    {
+        var old = _world.Spawn(Transform.Identity);
+        var other = _world.Spawn(Transform.Identity);
+        var child = Under(old);
+
+        _world.Get<Parent>(child) = new Parent(other);
+        _world.Destroy(other);
+
+        Assert.False(_world.IsAlive(child));
+        Assert.True(_world.IsAlive(old));
+    }
+
+    [Fact]
+    public void A_child_moved_in_a_query_goes_with_its_new_parent()
+    {
+        var old = _world.Spawn(Transform.Identity);
+        var other = _world.Spawn(Transform.Identity);
+        var child = Under(old);
+
+        foreach (var row in _world.Query<Parent>())
+        {
+            row.First = new Parent(other);
+        }
+
+        _world.Destroy(old);
+        Assert.True(_world.IsAlive(child));
+        _world.Destroy(other);
+        Assert.False(_world.IsAlive(child));
+    }
+
+    [Fact]
+    public void A_child_moved_with_Add_goes_with_its_new_parent()
+    {
+        var old = _world.Spawn(Transform.Identity);
+        var other = _world.Spawn(Transform.Identity);
+        var child = Under(old);
+
+        _world.Add(child, new Parent(other));
+        _world.Destroy(old);
+        Assert.True(_world.IsAlive(child));
+        _world.Destroy(other);
+        Assert.False(_world.IsAlive(child));
+    }
+
+    [Fact]
+    public void A_child_whose_parent_is_removed_stays()
+    {
+        var parent = _world.Spawn(Transform.Identity);
+        var child = Under(parent);
+
+        _world.Remove<Parent>(child);
+        _world.Destroy(parent);
+
+        Assert.True(_world.IsAlive(child));
+    }
+
+    [Fact]
+    public void A_child_spawned_in_a_query_goes_with_its_parent()
+    {
+        var parent = _world.Spawn(Transform.Identity, new Health(1));
+        Entity child = default;
+
+        foreach (var row in _world.Query<Health>())
+        {
+            child = Under(row.Entity);
+        }
+
+        _world.Destroy(parent);
+
+        Assert.False(_world.IsAlive(child));
+    }
+
+    [Fact]
+    public void Siblings_left_after_some_go_are_still_destroyed_with_their_parent()
+    {
+        var parent = _world.Spawn(Transform.Identity);
+        var other = _world.Spawn(Transform.Identity);
+        var first = Under(parent);
+        var second = Under(parent);
+        var third = Under(parent);
+        var fourth = Under(parent);
+
+        // The last child takes the first's place, so moving it next finds it there.
+        _world.Destroy(first);
+        _world.Add(fourth, new Parent(other));
+        _world.Destroy(parent);
+
+        Assert.False(_world.IsAlive(second));
+        Assert.False(_world.IsAlive(third));
+        Assert.True(_world.IsAlive(fourth));
+    }
+
+    [Fact]
+    public void A_child_a_handler_moves_while_its_siblings_go_stays()
+    {
+        var parent = _world.Spawn(Transform.Identity);
+        var other = _world.Spawn(Transform.Identity);
+        var first = _world.Spawn(new Parent(parent), new Health(1));
+        var second = Under(parent);
+        _world.OnRemoved<Health>(_ => _world.Add(second, new Parent(other)));
+
+        _world.Destroy(parent);
+
+        Assert.False(_world.IsAlive(first));
+        Assert.True(_world.IsAlive(second));
+    }
+
+    [Fact]
     public void A_cycle_of_parents_is_destroyed_without_looping()
     {
         var a = _world.Spawn(Transform.Identity);
@@ -102,6 +211,20 @@ public class HierarchyTests
         Assert.Equal(new[] { first.Id, second.Id }.Order(), _world.Children(parent).Select(child => child.Id).Order());
         Assert.Equal([grandchild], _world.Children(first));
         Assert.Empty(_world.Children(grandchild));
+    }
+
+    [Fact]
+    public void Children_follow_a_parent_changed_by_reference()
+    {
+        var old = _world.Spawn(Transform.Identity);
+        var other = _world.Spawn(Transform.Identity);
+        var child = Under(old);
+        Assert.Equal([child], _world.Children(old));
+
+        _world.Get<Parent>(child) = new Parent(other);
+
+        Assert.Empty(_world.Children(old));
+        Assert.Equal([child], _world.Children(other));
     }
 
     [Fact]

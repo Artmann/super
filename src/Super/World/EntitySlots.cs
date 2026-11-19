@@ -13,8 +13,11 @@ internal sealed class EntitySlots
     /// <summary>How many entities are alive.</summary>
     public int Count { get; private set; }
 
-    /// <summary>A new entity with no components, in the <paramref name="empty"/> archetype.</summary>
-    public Entity Create(Archetype empty)
+    /// <summary>
+    /// A new entity in a new row of <paramref name="archetype"/>, whose components the caller fills. With the empty
+    /// archetype it has none.
+    /// </summary>
+    public Entity Create(Archetype archetype, out int row)
     {
         int id = _freeIds.Count > 0 ? _freeIds.Pop() : _nextId++;
         if (id == _slots.Length)
@@ -24,8 +27,8 @@ internal sealed class EntitySlots
 
         ref var slot = ref _slots[id];
         var entity = new Entity(id, slot.Generation);
-        slot.Archetype = empty;
-        slot.Row = empty.AddRow(entity);
+        slot.Archetype = archetype;
+        slot.Row = row = archetype.AddRow(entity);
         Count++;
         return entity;
     }
