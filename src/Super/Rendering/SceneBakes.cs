@@ -22,7 +22,7 @@ internal sealed class SceneBakes
     {
         _renderer = renderer;
         Bakes = new LightBakeStore(ReadBake, Console.Error);
-        renderer.Bakes = Bakes;
+        renderer.Baking.Bakes = Bakes;
     }
 
     /// <summary>The bakes in the content last drawn with, which the renderer checks each frame's baked areas against.</summary>
@@ -53,7 +53,7 @@ internal sealed class SceneBakes
     {
         if (plan is null)
         {
-            _renderer.AutoBake = null;
+            _renderer.Baking.AutoBake = null;
             return;
         }
 
@@ -64,7 +64,7 @@ internal sealed class SceneBakes
             _saver = new BakeSaver(plan.SpaceFolder, BakeCache, _written.Written, Console.Out, Console.Error);
         }
 
-        _renderer.AutoBake = new AutoBake(plan.Budget, plan.Spaces, plan.Qualities, _saver.Done);
+        _renderer.Baking.AutoBake = new AutoBake(plan.Budget, plan.Spaces, plan.Qualities, _saver.Done);
     }
 
     /// <summary>Reads the bakes again when the content's files changed, and those the background saver wrote since the last frame.</summary>
@@ -84,7 +84,7 @@ internal sealed class SceneBakes
 
     /// <summary>Says, once, why the first area the last frame wanted a bake for isn't baked.</summary>
     public void SayWhyNotBaking(View view, RenderEffects off) => _notBaking.Check(
-        _renderer.LastBakeFrame, view.Indirect.BakedSpace, view.Indirect.PlacedBakedChunks, off.HasFlag(RenderEffects.BakedLighting), _renderer.NoTraceReason);
+        _renderer.Baking.LastFrame, view.Indirect.BakedSpace, view.Indirect.PlacedBakedChunks, off.HasFlag(RenderEffects.BakedLighting), _renderer.NoTraceReason);
 
     /// <summary>Waits for a bake still being written, which would leave a temp file in the sources if the process ended under it.</summary>
     public void WaitForSaver() => _saver?.Wait(TimeSpan.FromSeconds(10));

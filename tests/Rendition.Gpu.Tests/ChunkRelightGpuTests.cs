@@ -55,13 +55,13 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
 
             DrawItem[] turned = [Draw(quad, Floor * placed, gpu.Matte, 1), Draw(quad, WestWall * placed, dark, 2)];
             var turnedView = View(sun, sky, 1f, chunks: [Chunk(placed)]);
-            gpu.Renderer.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.BakeChunk(turnedView, turned, 0, settings)));
+            gpu.Renderer.Baking.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.Baking.BakeChunk(turnedView, turned, 0, settings)));
             Assert.True(RenderUntilFresh(turnedView, turned) <= MostFrames, $"The turned chunk's bake wasn't resident after {MostFrames} frames.");
             byte[] chunk = Capture(turnedView, turned);
 
             DrawItem[] mirrored = [Draw(quad, Floor, gpu.Matte, 1), Draw(quad, WestWall * placed, dark, 2)];
             var mirroredView = View(sun, sky, 1f, chunks: [Chunk(Matrix4x4.Identity, "relit-mirrored")]);
-            gpu.Renderer.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.BakeChunk(mirroredView, mirrored, 0, settings)));
+            gpu.Renderer.Baking.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.Baking.BakeChunk(mirroredView, mirrored, 0, settings)));
             Assert.True(RenderUntilFresh(mirroredView, mirrored) <= MostFrames, $"The mirrored chunk's bake wasn't resident after {MostFrames} frames.");
             byte[] expected = Capture(mirroredView, mirrored);
 
@@ -106,14 +106,14 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
             DrawItem[] draws = [Draw(quad, Floor, gpu.Matte, 1), Draw(quad, WestWall, dark, 2)];
 
             var chunkView = View(sun, sky, 1f, chunks: [Chunk(Matrix4x4.Identity)]);
-            gpu.Renderer.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.BakeChunk(chunkView, draws, 0, settings)));
+            gpu.Renderer.Baking.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.Baking.BakeChunk(chunkView, draws, 0, settings)));
             Assert.True(RenderUntilFresh(chunkView, draws) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
             byte[] chunk = Capture(chunkView, draws);
 
             var spaceView = View(sun, sky, 1f, space: Room);
-            gpu.Renderer.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.Bake(spaceView, draws, settings)));
+            gpu.Renderer.Baking.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.Baking.Bake(spaceView, draws, settings)));
             byte[] space = Capture(spaceView, draws);
-            Assert.True(gpu.Renderer.LastBakeFrame!.SpaceFresh, "The space's bake isn't fresh.");
+            Assert.True(gpu.Renderer.Baking.LastFrame!.SpaceFresh, "The space's bake isn't fresh.");
 
             AssertShaded(space, "space");
             float error = MeanDifference(chunk, space);
@@ -150,14 +150,14 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
             DrawItem[] draws = [Draw(quad, Floor, gpu.Matte, 1)];
 
             var chunkView = View([], default, 1f, chunks: [Chunk(Matrix4x4.Identity)]);
-            gpu.Renderer.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.BakeChunk(chunkView, draws, 0, settings)));
+            gpu.Renderer.Baking.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.Baking.BakeChunk(chunkView, draws, 0, settings)));
             Assert.True(RenderUntilFresh(chunkView, draws) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
             byte[] chunk = Capture(chunkView, draws);
 
             var spaceView = View([], default, 1f, space: Room);
-            gpu.Renderer.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.Bake(spaceView, draws, settings)));
+            gpu.Renderer.Baking.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.Baking.Bake(spaceView, draws, settings)));
             byte[] space = Capture(spaceView, draws);
-            Assert.True(gpu.Renderer.LastBakeFrame!.SpaceFresh, "The space's bake isn't fresh.");
+            Assert.True(gpu.Renderer.Baking.LastFrame!.SpaceFresh, "The space's bake isn't fresh.");
 
             float spaceLit = Mean(space, FloorFrom, FloorTo, FloorFrom, FloorTo);
             float chunkLit = Mean(chunk, FloorFrom, FloorTo, FloorFrom, FloorTo);
@@ -221,8 +221,8 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
             gpu.Renderer.SetEnvironment(EvenSky(new Vector3(0.6f, 0.05f, 0.05f)));
             DrawItem[] draws = [Draw(quad, Floor, gpu.Matte, 1), Draw(quad, WestWall, dark, 2)];
             var view = View([], default, 1f, chunks: [Chunk(Matrix4x4.Identity)]);
-            var store = new Store(LightBakeFile.Read(gpu.Renderer.BakeChunk(view, draws, 0, new BakeSettings(Density, BakeQuality.Preview))));
-            gpu.Renderer.Bakes = store;
+            var store = new Store(LightBakeFile.Read(gpu.Renderer.Baking.BakeChunk(view, draws, 0, new BakeSettings(Density, BakeQuality.Preview))));
+            gpu.Renderer.Baking.Bakes = store;
             Assert.True(RenderUntilFresh(view, draws) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
             byte[] red = Capture(view, draws);
 
@@ -244,7 +244,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
                 Assert.True(open > byWall + 4f, $"Under the {name} sky the floor by the wall reads {byWall} and the open side {open}, so it isn't the bake's light.");
             }
 
-            var frameBakes = gpu.Renderer.LastBakeFrame!;
+            var frameBakes = gpu.Renderer.Baking.LastFrame!;
             Assert.Equal([true], frameBakes.ChunkFresh);
             Assert.Equal(1, store.Loads);
         }
@@ -277,14 +277,14 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
             // The space is baked and drawn first: once the sun has moved, the renderer counts it as animated and leaves it
             // out of a space's bake, while a chunk's bounce follows it.
             var spaceView = View(facing, default, 0f, space: Room, at: placed);
-            var spaceBake = LightBakeFile.Read(gpu.Renderer.Bake(spaceView, draws, new BakeSettings(Density, BakeQuality.Preview)));
-            gpu.Renderer.Bakes = new Store(spaceBake);
+            var spaceBake = LightBakeFile.Read(gpu.Renderer.Baking.Bake(spaceView, draws, new BakeSettings(Density, BakeQuality.Preview)));
+            gpu.Renderer.Baking.Bakes = new Store(spaceBake);
             byte[] spaceFacing = Capture(spaceView, draws);
-            Assert.True(gpu.Renderer.LastBakeFrame!.SpaceFresh, "The space's bake isn't fresh.");
+            Assert.True(gpu.Renderer.Baking.LastFrame!.SpaceFresh, "The space's bake isn't fresh.");
 
             var chunkView = View(facing, default, 0f, chunks: [Chunk(placed)], at: placed);
-            var chunkBake = LightBakeFile.Read(gpu.Renderer.BakeChunk(chunkView, draws, 0, new BakeSettings(Density, BakeQuality.Preview)));
-            gpu.Renderer.Bakes = new Store(chunkBake);
+            var chunkBake = LightBakeFile.Read(gpu.Renderer.Baking.BakeChunk(chunkView, draws, 0, new BakeSettings(Density, BakeQuality.Preview)));
+            gpu.Renderer.Baking.Bakes = new Store(chunkBake);
             Assert.True(RenderUntilFresh(chunkView, draws) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
             byte[] chunkFacing = Capture(chunkView, draws);
             byte[] chunkBehind = Capture(View(behind, default, 0f, chunks: [Chunk(placed)], at: placed), draws);
@@ -435,7 +435,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
         for (int frames = 1; frames <= MostFrames; frames++)
         {
             gpu.Renderer.Render(view, draws);
-            if (gpu.Renderer.LastBakeFrame!.ChunkFresh.All(fresh => fresh))
+            if (gpu.Renderer.Baking.LastFrame!.ChunkFresh.All(fresh => fresh))
             {
                 return frames;
             }
@@ -516,7 +516,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
     // Puts the renderer back: no store, and a frame without chunks so nothing stays in the pool.
     private void LetGo(MeshHandle quad)
     {
-        gpu.Renderer.Bakes = NoBakes.Instance;
+        gpu.Renderer.Baking.Bakes = NoBakes.Instance;
         gpu.RenderOneFrame();
         gpu.Renderer.DestroyMesh(quad);
     }

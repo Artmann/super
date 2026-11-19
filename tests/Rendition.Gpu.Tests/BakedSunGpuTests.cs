@@ -35,7 +35,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
         view.Baked.Space = Room;
 
         int rebakes = gpu.Renderer.SkyRebakes;
-        gpu.Renderer.Bakes = new EveryBakeFresh();
+        gpu.Renderer.Baking.Bakes = new EveryBakeFresh();
         try
         {
             // A sun is named by its index, so another test's sun at index 0 makes this one look like it moved on the
@@ -47,7 +47,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
             }
 
             // The sun was really dropped, so the frame was drawn a second time without it.
-            Assert.Equal([0], gpu.Renderer.LastBakeFrame!.DroppedSuns);
+            Assert.Equal([0], gpu.Renderer.Baking.LastFrame!.DroppedSuns);
             // The sky changed once, to this sun, and stayed: the frame without the sun didn't bake a sunless sky.
             Assert.Equal(1, gpu.Renderer.SkyRebakes - rebakes);
             var disc = gpu.Renderer.Last.SunDisc;
@@ -55,7 +55,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.DestroyMesh(cube.Mesh);
         }
 
@@ -96,20 +96,20 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
             gpu.Renderer.Render(view, [cube]);
             var once = gpu.Renderer.Last.Light(0).Radiance;
 
-            gpu.Renderer.Bakes = new EveryBakeFresh();
+            gpu.Renderer.Baking.Bakes = new EveryBakeFresh();
             for (int i = 0; i < 3; i++)
             {
                 view.Time = i * 2f;
                 gpu.Renderer.Render(view, [cube]);
             }
 
-            Assert.Equal([0], gpu.Renderer.LastBakeFrame!.DroppedLocalLights);
+            Assert.Equal([0], gpu.Renderer.Baking.LastFrame!.DroppedLocalLights);
             var drawn = gpu.Renderer.Last.Light(0).Radiance;
             Assert.True(Vector3.Distance(once, drawn) < 1e-4f, $"The sun was {once} with nothing baked but {drawn} without the baked light.");
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.DestroyMesh(cube.Mesh);
         }
     }
@@ -138,7 +138,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
         view.Shadows = new ShadowSettings { Radius = 4f, LightAngle = 0.1f };
         view.Baked.Space = Room;
 
-        gpu.Renderer.Bakes = new EveryBakeFresh();
+        gpu.Renderer.Baking.Bakes = new EveryBakeFresh();
         try
         {
             for (int i = 0; i < 3; i++)
@@ -147,12 +147,12 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
                 gpu.Renderer.Render(view, [cube]);
             }
 
-            Assert.Equal([0], gpu.Renderer.LastBakeFrame!.DroppedSuns);
+            Assert.Equal([0], gpu.Renderer.Baking.LastFrame!.DroppedSuns);
             Assert.Equal(fill, gpu.Renderer.Last.Light(0).Radiance);
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.DestroyMesh(cube.Mesh);
         }
     }

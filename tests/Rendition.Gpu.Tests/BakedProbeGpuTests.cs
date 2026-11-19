@@ -62,7 +62,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
 
             // With no sun and no sky, nothing live lights the quad.
             var live = Centre(Capture([wall, dynamic], camera, sky: 0f));
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             var baked = Centre(Capture([wall, dynamic], camera, sky: 0f));
             var switchedOff = Centre(Capture([wall, dynamic], camera, sky: 0f, RenderEffects.All));
 
@@ -75,7 +75,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
             gpu.Renderer.DestroyMaterial(red);
@@ -102,17 +102,17 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
             gpu.Renderer.SetEnvironment(EvenSky());
 
             byte[] live = Capture([wall, dynamic], camera, sky: 1f);
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             byte[] baked = Capture([wall, dynamic], camera, sky: 1f);
 
             // The sky lights the quad, the same whether the space is baked or not.
-            Assert.True(gpu.Renderer.LastBakeFrame!.SpaceFresh, "The bake isn't drawn, so the test shows nothing.");
+            Assert.True(gpu.Renderer.Baking.LastFrame!.SpaceFresh, "The bake isn't drawn, so the test shows nothing.");
             Assert.True(Centre(live).X > 40f, $"The quad outside the space reads {Centre(live)}, not lit by the sky.");
             Assert.Equal(live, baked);
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
             gpu.Renderer.DestroyMaterial(red);
@@ -149,12 +149,12 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
 
             var skyOnly = Centre(Capture(draws, camera, sky: 1f, off));
             byte[] live = Capture(draws, camera, sky: 1f, off, probes);
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             byte[] baked = Capture(draws, camera, sky: 1f, off, probes);
 
             // The live probes light the quad, not the sky alone: greener than the sky's grey.
             var fromProbes = Centre(live);
-            Assert.True(gpu.Renderer.LastBakeFrame!.SpaceFresh, "The bake isn't drawn, so the test shows nothing.");
+            Assert.True(gpu.Renderer.Baking.LastFrame!.SpaceFresh, "The bake isn't drawn, so the test shows nothing.");
             Assert.True(fromProbes.Y > 20f, $"The quad lit by the live probes reads {fromProbes}, unlit.");
             Assert.True(fromProbes.Y - fromProbes.X > skyOnly.Y - skyOnly.X + 10f,
                 $"The quad lit by the live probes reads {fromProbes}, no greener than under the sky alone, {skyOnly}.");
@@ -162,7 +162,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
             gpu.Renderer.DestroyMaterial(red);
@@ -198,16 +198,16 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
 
             var skyOnly = Centre(Capture(draws, camera, sky: 1f, off));
             byte[] live = Capture(draws, camera, sky: 1f, off, probes);
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             var fromBake = Centre(Capture(draws, camera, sky: 1f, off, probes));
-            gpu.Renderer.Bakes = new Loaded(walledIn);
+            gpu.Renderer.Baking.Bakes = new Loaded(walledIn);
             byte[] fellBack = Capture(draws, camera, sky: 1f, off, probes);
 
             // With its probes able to see, the bake wins over the live probes: the quad takes the red wall's light,
             // not the green. With every baked probe inside a wall, none of them sees the quad, so the live probes
             // light it as with no bake at all.
             var fromProbes = Centre(live);
-            Assert.True(gpu.Renderer.LastBakeFrame!.SpaceFresh, "The bake isn't drawn, so the test shows nothing.");
+            Assert.True(gpu.Renderer.Baking.LastFrame!.SpaceFresh, "The bake isn't drawn, so the test shows nothing.");
             Assert.True(fromProbes.Y > 20f && fromProbes.Y > fromProbes.X + 10f,
                 $"The quad lit by the live probes reads {fromProbes}, not green.");
             Assert.True(fromBake.X > fromBake.Y, $"The quad over a bake that sees reads {fromBake}, not the bake's red.");
@@ -215,7 +215,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
             gpu.Renderer.DestroyMaterial(red);
@@ -273,7 +273,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         // the bake would leave it live. A frame without lights forgets them all.
         gpu.Renderer.Render(View(Vector3.UnitZ * 3f, sky: 0f, TestEffects.OnlyBaked, []), [wall]);
         var view = View(Vector3.UnitZ * 3f, sky: 0f, TestEffects.OnlyBaked, WallSun);
-        var bake = LightBakeFile.Read(gpu.Renderer.Bake(view, [wall], new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
+        var bake = LightBakeFile.Read(gpu.Renderer.Baking.Bake(view, [wall], new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
         Assert.NotNull(bake.Probes);
         return bake;
     }

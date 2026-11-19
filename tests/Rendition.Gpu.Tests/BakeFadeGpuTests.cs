@@ -4,7 +4,7 @@ using System.Numerics;
 namespace Rendition.Gpu.Tests;
 
 /// <summary>
-/// <see cref="Renderer.BakeFadeSeconds"/>: a bake that arrives while its area is drawn live fades in over that time
+/// <see cref="RendererBaking.FadeSeconds"/>: a bake that arrives while its area is drawn live fades in over that time
 /// instead of popping in, and one fresh on the first frame that names its area shows at once. Every effect is off but
 /// the baked lighting, and each sample is the 64th frame drawn at its time, so every sample lands on the same frame of
 /// the dither's cycle and two samples differ only by the light.
@@ -30,15 +30,15 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        float fadeBefore = gpu.Renderer.BakeFadeSeconds;
+        float fadeBefore = gpu.Renderer.Baking.FadeSeconds;
         var store = new Given();
         try
         {
-            gpu.Renderer.BakeFadeSeconds = 0.5f;
+            gpu.Renderer.Baking.FadeSeconds = 0.5f;
             var room = Room(quad);
             var view = RoomView(lit: false);
             var bake = SkyBake(view, room);
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
 
             // Drawn live, its bake missing; then the bake is saved and the next frame draws it.
             var live = Floor(view, room, Start);
@@ -56,8 +56,8 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
-            gpu.Renderer.BakeFadeSeconds = fadeBefore;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.FadeSeconds = fadeBefore;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -70,15 +70,15 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        float fadeBefore = gpu.Renderer.BakeFadeSeconds;
+        float fadeBefore = gpu.Renderer.Baking.FadeSeconds;
         var store = new Given();
         try
         {
-            gpu.Renderer.BakeFadeSeconds = 0.5f;
+            gpu.Renderer.Baking.FadeSeconds = 0.5f;
             var room = Room(quad);
             var view = RoomView(lit: false);
             var bake = SkyBake(view, room);
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             var live = Floor(view, room, Start);
 
             // A frame that names no area forgets the room was drawn live, so the next frame is the first to name it,
@@ -96,8 +96,8 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
-            gpu.Renderer.BakeFadeSeconds = fadeBefore;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.FadeSeconds = fadeBefore;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -110,16 +110,16 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        float fadeBefore = gpu.Renderer.BakeFadeSeconds;
+        float fadeBefore = gpu.Renderer.Baking.FadeSeconds;
         var store = new Given();
         try
         {
-            gpu.Renderer.BakeFadeSeconds = 0.5f;
+            gpu.Renderer.Baking.FadeSeconds = 0.5f;
             var room = Room(quad);
             // No sky: the Baked point light is all that lights the floor, live or baked.
             var view = RoomView(lit: true);
             var bake = Bake(view, room);
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
 
             var live = Floor(view, room, Start);
             store.Bake = bake;
@@ -143,8 +143,8 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
-            gpu.Renderer.BakeFadeSeconds = fadeBefore;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.FadeSeconds = fadeBefore;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -157,15 +157,15 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        float fadeBefore = gpu.Renderer.BakeFadeSeconds;
+        float fadeBefore = gpu.Renderer.Baking.FadeSeconds;
         var store = new Given();
         try
         {
-            gpu.Renderer.BakeFadeSeconds = 0.5f;
+            gpu.Renderer.Baking.FadeSeconds = 0.5f;
             var room = Room(quad);
             var view = RoomView(lit: false);
             var bake = SkyBake(view, room);
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
 
             // A game captures its reflection probes again whenever this hash moves, so it must move once the fade ends:
             // a capture taken mid-fade would otherwise keep the half-faded room until something else changed.
@@ -183,7 +183,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
             unnamed.Baked.Space = null;
             gpu.Renderer.Render(unnamed, room);
             OneFrame(view, room, Start + 3f);
-            Assert.Equal(1f, gpu.Renderer.LastBakeFrame!.SpaceFade);
+            Assert.Equal(1f, gpu.Renderer.Baking.LastFrame!.SpaceFade);
             int loaded = gpu.Renderer.Reflections.LightingHash(view);
 
             Assert.NotEqual(live, fading);
@@ -192,8 +192,8 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
-            gpu.Renderer.BakeFadeSeconds = fadeBefore;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.FadeSeconds = fadeBefore;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -206,15 +206,15 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        float fadeBefore = gpu.Renderer.BakeFadeSeconds;
+        float fadeBefore = gpu.Renderer.Baking.FadeSeconds;
         var store = new Given();
         try
         {
-            gpu.Renderer.BakeFadeSeconds = 0f;
+            gpu.Renderer.Baking.FadeSeconds = 0f;
             var room = Room(quad);
             var view = RoomView(lit: false);
             var bake = SkyBake(view, room);
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
 
             var live = Floor(view, room, Start);
             store.Bake = bake;
@@ -227,8 +227,8 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
-            gpu.Renderer.BakeFadeSeconds = fadeBefore;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.FadeSeconds = fadeBefore;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -239,14 +239,14 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     public void Negative_fade_throws()
     {
         var original = CultureInfo.CurrentCulture;
-        float fadeBefore = gpu.Renderer.BakeFadeSeconds;
+        float fadeBefore = gpu.Renderer.Baking.FadeSeconds;
         CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
         try
         {
-            var error = Assert.Throws<ArgumentOutOfRangeException>(() => gpu.Renderer.BakeFadeSeconds = -0.5f);
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => gpu.Renderer.Baking.FadeSeconds = -0.5f);
 
             Assert.Contains("BakeFadeSeconds must be from 0 to 10, not -0.5.", error.Message);
-            Assert.Equal(fadeBefore, gpu.Renderer.BakeFadeSeconds);
+            Assert.Equal(fadeBefore, gpu.Renderer.Baking.FadeSeconds);
         }
         finally
         {
@@ -260,12 +260,12 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     [InlineData(float.PositiveInfinity, "Infinity")]
     public void Fade_over_ten_seconds_or_not_a_number_throws(float seconds, string shown)
     {
-        float fadeBefore = gpu.Renderer.BakeFadeSeconds;
+        float fadeBefore = gpu.Renderer.Baking.FadeSeconds;
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => gpu.Renderer.BakeFadeSeconds = seconds);
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => gpu.Renderer.Baking.FadeSeconds = seconds);
 
         Assert.Contains($"BakeFadeSeconds must be from 0 to 10, not {shown}.", error.Message);
-        Assert.Equal(fadeBefore, gpu.Renderer.BakeFadeSeconds);
+        Assert.Equal(fadeBefore, gpu.Renderer.Baking.FadeSeconds);
     }
 
     // The room's floor at the middle of the picture: the 64th frame drawn at the time given.
@@ -289,7 +289,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     }
 
     private LightBakeFile Bake(FrameView view, DrawItem[] room) =>
-        LightBakeFile.Read(gpu.Renderer.Bake(view, room, new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
+        LightBakeFile.Read(gpu.Renderer.Baking.Bake(view, room, new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
 
     // The room baked under the full sky, though it is drawn without one: the floor is black live and lit by its bake,
     // so the two ends of a fade are far apart. The store calls any bake fresh, so this one is drawn.

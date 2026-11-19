@@ -53,7 +53,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             // holds the same pi L, so with the sky off it gives the same diffuse light. Only the sky's faint reflection
             // on the matte grey, about a twentieth of the light, is missing.
             var live = Centre(Capture(plane, sky: 1f));
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             var baked = Centre(Capture(plane, sky: 0f));
 
             Assert.True(dark.X < 2f, $"The unlit plane reads {dark}, not black.");
@@ -64,7 +64,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
         }
@@ -83,7 +83,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             var plane = Plane(quad, gpu.Matte);
 
             // The store has no file at all, so the space is lit live and the plane's draw has no lightmap.
-            gpu.Renderer.Bakes = new LightBakeStore(_ => null, TextWriter.Null);
+            gpu.Renderer.Baking.Bakes = new LightBakeStore(_ => null, TextWriter.Null);
             byte[] on = Capture(plane, sky: 1f);
             byte[] off = Capture(plane, sky: 1f, off: RenderEffects.All);
             byte[] onAgain = Capture(plane, sky: 1f);
@@ -97,7 +97,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
         }
@@ -118,7 +118,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
 
             // Drawn at half the sky the bake was made under, so the live light and the baked light differ.
             byte[] live = Capture(plane, sky: 0.5f);
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             byte[] baked = Capture(plane, sky: 0.5f);
             byte[] off = Capture(plane, sky: 0.5f, off: RenderEffects.All);
 
@@ -127,7 +127,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
         }
@@ -168,7 +168,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             // Wear and the materials that carry it are effects, so they are left on.
             const RenderEffects off = TestEffects.OnlyBaked & ~RenderEffects.WearAndDirt & ~RenderEffects.Materials;
             byte[] live = Capture(plane, sky: 1f, off);
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             byte[] baked = Capture(plane, sky: 1f, off);
 
             // u = 0.2 and 0.8 lie at x = -0.6 and 0.6 on the plane, which from 3 metres away with a 45 degree view is
@@ -184,7 +184,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
         }
@@ -206,10 +206,10 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
 
             gpu.Renderer.Render(view, [plane]);
             int live = gpu.Renderer.Reflections.LightingHash(view);
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             gpu.Renderer.Render(view, [plane]);
             int baked = gpu.Renderer.Reflections.LightingHash(view);
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.Render(view, [plane]);
             int liveAgain = gpu.Renderer.Reflections.LightingHash(view);
 
@@ -218,7 +218,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
         }
@@ -250,14 +250,14 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             const RenderEffects off = TestEffects.OnlyBaked & ~RenderEffects.Materials;
 
             // d packed as 128 is 0.004 on each axis, near nothing, as under an even sky: the light is turned by 1.004.
-            gpu.Renderer.Bakes = new Loaded(WithDirection(bake, 128, 128, 128));
+            gpu.Renderer.Baking.Bakes = new Loaded(WithDirection(bake, 128, 128, 128));
             var even = Centre(Capture(plane, sky: 0f, off));
 
             // (166, 128, 6) is d = (0.302, 0.004, -0.953), behind the vertex normal +z, as a gutter texel or a smooth
             // normal can give. n.d = 0.867 * 0.302 + 0.498 * -0.953 = -0.213 and v.d = -0.953, so the light would be
             // turned by (-0.213 * 0.5 + 0.5) / (-0.953 * 0.5 + 0.5) = 0.394 / 0.0235 = 16.7. With the vertex normal's
             // share floored at 0.5 it is 0.394 / 0.5 = 0.787: a little darker than the even light, not 17 times brighter.
-            gpu.Renderer.Bakes = new Loaded(WithDirection(bake, 166, 128, 6));
+            gpu.Renderer.Baking.Bakes = new Loaded(WithDirection(bake, 166, 128, 6));
             var behind = Centre(Capture(plane, sky: 0f, off));
 
             Assert.True(even.X > 40f, $"The evenly lit plane reads {even}, unlit.");
@@ -267,7 +267,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
         }
@@ -330,13 +330,13 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
 
             // A fresh bake that can be read takes the lamp out of the live lighting. A whole capture keeps the
             // noise in step with the other two.
-            gpu.Renderer.Bakes = new FreshWithoutLightmaps();
+            gpu.Renderer.Baking.Bakes = new FreshWithoutLightmaps();
             Capture(plane, sky: 0f, lights: lamp);
-            Assert.Equal([0], gpu.Renderer.LastBakeFrame!.DroppedLocalLights);
+            Assert.Equal([0], gpu.Renderer.Baking.LastFrame!.DroppedLocalLights);
 
             Console.SetError(log);
             var store = new Unreadable(load);
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             byte[] unreadable = Capture(plane, sky: 0f, lights: lamp);
 
             // Over 64 frames it is read once and said once, and the lamp is back.
@@ -351,13 +351,13 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             gpu.Renderer.Render(View(0f, TestEffects.OnlyBaked, lamp), [plane]);
             Assert.Equal(2, store.Loads);
             Assert.Equal(2, Lines(log).Length);
-            Assert.False(gpu.Renderer.LastBakeFrame!.SpaceFresh);
-            Assert.Empty(gpu.Renderer.LastBakeFrame.DroppedLocalLights);
+            Assert.False(gpu.Renderer.Baking.LastFrame!.SpaceFresh);
+            Assert.Empty(gpu.Renderer.Baking.LastFrame.DroppedLocalLights);
         }
         finally
         {
             Console.SetError(error);
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
         }
@@ -381,7 +381,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
 
             // A fresh area whose store gives no lightmaps lets go of any bake loaded before, and the frames after
             // it free their slots.
-            gpu.Renderer.Bakes = new FreshWithoutLightmaps();
+            gpu.Renderer.Baking.Bakes = new FreshWithoutLightmaps();
             RenderFrames(plane, 4);
 
             // Fill every free slot, then free one, so the bake's first page fits and its second doesn't.
@@ -398,12 +398,12 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             fillers.RemoveAt(fillers.Count - 1);
             RenderFrames(plane, 4);
 
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             var error = Assert.Throws<InvalidOperationException>(() => gpu.Renderer.Render(View(0f, TestEffects.OnlyBaked), [plane]));
             Assert.Equal("The renderer holds at most 1024 textures.", error.Message);
 
             // Once the frames in flight are done, the page it made has gone back, so one texture fits again.
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             RenderFrames(plane, 4);
             fillers.Add(gpu.Renderer.CreateTexture(tiny));
         }
@@ -415,7 +415,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             }
 
             // Let the frames in flight finish so the fillers' slots are free for the tests after this one.
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             for (int i = 0; i < 4; i++)
             {
                 gpu.Renderer.Render(View(0f, TestEffects.OnlyBaked), []);
@@ -442,9 +442,9 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             Assert.Equal(LightBakePageFormat.Bc6h, cooked.Irradiance![0].Format);
             Assert.Equal(LightBakePageFormat.Bc7, cooked.Direction![0].Format);
 
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             var raw = Centre(Capture(plane, sky: 0f));
-            gpu.Renderer.Bakes = new Loaded(cooked);
+            gpu.Renderer.Baking.Bakes = new Loaded(cooked);
             var fromCooked = Centre(Capture(plane, sky: 0f));
 
             // BC6H keeps about 3 significant figures of an even light, and BC7 the direction to a byte or two.
@@ -455,7 +455,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
         }
@@ -504,7 +504,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         var view = View(sky: 1f, TestEffects.OnlyBaked);
-        return LightBakeFile.Read(gpu.Renderer.Bake(view, [plane], new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
+        return LightBakeFile.Read(gpu.Renderer.Baking.Bake(view, [plane], new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
     }
 
     private MeshHandle CreateQuad()

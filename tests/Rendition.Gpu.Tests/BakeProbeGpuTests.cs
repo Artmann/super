@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 namespace Rendition.Gpu.Tests;
 
 /// <summary>
-/// The space's light probes baked by <see cref="Renderer.Bake"/>: traced, folded into the live probes' tiles and read
+/// The space's light probes baked by <see cref="RendererBaking.Bake"/>: traced, folded into the live probes' tiles and read
 /// back from the <c>.lightbake</c> file it returns.
 /// </summary>
 [Collection(GpuCollection.Name)]
@@ -266,14 +266,14 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
         view.Baked.Space = Room with { TexelsPerMetre = settings.TexelsPerMetre };
         view.Environment.Intensity = sky;
         view.LocalLights = lights;
-        return LightBakeFile.Read(gpu.Renderer.Bake(view, draws, settings));
+        return LightBakeFile.Read(gpu.Renderer.Baking.Bake(view, draws, settings));
     }
 
     private byte[] BakeEmpty(BakedSpace space)
     {
         var view = gpu.View(DebugView.None);
         view.Baked.Space = space;
-        return gpu.Renderer.Bake(view, [], new BakeSettings(20, BakeQuality.Preview));
+        return gpu.Renderer.Baking.Bake(view, [], new BakeSettings(20, BakeQuality.Preview));
     }
 
     private MeshHandle CreateQuad()

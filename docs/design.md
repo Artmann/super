@@ -2558,7 +2558,7 @@ live. A layout from `Single` has one page (page 0), or none when it is given no 
 `LightmapLayout.BuildSingle` takes draws, the area callback and `getsLightmap` as `Build` does, groups them by the same
 key and measures each group the same way, then hands the groups to `Single` as charts and gives every draw of a group
 its chart's rectangle. A group's chart is named by its first draw's bake id, and every draw of a group that doesn't fit
-is in `Left`. `Renderer.Bake` and `Renderer.BakeChunk` read `Left` once the layout is built, and throw
+is in `Left`. `Renderer.Baking.Bake` and `Baking.BakeChunk` read `Left` once the layout is built, and throw
 `InvalidOperationException` when it holds anything, giving how many draws did not fit and suggesting fewer texels a
 metre or a smaller area. Without it those draws would have no rectangle, lose their Baked lights' direct light, and
 the bake would still report success. `Single` can leave charts out (a chunk of more squares than one 2048 page holds),
@@ -2680,7 +2680,7 @@ it.
 Passes go to the GPU in batches. The first is one pass; after each, `Bake` times it and
 sizes the next to fit `Renderer.BakeBatchBudget` (80 ms) at that rate, at most double the last,
 so no submit holds the GPU long enough to trip a device timeout. A chunk's trace also sums its sky and sun transfer;
-see "Baking a chunk" under "Chunk transfer". `Renderer.Bake` takes the
+see "Baking a chunk" under "Chunk transfer". `Renderer.Baking.Bake` takes the
 lights' modes from `BakeResolver`, so the bake and the frame agree on which lights are moving.
 The job builds and holds its own top-level structure, released only when the job is disposed, so it
 stays alive for the whole trace even if frames are drawn between steps.
@@ -2756,7 +2756,7 @@ in a texture to borrow from.
 A space's `BakeJob` bakes its light probes after the lightmap, with the same scene and
 lights, into the file's probe pages. The settings are the space's own box and `ProbeSpacing`
 (`BakedSpace` from `view.Indirect.BakedLighting`), so `ProbeGrid` lays the baked probes out exactly as it
-would live probes in that box, at most `BakeFiles.MaxSpaceProbes` (4,096); `Renderer.Bake`
+would live probes in that box, at most `BakeFiles.MaxSpaceProbes` (4,096); `Renderer.Baking.Bake`
 refuses a space with more before it starts. The tiles are the live probes' own, but the pages
 keep a fixed layout of their own, `BakedProbeAtlas`: one 2D page each, 64 tiles across, probe i at
 column i % 64 and row i / 64. The live atlases are five layers sized by `ProbeQuality`, so a bake
@@ -2870,7 +2870,7 @@ last step's rate, at most double, starting over at one after a step that traced 
 
 ## Background bakes
 
-With `Renderer.AutoBake` set, the renderer bakes the areas a frame names whose bake is missing or stale by itself, one
+With `Renderer.Baking.AutoBake` set, the renderer bakes the areas a frame names whose bake is missing or stale by itself, one
 `BakeJob` at a time, a step a frame inside the frame's own command buffer. Nothing waits for the GPU: the frames
 (`AutoBakeGpuTests`) never move `GpuWaits.SubmitAndWaitCount`.
 
@@ -4355,7 +4355,7 @@ and chunk checks and after `EnvironmentSky.Follow`, since `EnvironmentHash` read
 `EnvironmentSky.Follow` sets. `Capture` goes through `Render`, so it does the same. A frame that names no
 space and no chunks returns the shared `BakeFrame.None` at once, before hashing, asking the
 store or feeding the tracker, so a game without baked areas does no work and allocates
-nothing. The renderer then sets `LastBakeFrame` to null.
+nothing. The renderer then sets `Baking.LastFrame` to null.
 
 Otherwise it runs in this order:
 
@@ -4385,7 +4385,7 @@ Otherwise it runs in this order:
 5. `IBakeStore.IsFresh(file, inputs)` is asked about each area, or `IsFreshQuietly` while
    `AnimatedLights.Settled` is false, which gives the same answer without reporting a stale bake,
    with `BakeFiles.Space(name)` or
-   `BakeFiles.Chunk(name, inputs.Combined)`. The store is `Renderer.Bakes`, `NoBakes.Instance`
+   `BakeFiles.Chunk(name, inputs.Combined)`. The store is `Renderer.Baking.Bakes`, `NoBakes.Instance`
    by default, which answers false for everything, or `NoBakes.Instance` whatever `Bakes` is
    when the view has `RenderEffects.BakedLighting` in `Off`.
 6. A light whose area is fresh keeps its mode in `BakeFrame.ModeOf`, and every other light
@@ -4407,7 +4407,7 @@ Otherwise it runs in this order:
    first again, and a frame with no area clears them all (`ForgetArrivals`). The renderer keeps
    one resolver, so a game that draws an extra view naming no area every frame, between frames
    that do, never sees a bake fade. `BakeFrame.SpaceFade` and `ChunkFade(i)` give the result, 0
-   for a stale area. `Renderer.BakeFadeSeconds` sets `FadeSeconds`, 0.5 by default; a resolver
+   for a stale area. `Renderer.Baking.FadeSeconds` sets the resolver's `FadeSeconds`, 0.5 by default; a resolver
    made on its own, as the tests make, starts at 0 and never fades. Super's
    `SceneRenderer` sets it to 0 when it is made, so a screenshot, recording, profile or bake never
    catches a bake half faded in, and `WindowPlay.Run` sets 0.5 for play.
@@ -4469,7 +4469,7 @@ reload calling `Forget`, and the renderer treats it as unreadable (see "Drawing 
 
 Each area's texel density is on the area (`BakedSpace.TexelsPerMetre`, `BakedChunk.TexelsPerMetre`),
 not passed to the resolver, since it is part of what the scene asks for, like probe spacing.
-`Renderer.Bake` throws when its `BakeSettings.TexelsPerMetre` isn't the space's, since the bake
+`Renderer.Baking.Bake` throws when its `BakeSettings.TexelsPerMetre` isn't the space's, since the bake
 it made would never be fresh.
 
 The work is done by a `BakeResolver` (`src/Rendition/Baking/BakeResolver.cs`), which the
@@ -4485,7 +4485,7 @@ if it passes 1024 names). The model sort uses one cached `Comparison<int>`: sort
 `IComparer` makes a delegate on every call, and a struct comparer is boxed. So a steady frame
 allocates nothing, which `BakeResolverTests` checks with chunks, static draws and dropped
 lights. Because the frame is reused, **the `BakeFrame` a call returns is valid only until the
-next call** (`LastBakeFrame` included): keep what you need from it, not the frame. The only
+next call** (`Baking.LastFrame` included): keep what you need from it, not the frame. The only
 other garbage is from a store that allocates in `IsFresh`, which is the store's own. The
 resolver expects the chunks to have passed `BakeFiles.IsRigid`, which `Render` checks first.
 The sky is worked out once, from the original view: the second pass skips `EnvironmentSky.Follow`, and
@@ -4515,7 +4515,7 @@ it, so turning `BakedLighting` back on reads nothing.
 
 A file that throws `InvalidDataException`, `IOException` or `UnauthorizedAccessException` while
 it is loaded or checked is logged once to `Console.Error` and added to the unreadable set of
-`ReadableBakes`, the wrapper the resolver asks instead of `Renderer.Bakes`. So is a file whose
+`ReadableBakes`, the wrapper the resolver asks instead of `Renderer.Baking.Bakes`. So is a file whose
 store has its own `Load` but gives null for it ("The file is gone, though its header was read as
 fresh."). It answers not fresh for that file, so the frame is resolved again and the space's
 Baked lights come back. The set is cleared when `Bakes` is another object or its `Reloads`
@@ -4801,13 +4801,13 @@ makes the `BakeCache` just before `GameWindow.Run`, from the game's id, and hand
 through `GameWindow.BakeCache`, so the other runs neither bake nor read the cache. `WindowPlay.Run` turns baking on after the
 game goes live by calling `AutoBakeSwitch.TurnOn` (`src/Super/Rendering/AutoBakeSwitch.cs`), and `ApplyAutoBake`,
 called again before each frame is shown, works out the plan only when `AutoBakeSwitch.Changed` says
-`Graphics.Baking.BakeOnArrival` or `Graphics.Baking.BakeBudget` changed, since setting `Renderer.AutoBake` restarts the running bake.
+`Graphics.Baking.BakeOnArrival` or `Graphics.Baking.BakeBudget` changed, since setting `Renderer.Baking.AutoBake` restarts the running bake.
 Every other run leaves the switch off. The switch is tested on its own; that only `Run` turns it on, and that
-`SceneRenderer` starts `Renderer.BakeFadeSeconds` at 0 while `Run` sets 0.5, need a window and aren't tested.
+`SceneRenderer` starts `Renderer.Baking.FadeSeconds` at 0 while `Run` sets 0.5, need a window and aren't tested.
 `AutoBakePolicy.For` (`src/Super/Rendering/AutoBakePolicy.cs`) makes the plan: null when the switch is off or the GPU
 can't trace; from source, where `CookedFolder.Dev` has roots, spaces and chunks at Preview then Final, 4 ms, with the
 first root as the space folder; published, chunks only at Preview, 2 ms, and no space folder.
-`SceneBakes.BakeOnArrival` sets `Renderer.AutoBake` with `BakeSaver.Done` as its `Done`.
+`SceneBakes.BakeOnArrival` sets `Renderer.Baking.AutoBake` with `BakeSaver.Done` as its `Done`.
 
 `BakeSaver` (`src/Super/Rendering/BakeSaver.cs`) gets each finished file on the render thread and chains its work onto
 the last bake's task on the thread pool, so files are kept in the order they finished and a Final never loses to a
@@ -4824,7 +4824,7 @@ live. `SceneRenderer.Dispose` waits up to 10 seconds for the saver after the ren
 just before the window closed is still kept. A new saver is made only when the space folder or the cache changes,
 after waiting for the old one.
 
-`WindowPlay.PlayFrame` hands `Renderer.BakeProgress` to `GameLoop.BakeProgress` before `Draw`, and in play
+`WindowPlay.PlayFrame` hands `Renderer.Baking.Progress` to `GameLoop.BakeProgress` before `Draw`, and in play
 (`GameLoop.ShowsBakes`) `LoopDraw.Interface` puts the game's interface in a `ZStack` with `BakeOverlay`'s line. The
 game's view is always the first child, and the line's place is null when nothing bakes, so the root's type never
 changes and the game's interface keeps its state as the line comes and goes. The stats
@@ -4947,7 +4947,7 @@ scale the coefficients without turning them.
 
 ### Baking a chunk
 
-`Renderer.BakeChunk` and `Renderer.Bake` both run a `BakeJob` (see "Baking as a job"), made from an `AreaJob`: the
+`Renderer.Baking.BakeChunk` and `Baking.Bake` both run a `BakeJob` (see "Baking as a job"), made from an `AreaJob`: the
 draws and lights in the area's own space, whether it is a chunk, its layout, the sky's intensity, whether the plain
 light is kept, and a space's probes. The lights carry their mask channels. The job sets up the texels, which builds
 its top-level structure from the area's draws, traces, then filters and dilates each page, and `Finish` encodes them.

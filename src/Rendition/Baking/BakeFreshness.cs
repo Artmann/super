@@ -110,7 +110,7 @@ public sealed class BakeFrame
     /// <summary>
     /// How far the space's bake has faded in, from 0 to 1: 1 once it is all there, and 0 for a space that isn't
     /// <see cref="SpaceFresh"/> or that names no space. A bake that arrives while its space is drawn live, such as one
-    /// saved by a background bake, fades in over <see cref="Renderer.BakeFadeSeconds"/>; one fresh on the first frame
+    /// saved by a background bake, fades in over <see cref="RendererBaking.FadeSeconds"/>; one fresh on the first frame
     /// that names the space is 1 at once.
     /// </summary>
     public float SpaceFade { get; private set; }

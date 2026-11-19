@@ -602,7 +602,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         var view = gpu.View(DebugView.None);
         view.Baked.Space = Room with { TexelsPerMetre = settings.TexelsPerMetre };
         view.Environment.Intensity = 1f;
-        return LightBakeFile.Read(gpu.Renderer.Bake(view, draws, settings));
+        return LightBakeFile.Read(gpu.Renderer.Baking.Bake(view, draws, settings));
     }
 
     /// <summary>The mean and variance of the red irradiance over the middle 30 x 30 of the floor's 40 x 40 texels.</summary>

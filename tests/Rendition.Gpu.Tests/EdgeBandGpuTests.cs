@@ -58,7 +58,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
             var eye = new Vector3(2f, 4f, -0.8f);
             var banded = TopView(eye, Chunk(BakedChunk.DefaultEdgeBlend));
             var hard = TopView(eye, Chunk(0f));
-            gpu.Renderer.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.BakeChunk(banded, chunkDraws, 0, Settings())));
+            gpu.Renderer.Baking.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.Baking.BakeChunk(banded, chunkDraws, 0, Settings())));
             Assert.True(RenderUntilFresh(banded, draws) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
 
             var bandFrame = Capture(banded, draws);
@@ -66,7 +66,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
             // The band isn't in the bake's hash, so the same bake is fresh without it.
             var hardFrame = Capture(hard, draws);
             int hardStep = WorstStep(hardFrame, Size / 2);
-            Assert.True(gpu.Renderer.LastBakeFrame!.ChunkFresh[0], "The chunk's bake isn't fresh without its band.");
+            Assert.True(gpu.Renderer.Baking.LastFrame!.ChunkFresh[0], "The chunk's bake isn't fresh without its band.");
 
             // The gap between the two lights, from their plateaus: the alley's floor from x = 1 to 1.4, before the band
             // starts at x = 1.5, against the open floor from x = 2.5 to 3.5. A pixel is 2 * 4 * tan(22.5°) / 256 =
@@ -107,7 +107,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
             gpu.Renderer.SetEnvironment(EvenSky(0.5f));
             DrawItem[] draws = [Draw(quad, ChunkFloor, gpu.Matte, 1)];
             var view = TopView(new Vector3(1f, 3f, 0f), Chunk(BakedChunk.DefaultEdgeBlend));
-            gpu.Renderer.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.BakeChunk(view, draws, 0, Settings())));
+            gpu.Renderer.Baking.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.Baking.BakeChunk(view, draws, 0, Settings())));
             Assert.True(RenderUntilFresh(view, draws) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
             byte[] frame = Capture(view, draws);
 
@@ -158,13 +158,13 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
             DirectionalLight[] sun = [new() { Mode = LightMode.Baked, Direction = -Vector3.UnitZ, Radiance = new Vector3(1f) }];
             Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
             gpu.Renderer.Render(SideView(Vector3.UnitZ * 3f, room, [], sky: 0f), [wall]);
-            var bake = LightBakeFile.Read(gpu.Renderer.Bake(
+            var bake = LightBakeFile.Read(gpu.Renderer.Baking.Bake(
                 SideView(Vector3.UnitZ * 3f, room, sun, sky: 0f), [wall], new BakeSettings(4, BakeQuality.Preview)));
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             gpu.Renderer.SetEnvironment(EvenSky(0.1f));
 
             int banded = WorstJump(quad, wall, room, out var bandedAt, out var inside, out var outside);
-            Assert.True(gpu.Renderer.LastBakeFrame!.SpaceFresh, "The bake isn't drawn, so the test shows nothing.");
+            Assert.True(gpu.Renderer.Baking.LastFrame!.SpaceFresh, "The bake isn't drawn, so the test shows nothing.");
             gpu.Renderer.BakedProbeBand = false;
             int hard = WorstJump(quad, wall, room, out var hardAt, out _, out _);
 
@@ -187,7 +187,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.BakedProbeBand = true;
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
             gpu.Renderer.DestroyMaterial(red);
@@ -342,7 +342,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
         for (int frames = 1; frames <= MostFrames; frames++)
         {
             gpu.Renderer.Render(view, draws);
-            if (gpu.Renderer.LastBakeFrame!.ChunkFresh.All(fresh => fresh))
+            if (gpu.Renderer.Baking.LastFrame!.ChunkFresh.All(fresh => fresh))
             {
                 return frames;
             }
@@ -394,7 +394,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
     // Puts the renderer back: no store, and a frame without chunks so nothing stays in the pool.
     private void LetGo(MeshHandle quad)
     {
-        gpu.Renderer.Bakes = NoBakes.Instance;
+        gpu.Renderer.Baking.Bakes = NoBakes.Instance;
         gpu.RenderOneFrame();
         gpu.Renderer.DestroyMesh(quad);
     }

@@ -11,7 +11,7 @@ namespace Rendition;
 /// the filter's uploads, runs on the thread pool: that step returns <see cref="BakeStepResult.AwaitCpu"/>, and the step
 /// that finds it done records the GPU work after it. Each pass is seeded by its own number, so however the passes are
 /// sliced the file is the same.
-/// <see cref="Renderer.Bake"/> and <see cref="Renderer.BakeChunk"/> run one to the end; a background bake runs a few
+/// <see cref="RendererBaking.Bake"/> and <see cref="RendererBaking.BakeChunk"/> run one to the end; a background bake runs a few
 /// steps a frame. The job owns its descriptor pool, its lights, its sums and readback buffers, and a held top-level
 /// structure, and holds the baker's pages from its first step until it is disposed, so one job runs at a time. Dispose
 /// it only once the GPU is done with its steps. Its parts: <see cref="BakeJobKit"/> holds what every step works with,

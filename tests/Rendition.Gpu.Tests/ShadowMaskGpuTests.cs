@@ -48,7 +48,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
 
             // Live, a light with no shadow tile shines through the wall.
             var live = Capture([plane, wall], lamp, []);
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             var baked = Capture([plane, wall], lamp, []);
 
             var liveRight = Pixel(live, RightX);
@@ -65,7 +65,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -88,7 +88,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
             // on the left and the mask still holds the right.
             DrawItem[] moved = [plane, Wall(quad, x: -0.3f, isStatic: false)];
             var live = Capture(moved, lamp, []);
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             var baked = Capture(moved, lamp, []);
 
             var liveRight = Pixel(live, RightX);
@@ -106,7 +106,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -141,7 +141,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
             // One cascade of 0.1 metres, laid from the camera, ends long before the plane 3 metres away, so live the
             // wall casts no shadow on it.
             var live = Capture([plane, wall], [], sun);
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             var baked = Capture([plane, wall], [], sun);
 
             var liveRight = Pixel(live, RightX);
@@ -157,7 +157,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -189,7 +189,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
             Assert.Equal(new[] { (11, 0), (12, 1), (13, 2), (14, 3) }, bake.Channels.OrderBy(c => c.LightKey));
 
             var live = Capture([plane, wall], lamps, []);
-            gpu.Renderer.Bakes = new Loaded(bake);
+            gpu.Renderer.Baking.Bakes = new Loaded(bake);
             var baked = Capture([plane, wall], lamps, []);
 
             // Key 15 has no tile and no channel, so as today it shines through the wall. Behind the wall nothing bounces
@@ -202,7 +202,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -236,10 +236,10 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
             // A's wall is taken away after the bake, so only A's mask can shade A's floor. B's wall stays, and only the
             // lamp's real-time shadow can shade B's floor behind it.
             DrawItem[] drawn = [floorA, floorB, wallB];
-            gpu.Renderer.Bakes = new Named(bakes);
+            gpu.Renderer.Baking.Bakes = new Named(bakes);
             Assert.True(RenderUntilFresh(view, drawn) <= MostFrames, $"The chunks' bakes weren't resident after {MostFrames} frames.");
             var baked = Capture(view, drawn);
-            Assert.Empty(gpu.Renderer.LastBakeFrame!.UnslottedLights);
+            Assert.Empty(gpu.Renderer.Baking.LastFrame!.UnslottedLights);
 
             foreach (float x in new[] { -2f, 0.5f, 2f })
             {
@@ -300,10 +300,10 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
             Assert.Equal(new[] { 0 }, bakes["twin"].ChunkChannels.Select(c => c.Channel));
 
             var open = Capture(view, floors);
-            gpu.Renderer.Bakes = new Named(bakes);
+            gpu.Renderer.Baking.Bakes = new Named(bakes);
             Assert.True(RenderUntilFresh(view, all) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
             var baked = Capture(view, all);
-            Assert.Empty(gpu.Renderer.LastBakeFrame!.UnslottedLights);
+            Assert.Empty(gpu.Renderer.Baking.LastFrame!.UnslottedLights);
 
             // 0.4 metres in from each copy's -x edge, its own lamp is behind its wall. The green lamp is out of reach of
             // the first copy's floor there, but the red lamp reaches the second copy's, where no wall of its own shades it.
@@ -374,10 +374,10 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
 
             // The walls go after the bake, so only the mask shades the floor.
             var open = Capture(view, [floor]);
-            gpu.Renderer.Bakes = new Named(bakes);
+            gpu.Renderer.Baking.Bakes = new Named(bakes);
             Assert.True(RenderUntilFresh(view, [floor]) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
             var baked = Capture(view, [floor]);
-            Assert.Empty(gpu.Renderer.LastBakeFrame!.UnslottedLights);
+            Assert.Empty(gpu.Renderer.Baking.LastFrame!.UnslottedLights);
 
             // Each lamp's shadow 0.3 metres past its wall, and a lit point by the lamp that no other lamp reaches, where
             // reading another lamp's channel would give 0.
@@ -473,7 +473,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
         for (int c = 0; c < count; c++)
         {
             bakes[view.Baked.Chunks[c].Name] = LightBakeFile.Read(
-                gpu.Renderer.BakeChunk(view, draws, c, new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
+                gpu.Renderer.Baking.BakeChunk(view, draws, c, new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
         }
 
         return bakes;
@@ -484,7 +484,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
         for (int frames = 1; frames <= MostFrames; frames++)
         {
             gpu.Renderer.Render(view, draws);
-            if (gpu.Renderer.LastBakeFrame!.ChunkFresh.All(fresh => fresh))
+            if (gpu.Renderer.Baking.LastFrame!.ChunkFresh.All(fresh => fresh))
             {
                 return frames;
             }
@@ -513,7 +513,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
     // Puts the renderer back: no store, and a frame without chunks so nothing stays in the pool.
     private void LetGo(MeshHandle quad)
     {
-        gpu.Renderer.Bakes = NoBakes.Instance;
+        gpu.Renderer.Baking.Bakes = NoBakes.Instance;
         gpu.RenderOneFrame();
         gpu.Renderer.DestroyMesh(quad);
     }
@@ -560,7 +560,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
         // and the bake would leave it out of the mask. A frame without lights forgets them all.
         gpu.Renderer.Render(View([], []), draws);
         return LightBakeFile.Read(
-            gpu.Renderer.Bake(View(lights, suns), draws, new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
+            gpu.Renderer.Baking.Bake(View(lights, suns), draws, new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
     }
 
     private MeshHandle CreateQuad()

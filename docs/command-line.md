@@ -443,9 +443,9 @@ dotnet run --project MyGame -- --bake-check
 ```
 
 `--bake` plays `--ticks` ticks, then bakes the frame's [baked space](rendering.md#baked-lighting) with
-[`Renderer.Bake`](rendering.md#making-a-bake) and saves it in the game's first content root as
+[`Renderer.Baking.Bake`](rendering.md#making-a-bake) and saves it in the game's first content root as
 `lighting/<name>.lightbake`, replacing what was there. It then bakes each baked chunk the frame
-draws with `Renderer.BakeChunk` and saves it as `lighting/<name>/<hash>.lightbake`. Chunks with
+draws with `Renderer.Baking.BakeChunk` and saves it as `lighting/<name>/<hash>.lightbake`. Chunks with
 the same contents share one file however many copies stand in the frame, so each file is baked
 once, in order of first appearance, after the space. Like `--screenshot` it runs without a
 window and under validation, and `--seed` and `--script` work as usual. For each file it prints the path,

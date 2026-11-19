@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 namespace Rendition.Gpu.Tests;
 
 /// <summary>
-/// The baker's path tracer, through <see cref="Renderer.Bake"/>: small scenes whose light can be worked out by hand,
+/// The baker's path tracer, through <see cref="RendererBaking.Bake"/>: small scenes whose light can be worked out by hand,
 /// read back from the <c>.lightbake</c> file it returns.
 /// </summary>
 [Collection(GpuCollection.Name)]
@@ -363,7 +363,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
             view.Baked.Space = Room;
             view.Time = 0.1f;
             view.LocalLights = new[] { lamp };
-            byte[] bytes = gpu.Renderer.Bake(view, draws, new BakeSettings(20, BakeQuality.Preview));
+            byte[] bytes = gpu.Renderer.Baking.Bake(view, draws, new BakeSettings(20, BakeQuality.Preview));
             var file = LightBakeFile.Read(bytes);
 
             // A Baked lamp 10 bright a metre above would give the floor about 10; left out, nothing lights it.
@@ -372,16 +372,16 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
 
             // The next frame, with the lamp still settling, finds the bake fresh and keeps the lamp real-time.
             var inputs = LightBakeFile.ReadInputs(bytes);
-            gpu.Renderer.Bakes = new StoreOf(inputs);
+            gpu.Renderer.Baking.Bakes = new StoreOf(inputs);
             Render(draws, lamp, time: 0.2f);
-            var frame = gpu.Renderer.LastBakeFrame;
+            var frame = gpu.Renderer.Baking.LastFrame;
             Assert.NotNull(frame);
             Assert.True(frame.SpaceFresh, "The bake was stale on the next frame.");
             Assert.Equal(LightMode.Realtime, frame.ModeOf(new LightKey(false, 1107)));
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -427,7 +427,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var error = Assert.Throws<InvalidOperationException>(
-            () => gpu.Renderer.Bake(gpu.View(DebugView.None), [], new BakeSettings()));
+            () => gpu.Renderer.Baking.Bake(gpu.View(DebugView.None), [], new BakeSettings()));
 
         Assert.Equal("Bake needs a baked space in the frame; call view.Indirect.BakedLighting first.", error.Message);
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -441,7 +441,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         {
             var view = gpu.View(DebugView.None);
             view.Baked.Space = Room with { TexelsPerMetre = 8 };
-            gpu.Renderer.Bake(view, [], new BakeSettings(20));
+            gpu.Renderer.Baking.Bake(view, [], new BakeSettings(20));
         });
 
         Assert.Equal(
@@ -476,11 +476,11 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
             }
 
             gpu.Renderer.Render(View(dense), draws);
-            byte[] bytes = gpu.Renderer.Bake(View(dense), draws, new BakeSettings(8, BakeQuality.Preview));
-            gpu.Renderer.Bakes = new LightBakeStore(name => name == "lighting/trace-room.lightbake" ? bytes : null, log);
+            byte[] bytes = gpu.Renderer.Baking.Bake(View(dense), draws, new BakeSettings(8, BakeQuality.Preview));
+            gpu.Renderer.Baking.Bakes = new LightBakeStore(name => name == "lighting/trace-room.lightbake" ? bytes : null, log);
 
             gpu.Renderer.Render(View(dense), draws);
-            var frame = gpu.Renderer.LastBakeFrame;
+            var frame = gpu.Renderer.Baking.LastFrame;
             Assert.NotNull(frame);
             Assert.True(frame.SpaceFresh, $"The bake was stale on the next frame: {log}");
             Assert.Equal([0], frame.DroppedLocalLights);
@@ -489,18 +489,18 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
             // The same space at the default density asks for another bake. It is lit live at once, but reported only
             // once the moving-light tracker has settled, in case a light not yet seen moving is what differs.
             gpu.Renderer.Render(View(Room), draws);
-            Assert.False(gpu.Renderer.LastBakeFrame!.SpaceFresh);
+            Assert.False(gpu.Renderer.Baking.LastFrame!.SpaceFresh);
             Assert.Equal("", log.ToString());
 
             gpu.Renderer.Render(View(Room, AnimatedLights.SettleSeconds), draws);
-            Assert.False(gpu.Renderer.LastBakeFrame!.SpaceFresh);
+            Assert.False(gpu.Renderer.Baking.LastFrame!.SpaceFresh);
             Assert.Equal(
                 $"The bake lighting/trace-room.lightbake is stale, since its settings changed, so its area is lit live until it is baked again.{Environment.NewLine}",
                 log.ToString());
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -554,7 +554,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         view.Baked.Space = Room with { TexelsPerMetre = settings.TexelsPerMetre };
         view.Environment.Intensity = sky;
         view.LocalLights = lights;
-        return LightBakeFile.Read(gpu.Renderer.Bake(view, draws, settings));
+        return LightBakeFile.Read(gpu.Renderer.Baking.Bake(view, draws, settings));
     }
 
     private void Render(DrawItem[] draws, LocalLight lamp, float time)

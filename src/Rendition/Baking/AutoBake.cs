@@ -3,9 +3,9 @@ using System.Globalization;
 namespace Rendition;
 
 /// <summary>
-/// What the renderer bakes by itself, set on <see cref="Renderer.AutoBake"/>. Each frame it looks for areas the frame
+/// What the renderer bakes by itself, set on <see cref="RendererBaking.AutoBake"/>. Each frame it looks for areas the frame
 /// names whose bake is missing or stale and bakes them in the background, one at a time, nearest to the camera first,
-/// a slice a frame within <see cref="BudgetMilliseconds"/> of GPU time. Null on <see cref="Renderer.AutoBake"/> bakes
+/// a slice a frame within <see cref="BudgetMilliseconds"/> of GPU time. Null on <see cref="RendererBaking.AutoBake"/> bakes
 /// nothing. Ignored where <see cref="Renderer.CanTrace"/> is false. See "Baking in the background" in
 /// docs/rendering.md.
 /// </summary>
@@ -48,7 +48,7 @@ public sealed record AutoBake(
 /// <param name="Bytes">The whole file.</param>
 public readonly record struct BakeDone(string File, string Name, BakeInputs Inputs, BakeQuality Quality, byte[] Bytes);
 
-/// <summary>How the renderer's background bake is getting on, from <see cref="Renderer.BakeProgress"/>.</summary>
+/// <summary>How the renderer's background bake is getting on, from <see cref="RendererBaking.Progress"/>.</summary>
 /// <param name="Name">The space or chunk being baked, or empty while areas wait and none has started.</param>
 /// <param name="Fraction">How much of it is done, from 0 to 1.</param>
 /// <param name="Waiting">How many other areas the last frame named that wait to be baked.</param>

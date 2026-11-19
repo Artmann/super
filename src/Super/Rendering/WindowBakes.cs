@@ -18,7 +18,7 @@ internal sealed class WindowBakes(OsWindow window, SceneRenderer scene, WindowFr
     {
         float time = frames.PlayAndDraw(host, ticks);
         var chunks = host.View.Indirect.BakedChunks;
-        var frame = scene.Renderer.LastBakeFrame;
+        var frame = scene.Renderer.Baking.LastFrame;
         var targets = BakeCommand.Targets(
             host.View.Indirect.BakedSpace is { } named ? BakeFiles.Space(named.Name) : null,
             chunks.Count,
@@ -56,7 +56,7 @@ internal sealed class WindowBakes(OsWindow window, SceneRenderer scene, WindowFr
     public int BakeCheck(GameLoop host, long ticks)
     {
         frames.PlayAndDraw(host, ticks);
-        var frame = scene.Renderer.LastBakeFrame;
+        var frame = scene.Renderer.Baking.LastFrame;
         if (frame is null)
         {
             return BakeCommand.Check([], _ => null, Console.Out);

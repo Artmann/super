@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 namespace Rendition.Gpu.Tests;
 
 /// <summary>
-/// <see cref="Renderer.BakeChunk"/>: small chunks whose sky and sun transfer can be worked out by hand, read back from
+/// <see cref="RendererBaking.BakeChunk"/>: small chunks whose sky and sun transfer can be worked out by hand, read back from
 /// the <c>.lightbake</c> file it returns.
 /// </summary>
 [Collection(GpuCollection.Name)]
@@ -484,7 +484,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         var view = gpu.View(DebugView.None);
         view.Baked.Chunks = new[] { chunk };
         view.LocalLights = lights ?? [];
-        return gpu.Renderer.BakeChunk(view, draws, index, new BakeSettings(density, BakeQuality.Preview));
+        return gpu.Renderer.Baking.BakeChunk(view, draws, index, new BakeSettings(density, BakeQuality.Preview));
     }
 
     private byte[] BakeChunks(BakedChunk[] chunks, DrawItem[] draws, LocalLight[] lights, int index)
@@ -492,7 +492,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         var view = gpu.View(DebugView.None);
         view.Baked.Chunks = chunks;
         view.LocalLights = lights;
-        return gpu.Renderer.BakeChunk(view, draws, index, new BakeSettings(Density, BakeQuality.Preview));
+        return gpu.Renderer.Baking.BakeChunk(view, draws, index, new BakeSettings(Density, BakeQuality.Preview));
     }
 
     private MeshHandle CreateQuad()
