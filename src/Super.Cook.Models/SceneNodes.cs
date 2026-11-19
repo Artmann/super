@@ -3,6 +3,8 @@ using Silk.NET.Assimp;
 
 namespace Super.Cook.Models;
 
+using Scene = Silk.NET.Assimp.Scene;
+
 /// <summary>
 /// Every node of a scene, parent first, with its global rest transform and, once the joints are chosen, its joint, so
 /// a mesh that hangs off a node without a skin can be placed and attached. Also which node holds each mesh.

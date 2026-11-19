@@ -78,6 +78,9 @@ public sealed class HeadlessRun<TGame> : IDisposable
     /// <summary>The game's world, with every entity in it.</summary>
     public World World => (World)_host.GetService(typeof(World));
 
+    /// <summary>The game's scenes, to see which is open or to go to another. A Go lands at the end of the next tick.</summary>
+    public Scenes Scenes => (Scenes)_host.GetService(typeof(Scenes));
+
     /// <summary>How the last frame moved between pictures: its style, how far along, and which held picture. Call <see cref="Frame"/> first.</summary>
     public Rendition.ScreenTransition Transition => _host.View.Effects.Transition;
 

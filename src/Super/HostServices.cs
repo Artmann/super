@@ -61,6 +61,7 @@ internal sealed class HostServices : IDisposable
         services.AddSingleton<Transitions>();
         services.AddSingleton<Director>();
         services.AddSingleton<World>();
+        services.AddSingleton<Scenes>();
         services.AddSingleton<ITickHook>(provider => provider.GetRequiredService<World>());
         services.AddSingleton<IStateHook>(provider => provider.GetRequiredService<World>());
         services.AddSingleton<IDrawHook, SoundSync>();
