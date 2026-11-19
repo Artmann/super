@@ -84,19 +84,11 @@ internal abstract class GameLoop
 
     public int ScreenHeight { get; set; } = DefaultScreenHeight;
 
-    /// <summary>Whether the interface shows what bakes in the background, over the game's own. Only play does.</summary>
-    internal bool ShowsBakes
-    {
-        get => _draw.ShowsBakes;
-        set => _draw.ShowsBakes = value;
-    }
-
-    /// <summary>How the background bake is getting on, as the renderer last said, or null when nothing bakes.</summary>
-    internal Rendition.BakeProgress? BakeProgress
-    {
-        get => _draw.BakeProgress;
-        set => _draw.BakeProgress = value;
-    }
+    /// <summary>
+    /// What each frame does, which play tells whether the interface shows what bakes in the background and how the
+    /// bake is getting on.
+    /// </summary>
+    internal LoopDraw DrawSteps => _draw;
 
     public void Tick() => _tick.Run(Ui, new Vector2(ScreenWidth, ScreenHeight));
 

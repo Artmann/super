@@ -70,7 +70,7 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
         // Only here is missing lighting baked as it appears, and only here does a bake that arrives fade in.
         scene.Renderer.Baking.FadeSeconds = PlayBakeFadeSeconds;
         _autoBake.TurnOn();
-        host.ShowsBakes = true;
+        host.DrawSteps.ShowsBakes = true;
         ApplyAutoBake(host);
     }
 
@@ -98,7 +98,7 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
             cursor.Apply(window.GlfwApi, window.NativeWindow, host.Input, host.Ui.Scale);
         }
 
-        host.BakeProgress = scene.Renderer.Baking.Progress;
+        host.DrawSteps.BakeProgress = scene.Renderer.Baking.Progress;
         frames.Draw(host, clock.Blend);
         ApplyAutoBake(host);
         frames.Show(host, (float)_played);

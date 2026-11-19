@@ -68,11 +68,9 @@ public class BakeOverlayTests
     [InlineData(false, new[] { "Score 12" })]
     public void Play_shows_the_line_over_the_games_interface(bool showsBakes, string[] shown)
     {
-        using var host = new GameHost<Scored>(1, 30, null)
-        {
-            ShowsBakes = showsBakes,
-            BakeProgress = new BakeProgress("cottage", 0.5f, 0, 1f),
-        };
+        using var host = new GameHost<Scored>(1, 30, null);
+        host.DrawSteps.ShowsBakes = showsBakes;
+        host.DrawSteps.BakeProgress = new BakeProgress("cottage", 0.5f, 0, 1f);
 
         host.Draw(1f);
 
