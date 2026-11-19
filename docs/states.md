@@ -84,8 +84,9 @@ run.States<Screen>().Set(Screen.House);
 run.Ticks(1);
 ```
 
-The [Rooms example](../examples/Rooms) has a menu, a loading screen and two areas, with
-one player and a coin count carried between them. Its tests are in
+The [Rooms example](../examples/Rooms) uses states for its menu, its loading screen and
+playing, and [scenes](ecs.md#scenes) for the two rooms the player walks between, with one
+player and a coin count carried through. Its tests are in
 [tests/Rooms.Tests](../tests/Rooms.Tests).
 
 ## Loading screens

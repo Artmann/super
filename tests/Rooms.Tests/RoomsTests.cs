@@ -9,19 +9,27 @@ public class RoomsTests
 {
     private static HeadlessRun<RoomsGame> Start(int seed) => HeadlessGame.Create<RoomsGame>(seed);
 
-    private static void Into(HeadlessRun<RoomsGame> run, Screen target)
+    /// <summary>Goes straight to a room, past the menu, with no fade.</summary>
+    private static void Into(HeadlessRun<RoomsGame> run, Room room)
     {
-        run.States<Screen>().Set(target);
+        if (!run.States<Screen>().Is(Screen.Playing))
+        {
+            run.States<Screen>().Set(Screen.Playing);
+            run.Ticks(1);
+        }
+
+        run.Game.GoTo(room);
         run.Ticks(1);
+        Assert.Equal(room, run.Game.CurrentRoom);
     }
 
     private static Vector3 Player(HeadlessRun<RoomsGame> run) => run.Game.World.Get<Transform>(run.Game.Player).Position;
 
-    /// <summary>Walks towards a spot, until the state changes or the player gets there.</summary>
+    /// <summary>Walks towards a spot, until the room changes or the player gets there, and waits out any fade.</summary>
     private static void WalkTo(HeadlessRun<RoomsGame> run, Vector3 target)
     {
-        var start = run.States<Screen>().Current;
-        for (int i = 0; i < 600 && run.States<Screen>().Is(start); i++)
+        var start = run.Game.CurrentRoom;
+        for (int i = 0; i < 600 && run.Game.CurrentRoom == start; i++)
         {
             var away = target - Player(run);
             if (away.Length() < 0.1f)
@@ -35,6 +43,12 @@ public class RoomsTests
 
         run.Input.Release(Control.Move);
         run.Ticks(1);
+
+        // A door fades to the next room, which is built once the screen is black.
+        for (int i = 0; i < 60 && run.Scenes.IsChanging; i++)
+        {
+            run.Ticks(1);
+        }
     }
 
     [Fact]
@@ -62,7 +76,8 @@ public class RoomsTests
 
         run.FinishLoading();
         run.Ticks(1);
-        Assert.True(run.States<Screen>().Is(Screen.House));
+        Assert.True(run.States<Screen>().Is(Screen.Playing));
+        Assert.Equal(Room.House, run.Game.CurrentRoom);
     }
 
     [Fact]
@@ -71,14 +86,14 @@ public class RoomsTests
         using var run = Start(1);
         run.Input.Press(Key.Space);
         run.Ticks(3);
-        Assert.True(run.States<Screen>().Is(Screen.House));
+        Assert.Equal(Room.House, run.Game.CurrentRoom);
     }
 
     [Fact]
     public void Clicking_the_ground_walks_there()
     {
         using var run = Start(1);
-        Into(run, Screen.House);
+        Into(run, Room.House);
 
         var pixel = new Vector2(760f, 300f);
         var spot = run.Game.Camera.Ray(pixel, run.ScreenSize).Ground()!.Value;
@@ -91,7 +106,7 @@ public class RoomsTests
     public void A_key_takes_over_from_a_click()
     {
         using var run = Start(1);
-        Into(run, Screen.House);
+        Into(run, Room.House);
         run.Input.Click(MouseButton.Left, new Vector2(760f, 300f));
         run.Ticks(2);
 
@@ -105,20 +120,20 @@ public class RoomsTests
     public void The_door_lid_starts_shut_and_lifts_as_the_player_comes_close()
     {
         using var run = Start(1);
-        Into(run, Screen.House);
-        float Lid() => run.Drawn.Single(model => model.Key == RoomsGame.DoorLidKey).Transform.Translation.Y;
+        Into(run, Room.House);
+        float Lid() => Assert.Single(Lids(run));
         float shut = Lid();
 
         WalkTo(run, RoomsGame.HouseDoor - new Vector3(0f, 0f, 1.5f));
         run.Ticks(30);
-        Assert.Equal(shut + 1f, Lid(), 3);
+        Assert.Equal(shut + RoomsGame.LidLift, Lid(), 3);
     }
 
     [Fact]
     public void A_coin_makes_a_sparkle_that_fades()
     {
         using var run = Start(1);
-        Into(run, Screen.Outside);
+        Into(run, Room.Outside);
         WalkTo(run, run.Game.CoinPositions()[0]);
         Assert.True(run.Game.Coins > 0);
         Assert.Contains(run.Drawn, model => model.Key == RoomsGame.SparkleKey);
@@ -131,21 +146,40 @@ public class RoomsTests
     public void Walking_through_the_door_goes_outside_and_back()
     {
         using var run = Start(1);
-        Into(run, Screen.House);
+        Into(run, Room.House);
 
         WalkTo(run, RoomsGame.HouseDoor);
-        Assert.True(run.States<Screen>().Is(Screen.Outside));
+        Assert.Equal(Room.Outside, run.Game.CurrentRoom);
 
         WalkTo(run, RoomsGame.OutsideDoor);
-        Assert.True(run.States<Screen>().Is(Screen.House));
+        Assert.Equal(Room.House, run.Game.CurrentRoom);
+    }
+
+    [Fact]
+    public void A_door_fades_out_before_the_next_room_is_built()
+    {
+        using var run = Start(1);
+        Into(run, Room.House);
+        run.Input.Hold(Control.Move, -Vector2.UnitY);
+        for (int i = 0; i < 120 && !run.Scenes.IsChanging; i++)
+        {
+            run.Ticks(1);
+        }
+
+        run.Input.Release(Control.Move);
+        Assert.True(run.Scenes.IsChanging);
+        Assert.Equal(Room.House, run.Game.CurrentRoom);
+
+        run.Ticks(30);
+        Assert.Equal(Room.Outside, run.Game.CurrentRoom);
     }
 
     [Fact]
     public void Coming_back_inside_puts_the_player_by_the_door()
     {
         using var run = Start(1);
-        Into(run, Screen.Outside);
-        Into(run, Screen.House);
+        Into(run, Room.Outside);
+        Into(run, Room.House);
         Assert.True(Vector3.Distance(Player(run), RoomsGame.HouseDoor) < 3f);
     }
 
@@ -153,22 +187,22 @@ public class RoomsTests
     public void Arriving_never_lands_on_a_door()
     {
         using var run = Start(1);
-        Into(run, Screen.House);
-        Into(run, Screen.Outside);
+        Into(run, Room.House);
+        Into(run, Room.Outside);
         run.Ticks(5);
-        Assert.True(run.States<Screen>().Is(Screen.Outside));
+        Assert.Equal(Room.Outside, run.Game.CurrentRoom);
         Assert.True(Vector3.Distance(Player(run), RoomsGame.OutsideDoor) > 1f);
 
-        Into(run, Screen.House);
+        Into(run, Room.House);
         run.Ticks(5);
-        Assert.True(run.States<Screen>().Is(Screen.House));
+        Assert.Equal(Room.House, run.Game.CurrentRoom);
     }
 
     [Fact]
     public void Collected_coins_carry_but_the_uncollected_are_replaced()
     {
         using var run = Start(3);
-        Into(run, Screen.Outside);
+        Into(run, Room.Outside);
         var first = run.Game.CoinPositions();
         Assert.Equal(RoomsGame.CoinsOutside, first.Count);
 
@@ -176,11 +210,11 @@ public class RoomsTests
         int carried = run.Game.Coins;
         Assert.True(carried > 0);
 
-        Into(run, Screen.House);
+        Into(run, Room.House);
         Assert.Empty(run.Game.CoinPositions());
         Assert.Equal(carried, run.Game.Coins);
 
-        Into(run, Screen.Outside);
+        Into(run, Room.Outside);
         Assert.Equal(RoomsGame.CoinsOutside, run.Game.CoinPositions().Count);
     }
 
@@ -188,7 +222,7 @@ public class RoomsTests
     public void A_built_hut_rises_past_its_height_and_settles_on_it()
     {
         using var run = Start(1);
-        Into(run, Screen.Outside);
+        Into(run, Room.Outside);
         run.Input.Press(Control.Build);
         run.Ticks(1);
         float start = Assert.Single(run.Game.HutPositions()).Y;
@@ -213,15 +247,27 @@ public class RoomsTests
     public void Huts_stay_outside()
     {
         using var run = Start(1);
-        Into(run, Screen.Outside);
+        Into(run, Room.Outside);
         run.Input.Press(Control.Build);
         run.Ticks(1);
         Assert.Single(run.Game.HutPositions());
 
-        Into(run, Screen.House);
+        Into(run, Room.House);
 
         Assert.Empty(run.Game.HutPositions());
         Assert.Equal(0, Rising(run));
+    }
+
+    /// <summary>How high each door lid in the room stands.</summary>
+    private static List<float> Lids(HeadlessRun<RoomsGame> run)
+    {
+        var heights = new List<float>();
+        foreach (var row in run.Game.World.Query<DoorLid, Transform>())
+        {
+            heights.Add(row.Second.Position.Y);
+        }
+
+        return heights;
     }
 
     private static int Rising(HeadlessRun<RoomsGame> run)
@@ -239,12 +285,12 @@ public class RoomsTests
     public void Areas_never_leak_entities()
     {
         using var run = Start(1);
-        Into(run, Screen.House);
+        Into(run, Room.House);
         int house = run.Game.World.Count;
         for (int i = 0; i < 5; i++)
         {
-            Into(run, Screen.Outside);
-            Into(run, Screen.House);
+            Into(run, Room.Outside);
+            Into(run, Room.House);
         }
 
         Assert.Equal(house, run.Game.World.Count);
@@ -252,24 +298,24 @@ public class RoomsTests
 
     // The Z edge past the door is walked on a diagonal, since walking straight at a door goes through it.
     [Theory]
-    [InlineData(Screen.Outside, 1f, 0f)]
-    [InlineData(Screen.Outside, -1f, 0f)]
-    [InlineData(Screen.Outside, 0f, -1f)]
-    [InlineData(Screen.Outside, 1f, 1f)]
-    [InlineData(Screen.House, 1f, 0f)]
-    [InlineData(Screen.House, -1f, 0f)]
-    [InlineData(Screen.House, 1f, -1f)]
-    [InlineData(Screen.House, -1f, 1f)]
-    public void The_player_stays_on_the_ground_and_in_the_area(Screen area, float x, float y)
+    [InlineData(Room.Outside, 1f, 0f)]
+    [InlineData(Room.Outside, -1f, 0f)]
+    [InlineData(Room.Outside, 0f, -1f)]
+    [InlineData(Room.Outside, 1f, 1f)]
+    [InlineData(Room.House, 1f, 0f)]
+    [InlineData(Room.House, -1f, 0f)]
+    [InlineData(Room.House, 1f, -1f)]
+    [InlineData(Room.House, -1f, 1f)]
+    public void The_player_stays_on_the_ground_and_in_the_area(Room area, float x, float y)
     {
         using var run = Start(1);
         Into(run, area);
-        float size = area == Screen.Outside ? RoomsGame.OutsideSize : RoomsGame.HouseSize;
+        float size = area == Room.Outside ? RoomsGame.OutsideSize : RoomsGame.HouseSize;
         run.Input.Hold(Control.Move, Vector2.Normalize(new Vector2(x, y)));
         run.Ticks(600);
 
         var position = Player(run);
-        Assert.True(run.States<Screen>().Is(area));
+        Assert.Equal(area, run.Game.CurrentRoom);
         Assert.InRange(position.X, -size, size);
         Assert.InRange(position.Z, -size, size);
         Assert.Equal(0f, position.Y);
@@ -285,7 +331,7 @@ public class RoomsTests
             ["motions/rise.json"] = """{ "id": "rise", "seconds": 0.8, "curve": { "easing": "backOut" } }""",
         };
         using var run = HeadlessGame.Create<RoomsGame>(3, services => services.AddContentFiles(files));
-        Into(run, Screen.Outside);
+        Into(run, Room.Outside);
         WalkTo(run, run.Game.CoinPositions()[0]);
         Assert.Equal(0, run.Game.Coins % 5);
         Assert.InRange(run.Game.Coins, 5, 5 * RoomsGame.CoinsOutside);
@@ -296,12 +342,12 @@ public class RoomsTests
     {
         using var first = Start(9);
         using var second = Start(9);
-        Into(first, Screen.Outside);
-        Into(second, Screen.Outside);
+        Into(first, Room.Outside);
+        Into(second, Room.Outside);
         Assert.Equal(first.Game.CoinPositions(), second.Game.CoinPositions());
 
         using var other = Start(10);
-        Into(other, Screen.Outside);
+        Into(other, Room.Outside);
         Assert.NotEqual(first.Game.CoinPositions(), other.Game.CoinPositions());
     }
 }

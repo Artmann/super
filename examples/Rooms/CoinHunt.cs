@@ -4,7 +4,7 @@ using Super;
 namespace Rooms;
 
 /// <summary>The coins outside: scattered when the player goes out, picked up by walking over them, and counted.</summary>
-internal sealed class CoinHunt(World world, States<Screen> screen, Catalog<CoinKind> kinds, RandomStream spots)
+internal sealed class CoinHunt(World world, Catalog<CoinKind> kinds, RandomStream spots)
 {
     /// <summary>How many coins lie outside each time the player goes out.</summary>
     public const int Count = 8;
@@ -22,15 +22,14 @@ internal sealed class CoinHunt(World world, States<Screen> screen, Catalog<CoinK
     /// <summary>Coins picked up, by their value.</summary>
     public int Total { get; private set; }
 
-    /// <summary>Lays the coins out at random across ground <paramref name="size"/> from the middle each way.</summary>
-    public void Scatter(float size)
+    /// <summary>Lays the coins out at random across ground <paramref name="size"/> from the middle each way, as part of the scene.</summary>
+    public void Scatter(Scene scene, float size)
     {
         for (int i = 0; i < Count; i++)
         {
             float x = spots.Float() * 2f * (size - 1f) - (size - 1f);
             float z = spots.Float() * 2f * (size - 3f) - (size - 5f);
-            var coin = ScopedCube.Add(world, screen, Transform.At(new Vector3(x, 0f, z), kinds["gold"].Size), CoinColor);
-            world.Add(coin, new Coin());
+            scene.Spawn(Transform.At(new Vector3(x, 0f, z), kinds["gold"].Size), new Model(ModelRef.Cube, CoinColor), new Coin());
         }
     }
 

@@ -166,7 +166,7 @@ For the real picture, use [`--screenshot`](command-line.md), which needs a GPU.
 ## A whole example
 
 The [Rooms tests](../tests/Rooms.Tests/RoomsTests.cs) walk a player through a menu, a
-loading screen and two areas by playing input, and check states, text and drawn models:
+loading screen and two rooms by playing input, and check states, scenes, text and the world:
 
 ```csharp
 [Fact]
@@ -181,7 +181,8 @@ public void Starting_goes_through_loading_to_the_house()
 
     run.FinishLoading();
     run.Ticks(1);
-    Assert.True(run.States<Screen>().Is(Screen.House));
+    Assert.True(run.States<Screen>().Is(Screen.Playing));
+    Assert.Equal(Room.House, run.Game.CurrentRoom);
 }
 ```
 
