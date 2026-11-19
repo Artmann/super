@@ -17,7 +17,6 @@ internal sealed class CoinHunt(World world, States<Screen> screen, Catalog<CoinK
 
     private static readonly Vector3 CoinColor = new(1f, 0.8f, 0.1f);
 
-    private readonly List<Entity> _collected = [];
     private long? _lastCoinTick;
 
     /// <summary>Coins picked up, by their value.</summary>
@@ -42,19 +41,12 @@ internal sealed class CoinHunt(World world, States<Screen> screen, Catalog<CoinK
         {
             if (Vector3.Distance(row.First.Position, player) < PickUpWithin)
             {
-                _collected.Add(row.Entity);
+                // The coin goes when the loop ends, so the rows being walked never move.
+                world.Destroy(row.Entity);
+                Total += kinds["gold"].Value;
+                _lastCoinTick = time.Tick;
             }
         }
-
-        // The world can't change shape during a query, so these go afterwards.
-        foreach (var coin in _collected)
-        {
-            world.Destroy(coin);
-            Total += kinds["gold"].Value;
-            _lastCoinTick = time.Tick;
-        }
-
-        _collected.Clear();
     }
 
     /// <summary>Where the coins are now.</summary>

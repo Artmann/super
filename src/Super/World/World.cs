@@ -11,7 +11,7 @@ public readonly record struct Entity(int Id, int Generation);
 public sealed class World : ITickHook, IStateHook
 {
     private readonly EntitySlots _entities = new();
-    private int _iterating;
+    private readonly PendingChanges _pending = new();
 
     /// <summary>How many entities are alive.</summary>
     public int Count => _entities.Count;
@@ -19,16 +19,29 @@ public sealed class World : ITickHook, IStateHook
     /// <summary>The component types and archetypes, which queries walk.</summary>
     internal ArchetypeTable Archetypes { get; } = new();
 
-    public Entity Create()
-    {
-        ThrowIfIterating();
-        return _entities.Create(Archetypes.Empty);
-    }
+    /// <summary>Whether a query is running, so changes to the world's shape wait until it ends.</summary>
+    internal bool IsQuerying => _pending.IsQuerying;
 
-    /// <summary>Removes an entity. Its ID can be reused, but old handles to it stop being alive.</summary>
+    /// <summary>
+    /// Makes an entity with no components. During a query it's alive at once, and components given to it arrive
+    /// when the query ends.
+    /// </summary>
+    // A new entity sits in the empty archetype, which no query walks, so it can be made at any time.
+    public Entity Create() => _entities.Create(Archetypes.Empty);
+
+    /// <summary>
+    /// Removes an entity. Its ID can be reused, but old handles to it stop being alive. During a query it stays
+    /// alive, with its components, until the query ends.
+    /// </summary>
     public void Destroy(Entity entity)
     {
-        ThrowIfIterating();
+        if (IsQuerying)
+        {
+            _entities.Of(entity); // Throws now for a dead entity, as it would outside a query.
+            _pending.Destroy(entity);
+            return;
+        }
+
         _entities.Free(entity);
     }
 
@@ -47,20 +60,13 @@ public sealed class World : ITickHook, IStateHook
         }
     }
 
-    /// <summary>Takes a component away. Does nothing if the entity doesn't have it.</summary>
+    /// <summary>
+    /// Takes a component away. Does nothing if the entity doesn't have it. During a query it goes when the query
+    /// ends.
+    /// </summary>
     public void Remove<T>(Entity entity)
-        where T : struct
-    {
-        ref var slot = ref _entities.Of(entity);
-        int type = Archetypes.TypeId<T>();
-        if (!slot.Archetype!.Mask.Has(type))
-        {
-            return;
-        }
-
-        ThrowIfIterating();
-        _entities.MoveTo(ref slot, Archetypes.Without(slot.Archetype, type));
-    }
+        where T : struct =>
+        Remove(entity, Archetypes.TypeId<T>());
 
     public bool Has<T>(Entity entity)
         where T : struct =>
@@ -74,7 +80,10 @@ public sealed class World : ITickHook, IStateHook
         int type = Archetypes.TypeId<T>();
         if (!slot.Archetype!.Mask.Has(type))
         {
-            throw new InvalidOperationException($"Entity {entity.Id} has no {typeof(T).Name}.");
+            throw new InvalidOperationException(
+                _pending.IsAdding(entity, type)
+                    ? $"Entity {entity.Id}'s {typeof(T).Name} was added during a query and arrives when the query ends."
+                    : $"Entity {entity.Id} has no {typeof(T).Name}.");
         }
 
         return ref slot.Archetype.Column<T>(type).Values[slot.Row];
@@ -114,7 +123,10 @@ public sealed class World : ITickHook, IStateHook
     /// <summary>The component type's ID, registering it the first time. Queries ask for theirs as they start.</summary>
     internal int TypeId<T>() => Archetypes.TypeId<T>();
 
-    /// <summary>Sets the component without bringing its required ones. Returns whether the entity didn't have one.</summary>
+    /// <summary>
+    /// Sets the component without bringing its required ones. Returns whether the entity got a type it didn't have.
+    /// During a query a new type waits for the query to end, and is added through <see cref="Add{T}"/> then.
+    /// </summary>
     internal bool Put<T>(Entity entity, in T component, out int type)
         where T : struct
     {
@@ -123,7 +135,12 @@ public sealed class World : ITickHook, IStateHook
         bool added = !slot.Archetype!.Mask.Has(type);
         if (added)
         {
-            ThrowIfIterating();
+            if (IsQuerying)
+            {
+                _pending.Add(entity, type, in component);
+                return false;
+            }
+
             _entities.MoveTo(ref slot, Archetypes.With<T>(slot.Archetype, type));
         }
 
@@ -131,16 +148,25 @@ public sealed class World : ITickHook, IStateHook
         return added;
     }
 
-    internal void BeginIteration() => _iterating++;
-
-    internal void EndIteration() => _iterating--;
-
-    private void ThrowIfIterating()
+    /// <summary>Takes the component with this type ID away, or queues that during a query.</summary>
+    internal void Remove(Entity entity, int type)
     {
-        if (_iterating > 0)
+        ref var slot = ref _entities.Of(entity);
+        if (!slot.Archetype!.Mask.Has(type))
         {
-            throw new InvalidOperationException(
-                "Entities can't be created, destroyed or change their components during a query. Collect the changes and make them afterwards.");
+            return;
         }
+
+        if (IsQuerying)
+        {
+            _pending.Remove(entity, type);
+            return;
+        }
+
+        _entities.MoveTo(ref slot, Archetypes.Without(slot.Archetype, type));
     }
+
+    internal void BeginIteration() => _pending.Begin();
+
+    internal void EndIteration() => _pending.End(this);
 }
