@@ -179,7 +179,7 @@ foreach (var row in world.Query<Transform, Rising>())
 
 The component needs a field, not a property, so `ref` reaches the tween itself. When a
 tween is `Completed`, remove its component after the query so finished entities aren't
-visited. The `Smoothed` component blends the transform between ticks.
+visited. `Models` blends the transform between ticks for you.
 
 ## Tweens or `view.Animate`?
 

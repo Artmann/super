@@ -163,7 +163,6 @@ public sealed class CannonballGame(World world, Content content, Physics physics
         world.Add(stuntman, placed);
         world.Add(stuntman, new Animated(_controller.Start(Stance.Idle)));
         world.Add(stuntman, new Ragdoll(_body) { Mode = RagdollMode.Off, BlendSeconds = 0.5f });
-        world.Add(stuntman, new Smoothed());
         _flight.Load(stuntman);
         Camera.Jump();
     }

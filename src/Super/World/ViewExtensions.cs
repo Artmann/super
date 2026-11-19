@@ -9,7 +9,7 @@ public static class ViewExtensions
 
     /// <summary>
     /// Draws every entity with a <see cref="Transform"/> and a <see cref="Model"/> or an
-    /// <see cref="Animated"/>, keyed by entity ID. <see cref="Smoothed"/> entities blend from last tick, <see cref="Parent"/>
+    /// <see cref="Animated"/>, keyed by entity ID. entities blend from where they were at the last tick, unless <see cref="Static"/>, <see cref="Parent"/>
     /// entities follow their parent, <see cref="Swim"/> entities swim, and
     /// <see cref="Animated"/> entities take their animator's pose. Call it from Draw,
     /// alongside any models you describe by hand.
@@ -55,7 +55,7 @@ public static class ViewExtensions
 
         public int Animated { get; init; }
 
-        public int Smoothed { get; init; }
+        public int LastTick { get; init; }
 
         public int Parent { get; init; }
 
@@ -68,7 +68,7 @@ public static class ViewExtensions
             Transform = world.Archetypes.TypeIdOrMissing<Transform>(),
             Model = world.Archetypes.TypeIdOrMissing<Model>(),
             Animated = world.Archetypes.TypeIdOrMissing<Animated>(),
-            Smoothed = world.Archetypes.TypeIdOrMissing<Smoothed>(),
+            LastTick = world.Archetypes.TypeIdOrMissing<LastTick>(),
             Parent = world.Archetypes.TypeIdOrMissing<Parent>(),
             Swim = world.Archetypes.TypeIdOrMissing<Swim>(),
             Static = world.Archetypes.TypeIdOrMissing<Static>(),
@@ -86,7 +86,7 @@ public static class ViewExtensions
 
         public Animated[]? Animated { get; init; }
 
-        public Smoothed[]? Smoothed { get; init; }
+        public LastTick[]? LastTicks { get; init; }
 
         public Parent[]? Parents { get; init; }
 
@@ -94,17 +94,22 @@ public static class ViewExtensions
 
         public bool IsStatic { get; init; }
 
-        public static ModelRows Of(Archetype archetype, in ModelTypes types) => new()
+        public static ModelRows Of(Archetype archetype, in ModelTypes types)
         {
-            Entities = archetype.Entities,
-            Transforms = archetype.Column<Transform>(types.Transform).Values,
-            Models = archetype.ColumnOrNull<Model>(types.Model)?.Values,
-            Animated = archetype.ColumnOrNull<Animated>(types.Animated)?.Values,
-            Smoothed = archetype.ColumnOrNull<Smoothed>(types.Smoothed)?.Values,
-            Parents = archetype.ColumnOrNull<Parent>(types.Parent)?.Values,
-            Swims = archetype.ColumnOrNull<Swim>(types.Swim)?.Values,
-            IsStatic = types.Static >= 0 && archetype.Mask.Has(types.Static),
-        };
+            // A static entity is drawn where it is, even one that moved before it was made static.
+            bool isStatic = types.Static >= 0 && archetype.Mask.Has(types.Static);
+            return new ModelRows
+            {
+                Entities = archetype.Entities,
+                Transforms = archetype.Column<Transform>(types.Transform).Values,
+                Models = archetype.ColumnOrNull<Model>(types.Model)?.Values,
+                Animated = archetype.ColumnOrNull<Animated>(types.Animated)?.Values,
+                LastTicks = isStatic ? null : archetype.ColumnOrNull<LastTick>(types.LastTick)?.Values,
+                Parents = archetype.ColumnOrNull<Parent>(types.Parent)?.Values,
+                Swims = archetype.ColumnOrNull<Swim>(types.Swim)?.Values,
+                IsStatic = isStatic,
+            };
+        }
 
         public void Draw(View view, World world, int i)
         {
@@ -115,7 +120,7 @@ public static class ViewExtensions
             }
 
             float blend = view.Blend;
-            var matrix = Smoothed is null ? Transforms[i].Matrix : Blended(in Transforms[i], in Smoothed[i], blend).Matrix;
+            var matrix = LastTicks is null ? Transforms[i].Matrix : Blended(in Transforms[i], in LastTicks[i], blend).Matrix;
             if (Parents is not null)
             {
                 matrix *= WorldMatrix(world, Parents[i].Value, blend, depth: 0);
@@ -155,15 +160,15 @@ public static class ViewExtensions
         private SwimMotion SwimAt(int i, float blend)
         {
             ref readonly var swim = ref Swims![i];
-            float phase = Smoothed is not null && Smoothed[i].HasPrevious
-                ? float.Lerp(Smoothed[i].PreviousPhase, swim.Phase, blend)
+            float phase = LastTicks is not null && LastTicks[i].HasPrevious
+                ? float.Lerp(LastTicks[i].PreviousPhase, swim.Phase, blend)
                 : swim.Phase;
             return new SwimMotion(swim.Amplitude, swim.BodyLength, phase);
         }
     }
 
-    internal static Transform Blended(in Transform current, in Smoothed smoothed, float blend) =>
-        smoothed.HasPrevious ? Transform.Lerp(in smoothed.Previous, in current, blend) : current;
+    internal static Transform Blended(in Transform current, in LastTick last, float blend) =>
+        last.HasPrevious ? Transform.Lerp(in last.Previous, in current, blend) : current;
 
     /// <summary>An entity's matrix in the world, following its own parents. A dead parent, or one with no transform, counts as the world itself.</summary>
     internal static Matrix4x4 WorldMatrix(World world, Entity entity, float blend, int depth)
@@ -174,7 +179,8 @@ public static class ViewExtensions
         }
 
         ref readonly var transform = ref world.Get<Transform>(entity);
-        var matrix = world.Has<Smoothed>(entity) ? Blended(in transform, in world.Get<Smoothed>(entity), blend).Matrix : transform.Matrix;
+        bool blends = world.Has<LastTick>(entity) && !world.Has<Static>(entity);
+        var matrix = blends ? Blended(in transform, in world.Get<LastTick>(entity), blend).Matrix : transform.Matrix;
         if (world.Has<Parent>(entity))
         {
             matrix *= WorldMatrix(world, world.Get<Parent>(entity).Value, blend, depth + 1);

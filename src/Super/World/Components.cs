@@ -12,11 +12,11 @@ namespace Super;
 public record struct Model(ModelRef Value, Vector3? Color = null, MeshMask? Meshes = null, DistanceFade? Fade = null);
 
 /// <summary>
-/// Makes an entity move smoothly between ticks. Super remembers its transform before each
-/// Update, and <see cref="ViewExtensions.Models"/> blends from there, so you never keep a
-/// previous position yourself. An entity's first frame shows it exactly where it is.
+/// Where an entity was at the last tick, which drawing blends from so it moves smoothly. Every entity with a
+/// <see cref="Transform"/> gets one, and Super copies the transform into it before each Update. Until the first copy
+/// there's nothing to blend from, so a new entity's first frame shows it exactly where it is.
 /// </summary>
-public struct Smoothed
+internal struct LastTick
 {
     internal Transform Previous;
     internal float PreviousPhase;
@@ -48,7 +48,7 @@ public record struct Animated(Animator Value);
 /// <summary>
 /// Bends the model in a wave from head to tail as it's drawn. The head must face +z.
 /// Amplitude and BodyLength are in the model's own units, and Phase, in radians, should
-/// rise steadily in Update. With <see cref="Smoothed"/>, the phase blends between ticks too.
+/// rise steadily in Update. The phase blends between ticks, as the transform does.
 /// </summary>
 public record struct Swim(float Amplitude, float BodyLength, float Phase);
 

@@ -25,7 +25,6 @@ public class ScopedTests
         {
             Player = world.Create();
             world.Add(Player, Transform.At(new Vector3(1f, 0f, 0f)));
-            world.Add(Player, new Smoothed());
             world.Add(Player, new Model(ModelRef.Cube));
 
             states.OnEnter(Screen.House, () =>

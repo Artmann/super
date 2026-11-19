@@ -10,18 +10,7 @@ public class ModelsTests
     private readonly World _world = new();
     private readonly View _view = new();
 
-    private Entity Spawn(Transform transform, bool smoothed = false)
-    {
-        var entity = _world.Create();
-        _world.Add(entity, transform);
-        _world.Add(entity, new Model(ModelRef.Cube));
-        if (smoothed)
-        {
-            _world.Add(entity, new Smoothed());
-        }
-
-        return entity;
-    }
+    private Entity Spawn(Transform transform) => _world.Spawn(transform, new Model(ModelRef.Cube));
 
     private ReadOnlySpan<ModelDraw> Draw(float blend)
     {
@@ -76,19 +65,19 @@ public class ModelsTests
     }
 
     [Fact]
-    public void A_smoothed_entity_starts_where_it_is()
+    public void A_new_entity_starts_where_it_is()
     {
-        Spawn(Transform.At(new Vector3(4f, 0f, 0f)), smoothed: true);
+        Spawn(Transform.At(new Vector3(4f, 0f, 0f)));
 
         Assert.Equal(4f, Draw(0.5f)[0].Transform.Translation.X, Tolerance);
     }
 
     [Fact]
-    public void A_smoothed_entity_blends_from_where_it_was_before_the_tick()
+    public void An_entity_blends_from_where_it_was_before_the_tick()
     {
-        var entity = Spawn(Transform.At(Vector3.Zero), smoothed: true);
+        var entity = Spawn(Transform.At(Vector3.Zero));
 
-        SmoothedTransforms.Remember(_world);
+        LastTicks.Remember(_world);
         _world.Get<Transform>(entity).Position = new Vector3(4f, 0f, 0f);
 
         Assert.Equal(1f, Draw(0.25f)[0].Transform.Translation.X, Tolerance);
@@ -96,11 +85,12 @@ public class ModelsTests
     }
 
     [Fact]
-    public void An_unsmoothed_entity_jumps()
+    public void A_static_entity_does_not_blend()
     {
         var entity = Spawn(Transform.At(Vector3.Zero));
 
-        SmoothedTransforms.Remember(_world);
+        LastTicks.Remember(_world);
+        _world.Add(entity, new Static()); // Made static after it was remembered.
         _world.Get<Transform>(entity).Position = new Vector3(4f, 0f, 0f);
 
         Assert.Equal(4f, Draw(0.25f)[0].Transform.Translation.X, Tolerance);
@@ -136,13 +126,13 @@ public class ModelsTests
     }
 
     [Fact]
-    public void A_child_follows_a_smoothed_parent_between_ticks()
+    public void A_child_follows_its_parent_between_ticks()
     {
-        var parent = Spawn(Transform.At(Vector3.Zero), smoothed: true);
+        var parent = Spawn(Transform.At(Vector3.Zero));
         var child = Spawn(Transform.Identity);
         _world.Add(child, new Parent(parent));
 
-        SmoothedTransforms.Remember(_world);
+        LastTicks.Remember(_world);
         _world.Get<Transform>(parent).Position = new Vector3(4f, 0f, 0f);
 
         var drawn = Draw(0.5f);
@@ -166,10 +156,10 @@ public class ModelsTests
     [Fact]
     public void A_swimming_entity_passes_its_motion_and_blends_its_phase()
     {
-        var entity = Spawn(Transform.Identity, smoothed: true);
+        var entity = Spawn(Transform.Identity);
         _world.Add(entity, new Swim(0.1f, 1f, 0f));
 
-        SmoothedTransforms.Remember(_world);
+        LastTicks.Remember(_world);
         _world.Get<Swim>(entity).Phase = 2f;
 
         Assert.Equal(new SwimMotion(0.1f, 1f, 1f), Draw(0.5f)[0].Swim);

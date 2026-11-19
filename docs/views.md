@@ -157,7 +157,7 @@ public void Draw(View view) =>
     view.Model(ball.Id, ballModel, view.Smooth(ball.PreviousTransform, ball.Transform));
 ```
 
-With the ECS, the `Smoothed` component does this for you; see
+With the ECS, `view.Models(world)` does this for every entity; see
 [Drawing entities](ecs.md#drawing-entities).
 
 ## Things that rarely change

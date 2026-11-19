@@ -16,6 +16,9 @@ internal sealed class RequiredComponents
         // A model or a skeleton is drawn where its transform puts it, so one is never left without.
         Add<Model, Transform>(Transform.Identity);
         Add<Animated, Transform>(Transform.Identity);
+
+        // Anything placed can move, and drawing blends it from where it was at the last tick.
+        Add<Transform, LastTick>(default);
     }
 
     /// <summary>Gives every entity that gets a <typeparamref name="TComponent"/> a <typeparamref name="TNeeded"/> it doesn't have.</summary>

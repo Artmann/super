@@ -29,16 +29,13 @@ internal sealed class PlayerMover(World world, Input input, Actions<Control> act
         Player = world.Create();
         world.Add(Player, Transform.At(Vector3.Zero, 0.8f));
         world.Add(Player, new Model(ModelRef.Cube, PlayerColor));
-        world.Add(Player, new Smoothed());
     }
 
     /// <summary>Puts the player at <paramref name="position"/> at once.</summary>
     public void Move(Vector3 position)
     {
-        ref var transform = ref world.Get<Transform>(Player);
-        transform.Position = position;
-
         // A move between areas is a teleport, so nothing should slide across the map.
+        world.Teleport(Player, world.Get<Transform>(Player) with { Position = position });
         _walkingTo = null;
         Camera.Jump();
         Camera.Update(position, 0f);

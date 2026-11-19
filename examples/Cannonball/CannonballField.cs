@@ -160,7 +160,6 @@ public sealed class CannonballField(World world)
         var entity = world.Create();
         world.Add(entity, transform);
         world.Add(entity, new Model(model ?? ModelRef.Cube, color));
-        world.Add(entity, new Smoothed());
         _props.Add(entity);
         return entity;
     }
