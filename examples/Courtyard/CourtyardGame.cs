@@ -12,7 +12,7 @@ namespace Courtyard;
 /// decals: the grime on the wall, the gravel spilled off the path and the dirt, rust, moss, wet ground and boot prints
 /// listed in content/decals/courtyard.json.
 /// </summary>
-public sealed class CourtyardGame(Content content, Input input, Graphics graphics) : IGame
+public sealed class CourtyardGame(World world, Content content, Input input, Graphics graphics) : IGame
 {
     // The gravel's colour a little under full, so the mud's own colour shows through between the grains of grit, and
     // its stones' bumps whole.
@@ -27,7 +27,6 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
     /// <summary>The Courtyard's list in <see cref="DecalFolder"/>, content/decals/courtyard.json.</summary>
     public const string DecalListId = "courtyard";
 
-    private ModelRef _courtyard;
     private readonly List<(Matrix4x4 Box, Surface Surface)> _stains = [];
     private readonly List<(Matrix4x4 Box, Surface Surface, DecalBlend Blend)> _placed = [];
     private List<Matrix4x4> _gravelBoxes = [];
@@ -49,7 +48,7 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
 
     public void Load()
     {
-        _courtyard = content.Model("models/courtyard.glb");
+        CourtyardYard.Spawn(world, content.Model("models/courtyard.glb"));
 
         // The damp is darkened past the grime's own colour so it reads from across the yard: wet brick goes
         // a good deal darker than dry.
@@ -110,23 +109,14 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         }
     }
 
+    /// <summary>The baked space, the reflection probe, the puddles, the wind and the decals.</summary>
     public void Draw(View view)
     {
-        // Standing back at eye height, off to the right and turned left towards the window, as
-        // in the reference photo: the low wall, which runs out square from the building, closes
-        // the left of the frame, the path runs in to the puddle and the deck fills the right.
-        view.Camera(position: new Vector3(5.41f, 1.56f, 4.49f), lookAt: new Vector3(1.01f, 1.36f, -7.11f), fieldOfView: 0.85f);
-        CourtyardLight.Daylight(view);
-        CourtyardLight.Lamps(view);
-        CourtyardLight.GradePicture(view);
+        CourtyardYard.Surroundings(view);
 
-        // The yard is one baked space, "courtyard", over the whole model with a little to spare. The model never
-        // moves, so it is static and its light is baked: the sun, which stays Mixed so the real-time cascades still
-        // shadow what is close to the camera, and the room lamp, which shines out through the window glass. The
-        // decals (the damp, the drip and the rust) stay live. The grass, ivy and leaves are part of the model and are
-        // lightmapped with the rest. See the README.
+        // The yard is one baked space, "courtyard", over the whole model with a little to spare. The decals (the damp,
+        // the drip and the rust) stay live.
         view.Indirect.BakedLighting("courtyard", new Vector3(-16.5f, -0.5f, -18.75f), new Vector3(14.5f, 10f, 12.5f), 1.6f);
-        view.Model(0, _courtyard, Matrix4x4.Identity, new ModelOptions { Static = true });
 
         // The damp, the drip off the sill and the rust, laid onto the wall so the drip lies over the damp.
         for (int i = 0; i < _stains.Count; i++)

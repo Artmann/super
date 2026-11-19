@@ -71,7 +71,7 @@ are used under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/):
 
 It's a clear afternoon. The sun is high on the left and a little in front of the wall, still
 low enough to rake across the bricks and the plinth, and the tree's canopy breaks it into
-dappled light across the wall and the window. `view.Lights.Shadows(7f, 3, sunSize: 0.02f, contact: 0.3f)`
+dappled light across the wall and the window. `new Shadows(7f, 3, SunSize: 0.02f, Contact: 0.3f)`
 sets the sun close to its real size, so the leaves' shade stays crisp though they are 10 m
 from the wall, and its contact shadows of 0.3 m seat the stones, the barrel and the sacks on
 the ground. Above full HD the sun's shadow maps double to 4096, so their texels don't show
@@ -125,7 +125,7 @@ To change the scene, edit the script, run it in Blender and cook again.
 
 The sidecar sets `keepOrigin`, so the model keeps Blender's origin and a point in the script
 is the same point in the game, with Blender's z as y and its y as -z. That's how
-`CourtyardLight.cs` places its lights at the lantern's bulb and in the room.
+`CourtyardYard.cs` places its lights at the lantern's bulb and in the room.
 
 Press M to turn the materials off and on. Without them, the whole courtyard is plain grey
 clay, so you can judge the sunlight, the shadows and the shapes of the models without the
@@ -298,8 +298,8 @@ stain quads are gone: `WallStains` lays the damp, the drip and the rust as decal
 | File | What's in it |
 | --- | --- |
 | `Program.cs` | Starts the courtyard, or the lineup with `--lineup` and the leaves with `--leaves` |
-| `CourtyardGame.cs` | The courtyard model and the camera. It loads the hand-placed decal list, lays it with the wall's stains and the gravel, and turns the materials, fog, volumetric fog, auto exposure and decals off and on with M, F, V, E and D |
-| `CourtyardLight.cs` | The sun and its shadows, the sky and its fog, the reflection probe, the puddle level, the wind, the lantern and the room's light, and the finish |
+| `CourtyardGame.cs` | It spawns the yard, loads the hand-placed decal list, lays it with the wall's stains and the gravel, and turns the materials, fog, volumetric fog, auto exposure and decals off and on with M, F, V, E and D |
+| `CourtyardYard.cs` | The camera, the model, spawned `Static` so the bake holds it, and as entities the sun and its shadows, the sky and its fog, the lantern and the room's light, and the finish; and the reflection probe, the puddle level and the wind, placed every frame |
 | `WallStains.cs` | Where the grime decals lie on the wall: the damp along its foot, the dirty water under the sill and the rust under the anchor plates |
 | `GravelSpills.cs` | Where the gravel decals lie: spills along both edges of both arms of the path and round the barrel's foot, kept off the middle of the path, the puddle and the wall |
 | `DecalCatalog.cs` | `DecalList` and `PlacedDecal`, the shape of a hand-placed decal list, and how a decal's position, size, facing and turn make its box |
