@@ -4,14 +4,12 @@ using Super.Ui;
 
 namespace OutpostExample;
 
-public sealed class OutpostGame(Field field, Look look, Scenery scenery, Player player, Enemies enemies, Towers towers, Shots shots, Waves waves, States<Screen> screen, Actions<Control> actions, Input input) : IGame
+public sealed class OutpostGame(Scenery scenery, Field field, Player player, Enemies enemies, Towers towers, Shots shots, Waves waves, Scenes scenes, Systems systems, States<Screen> screen, Actions<Control> actions, Input input, Look look) : IGame
 {
-    private static readonly Vector3 Grass = new(0.42f, 0.66f, 0.34f);
-    private static readonly Vector3 Sand = new(0.9f, 0.76f, 0.52f);
-    private static readonly Vector3 Stone = new(0.55f, 0.53f, 0.58f);
-    private static readonly Vector3 BaseRoof = new(0.85f, 0.42f, 0.36f);
+    // Each tick the waves send enemies out, the enemies walk, the towers shoot and the shots fly, in that order.
+    private readonly Systems _systems = systems.Add<Waves>().Add<Enemies>().Add<Towers>().Add<Shots>();
 
-    public Camera Camera { get; } = new(new Vector3(0, 22, 16), Vector3.Zero) { WideAs = 16f / 9f };
+    public Camera Camera => scenery.Camera;
 
     public Player Player => player;
 
@@ -22,6 +20,8 @@ public sealed class OutpostGame(Field field, Look look, Scenery scenery, Player 
     public Shots Shots => shots;
 
     public Waves Waves => waves;
+
+    public Look Look => look;
 
     public UiView? Ui => screen.Current switch
     {
@@ -47,6 +47,7 @@ public sealed class OutpostGame(Field field, Look look, Scenery scenery, Player 
         actions.Bind(Control.Start, Key.Space, MouseButton.Left);
         actions.Bind(Control.Restart, Key.R);
 
+        scenes.Go(scenery.Build);
         screen.OnEnter(Screen.Playing, NewGame);
     }
 
@@ -75,53 +76,26 @@ public sealed class OutpostGame(Field field, Look look, Scenery scenery, Player 
             }
         }
 
-        waves.Update(time);
-        enemies.Update(time);
-        towers.Update(time);
-        shots.Update(time);
+        _systems.Update(time);
 
         if (player.Lives <= 0)
         {
             screen.Set(Screen.Lost);
         }
-        else if (waves.AllSpawned && enemies.All.Count == 0)
+        else if (waves.AllSpawned && enemies.Count == 0)
         {
             screen.Set(Screen.Won);
         }
     }
 
-    /// <summary>Everything back to how a game starts. Runs each time the game enters Playing.</summary>
+    /// <summary>
+    /// Everything back to how a game starts. Runs each time the game enters Playing. Building the scene again takes
+    /// away every enemy, tower and shot, since they were all spawned into it.
+    /// </summary>
     private void NewGame()
     {
         player.Reset();
         waves.Reset();
-        enemies.Clear();
-        towers.Clear();
-        shots.Clear();
-    }
-
-    public void Draw(View view)
-    {
-        view.Camera(Camera);
-        scenery.Draw(view);
-
-        for (int z = 0; z < Field.Depth; z++)
-        {
-            for (int x = 0; x < Field.Width; x++)
-            {
-                var tile = Matrix4x4.CreateScale(1.96f, 0.2f, 1.96f)
-                    * Matrix4x4.CreateTranslation(field.Center(x, z) - new Vector3(0, 0.1f, 0));
-                view.Model(10_000 + z * Field.Width + x, look.Tile, tile, field.IsRoad(x, z) ? Sand : Grass);
-            }
-        }
-
-        var baseBox = Matrix4x4.CreateScale(1.6f) * Matrix4x4.CreateTranslation(field.BaseCenter + new Vector3(0, 0.8f, 0));
-        var baseRoof = Matrix4x4.CreateScale(2.1f, 1.2f, 2.1f) * Matrix4x4.CreateTranslation(field.BaseCenter + new Vector3(0, 2.2f, 0));
-        view.Model(1, look.Cube, baseBox, Stone);
-        view.Model(3, look.Cone, baseRoof, BaseRoof);
-
-        towers.Draw(view);
-        enemies.Draw(view);
-        shots.Draw(view);
+        scenes.Rebuild();
     }
 }

@@ -1,6 +1,6 @@
 namespace OutpostExample;
 
-/// <summary>What the player has: gold to build with, and lives to lose.</summary>
+/// <summary>What the player has: gold to build with, lives to lose, and the enemies their towers have killed.</summary>
 public sealed class Player
 {
     public const int StartingGold = 100;
@@ -10,10 +10,13 @@ public sealed class Player
 
     public int Lives { get; set; } = StartingLives;
 
+    public int Killed { get; set; }
+
     /// <summary>Back to how a new game starts.</summary>
     public void Reset()
     {
         Gold = StartingGold;
         Lives = StartingLives;
+        Killed = 0;
     }
 }

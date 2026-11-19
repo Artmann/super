@@ -4,50 +4,90 @@ using Super;
 
 namespace OutpostExample;
 
-/// <summary>What's around the field: the island of soil it stands on, and trees along its back and sides.</summary>
-public sealed class Scenery(Look look)
+/// <summary>
+/// Everything that stays put: the camera and the light, the field's tiles, the base, the island of soil the field
+/// stands on, and trees along its back and sides.
+/// </summary>
+public sealed class Scenery(Field field, Look look)
 {
     /// <summary>How far the island reaches past the field at the back and sides, in metres.</summary>
     private const float Margin = 2.5f;
 
+    private static readonly Vector3 Grass = new(0.42f, 0.66f, 0.34f);
+    private static readonly Vector3 Sand = new(0.9f, 0.76f, 0.52f);
+    private static readonly Vector3 Stone = new(0.55f, 0.53f, 0.58f);
+    private static readonly Vector3 BaseRoof = new(0.85f, 0.42f, 0.36f);
     private static readonly Vector3 Soil = new(0.52f, 0.37f, 0.27f);
     private static readonly Vector3 Bark = new(0.45f, 0.32f, 0.24f);
     private static readonly Vector3 Leaves = new(0.3f, 0.5f, 0.32f);
 
-    private readonly List<(Vector3 Spot, float Size)> _trees = Trees();
+    /// <summary>Where the picture is taken from, looking down at the middle tile.</summary>
+    public Camera Camera { get; } = new(new Vector3(0, 22, 16), Vector3.Zero) { WideAs = 16f / 9f };
 
-    public void Draw(View view)
+    /// <summary>Spawns the scenery into a scene. Everything a game spawns while it's open goes with it.</summary>
+    public void Build(Scene scene)
     {
-        // A warm sun with crisp shadows, a dim sky so the sun does most of the lighting, and brown ink lines.
-        view.Lights.Sun(direction: new Vector3(0.8f, 1.6f, 1.2f), color: new Vector3(3.4f, 3.1f, 2.7f));
-        view.Lights.Shadows(radius: 30f, sunSize: 0.03f);
-        view.Surroundings.Sky(new SkySettings
-        {
-            Zenith = new Vector3(0.45f, 0.6f, 0.8f),
-            Horizon = new Vector3(0.85f, 0.88f, 0.9f),
-            Ground = new Vector3(0.45f, 0.62f, 0.72f),
-            Brightness = 0.5f,
-        });
-        view.Effects.Outlines(color: new Vector3(0.12f, 0.09f, 0.07f), thickness: 1.5f);
-        // A little more contrast clears the haze, and darker corners draw the eye to the field.
-        view.Effects.Finish(new PostSettings { Contrast = 0.15f, Vignette = 0.25f });
+        scene.Spawn(Camera);
+        Light(scene);
+        Ground(scene);
+        Island(scene);
+    }
 
+    /// <summary>
+    /// A warm sun with crisp shadows, a dim sky so the sun does most of the lighting, and brown ink lines. A little
+    /// more contrast clears the haze, and darker corners draw the eye to the field.
+    /// </summary>
+    private static void Light(Scene scene)
+    {
+        scene.Spawn(
+            new Sun(Direction: new Vector3(0.8f, 1.6f, 1.2f), Color: new Vector3(3.4f, 3.1f, 2.7f)),
+            new Shadows(Radius: 30f, SunSize: 0.03f),
+            new Sky(new SkySettings
+            {
+                Zenith = new Vector3(0.45f, 0.6f, 0.8f),
+                Horizon = new Vector3(0.85f, 0.88f, 0.9f),
+                Ground = new Vector3(0.45f, 0.62f, 0.72f),
+                Brightness = 0.5f,
+            }),
+            new Outlines(Color: new Vector3(0.12f, 0.09f, 0.07f), Thickness: 1.5f));
+        scene.Spawn(new Finish(new PostSettings { Contrast = 0.15f, Vignette = 0.25f }));
+    }
+
+    /// <summary>The tiles of the field, grass or sand, and the base at the end of the road.</summary>
+    private void Ground(Scene scene)
+    {
+        for (int z = 0; z < Field.Depth; z++)
+        {
+            for (int x = 0; x < Field.Width; x++)
+            {
+                var tile = new Transform(field.Center(x, z) - new Vector3(0, 0.1f, 0), Quaternion.Identity, new Vector3(1.96f, 0.2f, 1.96f));
+                scene.Spawn(tile, new Model(look.Tile, field.IsRoad(x, z) ? Sand : Grass));
+            }
+        }
+
+        scene.Spawn(Transform.At(field.BaseCenter + new Vector3(0, 0.8f, 0), 1.6f), new Model(look.Cube, Stone));
+        scene.Spawn(
+            new Transform(field.BaseCenter + new Vector3(0, 2.2f, 0), Quaternion.Identity, new Vector3(2.1f, 1.2f, 2.1f)),
+            new Model(look.Cone, BaseRoof));
+    }
+
+    /// <summary>The island of soil under the field, and the trees on it.</summary>
+    private void Island(Scene scene)
+    {
         // The island runs out past the back and sides of the field, but stops at the front, which is near the camera.
         float halfWidth = Field.Width * Field.TileSize / 2;
         float halfDepth = Field.Depth * Field.TileSize / 2;
         float back = -halfDepth - Margin;
         float front = halfDepth + 0.2f;
-        var island = Matrix4x4.CreateScale(2 * (halfWidth + Margin), 1.4f, front - back)
-            * Matrix4x4.CreateTranslation(0, -0.9f, (back + front) / 2);
-        view.Model(2, look.Cube, island, Soil);
+        var island = new Transform(new Vector3(0, -0.9f, (back + front) / 2), Quaternion.Identity, new Vector3(2 * (halfWidth + Margin), 1.4f, front - back));
+        scene.Spawn(island, new Model(look.Cube, Soil));
 
-        for (int i = 0; i < _trees.Count; i++)
+        foreach (var (spot, size) in Trees())
         {
-            var (spot, size) = _trees[i];
-            var trunk = Matrix4x4.CreateScale(0.3f * size, 0.6f * size, 0.3f * size) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 0.3f * size, 0));
-            var crown = Matrix4x4.CreateScale(1.4f * size, 2f * size, 1.4f * size) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 1.5f * size, 0));
-            view.Model(40_000 + i, look.Cylinder, trunk, Bark);
-            view.Model(50_000 + i, look.Cone, crown, Leaves);
+            var trunk = new Transform(spot + new Vector3(0, 0.3f * size, 0), Quaternion.Identity, new Vector3(0.3f * size, 0.6f * size, 0.3f * size));
+            var crown = new Transform(spot + new Vector3(0, 1.5f * size, 0), Quaternion.Identity, new Vector3(1.4f * size, 2f * size, 1.4f * size));
+            scene.Spawn(trunk, new Model(look.Cylinder, Bark));
+            scene.Spawn(crown, new Model(look.Cone, Leaves));
         }
     }
 

@@ -18,15 +18,16 @@ starts a game and builds two towers, for screenshots; `--script start` only star
 
 | File | What's in it |
 | --- | --- |
-| `OutpostGame.cs` | The screens, the build click, the order the parts update and draw in, and the field and base |
+| `OutpostGame.cs` | The screens, the build click, and the order the systems update in |
 | `Field.cs` | The grid of tiles, the road and where the base stands |
 | `Look.cs` | The cartoon shapes everything is drawn with: toon shaded, with an ink outline |
-| `Scenery.cs` | The sun, sky and finish, and the island of soil and trees around the field |
-| `Enemies.cs` | The three kinds of enemy, walking the road, taking hits, reaching the base, and drawing them |
-| `Towers.cs` | Building towers, picking a target, and drawing them |
-| `Shots.cs` | Shots flying to their target, and drawing them |
+| `Scenery.cs` | The scene: camera, sun, sky and finish, the tiles and base, and the island of soil and trees around the field |
+| `Enemies.cs` | The three kinds of enemy, walking the road, taking hits, and reaching the base |
+| `Towers.cs` | Building towers and picking a target |
+| `Shots.cs` | Shots flying to their target |
 | `Waves.cs` | Which enemies each wave sends, and when |
-| `Player.cs` | Gold and lives |
+| `Player.cs` | Gold, lives and how many enemies fell |
 | `Hud.cs` | The HUD and the banner for the title and the end of a game |
+| `Components.cs` | The enemy, tower and shot components each entity carries |
 | `Controls.cs` | The controls and the screens |
 | `OutpostServices.cs` | `AddOutpost`, shared by `Program.cs` and the tests |
