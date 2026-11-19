@@ -310,7 +310,8 @@ calls it. This is sugar: calling four `Update` methods by hand is equally suppor
 
 ## Stages
 
-Each stage is one pull request into `main`. `main` is heading for 2.0 and takes breaking
+All six stages go into one pull request into `main` (#148), one stage after another on
+`feat/world-in-core`. This was changed from one pull request per stage on 2026-11-19, at the user's ask. `main` is heading for 2.0 and takes breaking
 changes, so there is no long-lived branch and no 1.x release to protect. Each stage ends with
 the fast tests, the GPU tests and `dotnet roe` passing, the docs for what it touched updated,
 and every example still running.
