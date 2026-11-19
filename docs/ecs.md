@@ -68,6 +68,7 @@ destroyed by then is dropped.
 | `world.Remove<T>(entity)` | Removes a component |
 | `world.Has<T>(entity)` | Whether it has one |
 | `world.Get<T>(entity)` | A reference to a component, to read or change |
+| `world.Teleport(entity, transform)` | Sets its `Transform` so it's drawn there at once, not sliding there between ticks. See [Drawing entities](#drawing-entities) |
 | `world.Destroy(entity)` | Removes the entity and its components |
 | `world.IsAlive(entity)` | Whether it still exists. A destroyed entity's ID isn't confused with a new one |
 | `world.Count` | How many entities there are |
