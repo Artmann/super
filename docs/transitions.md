@@ -62,6 +62,9 @@ picture is already kept, and the camera `Draw` sets next is the new one. A blend
 from the camera last shown to whatever `Draw` sets, every frame, so it follows a moving
 target.
 
+When the change is going to another [scene](ecs.md#scenes), hand the transition to
+`scenes.Go` instead, and it plays it and swaps the scene at the right tick.
+
 | Member | What it does |
 | --- | --- |
 | `Play(transition, atCut)` | Starts a transition, ending any that's playing |
