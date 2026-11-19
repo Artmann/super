@@ -34,19 +34,17 @@ public sealed class World : ITickHook, IStateHook
 
     public bool IsAlive(Entity entity) => _entities.IsAlive(entity);
 
-    /// <summary>Gives the entity a component, or replaces the one it has.</summary>
+    /// <summary>
+    /// Gives the entity a component, or replaces the one it has. A component it didn't have also brings the
+    /// components <c>Require</c> asks for, unless the entity has them already.
+    /// </summary>
     public void Add<T>(Entity entity, T component)
         where T : struct
     {
-        ref var slot = ref _entities.Of(entity);
-        int type = Archetypes.TypeId<T>();
-        if (!slot.Archetype!.Mask.Has(type))
+        if (Put(entity, in component, out int type))
         {
-            ThrowIfIterating();
-            _entities.MoveTo(ref slot, Archetypes.With<T>(slot.Archetype, type));
+            Archetypes.Required.ApplyTo(this, entity, type);
         }
-
-        slot.Archetype!.Column<T>(type).Values[slot.Row] = component;
     }
 
     /// <summary>Takes a component away. Does nothing if the entity doesn't have it.</summary>
@@ -115,6 +113,23 @@ public sealed class World : ITickHook, IStateHook
 
     /// <summary>The component type's ID, registering it the first time. Queries ask for theirs as they start.</summary>
     internal int TypeId<T>() => Archetypes.TypeId<T>();
+
+    /// <summary>Sets the component without bringing its required ones. Returns whether the entity didn't have one.</summary>
+    internal bool Put<T>(Entity entity, in T component, out int type)
+        where T : struct
+    {
+        ref var slot = ref _entities.Of(entity);
+        type = Archetypes.TypeId<T>();
+        bool added = !slot.Archetype!.Mask.Has(type);
+        if (added)
+        {
+            ThrowIfIterating();
+            _entities.MoveTo(ref slot, Archetypes.With<T>(slot.Archetype, type));
+        }
+
+        slot.Archetype!.Column<T>(type).Values[slot.Row] = component;
+        return added;
+    }
 
     internal void BeginIteration() => _iterating++;
 
