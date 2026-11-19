@@ -19,7 +19,15 @@ internal static class WorldFrame
     private static readonly Action<ModelPass, View> DrawStatic = static (pass, view) => DrawArchetypes(view, pass);
 
     /// <summary>Describes everything the world shows into a view that has just begun its frame.</summary>
-    public static void Describe(View view, World world) => Models(view, world);
+    public static void Describe(View view, World world)
+    {
+        if (WorldCameras.FrameCamera(world, view.Blend) is { } camera)
+        {
+            view.Camera(camera);
+        }
+
+        Models(view, world);
+    }
 
     /// <summary>
     /// Draws every entity with a <see cref="Transform"/> and a <see cref="Model"/> or an <see cref="Animated"/>, keyed by
