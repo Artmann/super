@@ -4838,8 +4838,8 @@ live. `SceneRenderer.Dispose` waits up to 10 seconds for the saver after the ren
 just before the window closed is still kept. A new saver is made only when the space folder or the cache changes,
 after waiting for the old one.
 
-`WindowPlay.PlayFrame` hands `Renderer.Baking.Progress` to `GameLoop.BakeProgress` before `Draw`, and in play
-(`GameLoop.ShowsBakes`) `LoopDraw.Interface` puts the game's interface in a `ZStack` with `BakeOverlay`'s line. The
+`WindowPlay.PlayFrame` hands `Renderer.Baking.Progress` to `LoopDraw.BakeProgress` (through `GameLoop.DrawSteps`) before `Draw`, and in play
+(`LoopDraw.ShowsBakes`) `LoopDraw.Interface` puts the game's interface in a `ZStack` with `BakeOverlay`'s line. The
 game's view is always the first child, and the line's place is null when nothing bakes, so the root's type never
 changes and the game's interface keeps its state as the line comes and goes. The stats
 panel (`StatsOverlay`, shown while `GameStats.Shown` is on) takes the third place in the same
