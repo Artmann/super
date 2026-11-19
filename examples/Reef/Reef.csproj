@@ -5,7 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Super.Ecs\Super.Ecs.csproj" />
+    <ProjectReference Include="..\..\src\Super\Super.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -38,14 +38,38 @@ public readonly record struct SplineKnot(Vector3 Position, Vector3 In = default,
 /// </summary>
 public readonly record struct SplinePose(Vector3 Position, Quaternion Rotation)
 {
+    // The axes are read from the rotation matrix's rows, which is what Vector3.Transform of a unit
+    // axis gives. Calling Vector3.Transform here would make Roe tie this type to Super's Transform.
+
     /// <summary>The way along the spline.</summary>
-    public Vector3 Forward => Vector3.Transform(Vector3.UnitZ, Rotation);
+    public Vector3 Forward
+    {
+        get
+        {
+            var turn = Matrix4x4.CreateFromQuaternion(Rotation);
+            return new Vector3(turn.M31, turn.M32, turn.M33);
+        }
+    }
 
     /// <summary>Up, tipped by any roll.</summary>
-    public Vector3 Up => Vector3.Transform(Vector3.UnitY, Rotation);
+    public Vector3 Up
+    {
+        get
+        {
+            var turn = Matrix4x4.CreateFromQuaternion(Rotation);
+            return new Vector3(turn.M21, turn.M22, turn.M23);
+        }
+    }
 
     /// <summary>To the right, looking along the spline.</summary>
-    public Vector3 Right => Vector3.Transform(-Vector3.UnitX, Rotation);
+    public Vector3 Right
+    {
+        get
+        {
+            var turn = Matrix4x4.CreateFromQuaternion(Rotation);
+            return new Vector3(-turn.M11, -turn.M12, -turn.M13);
+        }
+    }
 
     /// <summary>The pose as a matrix, to draw a model there.</summary>
     public Matrix4x4 Matrix => Matrix4x4.CreateFromQuaternion(Rotation) * Matrix4x4.CreateTranslation(Position);

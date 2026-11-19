@@ -1,7 +1,6 @@
 using System.Numerics;
 using Microsoft.Extensions.DependencyInjection;
 using Super;
-using Super.Ecs;
 using Super.Testing;
 
 namespace Reef.Tests;
@@ -89,7 +88,6 @@ public class BoidsTests
     private static HeadlessRun<ReefGame> Start(int seed) =>
         HeadlessGame.Create<ReefGame>(seed, services =>
         {
-            services.AddSuperEcs();
             services.AddSingleton<ReefSettings>(new SmallReef());
         });
 

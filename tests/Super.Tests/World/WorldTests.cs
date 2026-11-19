@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Super.Testing;
 
-namespace Super.Ecs.Tests;
+namespace Super.Tests;
 
 public class WorldTests
 {
@@ -311,23 +311,10 @@ public class WorldTests
     }
 
     [Fact]
-    public void AddSuperEcs_gives_a_game_its_own_world()
-    {
-        using var run = HeadlessGame.Create<Movement>(1, services => services.AddSuperEcs());
-        var entity = run.Game.World.Create();
-        run.Game.World.Add(entity, new Position(0f));
-        run.Game.World.Add(entity, new Velocity(30f));
-
-        run.Ticks(3);
-
-        Assert.Equal(3f, run.Game.World.Get<Position>(entity).X, 0.001f);
-    }
-
-    [Fact]
     public void Two_games_do_not_share_a_world()
     {
-        using var first = HeadlessGame.Create<Movement>(1, services => services.AddSuperEcs());
-        using var second = HeadlessGame.Create<Movement>(1, services => services.AddSuperEcs());
+        using var first = HeadlessGame.Create<Movement>(1);
+        using var second = HeadlessGame.Create<Movement>(1);
         var entity = first.Game.World.Create();
         first.Game.World.Add(entity, new Position(0f));
         first.Game.World.Add(entity, new Velocity(30f));

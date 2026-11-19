@@ -1,4 +1,4 @@
-namespace Super.Ecs;
+namespace Super;
 
 /// <summary>
 /// A world's component type IDs and its archetypes, one for each set of component types an entity has had. Archetypes

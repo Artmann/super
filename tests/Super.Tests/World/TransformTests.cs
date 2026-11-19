@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace Super.Ecs.Tests;
+namespace Super.Tests;
 
 public class TransformTests
 {

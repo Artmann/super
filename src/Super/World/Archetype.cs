@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace Super.Ecs;
+namespace Super;
 
 /// <summary>One component type's values in an archetype, packed side by side.</summary>
 internal abstract class ComponentColumn

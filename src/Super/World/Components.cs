@@ -1,7 +1,7 @@
 using System.Numerics;
 using Rendition;
 
-namespace Super.Ecs;
+namespace Super;
 
 /// <summary>
 /// What an entity looks like. With a <see cref="Transform"/>, <see cref="ViewExtensions.Models"/>

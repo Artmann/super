@@ -36,7 +36,7 @@
     since their assemblies are inside it.
   -->
   <ItemGroup>
-    <SuperLibrary Include="Rendition;Super;Super.Random;Super.Ecs;Super.Physics;Super.Materials;Super.Cook;Super.Cook.Materials;Super.Testing" />
+    <SuperLibrary Include="Rendition;Super;Super.Random;Super.Physics;Super.Materials;Super.Cook;Super.Cook.Materials;Super.Testing" />
     <ProjectReference Include="@(SuperLibrary->'..\..\src\%(Identity)\%(Identity).csproj')" PrivateAssets="all" />
   </ItemGroup>
 

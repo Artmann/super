@@ -75,6 +75,9 @@ public sealed class HeadlessRun<TGame> : IDisposable
     /// <summary>The camera the last frame showed. Call <see cref="Frame"/> first.</summary>
     public Camera Camera => _host.View.Shot;
 
+    /// <summary>The game's world, with every entity in it.</summary>
+    public World World => (World)_host.GetService(typeof(World));
+
     /// <summary>How the last frame moved between pictures: its style, how far along, and which held picture. Call <see cref="Frame"/> first.</summary>
     public Rendition.ScreenTransition Transition => _host.View.Effects.Transition;
 

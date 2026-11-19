@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace Super.Ecs;
+namespace Super;
 
 /// <summary>
 /// Keeps the audio in step with the entities that have a <see cref="Sound"/> or an <see cref="Ambience"/>, after each

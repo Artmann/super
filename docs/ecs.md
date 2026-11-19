@@ -1,14 +1,12 @@
 # The ECS
 
 An entity component system suits games with thousands of similar things, like a colony
-sim's workers, animals and items. `Super.Ecs` is a separate package, and it plugs in as
-ordinary services. You don't need it: plain lists of your own work just as well, and so
-does another ECS library.
+sim's workers, animals and items. Every game has a `World`, with nothing to add or
+register: ask for one in a constructor.
 
 ```csharp
 Game.StartWindowsGameLoop<Farm>(new GameOptions { Title = "Farm" }, services =>
 {
-    services.AddSuperEcs();
     services.AddSingleton<Movement>();
 });
 

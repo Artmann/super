@@ -3,7 +3,7 @@ namespace Super.Physics;
 /// <summary>How a <see cref="Body"/> moves.</summary>
 public enum BodyKind
 {
-    /// <summary>Moved only by code, through its <see cref="Super.Ecs.Transform"/>. Pushes dynamic bodies out of its way.</summary>
+    /// <summary>Moved only by code, through its <see cref="Transform"/>. Pushes dynamic bodies out of its way.</summary>
     Kinematic,
 
     /// <summary>Never meant to move, such as walls and floors. The cheapest kind; moving it teleports it.</summary>
@@ -17,7 +17,7 @@ public enum BodyKind
 /// How an entity's <see cref="Collider"/> takes part in the simulation. A collider with no Body is kinematic: it
 /// follows its Transform and pushes dynamic bodies. Make one with <see cref="Static"/>, <see cref="Kinematic"/> or
 /// <see cref="Dynamic"/>. A dynamic body's Transform is written by physics after each step, so it can't have a
-/// <see cref="Super.Ecs.Parent"/>; setting its Transform yourself teleports it, keeping its velocity.
+/// <see cref="Parent"/>; setting its Transform yourself teleports it, keeping its velocity.
 /// </summary>
 public readonly record struct Body
 {

@@ -1,4 +1,4 @@
-namespace Super.Ecs;
+namespace Super;
 
 /// <summary>Clears away the entities a game scoped to a state with <see cref="ScopedTo{TState}"/> when it leaves it.</summary>
 internal static class ScopedEntities

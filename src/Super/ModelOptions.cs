@@ -73,9 +73,9 @@ public readonly record struct ModelOptions
     /// <summary>Throws if <paramref name="meshes"/> was made for another model than <paramref name="model"/>.</summary>
     internal static void CheckMeshes(MeshMask? meshes, ModelRef model, string name)
     {
-        if (meshes is { } mask && mask.Model != model.Index)
+        if (meshes is { } mask && mask.ModelIndex != model.Index)
         {
-            throw new ArgumentException($"The mesh mask was made for model {mask.Model}, not model {model.Index}. Make it with content.Models.Meshes for this model.", name);
+            throw new ArgumentException($"The mesh mask was made for model {mask.ModelIndex}, not model {model.Index}. Make it with content.Models.Meshes for this model.", name);
         }
     }
 }

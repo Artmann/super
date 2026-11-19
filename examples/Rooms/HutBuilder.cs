@@ -1,6 +1,5 @@
 using System.Numerics;
 using Super;
-using Super.Ecs;
 
 namespace Rooms;
 

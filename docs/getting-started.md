@@ -249,10 +249,9 @@ what lets [tests](testing.md) run in parallel.
 
 | Package | What it gives you | Depends on |
 | --- | --- | --- |
-| `Super` | Window, game loop, input, game states, views, cameras, interfaces, content | `Rendition`, `Super.Random` |
+| `Super` | Window, game loop, input, game states, the [world](ecs.md), views, cameras, interfaces, content | `Rendition`, `Super.Random` |
 | `Super.Random` | Seeded random numbers. Usable alone | Nothing else here |
-| `Super.Ecs` | An optional [entity component system](ecs.md) | `Super` |
-| `Super.Physics` | [Bodies, characters, triggers and rays](physics.md), on Jolt Physics | `Super.Ecs` |
+| `Super.Physics` | [Bodies, characters, triggers and rays](physics.md), on Jolt Physics | `Super` |
 | `Super.Testing` | [Headless runs and seeded tests](testing.md) | `Super` |
 | `Rendition` | The renderer. Usable alone, with no engine | Nothing else here |
 

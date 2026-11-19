@@ -1,7 +1,7 @@
 using System.Numerics;
 using Rendition;
 
-namespace Super.Ecs;
+namespace Super;
 
 public static class ViewExtensions
 {

@@ -1724,7 +1724,7 @@ kept further away than another:
 
 ```csharp
 view.Model(key, tuft, transform, new ModelOptions { Fade = new DistanceFade(50f, 60f) });
-world.Add(entity, new Model(tuft, Fade: new DistanceFade(50f, 60f)));  // the same with Super.Ecs
+world.Add(entity, new Model(tuft, Fade: new DistanceFade(50f, 60f)));  // the same on an entity
 ```
 
 A fade starts at 0 or more and ends no sooner than it starts, or the material or the draw is

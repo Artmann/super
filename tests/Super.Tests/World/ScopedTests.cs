@@ -1,7 +1,7 @@
 using System.Numerics;
 using Super.Testing;
 
-namespace Super.Ecs.Tests;
+namespace Super.Tests;
 
 public class ScopedTests
 {
@@ -44,7 +44,7 @@ public class ScopedTests
         public void Draw(View view) => view.Models(world);
     }
 
-    private static HeadlessRun<Rooms> Run() => HeadlessGame.Create<Rooms>(1, services => services.AddSuperEcs());
+    private static HeadlessRun<Rooms> Run() => HeadlessGame.Create<Rooms>(1);
 
     [Fact]
     public void Entities_scoped_to_a_state_go_when_it_ends()

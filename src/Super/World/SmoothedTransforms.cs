@@ -1,4 +1,4 @@
-namespace Super.Ecs;
+namespace Super;
 
 /// <summary>Keeps each <see cref="Smoothed"/> entity's memory of its last tick, which drawing blends from.</summary>
 internal static class SmoothedTransforms

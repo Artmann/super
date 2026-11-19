@@ -1,6 +1,5 @@
 using System.Numerics;
 using Microsoft.Extensions.DependencyInjection;
-using Super.Ecs;
 using Super.Testing;
 
 namespace Super.Physics.Tests;

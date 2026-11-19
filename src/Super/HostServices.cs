@@ -60,6 +60,10 @@ internal sealed class HostServices : IDisposable
         services.AddSingleton<GameStats>();
         services.AddSingleton<Transitions>();
         services.AddSingleton<Director>();
+        services.AddSingleton<World>();
+        services.AddSingleton<ITickHook>(provider => provider.GetRequiredService<World>());
+        services.AddSingleton<IStateHook>(provider => provider.GetRequiredService<World>());
+        services.AddSingleton<IDrawHook, SoundSync>();
         services.AddSingleton<TGame>();
 
         // This comes last so a game or a test can replace the services above. Audio is the exception for a game: it

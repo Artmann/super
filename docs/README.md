@@ -28,7 +28,7 @@ that doesn't exist yet; everything else works today.
 | [Testing](testing.md) | Headless runs, seeds, invariants, played input and checking the screen |
 | [The command line](command-line.md) | `--screenshot`, `--record`, `--script` and capturing from code |
 | [Profiling](profiling.md) | `--profile` and reading its report |
-| [The ECS](ecs.md) | `Super.Ecs`: queries, drawing entities and entities scoped to a state |
+| [The ECS](ecs.md) | The world every game has: queries, drawing entities and entities scoped to a state |
 | [Physics](physics.md) | `Super.Physics`: bodies that fall and collide, characters, trigger areas, rays and shape casts |
 | [What's not here yet](roadmap.md) | Known gaps and planned features |
 

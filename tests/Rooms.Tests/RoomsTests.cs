@@ -1,14 +1,13 @@
 using System.Numerics;
 using Rooms;
 using Super;
-using Super.Ecs;
 using Super.Testing;
 
 namespace Rooms.Tests;
 
 public class RoomsTests
 {
-    private static HeadlessRun<RoomsGame> Start(int seed) => HeadlessGame.Create<RoomsGame>(seed, services => services.AddSuperEcs());
+    private static HeadlessRun<RoomsGame> Start(int seed) => HeadlessGame.Create<RoomsGame>(seed);
 
     private static void Into(HeadlessRun<RoomsGame> run, Screen target)
     {
@@ -285,7 +284,7 @@ public class RoomsTests
             ["coins/gold.json"] = """{ "id": "gold", "value": 5, "size": 0.4 }""",
             ["motions/rise.json"] = """{ "id": "rise", "seconds": 0.8, "curve": { "easing": "backOut" } }""",
         };
-        using var run = HeadlessGame.Create<RoomsGame>(3, services => services.AddSuperEcs().AddContentFiles(files));
+        using var run = HeadlessGame.Create<RoomsGame>(3, services => services.AddContentFiles(files));
         Into(run, Screen.Outside);
         WalkTo(run, run.Game.CoinPositions()[0]);
         Assert.Equal(0, run.Game.Coins % 5);
