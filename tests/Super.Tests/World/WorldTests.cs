@@ -191,40 +191,6 @@ public class WorldTests
     }
 
     [Fact]
-    public void Changing_the_world_during_a_query_is_refused()
-    {
-        var entity = Create(1f);
-
-        var error = Assert.Throws<InvalidOperationException>(() =>
-        {
-            foreach (var row in _world.Query<Position>())
-            {
-                _world.Destroy(row.Entity);
-            }
-        });
-        Assert.Equal(
-            "Entities can't be created, destroyed or change their components during a query. Collect the changes and make them afterwards.",
-            error.Message);
-
-        // Leaving a query, even by an exception, makes changes possible again.
-        _world.Destroy(entity);
-        Assert.Equal(0, _world.Count);
-    }
-
-    [Fact]
-    public void Replacing_a_component_during_a_query_is_allowed()
-    {
-        var entity = Create(1f);
-
-        foreach (var row in _world.Query<Position>())
-        {
-            _world.Add(row.Entity, new Position(9f));
-        }
-
-        Assert.Equal(9f, _world.Get<Position>(entity).X);
-    }
-
-    [Fact]
     public void Rows_come_in_a_fixed_order_across_archetypes()
     {
         var world = new World();

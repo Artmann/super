@@ -4,8 +4,8 @@ namespace Super;
 internal static class ScopedEntities
 {
     /// <summary>
-    /// Destroys every entity scoped to this state. Collects first, since destroying moves rows, into a list made only
-    /// when there is something to destroy.
+    /// Destroys every entity scoped to this state. The walk counts as a query, so the destroys wait for it to end
+    /// and no row moves while it's being read.
     /// </summary>
     public static void DestroyScopedTo<TState>(World world, TState state)
         where TState : struct, Enum
@@ -20,27 +20,24 @@ internal static class ScopedEntities
         var same = EqualityComparer<TState>.Default;
         var mask = default(ComponentMask).With(scopedType);
         int index = -1;
-        List<Entity>? leaving = null;
-        while (archetypes.NextMatching(ref index, mask) is { } archetype)
+        world.BeginIteration();
+        try
         {
-            var scopes = archetype.Column<ScopedTo<TState>>(scopedType).Values;
-            for (int i = 0; i < archetype.Count; i++)
+            while (archetypes.NextMatching(ref index, mask) is { } archetype)
             {
-                if (same.Equals(scopes[i].State, state))
+                var scopes = archetype.Column<ScopedTo<TState>>(scopedType).Values;
+                for (int i = 0; i < archetype.Count; i++)
                 {
-                    (leaving ??= []).Add(archetype.Entities[i]);
+                    if (same.Equals(scopes[i].State, state))
+                    {
+                        world.Destroy(archetype.Entities[i]);
+                    }
                 }
             }
         }
-
-        if (leaving is null)
+        finally
         {
-            return;
-        }
-
-        foreach (var entity in leaving)
-        {
-            world.Destroy(entity);
+            world.EndIteration();
         }
     }
 }

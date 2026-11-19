@@ -35,8 +35,28 @@ class Movement
 
 Each row's `First`, `Second` and so on are references into the world, so changing them
 changes the entity, and a query allocates nothing. Queries take up to four components, and
-`row.Entity` is the entity itself. Changing values during a query is fine, but adding or
-removing components or entities throws, so collect those and apply them after the loop.
+`row.Entity` is the entity itself.
+
+You can change anything during a query. Values change at once, but spawning, destroying,
+and adding or removing a component type wait until the loop ends, so the rows being walked
+never move:
+
+```csharp
+foreach (var row in world.Query<Transform, Coin>())
+{
+    if (Vector3.Distance(row.First.Position, player) < 1f)
+    {
+        world.Destroy(row.Entity);
+    }
+}
+```
+
+Until the loop ends, a destroyed entity is still alive with its components, and a spawned
+one is alive but has none yet, so this query won't visit it. A component added during
+the loop isn't there yet either: `Has` says false, and `Get` throws to say it arrives
+when the query ends. The changes are made in the order you asked for them, when the
+outermost query ends, even if the loop throws. One meant for an entity that's been
+destroyed by then is dropped.
 
 ## The world
 
