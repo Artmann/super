@@ -34,6 +34,9 @@ public sealed class View
         }
     }
 
+    /// <summary>The world this view draws, so <see cref="ViewPlacement.TransformOf"/> can find an entity.</summary>
+    internal World? World { get; set; }
+
     /// <summary>The suns, the point and spot lights, and the shadows they cast.</summary>
     public ViewLights Lights { get; } = new();
 
@@ -112,7 +115,7 @@ public sealed class View
     /// <summary>
     /// Draws a model in a pose, such as a rigged model in a pose from an <see cref="Animator"/>, with options. The
     /// model must have been cooked with a skeleton, and the pose's rig must be the model's own. Clips keep moving
-    /// between ticks, like <see cref="Smooth"/> does for transforms. A null pose draws the model as it stands. Throws
+    /// between ticks, like <see cref="ViewPlacement.Smooth"/> does for transforms. A null pose draws the model as it stands. Throws
     /// if the mask was made for another model, if a static draw swims or has a pose, since a bake holds it where it
     /// stands, or for a fade that ends before it starts.
     /// </summary>
@@ -137,12 +140,6 @@ public sealed class View
         _models.Add(new ModelDraw(
             key, model, transform, options.Color, options.Swim, pose, pose is null ? 0f : _clock.PoseAhead, null, options.Meshes, options.Static, options.Fade));
     }
-
-    /// <summary>
-    /// Blends between a thing's transform on the last two ticks, which keeps motion
-    /// smooth at any frame rate. It suits small steps, not whole turns in one tick.
-    /// </summary>
-    public Matrix4x4 Smooth(in Matrix4x4 previous, in Matrix4x4 current) => Matrix4x4.Lerp(previous, current, Blend);
 
     /// <summary>
     /// Moves a number towards a target over this many seconds, easing in and out, and gives

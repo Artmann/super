@@ -27,7 +27,7 @@ public sealed class CannonballField(World world)
     // Balls are drawn and collide at this radius: a unit sphere scaled to twice it.
     private const float BallRadius = 0.6f;
 
-    // Above any entity's ID, so these keys never meet the ones view.Models gives entities.
+    // Above any entity's ID, so these keys never meet the ones the world gives entities.
     private const int CannonKey = 1_000_000;
 
     /// <summary>The point the cannon turns about, at the back of the barrel.</summary>

@@ -4,7 +4,7 @@ using Rendition;
 namespace Super;
 
 /// <summary>
-/// What an entity looks like. With a <see cref="Transform"/>, <see cref="ViewExtensions.Models"/>
+/// What an entity looks like. With a <see cref="Transform"/>, the world
 /// draws it, keyed by the entity's ID. A color tints the model and keeps its textures. A mesh
 /// mask from <see cref="ContentModels.Meshes"/> shows only some of its meshes; null shows them all. A fade
 /// fades it out with distance from the camera, winning over its surfaces' own.
@@ -39,7 +39,7 @@ public record struct ScopedTo<TState>(TState State)
 /// <summary>
 /// Animates the entity with an <see cref="Animator"/>. The game loop moves the animator
 /// on every tick, so systems only say what the character is doing, and
-/// <see cref="ViewExtensions.Models"/> draws its pose. Without a <see cref="Model"/>, it
+/// the world draws its pose. Without a <see cref="Model"/>, it
 /// draws the rig's own model; with one, the model must have been cooked with a skeleton
 /// and the animator's rig must be its own.
 /// </summary>
@@ -54,6 +54,6 @@ public record struct Swim(float Amplitude, float BodyLength, float Phase);
 
 /// <summary>
 /// Marks an entity's <see cref="Model"/> as one that never moves, so baked lighting can hold it.
-/// <see cref="ViewExtensions.Models"/> draws it static, and throws if it also swims or is animated.
+/// The world draws it static, and throws if it also swims or is animated.
 /// </summary>
 public readonly record struct Static;

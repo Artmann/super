@@ -16,8 +16,13 @@ public interface IGame
     /// <summary>Runs a fixed number of times per second. This is where game state changes.</summary>
     void Update(GameTime time);
 
-    /// <summary>Runs once per displayed frame. It describes what's on screen and only reads state.</summary>
-    void Draw(View view);
+    /// <summary>
+    /// Runs once per displayed frame, after the world has drawn its entities, for what only this frame shows. It only
+    /// reads state. Most games leave it out.
+    /// </summary>
+    void Draw(View view)
+    {
+    }
 
     /// <summary>
     /// The interface on top of the picture. It's read after every Draw, and Super works out

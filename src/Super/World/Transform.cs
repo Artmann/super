@@ -4,7 +4,7 @@ namespace Super;
 
 /// <summary>
 /// Where an entity is, which way it faces and how big it is. Keep it on entities that
-/// gameplay moves, and <see cref="ViewExtensions.Models"/> draws them from it.
+/// gameplay moves, and the world draws them from it.
 /// </summary>
 public record struct Transform(Vector3 Position, Quaternion Rotation, Vector3 Scale)
 {

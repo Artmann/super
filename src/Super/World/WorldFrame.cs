@@ -3,18 +3,25 @@ using Rendition;
 
 namespace Super;
 
-public static class ViewExtensions
+/// <summary>
+/// What the world puts in a frame by itself, before the game's Draw: every entity's model, and in time its camera,
+/// lights, settings and emitters, so a game describes the world once, as entities, and Draw is only for what one frame
+/// shows.
+/// </summary>
+internal static class WorldFrame
 {
     private const int MaxParentDepth = 32;
 
+    /// <summary>Describes everything the world shows into a view that has just begun its frame.</summary>
+    public static void Describe(View view, World world) => Models(view, world);
+
     /// <summary>
-    /// Draws every entity with a <see cref="Transform"/> and a <see cref="Model"/> or an
-    /// <see cref="Animated"/>, keyed by entity ID. entities blend from where they were at the last tick, unless <see cref="Static"/>, <see cref="Parent"/>
-    /// entities follow their parent, <see cref="Swim"/> entities swim, and
-    /// <see cref="Animated"/> entities take their animator's pose. Call it from Draw,
-    /// alongside any models you describe by hand.
+    /// Draws every entity with a <see cref="Transform"/> and a <see cref="Model"/> or an <see cref="Animated"/>, keyed by
+    /// entity ID. Entities blend from where they were at the last tick, unless <see cref="Static"/>; <see cref="Parent"/>
+    /// entities follow their parent, <see cref="Swim"/> entities swim, and <see cref="Animated"/> entities take their
+    /// animator's pose.
     /// </summary>
-    public static void Models(this View view, World world)
+    private static void Models(View view, World world)
     {
         var types = ModelTypes.Of(world);
         if (types.Transform < 0 || (types.Model < 0 && types.Animated < 0))
@@ -123,7 +130,7 @@ public static class ViewExtensions
             var matrix = LastTicks is null ? Transforms[i].Matrix : Blended(in Transforms[i], in LastTicks[i], blend).Matrix;
             if (Parents is not null)
             {
-                matrix *= WorldMatrix(world, Parents[i].Value, blend, depth: 0);
+                matrix *= WorldMatrix(world, Parents[i].Value, blend);
             }
 
             var swim = Swims is null ? default : SwimAt(i, blend);
@@ -171,7 +178,9 @@ public static class ViewExtensions
         last.HasPrevious ? Transform.Lerp(in last.Previous, in current, blend) : current;
 
     /// <summary>An entity's matrix in the world, following its own parents. A dead parent, or one with no transform, counts as the world itself.</summary>
-    internal static Matrix4x4 WorldMatrix(World world, Entity entity, float blend, int depth)
+    internal static Matrix4x4 WorldMatrix(World world, Entity entity, float blend) => WorldMatrix(world, entity, blend, depth: 0);
+
+    private static Matrix4x4 WorldMatrix(World world, Entity entity, float blend, int depth)
     {
         if (depth >= MaxParentDepth || !world.IsAlive(entity) || !world.Has<Transform>(entity))
         {

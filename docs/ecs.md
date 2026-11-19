@@ -133,8 +133,8 @@ one type run in the order they were added.
 ## Drawing entities
 
 Most entities are drawn the same way: a model at a transform, keyed by the entity's ID.
-Rather than write that loop in every game, give entities Super's own components and let
-`view.Models(world)` do it:
+Give entities Super's own components and the world draws them itself, every frame, before
+your `Draw` runs:
 
 ```csharp
 var sheep = world.Spawn(
@@ -150,7 +150,6 @@ public void Draw(View view)
 {
     view.Camera(camera);
     view.Lights.Sun(new Vector3(1f, 2f, 1f), new Vector3(3f));
-    view.Models(world);
 }
 ```
 
@@ -167,8 +166,8 @@ public void Draw(View view)
 | `Ambience` | Plays an ambience for as long as the entity has this |
 
 Every entity with a `Transform` is drawn moving smoothly between ticks, so you don't keep a
-previous position yourself: the world takes a copy before each `Update`, and `Models`
-blends from it. An entity's first frame shows it exactly where it is, so a loaded save
+previous position yourself: the world takes a copy before each `Update`, and draws blending
+from it. An entity's first frame shows it exactly where it is, so a loaded save
 doesn't glide into place, and a `Static` entity is always drawn where it is.
 
 When an entity jumps rather than moves, such as a respawn, a wrap at the edge of the map
@@ -178,16 +177,32 @@ or a move to another room, place it with `Teleport` so it isn't seen sliding the
 world.Teleport(player, Transform.At(spawnPoint));
 ```
 
-These components are only data. A system that moves things writes `Transform`, and
-`Models` is a plain call you make in `Draw`, next to anything you still describe by hand.
-Entities without `Model` aren't drawn, so gameplay-only things cost nothing here.
+These components are only data. A system that moves things writes `Transform`, and the
+world draws what it says. Entities without `Model` aren't drawn, so gameplay-only things
+cost nothing here.
+
+`Draw` is optional. A game whose whole picture is entities leaves it out; one that keeps
+it uses it for what only that frame shows, such as a glow that pulses with the display
+time, next to what the world drew. `view.TransformOf(entity)` gives an entity's matrix as
+it's drawn this frame, between its last two ticks and following its parents, so something
+drawn by hand can sit on it:
+
+```csharp
+public void Draw(View view)
+{
+    var lantern = view.TransformOf(lanternEntity);
+    view.Model(GlowKey, glow, Matrix4x4.CreateScale(pulse) * lantern);
+}
+```
+
+It throws `InvalidOperationException` for an entity with no `Transform`.
 
 The [Reef example](../examples/Reef) uses this for thousands of schooling fish, and its
-`Draw` is a camera, a sun, the seabed and `view.Models(world)`.
+`Draw` is only a camera, a sun and the seabed.
 
 ### Static draws
 
-Give an entity that never moves the `Static` component, and `view.Models(world)` draws it
+Give an entity that never moves the `Static` component, and the world draws it
 static, the same as `new ModelOptions { Static = true }` in [Views](views.md#static-draws):
 
 ```csharp

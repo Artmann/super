@@ -49,12 +49,6 @@ internal sealed class PendingChanges
         return new Held(this, world);
     }
 
-    private void Release(World world)
-    {
-        _holding--;
-        ApplyIfDone(world);
-    }
-
     public void Add<T>(Entity entity, int type, in T component)
         where T : struct
     {
@@ -131,12 +125,7 @@ internal sealed class PendingChanges
 
                 try
                 {
-                    if (change.Kind == Kind.Remove)
-                    {
-                        RunAddedBefore(world, change, i + 1);
-                    }
-
-                    Make(world, change);
+                    Make(world, change, i);
                 }
                 catch (Exception problem)
                 {
@@ -169,12 +158,13 @@ internal sealed class PendingChanges
             if (change.Kind == Kind.Added && change.Entity == removal.Entity && change.Type == removal.Type)
             {
                 _changes[i] = change with { Kind = Kind.Done };
-                Make(world, change);
+                Make(world, change, i);
             }
         }
     }
 
-    private void Make(World world, Change change)
+    // At is where the change waits in the list.
+    private void Make(World world, Change change, int at)
     {
         switch (change.Kind)
         {
@@ -182,6 +172,7 @@ internal sealed class PendingChanges
                 _values[change.Type]!.AddTo(world, change.Entity, change.Index);
                 break;
             case Kind.Remove:
+                RunAddedBefore(world, change, at + 1);
                 world.Remove(change.Entity, change.Type);
                 break;
             case Kind.Destroy:
@@ -196,7 +187,11 @@ internal sealed class PendingChanges
     /// <summary>A change under way; disposing it makes what waited for it.</summary>
     public readonly struct Held(PendingChanges changes, World world) : IDisposable
     {
-        public void Dispose() => changes.Release(world);
+        public void Dispose()
+        {
+            changes._holding--;
+            changes.ApplyIfDone(world);
+        }
     }
 
     private readonly record struct Change(Kind Kind, Entity Entity, int Type, int Index);

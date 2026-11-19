@@ -60,7 +60,7 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
                 Entity entity = row.Entity;
                 Sound sound = row.First;
                 bool placed = world.Has<Transform>(entity);
-                Vector3 at = placed ? ViewExtensions.WorldMatrix(world, entity, blend, depth: 0).Translation : default;
+                Vector3 at = placed ? WorldFrame.WorldMatrix(world, entity, blend).Translation : default;
                 Check(entity, sound, placed, at);
                 _loops[entity] = SyncLoop(entity, sound, placed, at);
                 _lastLoops.Remove(entity);

@@ -130,13 +130,13 @@ class Spinner : IGame
 built-in cube, so this runs with no files at all. There are
 [other built-in shapes](rendering.md#built-in-shapes) too, such as `ModelRef.Sphere`.
 
-A game implements `IGame`, which has six members. Only `Update` and `Draw` are required:
+A game implements `IGame`, which has six members. Only `Update` is required:
 
 | Member | When it runs | What it's for |
 | --- | --- | --- |
 | `Load()` | Once, before the first tick | Build the starting world and bind input |
 | `Update(GameTime)` | A fixed number of times per second, 30 by default | Change game state. The only place input can be read |
-| `Draw(View)` | Once per displayed frame | Describe the 3D world. It only reads state |
+| `Draw(View)` | Once per displayed frame, after the world has drawn its [entities](ecs.md#drawing-entities) | Describe what isn't an entity, such as this cube. It only reads state |
 | `Ui` | Once per displayed frame | Describe the [interface](interfaces.md) on top. It only reads state |
 | `Scripts` | Once, after `Load` | Named input scripts for [`--script`](command-line.md#scripted-input) |
 | `CodeReloaded()` | At the start of the tick after [hot reload](hot-reload.md) changed the code | Rebuild what setup code made, often with `Reenter` |

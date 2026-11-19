@@ -433,7 +433,7 @@ length. `animator.Joint(name)` gives where a joint is as of the last tick, ragdo
 
 ## With the ECS
 
-Give an entity a `Transform` and an `Animated`, and `view.Models(world)` draws the rig's
+Give an entity a `Transform` and an `Animated`, and the world draws the rig's
 model in the animator's pose. There's nothing to update and nothing more to draw:
 
 ```csharp

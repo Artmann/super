@@ -4,7 +4,7 @@ using Super.Ui;
 namespace Super;
 
 /// <summary>
-/// What one frame does, in order: the game's Draw, the camera, transitions and draw hooks, the audio, then the
+/// What one frame does, in order: the world, the game's Draw, the camera, transitions and draw hooks, the audio, then the
 /// interface. Takes the services the host already made, so it makes none of its own.
 /// </summary>
 internal sealed class LoopDraw
@@ -20,6 +20,7 @@ internal sealed class LoopDraw
     private readonly Gpu _gpu;
     private readonly IDrawHook[] _hooks;
     private readonly StateChanges _changes;
+    private readonly World _world;
 
     public LoopDraw(IServiceProvider services, IGame looped, GameTime time, UiPointer pointer, LoopHalts halts)
     {
@@ -34,6 +35,7 @@ internal sealed class LoopDraw
         _gpu = services.GetRequiredService<Gpu>();
         _hooks = services.GetServices<IDrawHook>().ToArray();
         _changes = services.GetRequiredService<StateChanges>();
+        _world = services.GetRequiredService<World>();
     }
 
     /// <summary>Whether the interface shows what bakes in the background, over the game's own. Only play does.</summary>
@@ -74,6 +76,7 @@ internal sealed class LoopDraw
     {
         _changes.Open = false;
         view.Begin(blend, _time.Tick, _time.TickSeconds, _time.Scale);
+        WorldFrame.Describe(view, _world);
         _looped.Draw(view);
         if (_director.HasCamera)
         {

@@ -7,7 +7,7 @@ namespace Cannonball;
 /// <summary>Draws a ragdoll's bodies in their places: orange where physics moves them, blue where the animation does.</summary>
 public sealed class RagdollOverlay(Physics physics)
 {
-    // Above any entity's ID, so these keys never meet the ones view.Models gives entities.
+    // Above any entity's ID, so these keys never meet the ones the world gives entities.
     private const int BodiesKey = 1_000_100;
 
     private readonly List<RagdollShapeView> _shapes = [];

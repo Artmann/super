@@ -207,7 +207,6 @@ public sealed class ForestGame(
         });
         // The first map covers the clearing and the second the trees round it, which cast the shafts.
         view.Lights.Shadows(14f, 3);
-        view.Models(world);
     }
 
     /// <summary>1 to 4 step their channel's volume through full, half and off.</summary>
