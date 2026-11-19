@@ -18,16 +18,16 @@ public sealed class TraceDebugTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
-        var red = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(1, 0, 0, 1), Roughness = 0.8f });
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
+        var red = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(1, 0, 0, 1), Roughness = 0.8f });
 
         // The camera sits 3 metres back, so the unit quad covers the middle 40% of the view and the corners see sky.
         byte[] pixels = Capture([Draw(mesh, red, Matrix4x4.Identity)]);
 
         AssertPixel(pixels, Size / 2, Size / 2, (255, 0, 0));
         AssertPixel(pixels, 2, 2, Sky);
-        gpu.Renderer.DestroyMaterial(red);
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMaterial(red);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -37,8 +37,8 @@ public sealed class TraceDebugTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
-        var red = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(1, 0, 0, 1), Roughness = 0.8f });
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
+        var red = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(1, 0, 0, 1), Roughness = 0.8f });
 
         // White everywhere, and see-through on the left half: u below 0.5, which is x below 0 on the quad.
         const int side = 64;
@@ -53,8 +53,8 @@ public sealed class TraceDebugTests(GpuFixture gpu)
             }
         }
 
-        var halfClear = gpu.Renderer.CreateTexture(TextureData.FromPixels(side, side, TextureKind.Color, rgba));
-        var green = gpu.Renderer.CreateMaterial(new Material
+        var halfClear = gpu.Renderer.Assets.CreateTexture(TextureData.FromPixels(side, side, TextureKind.Color, rgba));
+        var green = gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0, 1, 0, 1),
             Textures = new MaterialTextures { BaseColor = halfClear },
@@ -71,10 +71,10 @@ public sealed class TraceDebugTests(GpuFixture gpu)
 
         AssertPixel(pixels, Size / 2 - 25, Size / 2, (255, 0, 0));
         AssertPixel(pixels, Size / 2 + 25, Size / 2, (0, 255, 0));
-        gpu.Renderer.DestroyMaterial(green);
-        gpu.Renderer.DestroyMaterial(red);
-        gpu.Renderer.DestroyTexture(halfClear);
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMaterial(green);
+        gpu.Renderer.Assets.DestroyMaterial(red);
+        gpu.Renderer.Assets.DestroyTexture(halfClear);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -100,7 +100,7 @@ public sealed class TraceDebugTests(GpuFixture gpu)
             new(new Vector3(0f, 0.5f, 0), Vector3.UnitZ, tangent, new Vector2(0.5f, 1)),
         ];
         uint[] indices = [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
 
         // Red where u is below 0.5 and green above.
         const int side = 64;
@@ -116,9 +116,9 @@ public sealed class TraceDebugTests(GpuFixture gpu)
             }
         }
 
-        var redGreen = gpu.Renderer.CreateTexture(TextureData.FromPixels(side, side, TextureKind.Color, rgba));
-        var blue = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0, 0, 1, 1), Roughness = 0.8f });
-        var textured = gpu.Renderer.CreateMaterial(new Material
+        var redGreen = gpu.Renderer.Assets.CreateTexture(TextureData.FromPixels(side, side, TextureKind.Color, rgba));
+        var blue = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0, 0, 1, 1), Roughness = 0.8f });
+        var textured = gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = Vector4.One,
             Textures = new MaterialTextures { BaseColor = redGreen },
@@ -135,10 +135,10 @@ public sealed class TraceDebugTests(GpuFixture gpu)
         // A unit is about 103 pixels here, so these sit in the middle of each quad.
         AssertPixel(pixels, Size / 2 - 50, Size / 2, (0, 0, 255));
         AssertPixel(pixels, Size / 2 + 50, Size / 2, (0, 255, 0));
-        gpu.Renderer.DestroyMaterial(textured);
-        gpu.Renderer.DestroyMaterial(blue);
-        gpu.Renderer.DestroyTexture(redGreen);
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMaterial(textured);
+        gpu.Renderer.Assets.DestroyMaterial(blue);
+        gpu.Renderer.Assets.DestroyTexture(redGreen);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 

@@ -43,7 +43,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -76,7 +76,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -127,7 +127,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -163,7 +163,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -187,7 +187,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -235,7 +235,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -270,7 +270,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
             Assert.Equal("job-room", job.Info.Name);
         }
 
-        fresh.Renderer.DestroyMesh(quad);
+        fresh.Renderer.Assets.DestroyMesh(quad);
         Assert.Equal(0, fresh.ValidationErrors);
     }
 
@@ -286,7 +286,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
             () => fresh.Renderer.Baking.Jobs.CreateSpaceJob(RoomView(fresh, room), room, new BakeSettings(4, BakeQuality.Preview)));
         Assert.Equal("Baking needs a GPU that can trace rays, and this one can't.", error.Message);
 
-        fresh.Renderer.DestroyMesh(quad);
+        fresh.Renderer.Assets.DestroyMesh(quad);
         Assert.Equal(0, fresh.ValidationErrors);
     }
 
@@ -377,7 +377,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
             vertices[i].Uv2 = vertices[i].Uv;
         }
 
-        var handle = g.Renderer.CreateMesh(vertices, indices);
+        var handle = g.Renderer.Assets.CreateMesh(vertices, indices);
         g.RenderOneFrame();
         return handle;
     }

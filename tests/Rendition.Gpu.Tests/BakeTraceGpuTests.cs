@@ -55,7 +55,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -108,7 +108,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -120,7 +120,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var twoSided = gpu.Renderer.CreateMaterial(new Material
+        var twoSided = gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f), Roughness = 0.8f, Flags = MaterialFlags.TwoSided,
         });
@@ -162,8 +162,8 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(twoSided);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(twoSided);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -203,7 +203,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -215,7 +215,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var black = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 0.8f });
+        var black = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 0.8f });
         try
         {
             var draws = LampUnderCeiling(quad, black);
@@ -232,8 +232,8 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(black);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(black);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -245,7 +245,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var black = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 0.8f });
+        var black = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 0.8f });
         try
         {
             var draws = LampUnderCeiling(quad, black);
@@ -265,8 +265,8 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(black);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(black);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -278,7 +278,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var black = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 0.8f });
+        var black = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 0.8f });
         try
         {
             // A floor 4 metres square at 20 texels a metre, so column i of 80 has its centre at x = (i + 0.5) / 20 - 2,
@@ -333,8 +333,8 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(black);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(black);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -382,7 +382,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -394,7 +394,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var glass = gpu.Renderer.CreateMaterial(new Material
+        var glass = gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(1f, 1f, 1f, 0.5f), Roughness = 0.1f, Flags = MaterialFlags.Transparent,
         });
@@ -415,8 +415,8 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(glass);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(glass);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -501,7 +501,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -574,7 +574,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
             vertices[i].Uv2 = vertices[i].Uv;
         }
 
-        var handle = gpu.Renderer.CreateMesh(vertices, indices);
+        var handle = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame(); // Uploads the mesh.
         return handle;
     }

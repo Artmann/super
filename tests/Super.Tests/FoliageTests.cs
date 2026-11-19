@@ -131,7 +131,7 @@ public class FoliageTests
             Wind = 0.8f,
         };
 
-        var material = Renderer.MaterialOf(source, textures);
+        var material = ModelMaterials.MaterialOf(source, textures);
 
         Assert.Equal(MaterialFlags.Foliage, material.Flags);
         Assert.Equal(0.45f, material.Translucency);

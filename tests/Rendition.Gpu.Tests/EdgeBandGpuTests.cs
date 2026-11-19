@@ -30,7 +30,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var dark = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.05f, 0.05f, 1f), Roughness = 0.8f });
+        var dark = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.05f, 0.05f, 1f), Roughness = 0.8f });
         try
         {
             // Two dark walls 2 metres tall make an alley 0.4 metres wide along the chunk's floor, at z = -1 facing +z and
@@ -89,7 +89,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             LetGo(quad);
-            gpu.Renderer.DestroyMaterial(dark);
+            gpu.Renderer.Assets.DestroyMaterial(dark);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -139,7 +139,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var red = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.05f, 0.05f, 1f), Roughness = 1f });
+        var red = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.05f, 0.05f, 1f), Roughness = 1f });
         try
         {
             // The space's probes saw a red wall lit by a Baked sun, with no sky, so inside the box a dynamic quad is red.
@@ -189,8 +189,8 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
             gpu.Renderer.BakedProbeBand = true;
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(red);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(red);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -386,7 +386,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
             vertices[i].Uv2 = vertices[i].Uv;
         }
 
-        var handle = gpu.Renderer.CreateMesh(vertices, indices);
+        var handle = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame(); // Uploads the mesh.
         return handle;
     }
@@ -396,7 +396,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
     {
         gpu.Renderer.Baking.Bakes = NoBakes.Instance;
         gpu.RenderOneFrame();
-        gpu.Renderer.DestroyMesh(quad);
+        gpu.Renderer.Assets.DestroyMesh(quad);
     }
 
     /// <summary>A store holding one bake, fresh for any file whose inputs match it.</summary>

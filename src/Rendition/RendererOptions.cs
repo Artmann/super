@@ -34,7 +34,7 @@ public sealed class RendererOptions
     public Upscaler Upscaler { get; init; } = Upscaler.Taa;
 
     /// <summary>
-    /// Keeps how each pipeline was made, so <see cref="Renderer.ReloadShaders"/> can build the ones that use a
+    /// Keeps how each pipeline was made, so <see cref="RendererAssets.ReloadShaders"/> can build the ones that use a
     /// changed shader again while the game runs. For development; it costs a little memory per pipeline.
     /// </summary>
     public bool LiveShaders { get; init; }

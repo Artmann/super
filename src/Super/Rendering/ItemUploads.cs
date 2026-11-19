@@ -10,18 +10,18 @@ namespace Super;
 internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
 {
     /// <summary>The materials of generated meshes without textures of their own, one for each surface.</summary>
-    private readonly SharedMaterials _meshMaterials = new(renderer.DestroyMaterial);
+    private readonly SharedMaterials _meshMaterials = new(renderer.Assets.DestroyMaterial);
 
     /// <summary>Surface shaders named by cooked models, made once for each name and kept for the renderer's life.</summary>
     private readonly Dictionary<string, SurfaceShaderHandle> _modelShaders = [];
 
     public ItemOnGpu Upload(object prepared, Content content) => prepared switch
     {
-        ModelData model => new ModelOnGpu(renderer.CreateModel(model), null, null, model.Skeleton?.Count ?? 0),
+        ModelData model => new ModelOnGpu(renderer.Assets.CreateModel(model), null, null, model.Skeleton?.Count ?? 0),
         PreparedModel model => UploadModel(model),
-        PreparedShader shader => new ShaderOnGpu(renderer.CreateSurfaceShader(shader.Spirv, shader.Name + ".frag")),
-        TextureData texture => new TextureOnGpu(renderer.CreateTexture(texture)),
-        TextureData[] layers => new TextureArrayOnGpu(renderer.CreateTextureArray(layers)),
+        PreparedShader shader => new ShaderOnGpu(renderer.Assets.CreateSurfaceShader(shader.Spirv, shader.Name + ".frag")),
+        TextureData texture => new TextureOnGpu(renderer.Assets.CreateTexture(texture)),
+        TextureData[] layers => new TextureArrayOnGpu(renderer.Assets.CreateTextureArray(layers)),
         SkyImageData sky => new SkyOnGpu(renderer.CreateSkyImage(sky)),
         PreparedMesh(var mesh, var owned) => UploadMesh(mesh, owned, content),
         UnloadedItem => ItemLetGo.Instance,
@@ -53,13 +53,13 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
         {
             if (!_modelShaders.ContainsKey(name))
             {
-                _modelShaders[name] = renderer.CreateSurfaceShader(spirv, name + ".frag");
+                _modelShaders[name] = renderer.Assets.CreateSurfaceShader(spirv, name + ".frag");
             }
         }
 
-        var textures = prepared.Textures.ToDictionary(pair => pair.Key, pair => renderer.CreateTexture(pair.Value));
+        var textures = prepared.Textures.ToDictionary(pair => pair.Key, pair => renderer.Assets.CreateTexture(pair.Value));
         var model = prepared.Model;
-        var parts = renderer.CreateModel(model, (index, material) =>
+        var parts = renderer.Assets.CreateModel(model, (index, material) =>
         {
             if (model.ShaderOf(index) is not { } shader)
             {
@@ -89,10 +89,10 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
     private ModelOnGpu UploadMesh(GeneratedMesh mesh, TextureData? owned, Content content)
     {
         var surface = mesh.Surface;
-        TextureHandle? ownedTexture = owned is null ? null : renderer.CreateTexture(owned);
+        TextureHandle? ownedTexture = owned is null ? null : renderer.Assets.CreateTexture(owned);
         if (ownedTexture is not null || !_meshMaterials.TryShare(surface, out var handle))
         {
-            handle = renderer.CreateMaterial(MeshMaterial(surface, ownedTexture, content));
+            handle = renderer.Assets.CreateMaterial(MeshMaterial(surface, ownedTexture, content));
             if (ownedTexture is null)
             {
                 _meshMaterials.Add(surface, handle);
@@ -101,7 +101,7 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
 
         try
         {
-            var part = renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, handle, mesh.Simplify);
+            var part = renderer.Assets.CreateDrawItem(mesh.Vertices, mesh.Indices, handle, mesh.Simplify);
             return new ModelOnGpu([part], handle, ownedTexture);
         }
         catch when (ownedTexture is null)
@@ -163,11 +163,11 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
         switch (loaded)
         {
             case ModelOnGpu { Material: { } material } generated:
-                renderer.DestroyMesh(generated.Parts[0].Mesh);
+                renderer.Assets.DestroyMesh(generated.Parts[0].Mesh);
                 if (generated.OwnedTexture is { } owned)
                 {
-                    renderer.DestroyMaterial(material);
-                    renderer.DestroyTexture(owned);
+                    renderer.Assets.DestroyMaterial(material);
+                    renderer.Assets.DestroyTexture(owned);
                 }
                 else
                 {
@@ -176,10 +176,10 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
 
                 break;
             case ModelOnGpu model:
-                renderer.DestroyModel(model.Parts);
+                renderer.Assets.DestroyModel(model.Parts);
                 break;
             case TextureOnGpu texture:
-                renderer.DestroyTexture(texture.Handle);
+                renderer.Assets.DestroyTexture(texture.Handle);
                 break;
             case ItemLetGo:
                 break;

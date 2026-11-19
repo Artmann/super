@@ -34,10 +34,10 @@ internal static class ProbeScenes
     public static ProbeScene RedWall(GpuFixture gpu, bool lightIsSpot, bool wallIsWhite = false)
     {
         var quad = Quad(gpu);
-        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f });
+        var white = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f });
         var wall = wallIsWhite
             ? white
-            : gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.02f, 0.02f, 1f), Roughness = 1f });
+            : gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.02f, 0.02f, 1f), Roughness = 1f });
 
         DrawItem[] draws =
         [
@@ -81,7 +81,7 @@ internal static class ProbeScenes
     public static ProbeScene RedWallBehindGlass(GpuFixture gpu)
     {
         var scene = RedWall(gpu, lightIsSpot: false);
-        var glass = gpu.Renderer.CreateMaterial(new Material
+        var glass = gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0.1f, 0.2f, 0.9f, 0.6f),
             Roughness = 0.1f,
@@ -98,12 +98,12 @@ internal static class ProbeScenes
     public static ProbeScene ShadedFloor(GpuFixture gpu, Pane pane)
     {
         var quad = Quad(gpu);
-        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f });
+        var white = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f });
         var draws = new List<DrawItem> { Face(quad, white, new Vector3(0f, -0.05f, 0f), Vector3.UnitY, -Vector3.UnitZ, 8f, 8f) };
         if (pane != Pane.None)
         {
             // Two-sided, so the probes below see its underside rather than taking themselves to be inside something.
-            var material = gpu.Renderer.CreateMaterial(pane == Pane.Solid
+            var material = gpu.Renderer.Assets.CreateMaterial(pane == Pane.Solid
                 ? new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f, Flags = MaterialFlags.TwoSided }
                 : new Material
                 {
@@ -136,12 +136,12 @@ internal static class ProbeScenes
     public static ProbeScene LightBehindWall(GpuFixture gpu, bool walled)
     {
         var quad = Quad(gpu);
-        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f });
+        var white = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f });
         var draws = new List<DrawItem> { Face(quad, white, new Vector3(0f, -0.05f, 0f), Vector3.UnitY, -Vector3.UnitZ, 8f, 8f) };
         if (walled)
         {
             // Two-sided, so it blocks the light from either side.
-            var wall = gpu.Renderer.CreateMaterial(
+            var wall = gpu.Renderer.Assets.CreateMaterial(
                 new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f, Flags = MaterialFlags.TwoSided });
             draws.Add(Face(quad, wall, new Vector3(0f, 1.9f, 1.55f), -Vector3.UnitZ, Vector3.UnitY, 8f, 4f));
         }
@@ -174,7 +174,7 @@ internal static class ProbeScenes
     public static ProbeScene SunlitFloor(GpuFixture gpu, bool underwater)
     {
         var quad = Quad(gpu);
-        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f });
+        var white = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f });
         var floor = Face(quad, white, new Vector3(0f, -0.05f, 0f), Vector3.UnitY, -Vector3.UnitZ, 8f, 8f);
         var sun = new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(3f) };
         var water = underwater
@@ -205,7 +205,7 @@ internal static class ProbeScenes
     public static ProbeScene WhiteRoom(GpuFixture gpu)
     {
         var quad = Quad(gpu);
-        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.9f, 0.9f, 0.9f, 1f), Roughness = 1f });
+        var white = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.9f, 0.9f, 0.9f, 1f), Roughness = 1f });
 
         const float half = 1.55f;
         const float bottom = -0.05f;
@@ -245,8 +245,8 @@ internal static class ProbeScenes
     public static ProbeScene DarkRoomWithEmitter(GpuFixture gpu)
     {
         var quad = Quad(gpu);
-        var dark = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.2f, 0.2f, 0.2f, 1f), Roughness = 1f });
-        var lamp = gpu.Renderer.CreateMaterial(new Material
+        var dark = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.2f, 0.2f, 0.2f, 1f), Roughness = 1f });
+        var lamp = gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0f, 0f, 0f, 1f),
             Roughness = 1f,
@@ -277,7 +277,7 @@ internal static class ProbeScenes
     private static ProbeScene Box(GpuFixture gpu, bool facingIn, float albedo = 0.8f)
     {
         var quad = Quad(gpu);
-        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(albedo, albedo, albedo, 1f), Roughness = 1f });
+        var white = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(albedo, albedo, albedo, 1f), Roughness = 1f });
 
         const float half = 1.1f;
         const float size = 2f * half;
@@ -299,7 +299,7 @@ internal static class ProbeScenes
     private static MeshHandle Quad(GpuFixture gpu)
     {
         var (vertices, indices) = TestMeshes.Quad();
-        return gpu.Renderer.CreateMesh(vertices, indices);
+        return gpu.Renderer.Assets.CreateMesh(vertices, indices);
     }
 
     // The unit quad scaled to width by height, turned so its front faces along normal with its top towards up, and

@@ -54,7 +54,7 @@ public sealed class GpuFixture : IDisposable
             // Most tests draw an area live and then with its bake at one fixed time, which a fade would keep live, and
             // the renderer is shared, so a fade would tie each test to the ones before it. BakeFadeGpuTests turn it on.
             Renderer.Baking.FadeSeconds = 0f;
-            Matte = Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f), Roughness = 0.8f });
+            Matte = Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f), Roughness = 0.8f });
         }
         catch
         {
@@ -75,7 +75,7 @@ public sealed class GpuFixture : IDisposable
     }
 
     /// <summary>A new white metal, nearly smooth, that mirrors what's round it. The caller destroys it.</summary>
-    public MaterialHandle CreateMirror() => Renderer.CreateMaterial(new Material
+    public MaterialHandle CreateMirror() => Renderer.Assets.CreateMaterial(new Material
     {
         BaseColor = new Vector4(1f, 1f, 1f, 1f), Metallic = 1f, Roughness = 0.05f,
     });

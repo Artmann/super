@@ -6,7 +6,7 @@ namespace Rendition;
 /// Compiles shaders again as their sources are saved, for a game run from source. It watches the folders named by
 /// the <c>.sources</c> files that Shaders.targets leaves in the <c>shaders</c> folder next to the program, and
 /// writes each compiled shader over the one there. Ask <see cref="TakeChanged"/> between frames and hand what it
-/// gives to <see cref="Renderer.ReloadShaders"/>. A shader that doesn't compile is reported and the old one stays.
+/// gives to <see cref="RendererAssets.ReloadShaders"/>. A shader that doesn't compile is reported and the old one stays.
 /// </summary>
 public sealed class ShaderWatch : IDisposable
 {
@@ -73,7 +73,7 @@ public sealed class ShaderWatch : IDisposable
         ShaderSources.Read(outputFolder) is { } sources ? new ShaderWatch(sources, log) : null;
 
     /// <summary>
-    /// The shaders compiled since the last call, named as <see cref="Renderer.ReloadShaders"/> wants them, such as
+    /// The shaders compiled since the last call, named as <see cref="RendererAssets.ReloadShaders"/> wants them, such as
     /// <c>lighting.frag</c>. Empty most of the time, and cheap then.
     /// </summary>
     public IReadOnlySet<string> TakeChanged()

@@ -49,17 +49,17 @@ public sealed class ScreenBounceGpuTests(GpuFixture gpu, ITestOutputHelper outpu
     {
         int errors = gpu.ValidationErrors;
         var quad = TestMeshes.Quad();
-        var grey = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.7f, 0.7f, 0.7f, 1f), Roughness = 1f });
-        var glow = gpu.Renderer.CreateMaterial(new Material
+        var grey = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.7f, 0.7f, 0.7f, 1f), Roughness = 1f });
+        var glow = gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0f, 0f, 0f, 1f),
             Roughness = 1f,
             Emissive = new Vector3(6f, 0.2f, 0.2f),
         });
-        var wall = gpu.Renderer.CreateDrawItem(quad.Vertices, quad.Indices, grey)
+        var wall = gpu.Renderer.Assets.CreateDrawItem(quad.Vertices, quad.Indices, grey)
             with { Transform = Matrix4x4.CreateScale(20f) * Matrix4x4.CreateTranslation(0f, 0f, -4f) };
         // Turned 60 degrees, so it faces mostly right, along the wall, and partly the camera, which sees its glow.
-        var panel = gpu.Renderer.CreateDrawItem(quad.Vertices, quad.Indices, glow)
+        var panel = gpu.Renderer.Assets.CreateDrawItem(quad.Vertices, quad.Indices, glow)
             with { Transform = Matrix4x4.CreateScale(1.2f) * Matrix4x4.CreateRotationY(MathF.PI / 3f) * Matrix4x4.CreateTranslation(-0.6f, 0f, -3.45f) };
         try
         {
@@ -67,10 +67,10 @@ public sealed class ScreenBounceGpuTests(GpuFixture gpu, ITestOutputHelper outpu
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(wall.Mesh);
-            gpu.Renderer.DestroyMesh(panel.Mesh);
-            gpu.Renderer.DestroyMaterial(grey);
-            gpu.Renderer.DestroyMaterial(glow);
+            gpu.Renderer.Assets.DestroyMesh(wall.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(panel.Mesh);
+            gpu.Renderer.Assets.DestroyMaterial(grey);
+            gpu.Renderer.Assets.DestroyMaterial(glow);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);

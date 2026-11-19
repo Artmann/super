@@ -174,7 +174,7 @@ internal sealed partial class ShaderSources
     /// <summary>One stage file to compile, such as <c>lighting.frag</c>.</summary>
     internal sealed record Stage(Source Source, string Path)
     {
-        /// <summary>The shader's name as <see cref="Renderer.ReloadShaders"/> wants it.</summary>
+        /// <summary>The shader's name as <see cref="RendererAssets.ReloadShaders"/> wants it.</summary>
         public string Name => System.IO.Path.GetFileName(Path);
     }
 }

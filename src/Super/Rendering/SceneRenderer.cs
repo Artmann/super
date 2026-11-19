@@ -29,7 +29,7 @@ internal sealed class SceneRenderer : IDisposable
         // Shots, recordings and profiles show each bake whole from the first frame; play in a window fades them in.
         Renderer.Baking.FadeSeconds = 0f;
         // White, so a draw's color comes out exactly as asked. The built-in shapes are greyed where they're drawn.
-        var white = Renderer.CreateMaterial(new Material { BaseColor = new Vector4(Vector3.One, 1f), Roughness = DefaultRoughness });
+        var white = Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(Vector3.One, 1f), Roughness = DefaultRoughness });
         _items = new UploadedItems(Renderer, white, (prepared, content) => _uploads!.Upload(prepared, content));
         _uploads = new ItemUploads(Renderer, _items);
         _draws = new DressedDraws(Renderer, _items);

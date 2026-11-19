@@ -24,11 +24,11 @@ public sealed class BakeAreaGpuTests(GpuFixture gpu)
             0, 1, 4, 1, 5, 4, 2, 6, 3, 3, 6, 7,
             0, 4, 2, 2, 4, 6, 1, 3, 5, 3, 7, 5,
         ];
-        var cube = gpu.Renderer.CreateDrawItem(vertices, indices, gpu.Matte);
+        var cube = gpu.Renderer.Assets.CreateDrawItem(vertices, indices, gpu.Matte);
 
         try
         {
-            var bounds = gpu.Renderer.BoundsOf(cube.Detail);
+            var bounds = gpu.Renderer.Assets.BoundsOf(cube.Detail);
 
             Assert.True(bounds.Center.Length() <= 1e-4f, $"The centre is {bounds.Center}, not the origin.");
             Assert.True(bounds.Radius >= MathF.Sqrt(3f) / 2f, $"The radius {bounds.Radius} misses the corners.");
@@ -39,7 +39,7 @@ public sealed class BakeAreaGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(cube.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(cube.Mesh);
         }
 
         gpu.RenderOneFrame();
@@ -49,6 +49,6 @@ public sealed class BakeAreaGpuTests(GpuFixture gpu)
     [Fact]
     public void Bounds_of_a_part_without_detail_are_the_point_at_its_origin()
     {
-        Assert.Equal(new BakeSphere(Vector3.Zero, 0f), gpu.Renderer.BoundsOf(default));
+        Assert.Equal(new BakeSphere(Vector3.Zero, 0f), gpu.Renderer.Assets.BoundsOf(default));
     }
 }

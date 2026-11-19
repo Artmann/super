@@ -51,7 +51,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var red = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.05f, 0.05f, 1f), Roughness = 1f });
+        var red = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.05f, 0.05f, 1f), Roughness = 1f });
         try
         {
             var wall = Wall(quad, red);
@@ -77,8 +77,8 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(red);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(red);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -89,7 +89,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var red = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.05f, 0.05f, 1f), Roughness = 1f });
+        var red = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.05f, 0.05f, 1f), Roughness = 1f });
         try
         {
             var wall = Wall(quad, red);
@@ -114,8 +114,8 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(red);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(red);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -126,8 +126,8 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var red = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.05f, 0.05f, 1f), Roughness = 1f });
-        var green = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.8f, 0.05f, 1f), Roughness = 1f });
+        var red = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.05f, 0.05f, 1f), Roughness = 1f });
+        var green = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.8f, 0.05f, 1f), Roughness = 1f });
         try
         {
             var bake = Bake(Wall(quad, red));
@@ -164,9 +164,9 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(red);
-            gpu.Renderer.DestroyMaterial(green);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(red);
+            gpu.Renderer.Assets.DestroyMaterial(green);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -177,8 +177,8 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var red = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.05f, 0.05f, 1f), Roughness = 1f });
-        var green = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.8f, 0.05f, 1f), Roughness = 1f });
+        var red = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.05f, 0.05f, 1f), Roughness = 1f });
+        var green = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.8f, 0.05f, 1f), Roughness = 1f });
         try
         {
             var bake = Bake(Wall(quad, red));
@@ -217,9 +217,9 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(red);
-            gpu.Renderer.DestroyMaterial(green);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(red);
+            gpu.Renderer.Assets.DestroyMaterial(green);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -286,7 +286,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
             vertices[i].Uv2 = vertices[i].Uv;
         }
 
-        var handle = gpu.Renderer.CreateMesh(vertices, indices);
+        var handle = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame(); // Uploads the mesh.
         return handle;
     }

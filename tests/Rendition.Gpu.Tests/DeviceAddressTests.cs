@@ -14,12 +14,12 @@ public sealed class DeviceAddressTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var (vertices, indices) = TestMeshes.Quad();
-        var handle = gpu.Renderer.CreateMesh(vertices, indices);
+        var handle = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         var mesh = gpu.Renderer.MeshFor(handle);
         Assert.NotEqual(0ul, mesh.Vertices.Address);
         Assert.NotEqual(0ul, mesh.Indices.Address);
         Assert.Equal(errors, gpu.ValidationErrors);
-        gpu.Renderer.DestroyMesh(handle);
+        gpu.Renderer.Assets.DestroyMesh(handle);
     }
 
     [Fact]

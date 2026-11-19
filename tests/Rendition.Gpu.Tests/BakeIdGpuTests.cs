@@ -46,7 +46,7 @@ public sealed class BakeIdGpuTests(GpuFixture gpu)
         // The failed capture's buffer is freed, so a frame that still copied into it would be reported here.
         gpu.RenderOneFrame();
         gpu.CaptureOneFrame();
-        gpu.Renderer.DestroyMesh(draw.Mesh);
+        gpu.Renderer.Assets.DestroyMesh(draw.Mesh);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -58,14 +58,14 @@ public sealed class BakeIdGpuTests(GpuFixture gpu)
 
         gpu.RenderOneFrame([draw]);
 
-        gpu.Renderer.DestroyMesh(draw.Mesh);
+        gpu.Renderer.Assets.DestroyMesh(draw.Mesh);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
     private DrawItem Quad()
     {
         var (vertices, indices) = TestMeshes.Quad();
-        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+        var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         return new DrawItem
         {
             Mesh = mesh,
@@ -79,7 +79,7 @@ public sealed class BakeIdGpuTests(GpuFixture gpu)
     private void AFrameStillRenders(int errors, MeshHandle mesh)
     {
         gpu.RenderOneFrame();
-        gpu.Renderer.DestroyMesh(mesh);
+        gpu.Renderer.Assets.DestroyMesh(mesh);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 }

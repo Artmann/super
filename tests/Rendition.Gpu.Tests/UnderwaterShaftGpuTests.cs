@@ -28,8 +28,8 @@ public sealed class UnderwaterShaftGpuTests(GpuFixture gpu, ITestOutputHelper ou
     {
         int errors = gpu.ValidationErrors;
         var cube = TestMeshes.Cube();
-        var material = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f), Roughness = 1f });
-        var slab = gpu.Renderer.CreateDrawItem(cube.Vertices, cube.Indices, material) with { Transform = SlabAt };
+        var material = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f), Roughness = 1f });
+        var slab = gpu.Renderer.Assets.CreateDrawItem(cube.Vertices, cube.Indices, material) with { Transform = SlabAt };
         try
         {
             var plain = Render(View(shafts: 0f), slab);
@@ -46,8 +46,8 @@ public sealed class UnderwaterShaftGpuTests(GpuFixture gpu, ITestOutputHelper ou
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(slab.Mesh);
-            gpu.Renderer.DestroyMaterial(material);
+            gpu.Renderer.Assets.DestroyMesh(slab.Mesh);
+            gpu.Renderer.Assets.DestroyMaterial(material);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);

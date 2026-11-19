@@ -32,7 +32,7 @@ What exists today:
 - Colour grading, sharpening, vignette, film grain and dithering
 - A tonemap pass that takes HDR colour to display colour with ACES filmic
 - An overlay of flat textured quads drawn over the finished picture, for text and
-  interfaces. Fill `FrameView.Overlay` and call `Renderer.SetOverlayAtlas`
+  interfaces. Fill `FrameView.Overlay` and call `Renderer.Assets.SetOverlayAtlas`
 - Two frames in flight, window resize handling, and vsync that switches on and off with
   `Renderer.Settings.Vsync`
 - GPU timing for each render pass, switched on with `Renderer.Settings.MeasureGpu`
@@ -46,10 +46,10 @@ What exists today:
   the next frame, and destroying waits for the frames in flight
 - Automatic culling and simpler versions of distant models, for the camera and for
   shadows
-- A small public API: `Renderer.CreateModel`, `CreateDrawItem`, `CreateMesh`,
+- A small public API: `Renderer.Assets` with `CreateModel`, `CreateDrawItem`, `CreateMesh`,
   `CreateTexture`, `CreateTextureArray`, `CreateMaterial`, `UpdateMaterial`,
-  `CreateSurfaceShader`, the matching `Destroy` calls and
-  `Render(in FrameView, ReadOnlySpan<DrawItem>)`
+  `CreateSurfaceShader` and the matching `Destroy` calls, `Renderer.Baking`,
+  `Renderer.Reflections`, `Renderer.Stats` and `Render(in FrameView, ReadOnlySpan<DrawItem>)`
 
 Decisions, the G-buffer layout and known simplifications are in
 [docs/design.md](../../docs/design.md).

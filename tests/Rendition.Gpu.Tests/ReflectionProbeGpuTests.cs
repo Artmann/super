@@ -208,7 +208,7 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
         {
             _gpu = gpu;
             var (vertices, indices) = TestMeshes.Quad();
-            _mesh = gpu.Renderer.CreateMesh(vertices, indices);
+            _mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
             _red = Glow(new Vector3(2f, 0f, 0f));
             _blue = Glow(new Vector3(0f, 0f, 2f));
             _mirror = gpu.CreateMirror();
@@ -239,17 +239,17 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
             return view;
         }
 
-        private MaterialHandle Glow(Vector3 emissive) => _gpu.Renderer.CreateMaterial(new Material
+        private MaterialHandle Glow(Vector3 emissive) => _gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 1f, Emissive = emissive,
         });
 
         public void Dispose()
         {
-            _gpu.Renderer.DestroyMesh(_mesh);
-            _gpu.Renderer.DestroyMaterial(_red);
-            _gpu.Renderer.DestroyMaterial(_blue);
-            _gpu.Renderer.DestroyMaterial(_mirror);
+            _gpu.Renderer.Assets.DestroyMesh(_mesh);
+            _gpu.Renderer.Assets.DestroyMaterial(_red);
+            _gpu.Renderer.Assets.DestroyMaterial(_blue);
+            _gpu.Renderer.Assets.DestroyMaterial(_mirror);
         }
     }
 }

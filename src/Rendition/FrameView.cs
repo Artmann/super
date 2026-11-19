@@ -206,7 +206,7 @@ public struct PictureSettings
 /// <summary>What a frame draws besides its draws, for <see cref="FrameView.Extras"/>.</summary>
 public ref struct FrameExtras
 {
-    /// <summary>Flat rectangles drawn last, over everything, in order. Needs <see cref="Renderer.SetOverlayAtlas"/>.</summary>
+    /// <summary>Flat rectangles drawn last, over everything, in order. Needs <see cref="RendererAssets.SetOverlayAtlas"/>.</summary>
     public ReadOnlySpan<OverlayQuad> Overlay;
 
     /// <summary>

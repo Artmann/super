@@ -48,7 +48,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.AutoBake = null;
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -96,7 +96,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.AutoBake = null;
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -108,7 +108,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
-        var wall = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f), Roughness = 0.8f });
+        var wall = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f), Roughness = 0.8f });
         var dones = new List<BakeDone>();
         try
         {
@@ -124,7 +124,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
 
             // Cut out everywhere, so rays pass through the back wall. Its structures lose the opaque flag, so the ones
             // the running bake traces are freed and built again.
-            gpu.Renderer.UpdateMaterial(wall, new Material
+            gpu.Renderer.Assets.UpdateMaterial(wall, new Material
             {
                 BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 0f), Roughness = 0.8f, AlphaCutoff = 0.5f,
             });
@@ -146,8 +146,8 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.AutoBake = null;
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(wall);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(wall);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -159,9 +159,9 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
-        var texture = gpu.Renderer.CreateTexture(TextureData.FromPixels(1, 1, TextureKind.Color, [128, 128, 128, 255]));
+        var texture = gpu.Renderer.Assets.CreateTexture(TextureData.FromPixels(1, 1, TextureKind.Color, [128, 128, 128, 255]));
         var plain = new Material { BaseColor = Vector4.One, Roughness = 0.8f };
-        var wall = gpu.Renderer.CreateMaterial(plain with { Textures = plain.Textures with { BaseColor = texture } });
+        var wall = gpu.Renderer.Assets.CreateMaterial(plain with { Textures = plain.Textures with { BaseColor = texture } });
         try
         {
             var room = Room(gpu, quad, wall);
@@ -175,8 +175,8 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             float before = gpu.Renderer.Baking.Progress!.Value.Fraction;
 
             // The wall stops naming the texture as it goes, as a game must, so only the bake still reads it.
-            gpu.Renderer.DestroyTexture(texture);
-            gpu.Renderer.UpdateMaterial(wall, plain);
+            gpu.Renderer.Assets.DestroyTexture(texture);
+            gpu.Renderer.Assets.UpdateMaterial(wall, plain);
             RenderUntil(view, room, () => true, first: traced);
             Assert.True(gpu.Renderer.Baking.Progress is not { } after || after.Fraction < before,
                 $"The background bake went on from {before} after a texture it reads was destroyed.");
@@ -188,8 +188,8 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.AutoBake = null;
-            gpu.Renderer.DestroyMesh(quad);
-            gpu.Renderer.DestroyMaterial(wall);
+            gpu.Renderer.Assets.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMaterial(wall);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -219,7 +219,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.AutoBake = null;
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -271,7 +271,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.AutoBake = null;
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -318,7 +318,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.AutoBake = null;
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -348,7 +348,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.AutoBake = null;
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -390,7 +390,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Baking.AutoBake = null;
-            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.Assets.DestroyMesh(quad);
         }
 
         Assert.Null(done);
@@ -429,7 +429,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
 
         view.Time = 60 * FrameSeconds;
         byte[] pixels = fresh.Renderer.Capture(view, room, out _, out _);
-        fresh.Renderer.DestroyMesh(quad);
+        fresh.Renderer.Assets.DestroyMesh(quad);
         Assert.Equal(0, fresh.ValidationErrors);
         return pixels;
     }
@@ -512,7 +512,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             vertices[i].Uv2 = vertices[i].Uv;
         }
 
-        var handle = g.Renderer.CreateMesh(vertices, indices);
+        var handle = g.Renderer.Assets.CreateMesh(vertices, indices);
         g.RenderOneFrame();
         return handle;
     }

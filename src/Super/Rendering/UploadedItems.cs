@@ -20,12 +20,12 @@ internal sealed class UploadedItems
     public UploadedItems(Renderer renderer, MaterialHandle material, Func<object, Content, ItemOnGpu> upload)
     {
         _loader = new ContentLoader<ItemOnGpu>(
-            new ModelOnGpu([renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, material)], null, null),
+            new ModelOnGpu([renderer.Assets.CreateDrawItem(Cube.Vertices, Cube.Indices, material)], null, null),
             item => ItemReads.Prepare(item, _files!),
             upload);
         _shapes = Array.ConvertAll(
             Shapes.BuiltIn(),
-            mesh => new ModelOnGpu([renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, material)], null, null));
+            mesh => new ModelOnGpu([renderer.Assets.CreateDrawItem(mesh.Vertices, mesh.Indices, material)], null, null));
     }
 
     /// <summary>Starts reading anything newly named, then uploads what this frame should.</summary>

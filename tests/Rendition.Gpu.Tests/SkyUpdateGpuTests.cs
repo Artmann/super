@@ -68,7 +68,7 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var (vertices, indices) = TestMeshes.Cube();
-        var cube = gpu.Renderer.CreateDrawItem(vertices, indices, gpu.Matte) with { BakeId = BakeIds.Of(1, 0) };
+        var cube = gpu.Renderer.Assets.CreateDrawItem(vertices, indices, gpu.Matte) with { BakeId = BakeIds.Of(1, 0) };
         try
         {
             gpu.Renderer.Render(RoomView(Towards(20f)), [cube]);
@@ -88,7 +88,7 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(cube.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(cube.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);

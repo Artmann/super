@@ -19,13 +19,13 @@ public sealed class DepthFirstGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var (vertices, indices) = TestMeshes.Quad();
-        var red = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.1f, 0.1f, 1f), Roughness = 0.8f });
-        var green = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.1f, 0.8f, 0.1f, 1f), Roughness = 0.8f });
-        var cutAway = gpu.Renderer.CreateMaterial(new Material
+        var red = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.1f, 0.1f, 1f), Roughness = 0.8f });
+        var green = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.1f, 0.8f, 0.1f, 1f), Roughness = 0.8f });
+        var cutAway = gpu.Renderer.Assets.CreateMaterial(new Material
         {
             BaseColor = new Vector4(0.1f, 0.1f, 0.8f, 0f), Roughness = 0.8f, AlphaCutoff = 0.5f,
         });
-        var quad = gpu.Renderer.CreateDrawItem(vertices, indices, red);
+        var quad = gpu.Renderer.Assets.CreateDrawItem(vertices, indices, red);
         try
         {
             DrawItem[] scene =
@@ -59,10 +59,10 @@ public sealed class DepthFirstGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.DestroyMesh(quad.Mesh);
-            gpu.Renderer.DestroyMaterial(red);
-            gpu.Renderer.DestroyMaterial(green);
-            gpu.Renderer.DestroyMaterial(cutAway);
+            gpu.Renderer.Assets.DestroyMesh(quad.Mesh);
+            gpu.Renderer.Assets.DestroyMaterial(red);
+            gpu.Renderer.Assets.DestroyMaterial(green);
+            gpu.Renderer.Assets.DestroyMaterial(cutAway);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);

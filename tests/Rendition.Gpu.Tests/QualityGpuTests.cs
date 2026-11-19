@@ -29,7 +29,7 @@ public sealed class QualityGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Settings.MaxShadowCascades = 4;
-            gpu.Renderer.DestroyMesh(panel.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(panel.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -52,7 +52,7 @@ public sealed class QualityGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Settings.MeshDetailScale = 1f;
-            gpu.Renderer.DestroyMesh(panel.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(panel.Mesh);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -73,7 +73,7 @@ public sealed class QualityGpuTests(GpuFixture gpu)
         finally
         {
             gpu.Renderer.Settings.Upscaler = upscaler;
-            gpu.Renderer.DestroyMesh(panel.Mesh);
+            gpu.Renderer.Assets.DestroyMesh(panel.Mesh);
         }
     }
 
@@ -189,7 +189,7 @@ public sealed class QualityGpuTests(GpuFixture gpu)
             }
         }
 
-        return gpu.Renderer.CreateDrawItem(vertices.ToArray(), indices.ToArray(), gpu.Matte) with
+        return gpu.Renderer.Assets.CreateDrawItem(vertices.ToArray(), indices.ToArray(), gpu.Matte) with
         {
             Transform = Matrix4x4.CreateTranslation(position),
         };

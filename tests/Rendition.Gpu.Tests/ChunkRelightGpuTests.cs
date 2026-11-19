@@ -42,7 +42,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var dark = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.05f, 0.05f, 1f), Roughness = 0.8f });
+        var dark = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.05f, 0.05f, 1f), Roughness = 0.8f });
         try
         {
             // The chunk, wall on -x, is baked once and placed turned. It is compared with a chunk that isn't turned but
@@ -82,7 +82,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
         finally
         {
             LetGo(quad);
-            gpu.Renderer.DestroyMaterial(dark);
+            gpu.Renderer.Assets.DestroyMaterial(dark);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -93,7 +93,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var dark = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.05f, 0.05f, 1f), Roughness = 0.8f });
+        var dark = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.05f, 0.05f, 1f), Roughness = 0.8f });
         try
         {
             // What L1 costs: a space bake traces the whole sky, a chunk keeps only its first two bands. This clear sky is
@@ -122,7 +122,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
         finally
         {
             LetGo(quad);
-            gpu.Renderer.DestroyMaterial(dark);
+            gpu.Renderer.Assets.DestroyMaterial(dark);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -215,7 +215,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var dark = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.05f, 0.05f, 1f), Roughness = 0.8f });
+        var dark = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.05f, 0.05f, 1f), Roughness = 0.8f });
         try
         {
             gpu.Renderer.SetEnvironment(EvenSky(new Vector3(0.6f, 0.05f, 0.05f)));
@@ -252,7 +252,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
         {
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             LetGo(quad);
-            gpu.Renderer.DestroyMaterial(dark);
+            gpu.Renderer.Assets.DestroyMaterial(dark);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -263,7 +263,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
-        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = Vector4.One, Roughness = 0.8f });
+        var white = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = Vector4.One, Roughness = 0.8f });
         try
         {
             // The chunk is turned a quarter and moved, so its sun must be turned into its space too. In the chunk's own
@@ -298,7 +298,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
         finally
         {
             LetGo(quad);
-            gpu.Renderer.DestroyMaterial(white);
+            gpu.Renderer.Assets.DestroyMaterial(white);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -508,7 +508,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
             vertices[i].Uv2 = vertices[i].Uv;
         }
 
-        var handle = gpu.Renderer.CreateMesh(vertices, indices);
+        var handle = gpu.Renderer.Assets.CreateMesh(vertices, indices);
         gpu.RenderOneFrame(); // Uploads the mesh.
         return handle;
     }
@@ -518,7 +518,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
     {
         gpu.Renderer.Baking.Bakes = NoBakes.Instance;
         gpu.RenderOneFrame();
-        gpu.Renderer.DestroyMesh(quad);
+        gpu.Renderer.Assets.DestroyMesh(quad);
     }
 
     /// <summary>A store holding one bake, fresh for any file whose inputs match it, counting its loads.</summary>

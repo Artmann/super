@@ -54,7 +54,7 @@ internal sealed class DecalMaterials(Renderer renderer, UploadedItems items)
     {
         foreach (var material in _materials.Values)
         {
-            renderer.DestroyMaterial(material.Handle);
+            renderer.Assets.DestroyMaterial(material.Handle);
         }
 
         _materials.Clear();
@@ -82,7 +82,7 @@ internal sealed class DecalMaterials(Renderer renderer, UploadedItems items)
 
         foreach (var surface in _unusedSurfaces)
         {
-            renderer.DestroyMaterial(_materials[surface].Handle);
+            renderer.Assets.DestroyMaterial(_materials[surface].Handle);
             _materials.Remove(surface);
         }
     }
@@ -109,7 +109,7 @@ internal sealed class DecalMaterials(Renderer renderer, UploadedItems items)
             },
             Flags = MaterialFlags.None,
         };
-        var handle = renderer.CreateMaterial(material);
+        var handle = renderer.Assets.CreateMaterial(material);
         _materials.Add(surface, (handle, _frame));
         return handle;
     }

@@ -825,12 +825,12 @@ public sealed class LiveProbeTests(GpuFixture shared)
             var renderer = gpu.Renderer;
             foreach (var mesh in _scenes.SelectMany(scene => scene.Draws).Select(draw => draw.Mesh).Distinct())
             {
-                renderer.DestroyMesh(mesh);
+                renderer.Assets.DestroyMesh(mesh);
             }
 
             foreach (var material in _scenes.SelectMany(scene => scene.Draws).Select(draw => draw.Material).Distinct())
             {
-                renderer.DestroyMaterial(material);
+                renderer.Assets.DestroyMaterial(material);
             }
 
             if (_scenes.Count > 0)

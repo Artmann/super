@@ -70,7 +70,7 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
         }
 
         Assert.Equal(side * side, inside);
-        gpu.Renderer.DestroyMesh(quad);
+        gpu.Renderer.Assets.DestroyMesh(quad);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -123,8 +123,8 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
         // Each half of the 20 texel rectangle has 9 columns more than 5 cm from the box's side.
         Assert.Equal(9 * side, inWall);
         Assert.Equal(9 * side, inOpen);
-        gpu.Renderer.DestroyMesh(box);
-        gpu.Renderer.DestroyMesh(quad);
+        gpu.Renderer.Assets.DestroyMesh(box);
+        gpu.Renderer.Assets.DestroyMesh(quad);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -166,7 +166,7 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
         Assert.True(Vector3.Distance(middle, texel.Position) < 1f / LightmapLayout.MinSide,
             $"The sliver's texel is at {texel.Position}, not near {middle}.");
 
-        gpu.Renderer.DestroyMesh(sliver);
+        gpu.Renderer.Assets.DestroyMesh(sliver);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -184,7 +184,7 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
 
     private MeshHandle CreateMesh((Vertex[] Vertices, uint[] Indices) mesh)
     {
-        var handle = gpu.Renderer.CreateMesh(mesh.Vertices, mesh.Indices);
+        var handle = gpu.Renderer.Assets.CreateMesh(mesh.Vertices, mesh.Indices);
         gpu.RenderOneFrame(); // Uploads the mesh.
         return handle;
     }

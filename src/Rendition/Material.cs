@@ -307,7 +307,7 @@ public struct MaterialWeathering
     /// foot, 0 there and 1 at 30 cm or the mesh's top, and alpha how much an edge there wears, a slow noise so wear
     /// comes and goes. <see cref="Wear"/> and <see cref="Dirt"/> are laid by them. Without one, neither shows. The
     /// mask is an atlas of islands, so create it with <see cref="TextureEdges.Clamp"/>, as
-    /// <see cref="Renderer.CreateModel"/> does; the material doesn't change how its textures are sampled.
+    /// <see cref="RendererAssets.CreateModel"/> does; the material doesn't change how its textures are sampled.
     /// </summary>
     public TextureHandle? Mask;
 

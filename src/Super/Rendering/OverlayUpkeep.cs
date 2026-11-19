@@ -27,7 +27,7 @@ internal sealed class OverlayUpkeep
         // Games with no interface never get here, and never load the fonts.
         if (view.Ui is { Quads.IsEmpty: false } ui && ui.Atlas.Version != _uploadedAtlas)
         {
-            _renderer.SetOverlayAtlas(new TextureData
+            _renderer.Assets.SetOverlayAtlas(new TextureData
             {
                 Width = GlyphAtlas.Size,
                 Height = GlyphAtlas.Size,

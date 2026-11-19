@@ -83,8 +83,8 @@ public struct DrawItem
 
     /// <summary>
     /// Lets the renderer skip this draw when it's out of view, and use a simpler version
-    /// when it's small on screen. <see cref="Renderer.CreateModel"/> and
-    /// <see cref="Renderer.CreateDrawItem"/> fill this in. Without it, the draw always
+    /// when it's small on screen. <see cref="RendererAssets.CreateModel"/> and
+    /// <see cref="RendererAssets.CreateDrawItem"/> fill this in. Without it, the draw always
     /// happens in full.
     /// </summary>
     public DetailHandle Detail;
