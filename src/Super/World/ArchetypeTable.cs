@@ -12,6 +12,7 @@ internal sealed class ArchetypeTable
     private readonly Dictionary<ComponentMask, Archetype> _byMask = [];
     private readonly List<Archetype> _all = [];
     private int _staticType = -1;
+    private int _hiddenType = -1;
 
     public ArchetypeTable()
     {
@@ -34,15 +35,18 @@ internal sealed class ArchetypeTable
     public Newest Newest { get; }
 
     /// <summary>
-    /// Goes up whenever a <see cref="Static"/> entity is made, destroyed, given or relieved of a component, or named in
+    /// Goes up whenever a <see cref="Static"/> or <see cref="Hidden"/> entity is made, destroyed, given or relieved of a component, or named in
     /// <see cref="WorldChanges.Changed"/>, so what was drawn for static entities is kept until it changes.
     /// </summary>
     public long StaticVersion { get; private set; }
 
-    /// <summary>Counts a change to an entity of this mask, when the mask is a static one.</summary>
+    /// <summary>
+    /// Counts a change to an entity of this mask, when the mask is a static one, or a hidden one, since hiding or
+    /// showing a parent hides or shows its static children.
+    /// </summary>
     public void Touched(in ComponentMask mask)
     {
-        if (_staticType >= 0 && mask.Has(_staticType))
+        if ((_staticType >= 0 && mask.Has(_staticType)) || (_hiddenType >= 0 && mask.Has(_hiddenType)))
         {
             StaticVersion++;
         }
@@ -63,6 +67,10 @@ internal sealed class ArchetypeTable
             if (typeof(T) == typeof(Static))
             {
                 _staticType = id;
+            }
+            else if (typeof(T) == typeof(Hidden))
+            {
+                _hiddenType = id;
             }
         }
 

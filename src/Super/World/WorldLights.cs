@@ -44,7 +44,11 @@ internal static class WorldLights
             var values = archetype.Column<T>(type).Values;
             for (int i = 0; i < archetype.Count; i++)
             {
-                Light(view, world, archetype.Entities[i], ref values[i]);
+                var entity = archetype.Entities[i];
+                if (!WorldFrame.IsHidden(world, entity))
+                {
+                    Light(view, world, entity, ref values[i]);
+                }
             }
         }
     }

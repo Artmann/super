@@ -57,3 +57,10 @@ public record struct Swim(float Amplitude, float BodyLength, float Phase);
 /// The world draws it static, and throws if it also swims or is animated.
 /// </summary>
 public readonly record struct Static;
+
+/// <summary>
+/// Leaves an entity, and every entity whose <see cref="Parent"/> chain leads to it, out of the frame and the audio:
+/// its model, lights and emitters aren't drawn and its sound fades out, as if those components were gone, until the
+/// Hidden is taken away. The entity keeps its components and its place in queries.
+/// </summary>
+public readonly record struct Hidden;

@@ -58,6 +58,11 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
             foreach (var row in world.Query<Sound>())
             {
                 Entity entity = row.Entity;
+                if (WorldFrame.IsHidden(world, entity))
+                {
+                    continue;
+                }
+
                 Sound sound = row.First;
                 bool placed = world.Has<Transform>(entity);
                 Vector3 at = placed ? WorldFrame.WorldMatrix(world, entity, blend).Translation : default;
@@ -178,6 +183,11 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
         {
             foreach (var row in world.Query<Ambience>())
             {
+                if (WorldFrame.IsHidden(world, row.Entity))
+                {
+                    continue;
+                }
+
                 _ambiences[row.Entity] = SyncAmbience(row.Entity, row.First);
                 _lastAmbiences.Remove(row.Entity);
             }
