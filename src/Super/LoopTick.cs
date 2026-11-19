@@ -20,6 +20,7 @@ internal sealed class LoopTick
     private readonly Director _director;
     private readonly Audio _audio;
     private readonly StateChanges _changes;
+    private readonly Scenes _scenes;
     private readonly LoopHalts _halts;
     private long _scriptStart;
 
@@ -36,6 +37,7 @@ internal sealed class LoopTick
         _audio = services.GetRequiredService<Audio>();
         _hooks = services.GetServices<ITickHook>().ToArray();
         _changes = services.GetRequiredService<StateChanges>();
+        _scenes = services.GetRequiredService<Scenes>();
     }
 
     /// <summary>When set, this is the player. Each tick plays what's due on it, counting from the tick it was set.</summary>
@@ -85,6 +87,9 @@ internal sealed class LoopTick
 
         // Last, so all of Update saw one state and the next Draw shows the new one.
         _changes.Apply();
+
+        // After state changes, so a Go asked for in OnEnter lands this tick too.
+        _scenes.Apply();
         _content.Data.RequireReferences();
         _time.Tick++;
     }

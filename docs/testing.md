@@ -48,6 +48,7 @@ in parallel, because Super keeps no global state, so this fits in a pull request
 | `run.Play(script)` | Plays an [`InputScript`](command-line.md#scripted-input), such as one of the game's own, from the next tick |
 | `run.ScreenSize` | The size the interface was laid out for |
 | `run.States<T>()` | The [game states](states.md), to read or jump to |
+| `run.Scenes`, `run.World` | The [scenes](ecs.md#scenes), to see which is open or go to another, and the world with every entity in it |
 | `run.HoldLoading()`, `run.FinishLoading()` | Holds a [loading screen](states.md#loading-screens) open |
 | `run.ContentChanged()` | Acts as if a [content file](content.md#in-tests) was saved |
 | `run.CodeChanged()` | Acts as if [hot reload](hot-reload.md) changed the code, so `CodeReloaded` runs on the next tick |

@@ -5,6 +5,8 @@ using AssimpMaterial = Silk.NET.Assimp.Material;
 
 namespace Super.Cook.Models;
 
+using Scene = Silk.NET.Assimp.Scene;
+
 /// <summary>A model's materials as they're read, with what their rules add, each list in the scene's material order.</summary>
 internal sealed class ImportedMaterials
 {

@@ -5,6 +5,8 @@ using Skeleton = Rendition.Skeleton;
 
 namespace Super.Cook.Models;
 
+using Scene = Silk.NET.Assimp.Scene;
+
 /// <summary>
 /// Reads the skeleton, bone weights and clips of a rigged scene. The joints are every
 /// node a mesh's bone names, and every node between one of those and the root, in

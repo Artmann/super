@@ -6,6 +6,8 @@ using Skeleton = Rendition.Skeleton;
 
 namespace Super.Cook.Models;
 
+using Scene = Silk.NET.Assimp.Scene;
+
 /// <summary>
 /// A model as read from its file: its meshes, with their vertices turned, scaled and centred, its materials, and for a
 /// rig its skeleton and clips.

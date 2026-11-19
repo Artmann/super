@@ -290,3 +290,39 @@ An entity moved in `OnEnter` appears at its new place, without gliding there.
 
 Destroying an entity destroys its children too, so tag only the entity at the top: a door's
 handle goes with the door. A child moved to another parent first stays.
+
+## Scenes
+
+A scene is everything in one place of the game: a room, a level, a fight. Ask for the
+`Scenes` service and go to one with a function that builds it. Spawn through the `Scene`
+it hands you, and those entities belong to the scene.
+
+```csharp
+public sealed class Crawler(Scenes scenes) : IGame
+{
+    public void Load() => scenes.Go(scene => Crypt(scene, room: 1));
+
+    public void Update(GameTime time)
+    {
+    }
+
+    private static void Crypt(Scene scene, int room)
+    {
+        scene.Spawn(new Camera(new Vector3(0f, 6f, 8f), Vector3.Zero));
+        scene.Spawn(new Sun(new Vector3(-1f, -2f, -1f), Vector3.One));
+        scene.Spawn(Transform.At(Vector3.Zero), new Model(Floor), new Static());
+    }
+}
+```
+
+`Go` lands at the end of the tick. The tick finishes in the old scene, then every entity
+the old scene spawned is destroyed, with its children, and the build runs. Asking twice in a
+tick keeps the last. The build can't read input, since it runs between ticks.
+
+Entities spawned straight on the world belong to no scene and outlive every `Go`, so keep a
+party, an inventory or the music there. `scenes.Current` is the open scene, or null before
+the first `Go`, and `scenes.Rebuild()` builds it again from the start, for a restart.
+
+Scenes are for where in the world the game is; [states](states.md) are for where the game
+is, such as a menu or paused. A game can use either or both. A prefab needs nothing from
+Super: it's a method that spawns a few entities under a parent it's given.
