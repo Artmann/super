@@ -28,29 +28,14 @@ internal static class WorldLights
         Settings(view, world);
     }
 
-    /// <summary>Passes every <typeparamref name="T"/> in the world to its view call.</summary>
+    /// <summary>Passes every shown <typeparamref name="T"/> in the world to its view call.</summary>
     private static void Each<T>(View view, World world)
-        where T : struct
-    {
-        int type = world.Archetypes.TypeIdOrMissing<T>();
-        if (type < 0)
-        {
-            return;
-        }
+        where T : struct => WorldFrame.EachShown<T, Lighter>(view, world);
 
-        int index = -1;
-        while (world.Archetypes.NextMatching(ref index, default(ComponentMask).With(type)) is { } archetype)
-        {
-            var values = archetype.Column<T>(type).Values;
-            for (int i = 0; i < archetype.Count; i++)
-            {
-                var entity = archetype.Entities[i];
-                if (!WorldFrame.IsHidden(world, entity))
-                {
-                    Light(view, world, entity, ref values[i]);
-                }
-            }
-        }
+    private readonly struct Lighter : WorldFrame.IShownVisitor
+    {
+        public void Visit<T>(View view, World world, Entity entity, ref T value)
+            where T : struct => Light(view, world, entity, ref value);
     }
 
     // T is a struct, so each branch but the one that matches is compiled away.

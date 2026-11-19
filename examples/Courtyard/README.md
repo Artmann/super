@@ -31,7 +31,7 @@ See [Wind](../../docs/rendering.md#wind).
 
 Up close the wall shows its age. Damp rises above the plinth and fades out in streaks,
 dirty water has run down from the sill, and rust has washed down from the anchor plates.
-They are [decals](../../docs/views.md#decals) the game projects onto the wall, so the
+They are [decals](../../docs/rendering.md#decals) the game projects onto the wall, so the
 grime darkens the bricks and the mortar and makes them rougher, and each brick's edges
 still show through the wet. Gravel kicked off the path lies in the mud along both arms'
 edges and round the barrel's foot, and is laid the same way. `GravelSpills` places it at

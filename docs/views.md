@@ -70,7 +70,7 @@ component on its entity instead. See [Audio](audio.md).
 `SwimMotion` that bends a fish as it swims, `Meshes`, `Static` and `Fade`. Leave out what you don't need.
 
 The suns, point and spot lights, shadows, ambient occlusion, screen bounce, light probes,
-baked lighting, sky, water, puddles, wind, finished look and outlines are components in the
+baked lighting, sky, water, puddles, wind, finished look, outlines, decals, fog volumes, reflection probes and baked pieces are components in the
 [world](ecs.md#drawing-entities), such as `world.Spawn(new Wind(direction, 0.35f))`, and the
 calls below set them for one frame when drawing by hand. The view still takes
 `view.Lights.Point` and `view.Lights.Spot` for a light that only one frame shows, such as
@@ -87,8 +87,8 @@ a muzzle flash. The rest of what a frame shows is set through parts of the view:
 | `view.Surroundings.Puddles(level, band)` | Lets water stand below `level` on materials that ask for puddles, damp for `band` metres above. See [Rendering](rendering.md#puddles) |
 | `view.Surroundings.Wind(direction, strength, gustiness)` | A breeze that sways grass and leaves on materials that ask for wind, leaning grass 1 m tall `strength` metres downwind, with gusts from 0 for steady to 1. See [Rendering](rendering.md#wind) |
 | `view.Effects.Particles(key, effect, position, age)` | A burst of particles, such as dust or smoke. See [Particles](#particles) |
-| `view.Effects.Decal(key, box, material, blend)` | Grime, damp or a stain projected onto whatever is inside a box. Up to 256 a frame. See [Decals](#decals) |
-| `view.Effects.FogVolume(key, shape, transform, settings)` | A box, ellipsoid, cylinder or cone filled with fog of its own, such as mist in a room or a lamp's beam. Up to 64 a frame. See [Fog volumes](#fog-volumes) |
+| `view.Effects.Decal(key, box, material, blend)` | Grime, damp or a stain projected onto whatever is inside a box. Up to 256 a frame. See [Decals](rendering.md#decals) |
+| `view.Effects.FogVolume(key, shape, transform, settings)` | A box, ellipsoid, cylinder or cone filled with fog of its own, such as mist in a room or a lamp's beam. Up to 64 a frame. See [Fog volumes](rendering.md#fog-volumes) |
 
 `view.Indirect` holds the light that bounces, live, in probes or baked; `view.Surroundings`
 the water, puddles and wind; and `view.Effects` particles, decals and fog volumes.
@@ -438,144 +438,3 @@ they fade with distance but miss the shafts of light. They're sorted with
 seen through it. `Cached` keeps only
 models, so draw particles outside it. A frame holds at most 32,768 particles; more
 are dropped. `Graphics.Surfaces.Particles` turns them off, see [graphics settings](rendering.md#graphics-settings). The `Dust` example drops trees in a clearing.
-
-## Decals
-
-A decal lays a material onto whatever is already drawn inside a box: damp rising up a
-wall, a puddle stain on a floor, rust run down from a bolt. The box's matrix places, turns
-and sizes it, and the material is projected along the box's own −Y, so its +Y should look
-out of the surface. The material's U runs along the box's X and its V runs against its Z,
-each across the whole box, from −0.5 to 0.5 in the box's own units. Its normal map reads
-as it does on a mesh, with green pointing the way V falls, towards the box's +Z, and a
-mirrored box reads it the same way. A material graph is the usual material, loaded on its
-own with `content.Surface`:
-
-```csharp
-Surface damp = content.Surface("materials/grime.material.cs");
-
-// A metre wide, half a metre high, on a wall that faces +Z. Its +Y looks out of the wall,
-// and its +Z points down, so V is 0 at the bottom edge.
-Matrix4x4 box = new(
-    1f, 0f, 0f, 0f,
-    0f, 0f, 0.2f, 0f,
-    0f, -0.5f, 0f, 0f,
-    2f, 0.6f, -3.98f, 1f);
-
-view.Effects.Decal(DampKey, box, damp);
-```
-
-The material's opacity fades the decal: a graph's `Opacity`, or the alpha of a colour
-texture. Where it shows, the decal blends its colour over the surface, makes it as rough
-as its own roughness, and lays its bumps over the surface's own, so a brick wall's edges
-and mortar still show through the damp. Lighting, shadows, ambient occlusion and
-reflections all see the result. It also fades where the surface turns away from the box's
-+Y, so a box over a corner stains the wall and not the floor below it, and over the last
-fifth of the box's depth at either end.
-
-`DecalBlend` sets how much of each part goes on, each from 0 to 1:
-
-| Field | Default | What it does |
-| --- | --- | --- |
-| `Color` | 1 | How much of the decal's colour covers the surface's |
-| `Normal` | 1 | How much of its bumps are laid on. 0 keeps the surface's bumps alone |
-| `Roughness` | 1 | How far the surface's roughness moves to the decal's. A wet stain is smoother, a dusty one rougher |
-| `AngleFade` | 0.5 | How far the surface can turn from the box's +Y before the decal fades. It's gone where the cosine of the angle is below this, and whole halfway from there to facing +Y. At 0.5 it fades from about 41° and is gone at 60°. At 0 it fades from 60° and is gone only where the surface is side-on |
-
-```csharp
-// Darkens the bricks but keeps them their own roughness.
-view.Effects.Decal(SootKey, box, soot, new DecalBlend { Roughness = 0f });
-```
-
-A surface's `Color` tints the decal's colour, so `damp with { Color = new Vector3(0.6f) }`
-lays the same stain darker. Each different surface gets a material of its own the first
-time a decal uses it. Make them once in `Load` rather than a new one each frame: past 512,
-the ones the frame didn't use are let go and made again when next used.
-
-A view refuses, with a message naming what's wrong:
-
-- more than 256 decals in a frame;
-- a key used twice in a frame;
-- a box squashed flat on any axis, or holding a number that isn't finite, since it can't be
-  inverted;
-- a `DecalBlend` field outside 0 to 1;
-- a surface with a [surface shader](rendering.md#surface-shaders), since a decal draws only
-  textures;
-- a surface naming a texture its content doesn't have.
-
-A character walking through a puddle stain or standing over a scorch mark shouldn't wear it,
-so animated characters never take decals: a rigged model drawn with a pose is drawn after the
-decals are laid, over them. Any surface can opt out the same way with `Features = SurfaceFeatures.NoDecals`, such
-as a crate set down in a stain, whose lid the stain would otherwise reach; a cooked model's
-material takes `"noDecals": true` in its rule. What doesn't take decals still covers them where
-it stands in front, and the decals still land on the ground round it.
-
-![Two crates in one tall stain decal: the left one takes decals, so the stain covers its lid too; the right one has NoDecals, so its lid keeps its wood colour while the floor round it is stained](media/decal-opt-out.webp)
-
-[`Graphics.Surfaces.Decals`](rendering.md#graphics-settings) turns them all off, and
-`Graphics.Fastest()` does too. The Courtyard lays its damp, the dirty water under its sill
-and the rust under its anchor plates as decals, and the gravel kicked off its path into the
-mud along both arms and round the barrel. D turns them off and on there.
-
-![The foot of the Courtyard's brick wall under the window, before and after. On the left the damp is a dithered quad on the wall and shows only faintly. On the right it is a decal that darkens the bricks and the mortar above the plinth and fades upward in streaks, while the bricks' edges still show through](media/decals.webp)
-
-Decals have some limits:
-
-- Where two decals overlap, both colours show, but the later one's bumps and roughness
-  replace the earlier one's.
-- A decal can't change how metallic a surface is or make it glow.
-- A decal's material uses its colour, normal and surface textures, and its colour,
-  roughness and opacity. Its detail textures, height map and world variation are ignored.
-- On strongly bumped surfaces, the fade by angle follows the bumps, so near the limit it
-  fades in specks.
-- Reflection probes and light probes don't see decals, so a decal shows in no reflection probe and doesn't tint bounced light.
-
-## Fog volumes
-
-A fog volume fills a shape with fog of its own: mist pooled in a cellar, steam over a
-pool, or the haze a lamp's beam lights up. It is drawn into the
-[volumetric fog](rendering.md#volumetric-fog), so the sun and the lights shine through it
-and cast shadows in it, the same as the scene's fog. The shape is one of four unit shapes,
-moved, turned and sized by the transform:
-
-| `FogShape` | Before the transform |
-| --- | --- |
-| `Box` | From −0.5 to 0.5 on each axis |
-| `Ellipsoid` | A sphere of radius 0.5 |
-| `Cylinder` | Along Y, radius 0.5, from y −0.5 to 0.5 |
-| `Cone` | Its tip at y 0.5 and a base of radius 0.5 at y −0.5 |
-
-```csharp
-// Mist a metre deep over a cellar floor ten metres by eight.
-var mist = new FogVolumeSettings(0.4f) { Noise = 0.5f, Wind = new Vector3(0.2f, 0f, 0f) };
-view.Effects.FogVolume(CellarMistKey, FogShape.Box,
-    Matrix4x4.CreateScale(10f, 1f, 8f) * Matrix4x4.CreateTranslation(0f, 0.5f, 0f), mist);
-```
-
-`FogVolumeSettings` says what the fog is like. Only the density has to be given:
-
-| Field | Default | What it does |
-| --- | --- | --- |
-| `Density` | | How much of the light the fog stops per metre, 0 or more, the same measure as `FogSettings.Density`. 0.05 is a thin haze; at 0.5 you can barely see across a room |
-| `Color` | white | The colour the fog scatters light in, each channel from 0 to 1 |
-| `EdgeFade` | 0.25 | The share of the way in from the surface over which the fog thickens from nothing to full, from 0 for a hard edge to 1 for fog thickest only at the centre |
-| `Noise` | 0 | How much noise breaks the fog up, from 0 for even fog to 1 for patches with gaps between |
-| `NoiseSize` | 2 | How big the patches are, in metres, more than 0 |
-| `Wind` | 0 | How fast the patches drift, in metres per second |
-
-Where volumes overlap, and where they overlap the scene's fog, the fog adds up. The key
-names the volume, the same as a decal's.
-
-A view refuses, with a message naming what's wrong:
-
-- more than 64 fog volumes in a frame;
-- a key used twice in a frame;
-- a shape that isn't one of the four;
-- a transform squashed flat on any axis, or holding a number that isn't finite;
-- a density below 0 or not finite, a colour channel or `EdgeFade` or `Noise` outside 0 to 1,
-  a `NoiseSize` of 0 or less, or a `Wind` that isn't finite.
-
-Fog volumes show only where the volumetric fog reaches, out to
-`FogSettings.VolumetricDistance`, and only while
-[`Graphics.Atmosphere.VolumetricFog`](rendering.md#graphics-settings) is on.
-`Graphics.Atmosphere.FogVolumes` turns them off on their own, and `Graphics.Fastest()` turns both off.
-The grid's [cell size and slices](rendering.md#the-grids-cost) set how sharp their edges are.
