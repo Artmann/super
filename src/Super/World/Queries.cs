@@ -55,7 +55,7 @@ public readonly ref struct Row<T1, T2, T3, T4>(Entity entity, ref T1 first, ref 
 }
 
 /// <summary>Walks the rows of each matching archetype in turn.</summary>
-internal ref struct ArchetypeCursor(World world, ulong mask)
+internal ref struct ArchetypeCursor(World world, ComponentMask mask)
 {
     private int _archetypeIndex = -1;
     private int _row = -1;
@@ -96,7 +96,7 @@ public readonly ref struct Query<T1>(World world)
         {
             _world = world;
             _type1 = world.TypeId<T1>();
-            _cursor = new ArchetypeCursor(world, 1UL << _type1);
+            _cursor = new ArchetypeCursor(world, default(ComponentMask).With(_type1));
             _values1 = [];
             world.BeginIteration();
         }
@@ -143,7 +143,7 @@ public readonly ref struct Query<T1, T2>(World world)
             _world = world;
             _type1 = world.TypeId<T1>();
             _type2 = world.TypeId<T2>();
-            _cursor = new ArchetypeCursor(world, (1UL << _type1) | (1UL << _type2));
+            _cursor = new ArchetypeCursor(world, default(ComponentMask).With(_type1).With(_type2));
             _values1 = [];
             _values2 = [];
             world.BeginIteration();
@@ -203,7 +203,7 @@ public readonly ref struct Query<T1, T2, T3>(World world)
             _type1 = world.TypeId<T1>();
             _type2 = world.TypeId<T2>();
             _type3 = world.TypeId<T3>();
-            _cursor = new ArchetypeCursor(world, (1UL << _type1) | (1UL << _type2) | (1UL << _type3));
+            _cursor = new ArchetypeCursor(world, default(ComponentMask).With(_type1).With(_type2).With(_type3));
             _values1 = [];
             _values2 = [];
             _values3 = [];
@@ -269,7 +269,7 @@ public readonly ref struct Query<T1, T2, T3, T4>(World world)
             _type2 = world.TypeId<T2>();
             _type3 = world.TypeId<T3>();
             _type4 = world.TypeId<T4>();
-            _cursor = new ArchetypeCursor(world, (1UL << _type1) | (1UL << _type2) | (1UL << _type3) | (1UL << _type4));
+            _cursor = new ArchetypeCursor(world, default(ComponentMask).With(_type1).With(_type2).With(_type3).With(_type4));
             _values1 = [];
             _values2 = [];
             _values3 = [];

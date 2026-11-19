@@ -18,7 +18,7 @@ internal static class SmoothedTransforms
         }
 
         int swimType = archetypes.TypeIdOrMissing<Swim>();
-        ulong mask = (1UL << transformType) | (1UL << smoothedType);
+        var mask = default(ComponentMask).With(transformType).With(smoothedType);
         int index = -1;
         while (archetypes.NextMatching(ref index, mask) is { } archetype)
         {

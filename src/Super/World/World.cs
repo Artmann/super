@@ -40,8 +40,7 @@ public sealed class World : ITickHook, IStateHook
     {
         ref var slot = ref _entities.Of(entity);
         int type = Archetypes.TypeId<T>();
-        ulong bit = 1UL << type;
-        if ((slot.Archetype!.Mask & bit) == 0)
+        if (!slot.Archetype!.Mask.Has(type))
         {
             ThrowIfIterating();
             _entities.MoveTo(ref slot, Archetypes.With<T>(slot.Archetype, type));
@@ -55,19 +54,19 @@ public sealed class World : ITickHook, IStateHook
         where T : struct
     {
         ref var slot = ref _entities.Of(entity);
-        ulong bit = 1UL << Archetypes.TypeId<T>();
-        if ((slot.Archetype!.Mask & bit) == 0)
+        int type = Archetypes.TypeId<T>();
+        if (!slot.Archetype!.Mask.Has(type))
         {
             return;
         }
 
         ThrowIfIterating();
-        _entities.MoveTo(ref slot, Archetypes.Without(slot.Archetype, bit));
+        _entities.MoveTo(ref slot, Archetypes.Without(slot.Archetype, type));
     }
 
     public bool Has<T>(Entity entity)
         where T : struct =>
-        (_entities.Of(entity).Archetype!.Mask & (1UL << Archetypes.TypeId<T>())) != 0;
+        _entities.Of(entity).Archetype!.Mask.Has(Archetypes.TypeId<T>());
 
     /// <summary>The entity's component, by reference so it can be changed.</summary>
     public ref T Get<T>(Entity entity)
@@ -75,7 +74,7 @@ public sealed class World : ITickHook, IStateHook
     {
         ref var slot = ref _entities.Of(entity);
         int type = Archetypes.TypeId<T>();
-        if ((slot.Archetype!.Mask & (1UL << type)) == 0)
+        if (!slot.Archetype!.Mask.Has(type))
         {
             throw new InvalidOperationException($"Entity {entity.Id} has no {typeof(T).Name}.");
         }

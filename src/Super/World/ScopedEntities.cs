@@ -18,7 +18,7 @@ internal static class ScopedEntities
         }
 
         var same = EqualityComparer<TState>.Default;
-        ulong mask = 1UL << scopedType;
+        var mask = default(ComponentMask).With(scopedType);
         int index = -1;
         List<Entity>? leaving = null;
         while (archetypes.NextMatching(ref index, mask) is { } archetype)

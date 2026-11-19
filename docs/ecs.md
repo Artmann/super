@@ -52,6 +52,8 @@ ref var position = ref world.Get<Position>(sheep);
 position.Value.Y = 1f;
 ```
 
+A world holds up to 256 component types, counting Super's own. Adding a 257th type throws.
+
 ## Drawing entities
 
 Most entities are drawn the same way: a model at a transform, keyed by the entity's ID.
