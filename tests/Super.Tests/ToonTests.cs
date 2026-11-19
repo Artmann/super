@@ -43,7 +43,7 @@ public class ToonTests
     {
         var settings = new OutlineSettings(new Vector3(0.1f, 0.2f, 0.3f), Thickness: 2f, FadeStart: 10f, FadeEnd: 20f);
 
-        var (outline, fade) = Outlines.Pack(settings, sceneToPicture: 0.75f);
+        var (outline, fade) = Rendition.Passes.Outlines.Pack(settings, sceneToPicture: 0.75f);
 
         Assert.Equal(new Vector4(0.1f, 0.2f, 0.3f, 1.5f), outline);
         Assert.Equal(new Vector4(10f, 20f, 0f, 0f), fade);

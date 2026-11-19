@@ -166,6 +166,8 @@ public void Draw(View view)
 | `Sound` | Plays a looping sound from the entity for as long as it has this. See [Sounds from entities](#sounds-from-entities) |
 | `Ambience` | Plays an ambience for as long as the entity has this |
 | `Camera` | The frame is taken from the newest entity with one, blended between ticks and following its `Parent`. See [A camera entity](cameras.md#a-camera-entity) |
+| `Sun`, `PointLight`, `SpotLight` | Lights every frame. A point or spot light's position and direction count from the entity's `Transform` and `Parent`, and a sun's direction stays in the world. See [Lights](rendering.md#lights) |
+| `Sky`, `Shadows`, `AmbientOcclusion`, `Finish`, `Outlines` | The frame's sky, shadows, ambient occlusion, finished look and outlines, from the newest entity with one, as the view calls of the same names set them |
 
 Every entity with a `Transform` is drawn moving smoothly between ticks, so you don't keep a
 previous position yourself: the world takes a copy before each `Update`, and draws blending

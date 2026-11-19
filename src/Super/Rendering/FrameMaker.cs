@@ -86,7 +86,7 @@ internal sealed class FrameMaker
     }
 
     /// <summary>Which sun casts the shadows: the one marked to, or else the first.</summary>
-    internal static int ShadowSun(ReadOnlySpan<SunLight> suns)
+    internal static int ShadowSun(ReadOnlySpan<Sun> suns)
     {
         for (int i = 0; i < suns.Length; i++)
         {
@@ -153,7 +153,7 @@ internal sealed class FrameMaker
     };
 
     /// <summary>The view's suns as the frame's lights, at most <see cref="MaxLights"/>, with one casting the shadows.</summary>
-    private ReadOnlySpan<DirectionalLight> Lights(ReadOnlySpan<SunLight> suns)
+    private ReadOnlySpan<DirectionalLight> Lights(ReadOnlySpan<Sun> suns)
     {
         int count = Math.Min(suns.Length, MaxLights);
         int shadowSun = ShadowSun(suns);

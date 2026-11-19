@@ -12,6 +12,11 @@ internal sealed class Newest
     public Newest(ArchetypeTable types)
     {
         Track<Camera>(types);
+        Track<Sky>(types);
+        Track<Shadows>(types);
+        Track<AmbientOcclusion>(types);
+        Track<Finish>(types);
+        Track<Outlines>(types);
     }
 
     /// <summary>The entity that got a <typeparamref name="T"/> most recently and still has it, or null.</summary>

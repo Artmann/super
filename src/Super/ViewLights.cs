@@ -11,7 +11,7 @@ namespace Super;
 /// </summary>
 public sealed class ViewLights
 {
-    private readonly List<SunLight> _suns = [];
+    private readonly List<Sun> _suns = [];
     private readonly List<LocalLight> _lights = [];
 
     internal ViewLights()
@@ -24,7 +24,7 @@ public sealed class ViewLights
     /// <summary>The widest a sun can look, in radians. Wider would blur shadows away.</summary>
     public const float MaxSunSize = 0.5f;
 
-    internal ReadOnlySpan<SunLight> Suns => CollectionsMarshal.AsSpan(_suns);
+    internal ReadOnlySpan<Sun> Suns => CollectionsMarshal.AsSpan(_suns);
 
     /// <summary>Every point and spot light so far this frame.</summary>
     public ReadOnlySpan<LocalLight> DrawnLights => CollectionsMarshal.AsSpan(_lights);
@@ -56,7 +56,7 @@ public sealed class ViewLights
             }
         }
 
-        _suns.Add(new SunLight(Vector3.Normalize(direction), color, shadows, mode));
+        _suns.Add(new Sun(Vector3.Normalize(direction), color, shadows, mode));
     }
 
     /// <summary>
