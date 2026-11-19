@@ -139,7 +139,6 @@ public sealed class CannonballGame(World world, Content content, Physics physics
             HazeEnd = 220f,
         });
         view.Lights.Shadows(20f, cascades: 3);
-        view.Models(world);
         CannonballField.DrawCannon(view);
         if (_showBodies)
         {

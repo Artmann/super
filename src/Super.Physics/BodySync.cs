@@ -150,7 +150,7 @@ internal sealed class BodySync(World world, PhysicsSystem system)
             return new WantedBody(entity, collider, settings, trigger, character, mask, transform.Scale, transform.Position, transform.Rotation);
         }
 
-        var matrix = ViewExtensions.WorldMatrix(world, entity, 1f, depth: 0);
+        var matrix = WorldFrame.WorldMatrix(world, entity, 1f);
         if (!Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var position))
         {
             throw new InvalidOperationException($"Entity {entity.Id}'s Collider can't be placed: its Transform, or a parent's, is sheared or flattened. Check their scales.");

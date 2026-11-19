@@ -275,7 +275,7 @@ public class BodyTests
         public float Height => world.Get<Transform>(Ball).Position.Y;
 
         /// <summary>The ball's height as drawn, blended from last tick (0) to this one (1).</summary>
-        public float Drawn(float blend) => ViewExtensions.WorldMatrix(world, Ball, blend, depth: 0).Translation.Y;
+        public float Drawn(float blend) => WorldFrame.WorldMatrix(world, Ball, blend).Translation.Y;
 
         public void Load()
         {

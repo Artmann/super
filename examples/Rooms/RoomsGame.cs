@@ -116,7 +116,6 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
         actions.Bind(Control.Move, Keys.WASD, Keys.Arrows, GamepadStick.Left);
         actions.Bind(Control.Build, Key.E, GamepadButton.West);
 
-        _player.Spawn();
         _areas = new RoomAreas(world, screen, content, _player, _coins);
         screen.OnEnter(Screen.Loading, _areas.Load);
         screen.OnEnter(Screen.House, _areas.EnterHouse);
@@ -159,7 +158,7 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
 
     public void Draw(View view)
     {
-        // The menu and loading screens are only text, and the world waits behind them.
+        // The menu and loading screens are only text, and the world is empty behind them.
         if (screen.Is(Screen.Menu) || screen.Is(Screen.Loading))
         {
             return;
@@ -167,7 +166,6 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
 
         view.Camera(_player.Camera.At(view.Blend));
         view.Lights.Sun(new Vector3(1f, 2f, 1f), new Vector3(1.4f));
-        view.Models(world);
         DrawDoorLid(view);
         _coins.DrawSparkle(view, _player.Position);
     }

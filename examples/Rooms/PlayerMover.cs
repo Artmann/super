@@ -14,7 +14,9 @@ internal sealed class PlayerMover(World world, Input input, Actions<Control> act
 
     private Vector3? _walkingTo;
 
-    /// <summary>The player's entity, once <see cref="Spawn"/> has made it.</summary>
+    private bool _spawned;
+
+    /// <summary>The player's entity, once the first room has made it.</summary>
     public Entity Player { get; private set; }
 
     /// <summary>The camera that follows the player.</summary>
@@ -23,17 +25,26 @@ internal sealed class PlayerMover(World world, Input input, Actions<Control> act
     /// <summary>Where the player is.</summary>
     public Vector3 Position => world.Get<Transform>(Player).Position;
 
-    /// <summary>Makes the player. It isn't scoped to anything, so it carries through every state.</summary>
-    public void Spawn()
+    /// <summary>
+    /// Makes the player, with the first room, so the menu and the loading screen show an empty world. It isn't scoped
+    /// to anything, so it carries through every state after.
+    /// </summary>
+    private void Spawn()
     {
+        _spawned = true;
         Player = world.Create();
         world.Add(Player, Transform.At(Vector3.Zero, 0.8f));
         world.Add(Player, new Model(ModelRef.Cube, PlayerColor));
     }
 
-    /// <summary>Puts the player at <paramref name="position"/> at once.</summary>
+    /// <summary>Puts the player at <paramref name="position"/> at once, making it the first time.</summary>
     public void Move(Vector3 position)
     {
+        if (!_spawned)
+        {
+            Spawn();
+        }
+
         // A move between areas is a teleport, so nothing should slide across the map.
         world.Teleport(Player, world.Get<Transform>(Player) with { Position = position });
         _walkingTo = null;

@@ -86,7 +86,6 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
         view.Effects.Finish(new PostSettings { Contrast = 0.12f, Saturation = 0.12f, Vignette = 0.4f, Sharpen = 0.35f });
 
         view.Model(SeabedKey, _seabed, Matrix4x4.Identity);
-        view.Models(world);
     }
 
     private int SpawnFish(RandomStream stream)

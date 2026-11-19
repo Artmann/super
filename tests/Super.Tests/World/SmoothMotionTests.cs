@@ -15,8 +15,6 @@ public class SmoothMotionTests
         public void SpawnAt(float x) => world.Spawn(Transform.At(new Vector3(x, 0f, 0f)), new Model(ModelRef.Cube));
 
         public void Update(GameTime time) => world.Get<Transform>(Entity).Position += new Vector3(2f, 0f, 0f);
-
-        public void Draw(View view) => view.Models(world);
     }
 
     [Fact]

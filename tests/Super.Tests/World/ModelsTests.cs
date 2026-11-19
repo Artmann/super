@@ -15,7 +15,7 @@ public class ModelsTests
     private ReadOnlySpan<ModelDraw> Draw(float blend)
     {
         _view.Begin(blend);
-        _view.Models(_world);
+        WorldFrame.Describe(_view, _world);
         return _view.Drawn;
     }
 

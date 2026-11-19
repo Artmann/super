@@ -39,8 +39,6 @@ public class ScopedTests
         public void Update(GameTime time)
         {
         }
-
-        public void Draw(View view) => view.Models(world);
     }
 
     private static HeadlessRun<Rooms> Run() => HeadlessGame.Create<Rooms>(1);

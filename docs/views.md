@@ -4,6 +4,10 @@ A view is a function that takes some data and says how it looks. If you've used 
 or React, this will feel familiar. You don't create scene objects and keep them in sync
 with your game. Each frame, `Draw` describes what's visible.
 
+Entities in the [world](ecs.md#drawing-entities) draw themselves before `Draw` runs, so a
+game made of entities can leave `Draw` out. This page is about drawing by hand: data that
+isn't an entity, and what only one frame shows.
+
 ```csharp
 struct Box
 {
@@ -59,7 +63,7 @@ component on its entity instead. See [Audio](audio.md).
 | `view.Model(key, model, transform, new ModelOptions { Color = color, Static = true })` | A model that never moves, whose lighting will be baked. See [Static draws](#static-draws) |
 | `view.Model(key, model, transform, new ModelOptions { Fade = new DistanceFade(50, 60) })` | A model that fades out between 50 and 60 metres from the camera, such as grass. See [Fading with distance](rendering.md#fading-with-distance) |
 | `view.Model(key, model, transform, new Ghost(color, opacity))` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
-| `view.Models(world)` | Every entity with a model, from the [world](ecs.md#drawing-entities) |
+| `view.TransformOf(entity)` | Where an entity is drawn this frame, so something drawn by hand can sit on it. The world draws its own [entities](ecs.md#drawing-entities) before `Draw` |
 
 `ModelOptions` holds everything a model draw can take beyond a colour: `Color`, `Swim` for a
 `SwimMotion` that bends a fish as it swims, `Meshes`, `Static` and `Fade`. Leave out what you don't need.
@@ -157,7 +161,7 @@ public void Draw(View view) =>
     view.Model(ball.Id, ballModel, view.Smooth(ball.PreviousTransform, ball.Transform));
 ```
 
-With the ECS, `view.Models(world)` does this for every entity; see
+With the ECS, the world does this for every entity by itself; see
 [Drawing entities](ecs.md#drawing-entities).
 
 ## Things that rarely change
@@ -231,7 +235,7 @@ MeshMask knight = content.Models.Meshes(armoured, "body", "legs");
 view.Model(KnightKey, armoured, transform, new ModelOptions { Meshes = knight });
 ```
 
-With entities, give the `Model` component the mask, and `view.Models(world)` draws with it:
+With entities, give the `Model` component the mask, and the world draws with it:
 
 ```csharp
 world.Add(knight, new Model(armoured, Meshes: knightMeshes));
