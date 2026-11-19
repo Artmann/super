@@ -334,3 +334,34 @@ ignoring input meanwhile.
 Scenes are for where in the world the game is; [states](states.md) are for where the game
 is, such as a menu or paused. A game can use either or both. A prefab needs nothing from
 Super: it's a method that spawns a few entities under a parent it's given.
+
+## Systems
+
+A small game can do all its work in `Update`. When that grows, split it into systems: classes
+that each do one part, run in an order you choose. Ask for `Systems`, add each one, and call
+`Update` from your game's own `Update`.
+
+```csharp
+public sealed class Waves(World world) : ISystem
+{
+    public void Update(GameTime time)
+    {
+        if (time.Tick % 300 == 0)
+        {
+            world.Spawn(new Enemy(), Transform.At(new Vector3(0f, 0f, -20f)));
+        }
+    }
+}
+
+public sealed class Outpost(Systems systems) : IGame
+{
+    private readonly Systems _systems = systems.Add<Waves>().Add<Towers>().Add<Bullets>();
+
+    public void Update(GameTime time) => _systems.Update(time);
+}
+```
+
+A system gets what its constructor asks for, such as `World` or `Input`, from the game's
+services, and doesn't need registering itself. Each type is added once; adding it again throws.
+Nothing runs on its own: the game decides when `Update` runs, so pausing is skipping the call.
+Systems are optional, and a game can mix them with work in its own `Update`.
