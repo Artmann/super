@@ -69,7 +69,8 @@ internal static class WorldFrame
         while (pass.World.Archetypes.NextMatching(ref index, default(ComponentMask).With(types.Transform)) is { } archetype)
         {
             var rows = ModelRows.Of(archetype, types);
-            if (rows.IsStatic != pass.IsStatic || (rows.Models is null && rows.Animated is null))
+            bool hidden = types.Hidden >= 0 && archetype.Mask.Has(types.Hidden);
+            if (hidden || rows.IsStatic != pass.IsStatic || (rows.Models is null && rows.Animated is null))
             {
                 continue;
             }
@@ -101,6 +102,10 @@ internal static class WorldFrame
 
         public int Static { get; init; }
 
+        public int Ghost { get; init; }
+
+        public int Hidden { get; init; }
+
         public static ModelTypes Of(World world) => new()
         {
             Transform = world.Archetypes.TypeIdOrMissing<Transform>(),
@@ -110,6 +115,8 @@ internal static class WorldFrame
             Parent = world.Archetypes.TypeIdOrMissing<Parent>(),
             Swim = world.Archetypes.TypeIdOrMissing<Swim>(),
             Static = world.Archetypes.TypeIdOrMissing<Static>(),
+            Ghost = world.Archetypes.TypeIdOrMissing<Ghost>(),
+            Hidden = world.Archetypes.TypeIdOrMissing<Hidden>(),
         };
     }
 
@@ -130,6 +137,8 @@ internal static class WorldFrame
 
         public Swim[]? Swims { get; init; }
 
+        public Ghost[]? Ghosts { get; init; }
+
         public bool IsStatic { get; init; }
 
         public static ModelRows Of(Archetype archetype, in ModelTypes types)
@@ -145,6 +154,7 @@ internal static class WorldFrame
                 LastTicks = isStatic ? null : archetype.ColumnOrNull<LastTick>(types.LastTick)?.Values,
                 Parents = archetype.ColumnOrNull<Parent>(types.Parent)?.Values,
                 Swims = archetype.ColumnOrNull<Swim>(types.Swim)?.Values,
+                Ghosts = archetype.ColumnOrNull<Ghost>(types.Ghost)?.Values,
                 IsStatic = isStatic,
             };
         }
@@ -152,7 +162,7 @@ internal static class WorldFrame
         public void Draw(View view, World world, int i)
         {
             var animator = Animated?[i].Value;
-            if (!TryGetModel(i, animator, out var model))
+            if (!TryGetModel(i, animator, out var model) || (Parents is not null && IsHidden(world, Parents[i].Value)))
             {
                 return;
             }
@@ -162,6 +172,12 @@ internal static class WorldFrame
             if (Parents is not null)
             {
                 matrix *= WorldMatrix(world, Parents[i].Value, blend);
+            }
+
+            if (Ghosts is not null)
+            {
+                view.Model(Entities[i].Id, model.Value, matrix, Ghosts[i], model.Meshes);
+                return;
             }
 
             var swim = Swims is null ? default : SwimAt(i, blend);
@@ -207,6 +223,36 @@ internal static class WorldFrame
 
     internal static Transform Blended(in Transform current, in LastTick last, float blend) =>
         last.HasPrevious ? Transform.Lerp(in last.Previous, in current, blend) : current;
+
+    /// <summary>
+    /// Whether an entity is left out of the frame and the audio: it has <see cref="Hidden"/>, or one of its parents
+    /// does. A dead entity, or a chain deeper than any real one, isn't hidden.
+    /// </summary>
+    internal static bool IsHidden(World world, Entity entity)
+    {
+        int hidden = world.Archetypes.TypeIdOrMissing<Hidden>();
+        if (hidden < 0)
+        {
+            return false;
+        }
+
+        for (int depth = 0; depth < MaxParentDepth && world.IsAlive(entity); depth++)
+        {
+            if (world.Has(entity, hidden))
+            {
+                return true;
+            }
+
+            if (!world.Has<Parent>(entity))
+            {
+                return false;
+            }
+
+            entity = world.Get<Parent>(entity).Value;
+        }
+
+        return false;
+    }
 
     /// <summary>An entity's matrix in the world, following its own parents. A dead parent, or one with no transform, counts as the world itself.</summary>
     internal static Matrix4x4 WorldMatrix(World world, Entity entity, float blend) => WorldMatrix(world, entity, blend, depth: 0);

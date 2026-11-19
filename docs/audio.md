@@ -157,7 +157,7 @@ world.Add(machine, new Sound(content.Sounds.Sound("sounds/hum.ogg"), Volume: 0.6
 - With a `Transform` it's placed where the entity is drawn, blended between ticks
   and following its `Parent`, and follows it. Without one it's flat, but it still follows the time scale:
   it pauses at `Scale` 0 and slows below 1, unlike a flat `audio.Play`.
-- It fades in over 0.1 s. Removing the component or destroying the entity fades it out
+- It fades in over 0.1 s. Removing the component or destroying the entity fades it out. So does giving the entity, or one of its parents, [`Hidden`](ecs.md)
   over 0.3 s. An entity that has a `Sound` when the game loads simply starts playing.
 - Changing `Volume` fades to it over 0.1 s. Changing `Clip`, `Channel`, `Near`, `Far`, or
   whether the entity has a `Transform`, fades the old sound out and starts the new one.

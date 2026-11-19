@@ -144,6 +144,26 @@ public class SoundTests
     }
 
     [Fact]
+    public void A_hidden_entity_is_not_heard()
+    {
+        using var run = Start();
+        Entity parent = run.Game.World.Spawn(Transform.Identity);
+        Entity entity = Make(run, run.Game.Creak, Vector3.Zero);
+        run.Game.World.Add(entity, new Parent(parent));
+        run.Ticks(6);
+
+        run.Game.World.Add(parent, new Hidden());
+
+        // Fades out over 0.3 s, as if the Sound were gone: 9 ticks at 30 a second, and a couple more.
+        run.Ticks(11);
+        Assert.Empty(run.Sounds);
+
+        run.Game.World.Remove<Hidden>(parent);
+        run.Ticks(1);
+        Assert.Single(run.Sounds);
+    }
+
+    [Fact]
     public void DestroyedEntityStopsItsSound()
     {
         using var run = Start();
@@ -215,6 +235,22 @@ public class SoundTests
         run.Ticks(4);
         Assert.False(world.IsAlive(forest));
         Assert.True(Find(run, "creak.wav").Gain < full);
+
+        run.Ticks(70);
+        Assert.Empty(run.Sounds);
+    }
+
+    [Fact]
+    public void A_hidden_ambience_fades_out()
+    {
+        using var run = Start();
+        World world = run.Game.World;
+        Entity forest = world.Create();
+        world.Add(forest, new Ambience(run.Game.Forest));
+        run.Ticks(10);
+        Assert.NotEmpty(run.Sounds);
+
+        world.Add(forest, new Hidden());
 
         run.Ticks(70);
         Assert.Empty(run.Sounds);
