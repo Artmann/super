@@ -1,3 +1,6 @@
+using System.Numerics;
+using Super;
+
 namespace OutpostExample;
 
 /// <summary>One tower, standing on a tile.</summary>
@@ -6,12 +9,20 @@ public sealed class Tower
     public required int X { get; init; }
 
     public required int Z { get; init; }
+
+    /// <summary>Seconds until it can shoot again.</summary>
+    public float Reload { get; set; }
 }
 
-/// <summary>The towers the player has built.</summary>
-public sealed class Towers(Field field, Player player)
+/// <summary>The towers the player has built, and their shooting.</summary>
+public sealed class Towers(Field field, Player player, Enemies enemies, Shots shots)
 {
     public const int Price = 50;
+    public const float Range = 5f;
+    public const float ReloadSeconds = 0.75f;
+
+    /// <summary>How high above its tile a tower's shots start, at the top of its wall.</summary>
+    private static readonly Vector3 Muzzle = new(0, 1.2f, 0);
 
     private readonly List<Tower> _all = [];
 
@@ -29,6 +40,36 @@ public sealed class Towers(Field field, Player player)
         player.Gold -= Price;
         _all.Add(new Tower { X = x, Z = z });
         return true;
+    }
+
+    /// <summary>Each tower that has reloaded shoots at the enemy in range that's nearest the base.</summary>
+    public void Update(GameTime time)
+    {
+        foreach (var tower in _all)
+        {
+            tower.Reload = MathF.Max(0f, tower.Reload - time.DeltaSeconds);
+            if (tower.Reload > 0f)
+            {
+                continue;
+            }
+
+            var spot = field.Center(tower.X, tower.Z);
+            Enemy? target = null;
+            foreach (var enemy in enemies.All)
+            {
+                bool inRange = Vector3.Distance(spot, enemy.Position) <= Range;
+                if (inRange && (target is null || enemy.Distance > target.Distance))
+                {
+                    target = enemy;
+                }
+            }
+
+            if (target is not null)
+            {
+                shots.Fire(spot + Muzzle, target);
+                tower.Reload = ReloadSeconds;
+            }
+        }
     }
 
     /// <summary>Takes every tower down, for a new game.</summary>

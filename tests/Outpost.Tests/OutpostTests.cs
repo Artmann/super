@@ -138,6 +138,75 @@ public class OutpostTests
     }
 
     [Fact]
+    public void A_tower_by_the_road_kills_enemies()
+    {
+        using var run = Start();
+        var enemies = run.Game.Enemies;
+        enemies.Clear();
+
+        run.Game.Towers.TryBuild(3, 2);
+        for (int i = 0; i < 3; i++)
+        {
+            enemies.Spawn(EnemyKind.Walker);
+            run.Ticks(30);
+        }
+
+        run.Ticks(30 * 30);
+
+        Assert.Equal(3, enemies.Killed);
+        Assert.Equal(10, run.Game.Player.Lives);
+    }
+
+    [Fact]
+    public void Hitting_a_dead_enemy_again_pays_nothing()
+    {
+        using var run = Start();
+        var enemies = run.Game.Enemies;
+        enemies.Clear();
+
+        var walker = enemies.Spawn(EnemyKind.Walker);
+        enemies.Hit(walker, 3);
+        enemies.Hit(walker, 1);
+
+        Assert.Equal(110, run.Game.Player.Gold);
+        Assert.Equal(1, enemies.Killed);
+    }
+
+    [Fact]
+    public void A_shot_whose_target_died_vanishes()
+    {
+        using var run = Start();
+        var enemies = run.Game.Enemies;
+        enemies.Clear();
+
+        var walker = enemies.Spawn(EnemyKind.Walker);
+        enemies.Hit(walker, 1);
+        enemies.Hit(walker, 1);
+        // The near shot lands in a few ticks. The far one would take most of a second.
+        run.Game.Shots.Fire(walker.Position + new Vector3(1, 0, 0), walker);
+        run.Game.Shots.Fire(walker.Position + new Vector3(10, 0, 0), walker);
+        run.Ticks(5);
+
+        Assert.Equal(1, enemies.Killed);
+        Assert.Empty(run.Game.Shots.All);
+    }
+
+    [Fact]
+    public void A_tower_ignores_enemies_out_of_range()
+    {
+        using var run = Start();
+        var enemies = run.Game.Enemies;
+        enemies.Clear();
+
+        // The middle tile is about 15 metres from where the road starts.
+        run.Game.Towers.TryBuild(7, 4);
+        enemies.Spawn(EnemyKind.Walker);
+        run.Ticks(1);
+
+        Assert.Empty(run.Game.Shots.All);
+    }
+
+    [Fact]
     public void Every_tile_is_drawn()
     {
         using var run = Start();

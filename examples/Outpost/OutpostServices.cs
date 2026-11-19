@@ -9,5 +9,6 @@ public static class OutpostServices
         .AddSingleton<Field>()
         .AddSingleton<Player>()
         .AddSingleton<Enemies>()
-        .AddSingleton<Towers>();
+        .AddSingleton<Towers>()
+        .AddSingleton<Shots>();
 }

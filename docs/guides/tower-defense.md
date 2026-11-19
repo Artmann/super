@@ -700,3 +700,212 @@ dotnet run -c Release -- --screenshot towers.png --script towers --ticks 60 --si
 
 This is also how this guide's pictures were made. See [The command line](../command-line.md)
 for more.
+
+## 5. Shooting back
+
+Towers that just stand there aren't much use. In this chapter each tower shoots at
+enemies that come close, and a shot that lands takes a point of health.
+
+### Shots in the air
+
+A shot is a small ball that flies at one enemy and hits it when it gets there. Make
+`Shots.cs`:
+
+```csharp
+using System.Numerics;
+using Super;
+
+namespace OutpostExample;
+
+/// <summary>One shot in the air, chasing its target.</summary>
+public sealed class Shot
+{
+    public required int Id { get; init; }
+
+    public required Enemy Target { get; init; }
+
+    public Vector3 Position { get; set; }
+
+    /// <summary>Where it was last tick, so drawing can blend between the two.</summary>
+    public Vector3 PreviousPosition { get; set; }
+}
+
+/// <summary>Every shot in the air. A shot flies at its target and hits it when it gets there.</summary>
+public sealed class Shots(Enemies enemies)
+{
+    public const float Speed = 14f;
+    public const int Damage = 1;
+
+    private readonly List<Shot> _all = [];
+    private int _nextId;
+
+    public IReadOnlyList<Shot> All => _all;
+
+    public void Fire(Vector3 from, Enemy target)
+    {
+        _all.Add(new Shot { Id = _nextId++, Target = target, Position = from, PreviousPosition = from });
+    }
+
+    public void Update(GameTime time)
+    {
+        for (int i = _all.Count - 1; i >= 0; i--)
+        {
+            var shot = _all[i];
+
+            // Its target died or reached the base since it was fired, so there's nothing left to hit.
+            if (!enemies.All.Contains(shot.Target))
+            {
+                _all.RemoveAt(i);
+                continue;
+            }
+
+            // Aim for the middle of the enemy's body, not its feet.
+            var aim = shot.Target.Position + new Vector3(0, Enemies.Stats(shot.Target.Kind).Size, 0);
+            var toTarget = aim - shot.Position;
+            float distance = toTarget.Length();
+            float step = Speed * time.DeltaSeconds;
+
+            shot.PreviousPosition = shot.Position;
+            if (distance <= step)
+            {
+                enemies.Hit(shot.Target, Damage);
+                _all.RemoveAt(i);
+                continue;
+            }
+
+            shot.Position += toTarget / distance * step;
+        }
+    }
+
+    /// <summary>Takes every shot out of the air, for a new game.</summary>
+    public void Clear() => _all.Clear();
+}
+```
+
+Each tick a shot moves 14 metres a second toward its target. When it's closer than one
+step, it hits instead of moving.
+
+Look at the check at the top of the loop. A shot takes a while to fly, and in that time
+its enemy can die from another tower's shot, or walk into the base. Without the check,
+the shot would keep chasing an enemy that's no longer in the game, and hit it. `Hit` in
+chapter 3 already ignores enemies that are gone, so it wouldn't pay twice, but it's
+better that a shot with nothing to hit simply disappears. Two small guards are cheap,
+and each one keeps the game right on its own.
+
+Add `.AddSingleton<Shots>()` to `AddOutpost`.
+
+### Towers that shoot
+
+A tower needs to know how long until it can shoot again. Give `Tower` one more property:
+
+```csharp
+/// <summary>Seconds until it can shoot again.</summary>
+public float Reload { get; set; }
+```
+
+`Towers` now asks for the enemies and the shots too, and gets a range, a reload time, and
+the spot shots start from:
+
+```csharp
+public sealed class Towers(Field field, Player player, Enemies enemies, Shots shots)
+{
+    public const int Price = 50;
+    public const float Range = 5f;
+    public const float ReloadSeconds = 0.75f;
+
+    /// <summary>How high above its tile a tower's shots start, at the top of its wall.</summary>
+    private static readonly Vector3 Muzzle = new(0, 1.2f, 0);
+```
+
+And an `Update` that does the shooting:
+
+```csharp
+/// <summary>Each tower that has reloaded shoots at the enemy in range that's nearest the base.</summary>
+public void Update(GameTime time)
+{
+    foreach (var tower in _all)
+    {
+        tower.Reload = MathF.Max(0f, tower.Reload - time.DeltaSeconds);
+        if (tower.Reload > 0f)
+        {
+            continue;
+        }
+
+        var spot = field.Center(tower.X, tower.Z);
+        Enemy? target = null;
+        foreach (var enemy in enemies.All)
+        {
+            bool inRange = Vector3.Distance(spot, enemy.Position) <= Range;
+            if (inRange && (target is null || enemy.Distance > target.Distance))
+            {
+                target = enemy;
+            }
+        }
+
+        if (target is not null)
+        {
+            shots.Fire(spot + Muzzle, target);
+            tower.Reload = ReloadSeconds;
+        }
+    }
+}
+```
+
+Which enemy should a tower pick? The one that's furthest along the road, because that's
+the one about to cost you a life. `Distance` from chapter 3 tells us exactly that.
+
+### Who goes first
+
+The game needs the shots in its constructor:
+
+```csharp
+public sealed class OutpostGame(Field field, Player player, Enemies enemies, Towers towers, Shots shots, Actions<Control> actions, Input input) : IGame
+```
+
+Then the end of `Update` becomes:
+
+```csharp
+enemies.Update(time);
+towers.Update(time);
+shots.Update(time);
+```
+
+These are plain method calls, in an order you choose. Enemies move first, then towers
+aim at where the enemies are now, then shots fly. There's no hidden system that runs
+things for you in some order you have to look up. If you want something to happen
+before something else, you put its line first.
+
+### Drawing the shots
+
+Shots are small yellow balls. Add the colour:
+
+```csharp
+private static readonly Vector3 ShotGlow = new(1f, 0.8f, 0.1f);
+```
+
+And draw them last in `Draw`, smoothed between ticks just like the enemies:
+
+```csharp
+foreach (var shot in shots.All)
+{
+    var size = Matrix4x4.CreateScale(0.4f);
+    var previous = size * Matrix4x4.CreateTranslation(shot.PreviousPosition);
+    var current = size * Matrix4x4.CreateTranslation(shot.Position);
+    view.Model(200_000 + shot.Id, ModelRef.Sphere, view.Smooth(previous, current), ShotGlow);
+}
+```
+
+Shots come and go all the time, so they use their `Id` for a key, not their place in the
+list.
+
+The middle tile is too far from the road to reach anything, so let's add a second tower
+to the script, next to the road's first bend:
+
+```csharp
+// Builds a tower on the middle tile and one by the first bend, for screenshots: --script towers
+["towers"] = new InputScript().Wait(1).Click(new Vector2(640, 360)).Wait(1).Click(new Vector2(411, 261)).Wait(5),
+```
+
+Run the game, and the tower by the bend picks off the walkers one by one.
+
+![A tower by the road's first bend firing a yellow shot at a walker](../media/outpost-5-shooting.webp)
