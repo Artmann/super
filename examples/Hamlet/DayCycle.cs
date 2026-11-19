@@ -35,49 +35,59 @@ internal static class DayCycle
     public static float Elevation(float seconds) => MathF.Asin(SunDirection(seconds).Y);
 
     /// <summary>
-    /// Adds the sun, or the moon once the sun is down, the sky and the post-processing for
-    /// this moment. The inside of a building is darker than the open air, so the exposure
-    /// opens up by <paramref name="indoors"/> stops there.
+    /// The sun at this moment. It is always there, white: the sky's air reddens and dims it as it sinks and puts it
+    /// out below the horizon. It casts the shadows by day and the moon by night.
     /// </summary>
-    public static void Light(View view, float seconds, float indoors)
+    public static Sun Sun(float seconds)
     {
         var sun = SunDirection(seconds);
-        float elevation = MathF.Asin(sun.Y);
-        // The sun is always there, white: the sky's air reddens and dims it as it sinks and puts it out below the
-        // horizon. It casts the shadows by day and the moon by night.
-        view.Lights.Sun(sun, new Vector3(5.2f, 4.9f, 4.4f), shadows: elevation > 0f);
-        // The moon is opposite the sun, and rises as the sun sinks.
-        var moon = -sun;
-        if (elevation <= 0f)
+        return new Sun(sun, new Vector3(5.2f, 4.9f, 4.4f), CastsShadows: sun.Y > 0f);
+    }
+
+    /// <summary>The moon, opposite the sun, rising as the sun sinks; null while the sun is up.</summary>
+    public static Sun? Moon(float seconds)
+    {
+        float elevation = Elevation(seconds);
+        if (elevation > 0f)
         {
-            float up = Smooth(0f, 0.08f, -elevation);
-            view.Lights.Sun(moon,new Vector3(0.16f, 0.21f, 0.36f) * up, shadows: true);
+            return null;
         }
 
-        // A physical sky follows the sun every frame, with the moon and the stars, which turn once a day; its
-        // lighting is rebuilt on the GPU without a wait.
+        float up = Smooth(0f, 0.08f, -elevation);
+        return new Sun(-SunDirection(seconds), new Vector3(0.16f, 0.21f, 0.36f) * up, CastsShadows: true);
+    }
+
+    /// <summary>
+    /// A physical sky that follows the sun, with the moon and the stars, which turn once a day; its lighting is rebuilt
+    /// on the GPU without a wait.
+    /// </summary>
+    public static Sky Sky(float seconds)
+    {
+        float elevation = Elevation(seconds);
         float day = Smooth(-0.1f, 0.2f, elevation);
-        view.Surroundings.Sky(new SkySettings
+        return new Sky(new SkySettings
         {
             Turbidity = 2.5f,
-            Moon = moon,
+            Moon = -SunDirection(seconds),
             StarRotation = MathF.Tau * TimeOfDay(seconds),
             Ground = Vector3.Lerp(new Vector3(0.006f, 0.007f, 0.01f), new Vector3(0.16f, 0.15f, 0.12f), day),
             Brightness = 1f,
             Fog = new FogSettings(0.0018f, 0f, 0.08f, 0.35f),
         });
-
-        Expose(view, elevation, indoors);
     }
 
-    /// <summary>The post-processing for a sun at <paramref name="elevation"/>, opened up by <paramref name="indoors"/> stops.</summary>
-    private static void Expose(View view, float elevation, float indoors)
+    /// <summary>
+    /// The post-processing at this moment. The inside of a building is darker than the open air, so the exposure opens
+    /// up by <paramref name="indoors"/> stops there.
+    /// </summary>
+    public static Finish Expose(float seconds, float indoors)
     {
+        float elevation = Elevation(seconds);
         // Night is far darker than day; the camera opens up to see by lamplight and moonlight. The air dims the light
         // well before sunset, so it starts opening while the sun is still a little way up.
         // By day it stops down a little, so sunlight stands out from the sky's light in the shade.
         float night = 1f - Smooth(-0.1f, 0.25f, elevation);
-        view.Effects.Finish(new PostSettings
+        return new Finish(new PostSettings
         {
             Exposure = float.Lerp(-0.6f, 3.4f, night) + indoors,
             Contrast = 0.06f,

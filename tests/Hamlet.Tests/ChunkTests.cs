@@ -37,13 +37,9 @@ public sealed class ChunkTests
         }
     }
 
-    /// <summary>The draws of building <paramref name="index"/>'s parts, by its keys, in the plan's part order.</summary>
-    private static List<ModelDraw> PartsOf(HeadlessRun<HamletGame> run, int index)
-    {
-        var plan = run.Game.Village.Buildings[index].Plan;
-        int first = HamletGame.BuildingKey + index * HamletGame.KeysPerBuilding;
-        return [.. run.Drawn.Where(draw => draw.Key >= first && draw.Key < first + plan.Parts.Length).OrderBy(draw => draw.Key)];
-    }
+    /// <summary>The draws of building <paramref name="index"/>'s parts, by their entities, in the plan's part order.</summary>
+    private static List<ModelDraw> PartsOf(HeadlessRun<HamletGame> run, int index) =>
+        [.. run.Game.Scene.PartsOf(index).Select(part => run.Drawn.Single(draw => draw.Key == part.Id))];
 
     [Fact]
     public void Seed_one_has_the_seven_chunk_variants_the_committed_bakes_are_for()
@@ -195,6 +191,20 @@ public sealed class ChunkTests
         {
             Assert.Contains(colours.Keys, variant => variant.Name == kind);
         }
+    }
+
+    [Fact]
+    public void Pressing_R_takes_the_old_village_away()
+    {
+        // Seed 1's village, then R for seed 2's, draws as much as a game that starts on seed 2: nothing of the first is left.
+        using var replaced = Start(1);
+        replaced.Input.Press(Key.R);
+        replaced.Ticks(1);
+        using var fresh = Start(2);
+        fresh.Ticks(1);
+
+        Assert.Equal(2, replaced.Game.Village.Seed);
+        Assert.Equal(fresh.Drawn.Count, replaced.Drawn.Count);
     }
 
     [Fact]

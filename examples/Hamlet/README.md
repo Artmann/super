@@ -39,9 +39,9 @@ another's: a part inside two boxes would be baked into the wrong one.
 Each building calls `view.Indirect.BakedChunk` with its kind's name (`cottage`, `workshop`,
 `tower` or `well`), its plan's box and its placement, at 10 texels a metre. The well and
 the tower are narrow, so their edge blend is 0.4 metres; the others keep the default
-0.5. Every part is drawn static except the glowing bulbs and coals, which brighten and
-dim through the day, and the lit window panes. The ground and the cart stay dynamic and
-are lit by the probes.
+0.5. Every part is an entity, and every one is `Static` except the glowing bulbs and coals, which
+brighten and dim through the day, and the lit window panes. The ground and the cart stay dynamic and are lit by the
+probes. `VillageScene` spawns a village's entities and takes them away again when `R` makes the next one.
 
 The bakes are in `content/lighting/<kind>/<hash>.lightbake`, made from seed 1: one well,
 one workshop, one tower and the four cottage layouts seed 1 uses (seven bakes, with seed 1), about 8 MB in all.

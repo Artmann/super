@@ -11,7 +11,7 @@ namespace TransitionsExample;
 /// the number keys move to the next station with each transition, and Space plays the
 /// showreel again. The captions are interface, so they stay sharp through every one.
 /// </summary>
-public sealed class TransitionsGame(Content content, Input input, Director director, Transitions transitions) : IGame
+public sealed class TransitionsGame(World world, Content content, Input input, Director director, Transitions transitions) : IGame
 {
     private static readonly Color Muted = new(0.8f, 0.82f, 0.86f);
     private static readonly Color Panel = new(0.06f, 0.07f, 0.09f, 0.72f);
@@ -35,29 +35,45 @@ public sealed class TransitionsGame(Content content, Input input, Director direc
         (Key.D6, "Iris", Transition.Iris(1f)),
     ];
 
-    private ModelRef _floor;
+    private readonly Stations _stations = new(world);
+    private Entity _camera;
     private float _angle;
-    private float _previousAngle;
     private int _spot;
     private string _caption = "";
     private bool _showreelOn;
 
     public void Load()
     {
-        _floor = content.Mesh(Shapes.Plane(new Vector2(40f, 24f), surface: new Surface
+        _camera = world.Spawn(Spots[0]);
+        world.Spawn(
+            new Sun(new Vector3(-0.5f, 1.2f, 0.8f), new Vector3(2.6f, 2.35f, 2f)),
+            new Sky(new SkySettings
+            {
+                Zenith = new Vector3(0.3f, 0.45f, 0.75f),
+                Horizon = new Vector3(0.8f, 0.78f, 0.72f),
+                Ground = new Vector3(0.3f, 0.28f, 0.25f),
+                Brightness = 0.5f,
+                HazeStart = 30f,
+                HazeEnd = 120f,
+            }),
+            new Shadows(16f, Cascades: 2));
+
+        var floor = content.Mesh(Shapes.Plane(new Vector2(40f, 24f), surface: new Surface
         {
             ColorTexture = content.Texture(Chequer(64, 32)),
             Color = Vector3.One,
             Roughness = 0.85f,
         }, uvPerMetre: 0.5f));
+        world.Spawn(Transform.Identity, new Model(floor));
+        _stations.Spawn();
 
         PlayShowreel();
     }
 
     public void Update(GameTime time)
     {
-        _previousAngle = _angle;
         _angle += MathF.Tau * 0.12f * time.TickSeconds;
+        _stations.Turn(_angle);
 
         if (input.Pressed(Key.Space))
         {
@@ -83,28 +99,9 @@ public sealed class TransitionsGame(Content content, Input input, Director direc
             if (input.Pressed(key))
             {
                 _caption = name;
-                transitions.Play(transition, () => _spot = (_spot + 1) % Spots.Length);
+                transitions.Play(transition, NextSpot);
             }
         }
-    }
-
-    public void Draw(View view)
-    {
-        view.Camera(Spots[_spot]);
-        view.Lights.Sun(new Vector3(-0.5f, 1.2f, 0.8f), new Vector3(2.6f, 2.35f, 2f));
-        view.Surroundings.Sky(new SkySettings
-        {
-            Zenith = new Vector3(0.3f, 0.45f, 0.75f),
-            Horizon = new Vector3(0.8f, 0.78f, 0.72f),
-            Ground = new Vector3(0.3f, 0.28f, 0.25f),
-            Brightness = 0.5f,
-            HazeStart = 30f,
-            HazeEnd = 120f,
-        });
-        view.Lights.Shadows(16f, cascades: 2);
-        view.Model(0, _floor, Matrix4x4.Identity);
-
-        Stations.Draw(view, float.Lerp(_previousAngle, _angle, view.Blend));
     }
 
     public UiView? Ui
@@ -139,6 +136,13 @@ public sealed class TransitionsGame(Content content, Input input, Director direc
         }
     }
 
+    /// <summary>Moves to the next station, as a cut: the transition is what the player sees between them.</summary>
+    private void NextSpot()
+    {
+        _spot = (_spot + 1) % Spots.Length;
+        world.Teleport(_camera, Spots[_spot]);
+    }
+
     /// <summary>
     /// Every transition once, each named as it starts. A fade is centred on its cut, so its
     /// caption comes half its length early.
@@ -146,6 +150,7 @@ public sealed class TransitionsGame(Content content, Input input, Director direc
     private void PlayShowreel()
     {
         _spot = 0;
+        world.Teleport(_camera, Spots[0]);
         Func<Vector3> blue = () => Blue;
         director.Play(new Cutscene()
             .Then(Shot.Move(3f,
