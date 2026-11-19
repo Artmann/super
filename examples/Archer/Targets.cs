@@ -24,7 +24,6 @@ public sealed class Dummy
         var toward = facing - position;
         Yaw = MathF.Atan2(toward.X, toward.Z);
         Transform = Place();
-        Previous = Transform;
     }
 
     public Vector3 Position { get; }
@@ -32,8 +31,6 @@ public sealed class Dummy
     public float Yaw { get; }
 
     public Matrix4x4 Transform { get; private set; }
-
-    public Matrix4x4 Previous { get; private set; }
 
     /// <summary>The bullseye in the world, while the dummy stands upright.</summary>
     public Vector3 Target => Vector3.Transform(Bullseye, Matrix4x4.CreateRotationY(Yaw) * Matrix4x4.CreateTranslation(Position));
@@ -46,7 +43,6 @@ public sealed class Dummy
 
     public void Update(float seconds)
     {
-        Previous = Transform;
         var pull = -Stiffness * _lean - Damping * _leanSpeed;
         _leanSpeed += pull * seconds;
         _lean += _leanSpeed * seconds;
@@ -86,7 +82,6 @@ public sealed class Arrow
         Center = nock + Direction * HalfLength;
         _left = aim.Length() - 2f * HalfLength + Sink;
         Transform = Place();
-        Previous = Transform;
     }
 
     public Dummy Target { get; }
@@ -100,11 +95,8 @@ public sealed class Arrow
 
     public Matrix4x4 Transform { get; private set; }
 
-    public Matrix4x4 Previous { get; private set; }
-
     public void Update(float seconds)
     {
-        Previous = Transform;
         if (Stuck)
         {
             Transform = _onDummy * Target.Transform;

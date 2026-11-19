@@ -38,6 +38,16 @@ public record struct Transform(Vector3 Position, Quaternion Rotation, Vector3 Sc
     /// <summary>A transform at a place on a spline, facing along it, such as from a <see cref="SplineFollower"/>.</summary>
     public static Transform From(in SplinePose pose, float scale = 1f) => new(pose.Position, pose.Rotation, new Vector3(scale));
 
+    /// <summary>
+    /// The transform that places things as <paramref name="matrix"/> does, for gameplay that works in matrices. The
+    /// matrix must be made of a scale, a rotation and a move, with no shear.
+    /// </summary>
+    public static Transform From(Matrix4x4 matrix)
+    {
+        Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var position);
+        return new Transform(position, rotation, scale);
+    }
+
     /// <summary>The transform as a matrix: scale, then rotation, then position.</summary>
     public readonly Matrix4x4 Matrix
     {

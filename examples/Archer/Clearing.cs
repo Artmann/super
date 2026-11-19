@@ -8,14 +8,13 @@ namespace Archer;
 /// <summary>
 /// The forest clearing: clumps of grass and wildflowers in the open, ferns, nettles and
 /// mossy rocks along the edge, a dark wall of firs all round, a boulder for Erika to leap
-/// onto and a fallen log. It never changes, so it's drawn once and replayed.
+/// onto and a fallen log. Each thing in it is an entity.
 /// </summary>
 public sealed class Clearing
 {
     public static readonly Vector3 Middle = new(-1f, 0f, 10f);
     public static readonly Vector3 Rock = new(-5f, -0.1f, 7.5f);
     public const float RockScale = 1.1f;
-    private const int FirstKey = 1000;
     private const int ChunkQuads = 32;
     private const int GroundChunks = 3; // Each way from zero, so the ground is 192 metres wide.
 
@@ -38,12 +37,16 @@ public sealed class Clearing
     // Places the plants, the same every time.
     private readonly Random _random = new(11);
 
-    public Clearing(Content content)
+    public Clearing(World world, Content content)
     {
         var flora = Flora.Load(content);
         AddGround(content);
         AddLandmarks(content, flora.MossyRocks);
         Plant(flora);
+        foreach (var (model, transform, tint) in _things)
+        {
+            world.Spawn(Transform.From(transform), new Model(model, tint));
+        }
     }
 
     /// <summary>The plants and rocks the clearing is planted with.</summary>
@@ -122,15 +125,6 @@ public sealed class Clearing
         Scatter(new Planting([flora.YoungFir], 0.6f, 1f, Fir), 90, new PlantRing(21f, 40f), avoidPaths: false);
         Scatter(new Planting([flora.Shrub], 1f, 1.6f, Shade), 70, new PlantRing(20f, 34f), avoidPaths: false);
     }
-
-    public void Draw(View view) => view.Cached(FirstKey, 1, _things, static (things, view) =>
-    {
-        for (int i = 0; i < things.Count; i++)
-        {
-            var (model, transform, tint) = things[i];
-            view.Model(FirstKey + i, model, transform, tint);
-        }
-    });
 
     private void AddGround(Content content)
     {

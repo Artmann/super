@@ -115,7 +115,7 @@ internal readonly record struct CartEntities(Entity Body, Entity LeftWheel, Enti
     /// </summary>
     public static CartEntities Spawn(World world, Cart cart, Village village, float seconds, Vector3 accent)
     {
-        var body = world.Spawn(Spawning.Of(Cart.Placement(village, seconds)), new Model(cart.Body));
+        var body = world.Spawn(Transform.From(Cart.Placement(village, seconds)), new Model(cart.Body));
         world.Spawn(Transform.Identity, new Model(cart.Sides, accent), new Parent(body));
         var left = world.Spawn(Cart.WheelAt(-1f, seconds), new Model(cart.Wheel), new Parent(body));
         var right = world.Spawn(Cart.WheelAt(1f, seconds), new Model(cart.Wheel), new Parent(body));
@@ -128,7 +128,7 @@ internal readonly record struct CartEntities(Entity Body, Entity LeftWheel, Enti
     /// <summary>Moves the cart to where it is at <paramref name="seconds"/>, and lights its lantern at dusk.</summary>
     public void Roll(World world, Village village, float seconds)
     {
-        world.Get<Transform>(Body) = Spawning.Of(Cart.Placement(village, seconds));
+        world.Get<Transform>(Body) = Transform.From(Cart.Placement(village, seconds));
         world.Get<Transform>(LeftWheel) = Cart.WheelAt(-1f, seconds);
         world.Get<Transform>(RightWheel) = Cart.WheelAt(1f, seconds);
 

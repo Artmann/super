@@ -6,9 +6,9 @@ namespace Terrain;
 
 /// <summary>
 /// The ground near the camera, in square chunks: each a mesh of the hills and a splat map of where grass grows. Chunks
-/// that come near the camera are made, and those it leaves well behind are unloaded.
+/// that come near the camera are made as entities, and those it leaves well behind are unloaded.
 /// </summary>
-internal sealed class TerrainChunks(Content content, Hills hills, Noise moisture, ShaderRef shader, GroundLayers layers)
+internal sealed class TerrainChunks(World world, Content content, Hills hills, Noise moisture, ShaderRef shader, GroundLayers layers)
 {
     public const int ChunkQuads = 32;
     public const float ChunkSize = ChunkQuads * Hills.Spacing;
@@ -46,6 +46,7 @@ internal sealed class TerrainChunks(Content content, Hills hills, Noise moisture
         {
             var chunk = _chunks[key];
             _chunks.Remove(key);
+            world.Destroy(chunk.Entity);
             content.Models.Unload(chunk.Model);
             content.Unload(chunk.Splat);
         }
@@ -63,21 +64,6 @@ internal sealed class TerrainChunks(Content content, Hills hills, Noise moisture
             }
         }
     }
-
-    public void Draw(View view)
-    {
-        // A chunk still being prepared on the loading thread is skipped rather than waited for.
-        foreach (var (key, chunk) in _chunks)
-        {
-            if (content.Models.IsReady(chunk.Model))
-            {
-                view.Model(DrawKey(key), chunk.Model, Matrix4x4.Identity);
-            }
-        }
-    }
-
-    /// <summary>Fourteen bits of each chunk coordinate, which keeps every key below the road's.</summary>
-    private static int DrawKey((int X, int Z) chunk) => ((chunk.X & 0x3FFF) << 14) | (chunk.Z & 0x3FFF);
 
     private Chunk LoadChunk(int chunkX, int chunkZ)
     {
@@ -98,7 +84,7 @@ internal sealed class TerrainChunks(Content content, Hills hills, Noise moisture
             },
         };
         var model = content.Mesh(hills.Field.Chunk(chunkX, chunkZ, ChunkQuads, surface, UvPerMetre));
-        return new Chunk(model, splat);
+        return new Chunk(model, splat, world.Spawn(Transform.Identity, new Model(model)));
     }
 
     /// <summary>How grassy each spot of a chunk is: damp lowlands grow grass and dry ground stays sand.</summary>
@@ -126,5 +112,5 @@ internal sealed class TerrainChunks(Content content, Hills hills, Noise moisture
         return new GeneratedTexture(SplatSize, pixels);
     }
 
-    private readonly record struct Chunk(ModelRef Model, TextureRef Splat);
+    private readonly record struct Chunk(ModelRef Model, TextureRef Splat, Entity Entity);
 }

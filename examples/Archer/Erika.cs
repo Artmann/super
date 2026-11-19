@@ -43,7 +43,6 @@ public sealed class Erika
         Yaw = yaw;
         TargetYaw = yaw;
         Transform = Matrix4x4.CreateRotationY(yaw) * Matrix4x4.CreateTranslation(position);
-        Previous = Transform;
     }
 
     public Animator Animator { get; }
@@ -56,8 +55,6 @@ public sealed class Erika
     public float TargetYaw { get; set; }
 
     public Matrix4x4 Transform { get; private set; }
-
-    public Matrix4x4 Previous { get; private set; }
 
     /// <summary>Turns her to face a point on the ground.</summary>
     public void Face(Vector3 point)
@@ -76,7 +73,6 @@ public sealed class Erika
 
     public void Update(float seconds)
     {
-        Previous = Transform;
         float turn = Angle(TargetYaw - Yaw);
         Yaw += turn * (1f - MathF.Exp(-TurnRate * seconds));
 

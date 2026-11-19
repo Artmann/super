@@ -157,7 +157,7 @@ public void Draw(View view)
 
 | Component | What it does |
 | --- | --- |
-| `Transform` | Position, rotation and scale. `Transform.At` and `Transform.Facing` build common ones, and `Transform.From` takes a [spline](splines.md) pose. A `Model` or `Animated` entity gets `Transform.Identity` if it has none |
+| `Transform` | Position, rotation and scale. `Transform.At` and `Transform.Facing` build common ones, and `Transform.From` takes a [spline](splines.md) pose or a matrix made of a scale, a rotation and a move. A `Model` or `Animated` entity gets `Transform.Identity` if it has none |
 | `Model` | A `ModelRef`, and an optional color that tints the model and keeps its textures, a `MeshMask` and a `DistanceFade` that [fades it out with distance](rendering.md#fading-with-distance) |
 | `Parent` | Counts the entity's transform from another entity's, so an attached thing follows. Give a `Bone` to follow a joint of an `Animated` parent, such as a sword in a hand. Destroying the parent destroys it too |
 | `Swim` | Bends the model like a swimming fish, with the phase blended between ticks too |
