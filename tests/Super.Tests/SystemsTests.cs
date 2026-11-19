@@ -100,6 +100,34 @@ public class SystemsTests
         Assert.Empty(run.Game.Log.Lines);
     }
 
+    /// <summary>Counts its own runs, so a test can tell which instance ran.</summary>
+    private sealed class Counter : ISystem
+    {
+        public int Runs { get; private set; }
+
+        public void Update(GameTime time) => Runs++;
+    }
+
+    /// <summary>Asks for the registered Counter and adds Counter to its systems.</summary>
+    private sealed class Shared(Systems systems, Counter counter) : IGame
+    {
+        private readonly Systems _systems = systems.Add<Counter>();
+
+        public Counter Counter => counter;
+
+        public void Update(GameTime time) => _systems.Update(time);
+    }
+
+    [Fact]
+    public void A_registered_system_is_the_one_the_game_asked_for()
+    {
+        using var run = HeadlessGame.Create<Shared>(1, services => services.AddSingleton<Counter>());
+
+        run.Ticks(3);
+
+        Assert.Equal(3, run.Game.Counter.Runs);
+    }
+
     private sealed class Empty(Systems systems) : IGame
     {
         public Systems Systems => systems;
