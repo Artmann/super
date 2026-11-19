@@ -23,6 +23,9 @@ internal sealed class RequiredComponents
         Add<Transform, LastTick>(default, replace: true);
         Add<Swim, LastTick>(default, replace: true);
         Add<Static, LastTick>(default, replace: true);
+
+        // A camera blends between ticks the same way, and one that lands starts afresh.
+        Add<Camera, LastCamera>(default, replace: true);
     }
 
     /// <summary>

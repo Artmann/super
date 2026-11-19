@@ -18,6 +18,7 @@ internal sealed class ArchetypeTable
         Empty = new Archetype(default, null, null, -1);
         Register(Empty);
         Required = new RequiredComponents(this);
+        Newest = new Newest(this);
     }
 
     /// <summary>The archetype of an entity with no components, where every new entity starts.</summary>
@@ -28,6 +29,9 @@ internal sealed class ArchetypeTable
 
     /// <summary>The handlers run when components land on entities or leave them.</summary>
     public Reactions Reactions { get; } = new();
+
+    /// <summary>Which entity got each one-per-frame component most recently, such as the camera the frame is taken from.</summary>
+    public Newest Newest { get; }
 
     /// <summary>
     /// Goes up whenever a <see cref="Static"/> entity is made, destroyed, given or relieved of a component, or named in

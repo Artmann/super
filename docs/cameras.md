@@ -4,6 +4,42 @@
 `Camera` in your game. A `Camera` is a plain value: a position, a target, a field of
 view and optionally a `Size`, a `Shift` and a `WideAs`.
 
+## A camera entity
+
+A camera can be an entity in the [world](ecs.md), like everything else it shows. The
+world takes each frame from it, before your `Draw` runs, so a game with a camera entity
+needs no `view.Camera` at all:
+
+```csharp
+var camera = world.Spawn(new Camera(new Vector3(0, 12, 12), Vector3.Zero));
+```
+
+Write the camera in `Update` and the world blends it between ticks, the same as a moving
+entity, so it's smooth at any frame rate. A [camera helper](#camera-helpers) drives one
+by writing its `Current` each tick:
+
+```csharp
+public void Update(GameTime time)
+{
+    follow.Update(player.Position, time.TickSeconds);
+    world.Get<Camera>(camera) = follow.Current;
+}
+```
+
+A new camera shows where it is on its first frame. To cut rather than swing, such as
+between rooms, place it with `world.Teleport(camera, newCamera)`.
+
+When several entities have a `Camera`, the frame is taken from the newest. Take its
+`Camera` away, or destroy it, and the one before it is used again, so a close-up can
+come and go over the main camera. Give a camera a `Parent` and it rides along: its
+position and target count from the parent, so one on a car follows the car. A camera
+with its own `Transform` counts from that too.
+
+`world.ActiveCamera()` gives the camera the frame is taken from, as of this tick and
+placed in the world, or null when no entity has one. Pass it to `input.Mouse.Ray` to
+click with the camera the player sees. A `view.Camera` in `Draw` still wins over the
+world's, and a [cutscene](cutscenes.md) wins over both.
+
 ## Clicking on things
 
 Input can only be read in `Update`, so that's where a click turns into a place in the

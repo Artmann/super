@@ -5,7 +5,8 @@ public static class WorldMotion
 {
     /// <summary>
     /// Moves an entity with no glide: it's drawn at the new place on the very next frame. Use it for a respawn, a
-    /// wrap at an edge or anything else that isn't a move. Gives the entity the transform if it has none.
+    /// wrap at an edge or anything else that isn't a move. Gives the entity the transform if it has none. An entity
+    /// with a <see cref="Camera"/> cuts its camera too, so the picture doesn't swing there.
     /// </summary>
     public static void Teleport(this World world, Entity entity, Transform transform)
     {
@@ -13,6 +14,28 @@ public static class WorldMotion
         if (world.Has<LastTick>(entity))
         {
             world.Get<LastTick>(entity).Previous = transform;
+        }
+
+        if (world.Has<Camera>(entity))
+        {
+            Cut(world, entity);
+        }
+    }
+
+    /// <summary>Places a camera with no glide: the very next frame is taken from there, as a cut between shots.</summary>
+    public static void Teleport(this World world, Entity entity, Camera camera)
+    {
+        world.Add(entity, camera);
+        Cut(world, entity);
+    }
+
+    private static void Cut(World world, Entity entity)
+    {
+        if (world.Has<LastCamera>(entity))
+        {
+            ref var last = ref world.Get<LastCamera>(entity);
+            last.Previous = world.Get<Camera>(entity);
+            last.HasPrevious = true;
         }
     }
 }
@@ -27,6 +50,7 @@ internal static class LastTicks
     /// </summary>
     public static void Remember(World world)
     {
+        WorldCameras.Remember(world);
         var archetypes = world.Archetypes;
         int transformType = archetypes.TypeIdOrMissing<Transform>();
         if (transformType < 0)

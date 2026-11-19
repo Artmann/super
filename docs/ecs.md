@@ -165,6 +165,7 @@ public void Draw(View view)
 | `ScopedTo<T>` | Destroys the entity when that game state ends |
 | `Sound` | Plays a looping sound from the entity for as long as it has this. See [Sounds from entities](#sounds-from-entities) |
 | `Ambience` | Plays an ambience for as long as the entity has this |
+| `Camera` | The frame is taken from the newest entity with one, blended between ticks and following its `Parent`. See [A camera entity](cameras.md#a-camera-entity) |
 
 Every entity with a `Transform` is drawn moving smoothly between ticks, so you don't keep a
 previous position yourself: the world takes a copy before each `Update`, and draws blending
