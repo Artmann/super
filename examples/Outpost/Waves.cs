@@ -3,7 +3,7 @@ using Super;
 namespace OutpostExample;
 
 /// <summary>Sends the enemies out, one wave after another.</summary>
-public sealed class Waves
+public sealed class Waves : ISystem
 {
     public const int Count = 10;
 

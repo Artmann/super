@@ -2,6 +2,7 @@ using System.Numerics;
 using OutpostExample;
 using Super;
 using Super.Testing;
+using Shot = OutpostExample.Shot;
 
 namespace Outpost.Tests;
 
@@ -25,6 +26,34 @@ public class OutpostTests
         run.Game.Waves.FirstDelay = float.MaxValue;
         run.Game.Waves.Reset();
         return run.Game.Enemies;
+    }
+
+    private static List<T> All<T>(World world) where T : struct
+    {
+        var found = new List<T>();
+        foreach (var row in world.Query<T>())
+        {
+            found.Add(row.First);
+        }
+
+        return found;
+    }
+
+    private static int Count<T>(World world) where T : struct => All<T>(world).Count;
+
+    /// <summary>Takes every enemy off the road, as if the towers had got them all.</summary>
+    private static void Clear(World world)
+    {
+        var enemies = new List<Entity>();
+        foreach (var row in world.Query<Enemy>())
+        {
+            enemies.Add(row.Entity);
+        }
+
+        foreach (var enemy in enemies)
+        {
+            world.Destroy(enemy);
+        }
     }
 
     [Fact]
@@ -104,7 +133,7 @@ public class OutpostTests
         run.Ticks(30 * 25);
 
         Assert.Equal(9, run.Game.Player.Lives);
-        Assert.Empty(enemies.All);
+        Assert.Equal(0, enemies.Count);
     }
 
     [Fact]
@@ -117,8 +146,8 @@ public class OutpostTests
         var runner = enemies.Spawn(EnemyKind.Runner);
         run.Ticks(30 * 13);
 
-        Assert.DoesNotContain(runner, enemies.All);
-        Assert.Contains(walker, enemies.All);
+        Assert.False(run.World.IsAlive(runner));
+        Assert.True(run.World.IsAlive(walker));
     }
 
     [Fact]
@@ -134,8 +163,8 @@ public class OutpostTests
         enemies.Hit(walker, 1);
 
         Assert.Equal(110, run.Game.Player.Gold);
-        Assert.Equal(1, enemies.Killed);
-        Assert.Empty(enemies.All);
+        Assert.Equal(1, run.Game.Player.Killed);
+        Assert.Equal(0, enemies.Count);
     }
 
     [Fact]
@@ -148,7 +177,7 @@ public class OutpostTests
         run.Input.Click(MouseButton.Left, at: run.ScreenSize / 2);
         run.Ticks(1);
 
-        var tower = Assert.Single(run.Game.Towers.All);
+        var tower = Assert.Single(All<Tower>(run.World));
         Assert.Equal((7, 4), (tower.X, tower.Z));
         Assert.Equal(50, run.Game.Player.Gold);
     }
@@ -167,7 +196,7 @@ public class OutpostTests
         Assert.False(towers.TryBuild(8, 4));
 
         Assert.Equal(0, run.Game.Player.Gold);
-        Assert.Equal(2, towers.All.Count);
+        Assert.Equal(2, Count<Tower>(run.World));
     }
 
     [Fact]
@@ -185,7 +214,7 @@ public class OutpostTests
 
         run.Ticks(30 * 30);
 
-        Assert.Equal(3, enemies.Killed);
+        Assert.Equal(3, run.Game.Player.Killed);
         Assert.Equal(10, run.Game.Player.Lives);
     }
 
@@ -200,7 +229,7 @@ public class OutpostTests
         enemies.Hit(walker, 1);
 
         Assert.Equal(110, run.Game.Player.Gold);
-        Assert.Equal(1, enemies.Killed);
+        Assert.Equal(1, run.Game.Player.Killed);
     }
 
     [Fact]
@@ -213,12 +242,32 @@ public class OutpostTests
         enemies.Hit(walker, 1);
         enemies.Hit(walker, 1);
         // The near shot lands in a few ticks. The far one would take most of a second.
-        run.Game.Shots.Fire(walker.Position + new Vector3(1, 0, 0), walker);
-        run.Game.Shots.Fire(walker.Position + new Vector3(10, 0, 0), walker);
+        var at = run.World.Get<Transform>(walker).Position;
+        run.Game.Shots.Fire(at + new Vector3(1, 0, 0), walker);
+        run.Game.Shots.Fire(at + new Vector3(10, 0, 0), walker);
         run.Ticks(5);
 
-        Assert.Equal(1, enemies.Killed);
-        Assert.Empty(run.Game.Shots.All);
+        Assert.Equal(1, run.Game.Player.Killed);
+        Assert.Equal(0, Count<Shot>(run.World));
+    }
+
+    [Fact]
+    public void Two_shots_landing_together_pay_one_reward()
+    {
+        using var run = Start();
+        var enemies = QuietRoad(run);
+
+        var runner = enemies.Spawn(EnemyKind.Runner);
+        enemies.Hit(runner, 1);
+        // Both land on the next tick, while the runner is still in the world until the shots are done.
+        var at = run.World.Get<Transform>(runner).Position;
+        run.Game.Shots.Fire(at, runner);
+        run.Game.Shots.Fire(at, runner);
+        run.Ticks(1);
+
+        Assert.Equal(1, run.Game.Player.Killed);
+        Assert.Equal(106, run.Game.Player.Gold);
+        Assert.False(run.World.IsAlive(runner));
     }
 
     [Fact]
@@ -232,7 +281,7 @@ public class OutpostTests
         enemies.Spawn(EnemyKind.Walker);
         run.Ticks(1);
 
-        Assert.Empty(run.Game.Shots.All);
+        Assert.Equal(0, Count<Shot>(run.World));
     }
 
     [Fact]
@@ -242,7 +291,7 @@ public class OutpostTests
 
         run.Ticks(1);
 
-        Assert.Equal(15 * 9, run.Drawn.Count(draw => draw.Key is >= 10_000 and < 20_000));
+        Assert.Equal(15 * 9, run.Drawn.Count(draw => draw.Model == run.Game.Look.Tile));
     }
 
     [Fact]
@@ -301,7 +350,7 @@ public class OutpostTests
         run.Input.Click(MouseButton.Left, at: middle);
         run.Ticks(1);
 
-        Assert.Empty(run.Game.Towers.All);
+        Assert.Equal(0, Count<Tower>(run.World));
         Assert.Equal(100, run.Game.Player.Gold);
     }
 
@@ -315,7 +364,7 @@ public class OutpostTests
         Assert.Contains(run.ShownText, text => text.Text == "Outpost");
 
         run.Ticks(30 * 10);
-        Assert.Empty(run.Game.Enemies.All);
+        Assert.Equal(0, run.Game.Enemies.Count);
     }
 
     [Fact]
@@ -329,7 +378,7 @@ public class OutpostTests
         run.Ticks(1);
 
         Assert.Equal(Screen.Playing, run.States<Screen>().Current);
-        Assert.Empty(run.Game.Towers.All);
+        Assert.Equal(0, Count<Tower>(run.World));
     }
 
     [Fact]
@@ -351,8 +400,8 @@ public class OutpostTests
         var game = run.Game;
         Assert.True(game.Towers.TryBuild(3, 2));
         run.Ticks(30 * 20);
-        Assert.NotEmpty(game.Enemies.All);
-        Assert.NotEmpty(game.Shots.All);
+        Assert.NotEqual(0, game.Enemies.Count);
+        Assert.NotEqual(0, Count<Shot>(run.World));
 
         game.Player.Lives = 0;
         run.Ticks(1);
@@ -364,9 +413,9 @@ public class OutpostTests
         Assert.Equal(Screen.Playing, run.States<Screen>().Current);
         Assert.Equal(100, game.Player.Gold);
         Assert.Equal(10, game.Player.Lives);
-        Assert.Empty(game.Towers.All);
-        Assert.Empty(game.Enemies.All);
-        Assert.Empty(game.Shots.All);
+        Assert.Equal(0, Count<Tower>(run.World));
+        Assert.Equal(0, game.Enemies.Count);
+        Assert.Equal(0, Count<Shot>(run.World));
         Assert.Equal(1, game.Waves.Number);
     }
 
@@ -384,11 +433,11 @@ public class OutpostTests
         }
 
         Assert.True(waves.AllSpawned);
-        Assert.NotEmpty(run.Game.Enemies.All);
+        Assert.NotEqual(0, run.Game.Enemies.Count);
         run.Ticks(1);
         Assert.Equal(Screen.Playing, run.States<Screen>().Current);
 
-        run.Game.Enemies.Clear();
+        Clear(run.World);
         run.Ticks(1);
 
         Assert.Equal(Screen.Won, run.States<Screen>().Current);
@@ -412,7 +461,7 @@ public class OutpostTests
         Assert.Equal(Waves.Count, waves.Number);
         Assert.False(waves.AllSpawned);
 
-        run.Game.Enemies.Clear();
+        Clear(run.World);
         run.Ticks(1);
 
         Assert.Equal(Screen.Playing, run.States<Screen>().Current);
@@ -432,6 +481,6 @@ public class OutpostTests
             run.Ticks(30);
         }
 
-        Assert.NotEmpty(run.Game.Towers.All);
+        Assert.NotEqual(0, Count<Tower>(run.World));
     }
 }
