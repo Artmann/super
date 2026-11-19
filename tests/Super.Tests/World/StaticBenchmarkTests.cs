@@ -34,14 +34,12 @@ public sealed class StaticBenchmarkTests(ITestOutputHelper output)
         }
 
         var worldView = new View();
-        double worldMedian = Median(() =>
+        var cachedView = new View();
+        var (worldMedian, cachedMedian) = Medians(() =>
         {
             worldView.Begin(0f);
             WorldFrame.Describe(worldView, world);
-        });
-
-        var cachedView = new View();
-        double cachedMedian = Median(() =>
+        }, () =>
         {
             cachedView.Begin(0f);
             cachedView.Cached(0, 1, 0, static (_, view) =>
@@ -66,22 +64,35 @@ public sealed class StaticBenchmarkTests(ITestOutputHelper output)
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
     }
 
-    private static double Median(Action frame)
+    /// <summary>
+    /// Times the two frames turn about, so a busy machine, such as other test projects running alongside, slows both
+    /// alike instead of whichever happened to be measured while it was busy.
+    /// </summary>
+    private static (double First, double Second) Medians(Action first, Action second)
     {
         for (int i = 0; i < WarmUp; i++)
         {
-            frame();
+            first();
+            second();
         }
 
-        var times = new double[Frames];
+        var firstTimes = new double[Frames];
+        var secondTimes = new double[Frames];
         for (int i = 0; i < Frames; i++)
         {
-            long start = Stopwatch.GetTimestamp();
-            frame();
-            times[i] = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            firstTimes[i] = Time(first);
+            secondTimes[i] = Time(second);
         }
 
-        Array.Sort(times);
-        return times[Frames / 2];
+        Array.Sort(firstTimes);
+        Array.Sort(secondTimes);
+        return (firstTimes[Frames / 2], secondTimes[Frames / 2]);
+    }
+
+    private static double Time(Action frame)
+    {
+        long start = Stopwatch.GetTimestamp();
+        frame();
+        return Stopwatch.GetElapsedTime(start).TotalMilliseconds;
     }
 }
