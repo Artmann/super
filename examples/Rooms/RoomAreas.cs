@@ -4,8 +4,8 @@ using Super;
 
 namespace Rooms;
 
-/// <summary>The two areas the player walks between, the house and outside, each set up as the player comes in.</summary>
-internal sealed class RoomAreas(World world, States<Screen> screen, Content content, PlayerMover player, CoinHunt coins)
+/// <summary>The two areas the player walks between, the house and outside, each built as a scene as the player comes in.</summary>
+internal sealed class RoomAreas(Content content, PlayerMover player, CoinHunt coins)
 {
     public const float HouseSize = 5f;
     public const float OutsideSize = 12f;
@@ -27,27 +27,35 @@ internal sealed class RoomAreas(World world, States<Screen> screen, Content cont
         _grass ??= content.Mesh(Grass());
     }
 
-    public void EnterHouse()
+    /// <summary>The house: a wooden floor and a door out. Coming from outside means coming through the door.</summary>
+    public void House(Scene scene, Room? from)
     {
         player.Camera.Offset = new Vector3(0f, 10f, 10f);
-        ScopedCube.Add(world, screen, Flat(HouseSize), FloorColor);
-        ScopedCube.Add(world, screen, Transform.At(HouseDoor), DoorColor);
-
-        // Coming from outside means coming through the door.
-        var arrival = screen.Previous == Screen.Outside ? HouseDoor - new Vector3(0f, 0f, ArrivalGap) : Vector3.Zero;
-        player.Move(arrival);
+        Light(scene);
+        scene.Spawn(Flat(HouseSize), new Model(ModelRef.Cube, FloorColor));
+        Door(scene, HouseDoor);
+        player.Move(from == Room.Outside ? HouseDoor - new Vector3(0f, 0f, ArrivalGap) : Vector3.Zero);
     }
 
-    public void EnterOutside()
+    /// <summary>Outside: grass, a door back in, and coins to pick up. The player comes in through the door.</summary>
+    public void Outside(Scene scene)
     {
         player.Camera.Offset = new Vector3(0f, 14f, 14f);
-        var ground = world.Create();
-        world.Add(ground, Flat(OutsideSize));
-        world.Add(ground, new Model(_grass ?? ModelRef.Cube));
-        world.Add(ground, new ScopedTo<Screen>(Screen.Outside));
-        ScopedCube.Add(world, screen, Transform.At(OutsideDoor), DoorColor);
-        coins.Scatter(OutsideSize);
+        Light(scene);
+        scene.Spawn(Flat(OutsideSize), new Model(_grass ?? ModelRef.Cube));
+        Door(scene, OutsideDoor);
+        coins.Scatter(scene, OutsideSize);
         player.Move(OutsideDoor + new Vector3(0f, 0f, ArrivalGap));
+    }
+
+    private static void Light(Scene scene) => scene.Spawn(new Sun(new Vector3(1f, 2f, 1f), new Vector3(1.4f)));
+
+    /// <summary>A door, and a lid over it that lifts as the player comes close.</summary>
+    private static void Door(Scene scene, Vector3 spot)
+    {
+        scene.Spawn(Transform.At(spot), new Model(ModelRef.Cube, DoorColor));
+        var lid = new Transform(spot + new Vector3(0f, 0.6f, 0f), Quaternion.Identity, new Vector3(1.2f, 0.2f, 1.2f));
+        scene.Spawn(lid, new Model(ModelRef.Cube, DoorColor), new DoorLid(spot, Lift: 0f));
     }
 
     private static Transform Flat(float size) =>

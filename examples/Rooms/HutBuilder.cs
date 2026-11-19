@@ -4,7 +4,7 @@ using Super;
 namespace Rooms;
 
 /// <summary>The huts the player builds outside, each rising out of the ground beside the player.</summary>
-internal sealed class HutBuilder(World world, States<Screen> screen, Catalog<Motion> motions)
+internal sealed class HutBuilder(World world, Scenes scenes, Catalog<Motion> motions)
 {
     /// <summary>How high a hut's middle stands once it's up.</summary>
     public const float Height = 0.1f;
@@ -27,9 +27,11 @@ internal sealed class HutBuilder(World world, States<Screen> screen, Catalog<Mot
         {
             var rise = motions["rise"];
             var spot = player + HutSpot;
-            var hut = ScopedCube.Add(world, screen, Transform.At(spot with { Y = Buried }, 1.2f), HutColor);
-            world.Add(hut, new Hut());
-            world.Add(hut, new Rising(Tween.Between(Buried, Height, rise.Seconds).Ease(rise.Curve)));
+            scenes.Current!.Spawn(
+                Transform.At(spot with { Y = Buried }, 1.2f),
+                new Model(ModelRef.Cube, HutColor),
+                new Hut(),
+                new Rising(Tween.Between(Buried, Height, rise.Seconds).Ease(rise.Curve)));
         }
 
         foreach (var row in world.Query<Transform, Rising>())

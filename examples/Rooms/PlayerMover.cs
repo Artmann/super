@@ -16,6 +16,9 @@ internal sealed class PlayerMover(World world, Input input, Actions<Control> act
 
     private bool _spawned;
 
+    /// <summary>The camera entity the frame is taken from, which the follow camera writes each tick.</summary>
+    private Entity _camera;
+
     /// <summary>The player's entity, once the first room has made it.</summary>
     public Entity Player { get; private set; }
 
@@ -26,15 +29,14 @@ internal sealed class PlayerMover(World world, Input input, Actions<Control> act
     public Vector3 Position => world.Get<Transform>(Player).Position;
 
     /// <summary>
-    /// Makes the player, with the first room, so the menu and the loading screen show an empty world. It isn't scoped
-    /// to anything, so it carries through every state after.
+    /// Makes the player and its camera, with the first room, so the menu and the loading screen show an empty world.
+    /// They're spawned into the world rather than a scene, so they carry through every room.
     /// </summary>
     private void Spawn()
     {
         _spawned = true;
-        Player = world.Create();
-        world.Add(Player, Transform.At(Vector3.Zero, 0.8f));
-        world.Add(Player, new Model(ModelRef.Cube, PlayerColor));
+        Player = world.Spawn(Transform.At(Vector3.Zero, 0.8f), new Model(ModelRef.Cube, PlayerColor));
+        _camera = world.Spawn(Camera.Current);
     }
 
     /// <summary>Puts the player at <paramref name="position"/> at once, making it the first time.</summary>
@@ -50,6 +52,7 @@ internal sealed class PlayerMover(World world, Input input, Actions<Control> act
         _walkingTo = null;
         Camera.Jump();
         Camera.Update(position, 0f);
+        world.Teleport(_camera, Camera.Current);
     }
 
     /// <summary>Walks one tick, staying within <paramref name="size"/> of the middle, and moves the camera after.</summary>
@@ -78,6 +81,7 @@ internal sealed class PlayerMover(World world, Input input, Actions<Control> act
         var next = transform.Position + step;
         transform.Position = new Vector3(Math.Clamp(next.X, -size, size), 0f, Math.Clamp(next.Z, -size, size));
         Camera.Update(Position, time.TickSeconds);
+        world.Get<Camera>(_camera) = Camera.Current;
     }
 
     /// <summary>Whether the player has come to <paramref name="door"/>.</summary>
