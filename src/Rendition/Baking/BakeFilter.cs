@@ -120,20 +120,20 @@ internal sealed unsafe class BakeFilter : IDisposable
         for (int i = 0; i < 3; i++)
         {
             var a = run.A[i].Image;
-            api.Transition(cmd, a, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.General,
-                PipelineStageFlags2.None, AccessFlags2.None,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit);
+            api.Transition(cmd, new ImageTransition(a, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.General),
+                (PipelineStageFlags2.None, AccessFlags2.None),
+                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit));
             var region = Region(run, i);
             api.CmdCopyBufferToImage(cmd, run.Staging.Handle, a, ImageLayout.General, 1, &region);
-            api.Transition(cmd, a, ImageAspectFlags.ColorBit,
-                ImageLayout.General, ImageLayout.General,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
-            api.Transition(cmd, run.B[i].Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.General,
-                PipelineStageFlags2.None, AccessFlags2.None,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
+            api.Transition(cmd, new ImageTransition(a, ImageAspectFlags.ColorBit,
+                ImageLayout.General, ImageLayout.General),
+                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit),
+                (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit));
+            api.Transition(cmd, new ImageTransition(run.B[i].Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.General),
+                (PipelineStageFlags2.None, AccessFlags2.None),
+                (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit));
         }
     }
 

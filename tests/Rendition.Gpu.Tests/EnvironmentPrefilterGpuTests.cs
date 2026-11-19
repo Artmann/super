@@ -232,22 +232,20 @@ public sealed class EnvironmentPrefilterGpuTests(GpuFixture gpu)
         var handle = buffer.Handle;
         gpu.Context.SubmitAndWait(cmd =>
         {
-            api.Transition(cmd, level.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal,
-                PipelineStageFlags2.AllCommandsBit, AccessFlags2.MemoryWriteBit,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit,
-                baseMip: (uint)level.Mip, layerCount: 6);
+            api.Transition(cmd, new ImageTransition(level.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal) { BaseMip = (uint)level.Mip, LayerCount = 6 },
+                (PipelineStageFlags2.AllCommandsBit, AccessFlags2.MemoryWriteBit),
+                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
             var region = new BufferImageCopy
             {
                 ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, (uint)level.Mip, (uint)face, 1),
                 ImageExtent = new Extent3D((uint)size, (uint)size, 1),
             };
             api.CmdCopyImageToBuffer(cmd, level.Image, ImageLayout.TransferSrcOptimal, handle, 1, &region);
-            api.Transition(cmd, level.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
-                PipelineStageFlags2.CopyBit, AccessFlags2.None,
-                PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-                baseMip: (uint)level.Mip, layerCount: 6);
+            api.Transition(cmd, new ImageTransition(level.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal) { BaseMip = (uint)level.Mip, LayerCount = 6 },
+                (PipelineStageFlags2.CopyBit, AccessFlags2.None),
+                (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
         });
 
         var halves = new ReadOnlySpan<Half>(buffer.Mapped, size * size * 4);

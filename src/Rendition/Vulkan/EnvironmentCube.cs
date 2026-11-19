@@ -68,10 +68,10 @@ internal sealed unsafe class EnvironmentCube : IDisposable
 
     /// <summary>Takes a level a compute shader just wrote from General to ready for any shader to sample.</summary>
     public void Ready(CommandBuffer cmd, int mip) =>
-        _context.Api.Transition(cmd, Image, ImageAspectFlags.ColorBit, ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit,
-            baseMip: (uint)mip, layerCount: 6);
+        _context.Api.Transition(cmd,
+            new ImageTransition(Image, ImageAspectFlags.ColorBit, ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal) { BaseMip = (uint)mip, LayerCount = 6 },
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
+            (PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit));
 
     /// <summary>
     /// Fills every mip below the sharpest by halving the one above with linear blits, then leaves them all ready to
@@ -80,14 +80,19 @@ internal sealed unsafe class EnvironmentCube : IDisposable
     public void BuildMips(CommandBuffer cmd)
     {
         var api = _context.Api;
-        api.Transition(cmd, Image, ImageAspectFlags.ColorBit, ImageLayout.General, ImageLayout.TransferSrcOptimal,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.BlitBit, AccessFlags2.TransferReadBit,
-            layerCount: 6);
-        api.Transition(cmd, Image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
-            PipelineStageFlags2.AllCommandsBit, AccessFlags2.None,
-            PipelineStageFlags2.BlitBit, AccessFlags2.TransferWriteBit,
-            mipCount: MipCount - 1, baseMip: 1, layerCount: 6);
+        api.Transition(cmd,
+            new ImageTransition(Image, ImageAspectFlags.ColorBit, ImageLayout.General, ImageLayout.TransferSrcOptimal) { LayerCount = 6 },
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
+            (PipelineStageFlags2.BlitBit, AccessFlags2.TransferReadBit));
+        api.Transition(cmd,
+            new ImageTransition(Image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.TransferDstOptimal)
+            {
+                BaseMip = 1,
+                MipCount = MipCount - 1,
+                LayerCount = 6,
+            },
+            (PipelineStageFlags2.AllCommandsBit, AccessFlags2.None),
+            (PipelineStageFlags2.BlitBit, AccessFlags2.TransferWriteBit));
 
         int width = (int)Size;
         for (uint mip = 1; mip < MipCount; mip++)
@@ -101,17 +106,17 @@ internal sealed unsafe class EnvironmentCube : IDisposable
             blit.SrcOffsets[1] = new Offset3D(width, width, 1);
             blit.DstOffsets[1] = new Offset3D(next, next, 1);
             api.CmdBlitImage(cmd, Image, ImageLayout.TransferSrcOptimal, Image, ImageLayout.TransferDstOptimal, 1, &blit, Filter.Linear);
-            api.Transition(cmd, Image, ImageAspectFlags.ColorBit, ImageLayout.TransferDstOptimal, ImageLayout.TransferSrcOptimal,
-                PipelineStageFlags2.BlitBit, AccessFlags2.TransferWriteBit,
-                PipelineStageFlags2.BlitBit, AccessFlags2.TransferReadBit,
-                baseMip: mip, layerCount: 6);
+            api.Transition(cmd,
+                new ImageTransition(Image, ImageAspectFlags.ColorBit, ImageLayout.TransferDstOptimal, ImageLayout.TransferSrcOptimal) { BaseMip = mip, LayerCount = 6 },
+                (PipelineStageFlags2.BlitBit, AccessFlags2.TransferWriteBit),
+                (PipelineStageFlags2.BlitBit, AccessFlags2.TransferReadBit));
             width = next;
         }
 
-        api.Transition(cmd, Image, ImageAspectFlags.ColorBit, ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.BlitBit, AccessFlags2.TransferWriteBit,
-            PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit,
-            mipCount: MipCount, layerCount: 6);
+        api.Transition(cmd,
+            new ImageTransition(Image, ImageAspectFlags.ColorBit, ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal) { MipCount = MipCount, LayerCount = 6 },
+            (PipelineStageFlags2.BlitBit, AccessFlags2.TransferWriteBit),
+            (PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit));
     }
 
     public void Dispose()

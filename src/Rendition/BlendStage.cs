@@ -66,12 +66,12 @@ internal sealed unsafe class BlendStage
         CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws,
         (InstanceBuffer Instances, LightProbes Probes, DescriptorSet LightingSet) lit)
     {
-        _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
-            AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
+        _api.Transition(cmd, new ImageTransition(targets.Hdr.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal), (ColorStage, ColorWrite),
+            (ColorStage, ColorWrite | AccessFlags2.ColorAttachmentReadBit));
+        _api.Transition(cmd, new ImageTransition(targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal), (SampledStage, SampledAccess),
+            (DepthStages | SampledStage, AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess));
         _transparentPass.Record(cmd, targets, new SceneGeometry(draws, _meshes.MeshSlots, _meshes.DetailSlots, lit.Instances),
             new TransparentFrame(frameSet, _transparentView, _switches.WindReach), new ParticleDraws(_particlePass, _ring.Index, _particleCount, _particleCamera));
 

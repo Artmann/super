@@ -25,11 +25,10 @@ internal static unsafe class CubeCentres
     /// </summary>
     public static void Record(Vk api, CommandBuffer cmd, CubeLevel level, Buffer buffer, ulong offset)
     {
-        api.Transition(cmd, level.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit,
-            baseMip: (uint)level.Mip, layerCount: 6);
+        api.Transition(cmd, new ImageTransition(level.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal) { BaseMip = (uint)level.Mip, LayerCount = 6 },
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
 
         int corner = (int)level.Size / 2 - 1;
         var region = new BufferImageCopy
@@ -41,11 +40,10 @@ internal static unsafe class CubeCentres
         };
         api.CmdCopyImageToBuffer(cmd, level.Image, ImageLayout.TransferSrcOptimal, buffer, 1, &region);
 
-        api.Transition(cmd, level.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.CopyBit, AccessFlags2.None,
-            PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit,
-            baseMip: (uint)level.Mip, layerCount: 6);
+        api.Transition(cmd, new ImageTransition(level.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal) { BaseMip = (uint)level.Mip, LayerCount = 6 },
+            (PipelineStageFlags2.CopyBit, AccessFlags2.None),
+            (PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit));
     }
 
     /// <summary>The mean colour of one level's copied texels.</summary>

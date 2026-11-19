@@ -62,10 +62,10 @@ internal sealed unsafe class TileResolve : IDisposable
         var tile = _tile!;
         foreach (var target in tile.Colors)
         {
-            api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.None,
-                PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit);
+            api.Transition(cmd, new ImageTransition(target.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal),
+                (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.None),
+                (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit));
         }
 
         return tile.Colors;
@@ -78,10 +78,10 @@ internal sealed unsafe class TileResolve : IDisposable
         var tile = _tile!;
         foreach (var target in tile.Colors)
         {
-            api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal,
-                PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit);
+            api.Transition(cmd, new ImageTransition(target.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal),
+                (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit),
+                (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
         }
 
         var constants = new ResolveConstants { X = origin.X, Y = origin.Y, Samples = (int)tile.SampleCount };
@@ -97,10 +97,10 @@ internal sealed unsafe class TileResolve : IDisposable
     {
         foreach (var target in targets.Colors)
         {
-            _context.Api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.General, ImageLayout.General,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit);
+            _context.Api.Transition(cmd, new ImageTransition(target.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.General, ImageLayout.General),
+                (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
+                (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit));
         }
     }
 
@@ -153,15 +153,15 @@ internal sealed unsafe class TileResolve : IDisposable
         var range = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1);
         foreach (var target in targets.Colors)
         {
-            api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
-                PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit, AccessFlags2.None,
-                PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit);
+            api.Transition(cmd, new ImageTransition(target.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.TransferDstOptimal),
+                (PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit, AccessFlags2.None),
+                (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit));
             api.CmdClearColorImage(cmd, target.Image, ImageLayout.TransferDstOptimal, &clear, 1, &range);
-            api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferDstOptimal, ImageLayout.General,
-                PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit);
+            api.Transition(cmd, new ImageTransition(target.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.TransferDstOptimal, ImageLayout.General),
+                (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit),
+                (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
         }
     }
 

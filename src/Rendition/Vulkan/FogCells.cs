@@ -67,18 +67,18 @@ internal sealed unsafe class FogCells : IDisposable
         var image = _image;
         _context.SubmitAndWait(cmd =>
         {
-            api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.General,
-                PipelineStageFlags2.None, AccessFlags2.None,
-                PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit);
+            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.General),
+                (PipelineStageFlags2.None, AccessFlags2.None),
+                (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit));
             var value = clear;
             var range = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1);
             api.CmdClearColorImage(cmd, image, ImageLayout.General, &value, 1, &range);
-            api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-                ImageLayout.General, ImageLayout.General,
-                PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
-                PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit,
-                AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderStorageReadBit);
+            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
+                ImageLayout.General, ImageLayout.General),
+                (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit),
+                (PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit,
+                AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderStorageReadBit));
         });
     }
 }

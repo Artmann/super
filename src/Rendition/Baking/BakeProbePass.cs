@@ -102,11 +102,10 @@ internal sealed unsafe class BakeProbePass : IDisposable
         var api = _context.Api;
         var volume = Volume!;
         uint layers = (uint)(count * 6);
-        api.Transition(cmd, volume.Faces!.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferDstOptimal,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
-            layerCount: layers);
+        api.Transition(cmd, new ImageTransition(volume.Faces!.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferDstOptimal) { LayerCount = layers },
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit));
         const uint size = ProbeVolume.FaceSize;
         var regions = stackalloc ImageCopy[6];
         for (int slot = 0; slot < count; slot++)
@@ -125,11 +124,10 @@ internal sealed unsafe class BakeProbePass : IDisposable
             api.CmdCopyImage(cmd, faces.Image, ImageLayout.General, volume.Faces.Image, ImageLayout.TransferDstOptimal, 6, regions);
         }
 
-        api.Transition(cmd, volume.Faces.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
-            layerCount: layers);
+        api.Transition(cmd, new ImageTransition(volume.Faces.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal) { LayerCount = layers },
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
     }
 
     private void WriteSet(DescriptorSet set, in TraceInputs inputs, GpuBuffer positions, (RenderTarget Sum, RenderTarget Faces) targets)

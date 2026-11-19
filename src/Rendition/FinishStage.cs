@@ -77,8 +77,8 @@ internal sealed unsafe class FinishStage
         uint imageIndex = window.Image;
         var extent = picture.Targets.Picture.Display;
         var swapchainImage = swapchain.Images[imageIndex];
-        api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, ColorStage, AccessFlags2.None, ColorStage, ColorWrite);
+        api.Transition(cmd, new ImageTransition(swapchainImage, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal), (ColorStage, AccessFlags2.None), (ColorStage, ColorWrite));
 
         // From here on the picture is the window's size, which the scene may not be.
         var size = swapchain.Extent;
@@ -103,9 +103,9 @@ internal sealed unsafe class FinishStage
             return;
         }
 
-        api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr, ColorStage, ColorWrite,
-            PipelineStageFlags2.None, AccessFlags2.None);
+        api.Transition(cmd, new ImageTransition(swapchainImage, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr), (ColorStage, ColorWrite),
+            (PipelineStageFlags2.None, AccessFlags2.None));
     }
 
     public void Dispose()
@@ -119,10 +119,10 @@ internal sealed unsafe class FinishStage
     private void RecordCapture(CommandBuffer cmd, Image swapchainImage, Extent2D extent, GpuBuffer capture)
     {
         var api = _context.Api;
-        api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal,
-            PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+        api.Transition(cmd, new ImageTransition(swapchainImage, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal),
+            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
 
         var region = new BufferImageCopy
         {
@@ -147,9 +147,9 @@ internal sealed unsafe class FinishStage
         };
         api.CmdPipelineBarrier2(cmd, &dependency);
 
-        api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.PresentSrcKhr,
-            PipelineStageFlags2.CopyBit, AccessFlags2.None, PipelineStageFlags2.None, AccessFlags2.None);
+        api.Transition(cmd, new ImageTransition(swapchainImage, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferSrcOptimal, ImageLayout.PresentSrcKhr),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.None), (PipelineStageFlags2.None, AccessFlags2.None));
         CaptureRecorded = true;
     }
 }

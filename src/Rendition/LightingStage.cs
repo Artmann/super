@@ -56,8 +56,8 @@ internal sealed unsafe class LightingStage : IDisposable
     {
         if (!targets.Picture.HistoryReady || (off & (RenderEffects.Reflections | RenderEffects.Specular)) != 0)
         {
-            _api.Transition(cmd, targets.Traced.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+            _api.Transition(cmd, new ImageTransition(targets.Traced.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (SampledStage, SampledAccess), (SampledStage, SampledAccess));
             timer.Mark(cmd);
             return;
         }
@@ -97,9 +97,9 @@ internal sealed unsafe class LightingStage : IDisposable
 
             var down = BlurConstants.Down;
             ReadOnlySpan<DescriptorSet> downSets = [frameSet, _scatterDownSet, resources.Set];
-            _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-                ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+            _api.Transition(cmd, new ImageTransition(targets.Hdr.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal), (ColorStage, ColorWrite),
+                (ColorStage, ColorWrite | AccessFlags2.ColorAttachmentReadBit));
             _scatterDownPass.Record(cmd, targets.Hdr.View, extent, downSets,
                 new ReadOnlySpan<byte>(&down, (int)BlurConstants.Size));
         }

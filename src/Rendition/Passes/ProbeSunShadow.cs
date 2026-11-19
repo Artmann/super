@@ -95,20 +95,20 @@ internal sealed class ProbeSunShadow : IDisposable
 
         if (Redraw)
         {
-            api.Transition(cmd, _target.Image, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, readStages, read, depthStages, depthAccess);
+            api.Transition(cmd, new ImageTransition(_target.Image, ImageAspectFlags.DepthBit,
+                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal), (readStages, read), (depthStages, depthAccess));
             int count = Casters(scene.Draws, _flagsOf, ref _casters);
             var casters = new SceneGeometry(_casters.AsSpan(0, count), scene.Meshes, scene.Details, scene.Instances);
             shadows.RecordInto(cmd, frameSet, casters, (_target.View, new Extent2D(_resolution, _resolution)),
                 new SceneDrawOptions(ScenePass.Shadow) { Cascade = -1, Still = true });
-            api.Transition(cmd, _target.Image, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, depthStages, AccessFlags2.DepthStencilAttachmentWriteBit, readStages, read);
+            api.Transition(cmd, new ImageTransition(_target.Image, ImageAspectFlags.DepthBit,
+                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal), (depthStages, AccessFlags2.DepthStencilAttachmentWriteBit), (readStages, read));
             _ready = true;
         }
         else if (!_ready)
         {
-            api.Transition(cmd, _target.Image, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, readStages, read, readStages, read);
+            api.Transition(cmd, new ImageTransition(_target.Image, ImageAspectFlags.DepthBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (readStages, read), (readStages, read));
             _ready = true;
         }
     }

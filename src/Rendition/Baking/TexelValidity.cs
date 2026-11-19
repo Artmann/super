@@ -46,10 +46,10 @@ internal sealed unsafe class TexelValidity : IDisposable
         for (int page = 0; page < count; page++)
         {
             var targets = pages[page];
-            api.Transition(cmd, targets.Validity.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.General,
-                PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit, AccessFlags2.None,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit);
+            api.Transition(cmd, new ImageTransition(targets.Validity.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.General),
+                (PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit, AccessFlags2.None),
+                (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
 
             var set = _pass.AllocateSet(pool);
             WriteSet(set, scene, targets);

@@ -16,20 +16,20 @@ internal sealed unsafe class HistoryCopier(Vk api)
     {
         if (drawnJustNow)
         {
-            api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
-                ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal, ColorStage, ColorWrite,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+            api.Transition(cmd, new ImageTransition(frame, ImageAspectFlags.ColorBit,
+                ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal), (ColorStage, ColorWrite),
+                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
         }
         else
         {
-            api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
-                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal, SampledStage, SampledAccess,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+            api.Transition(cmd, new ImageTransition(frame, ImageAspectFlags.ColorBit,
+                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal), (SampledStage, SampledAccess),
+                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
         }
 
-        api.Transition(cmd, history, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, SampledAccess,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit);
+        api.Transition(cmd, new ImageTransition(history, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal), (SampledStage, SampledAccess),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit));
 
         var region = new ImageCopy
         {
@@ -40,11 +40,11 @@ internal sealed unsafe class HistoryCopier(Vk api)
         api.CmdCopyImage(cmd, frame, ImageLayout.TransferSrcOptimal,
             history, ImageLayout.TransferDstOptimal, 1, &region);
 
-        api.Transition(cmd, history, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit, SampledStage, SampledAccess);
-        api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit, SampledStage, SampledAccess);
+        api.Transition(cmd, new ImageTransition(history, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit), (SampledStage, SampledAccess));
+        api.Transition(cmd, new ImageTransition(frame, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit), (SampledStage, SampledAccess));
     }
 }

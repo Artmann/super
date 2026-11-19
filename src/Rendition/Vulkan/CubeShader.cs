@@ -85,10 +85,10 @@ internal sealed unsafe class CubeShader<TConstants> : IDisposable where TConstan
     public void Record(CommandBuffer cmd, DescriptorSet set, CubeLevel target, TConstants constants)
     {
         var api = _context.Api;
-        api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General,
-            PipelineStageFlags2.AllCommandsBit, AccessFlags2.None,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            baseMip: (uint)target.Mip, layerCount: 6);
+        api.Transition(cmd,
+            new ImageTransition(target.Image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General) { BaseMip = (uint)target.Mip, LayerCount = 6 },
+            (PipelineStageFlags2.AllCommandsBit, AccessFlags2.None),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
 
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipeline);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);

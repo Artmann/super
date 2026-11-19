@@ -101,8 +101,8 @@ internal sealed unsafe class FrameRecorder(FrameParts parts, RendererBaking baki
         // The lighting pass binds history even before there is any.
         if (!gBuffer.Picture.HistoryReady)
         {
-            stores.Context.Api.Transition(cmd, gBuffer.Picture.History.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+            stores.Context.Api.Transition(cmd, new ImageTransition(gBuffer.Picture.History.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (SampledStage, SampledAccess), (SampledStage, SampledAccess));
         }
 
         lights.SunShadows.Record(cmd, frameSet, instances);
@@ -166,9 +166,9 @@ internal sealed unsafe class FrameRecorder(FrameParts parts, RendererBaking baki
         parts.FrameStages.TraceDebugPass!.Record(cmd, stores.Ring.Index, scene, (frameSet, stores.Resources.Set), (targets.Hdr, targets.Extent));
         timer.Mark(cmd);
         timer.Mark(cmd);
-        stores.Context.Api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
-            AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
+        stores.Context.Api.Transition(cmd, new ImageTransition(targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal), (SampledStage, SampledAccess),
+            (DepthStages | SampledStage, AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess));
         timer.Mark(cmd);
     }
 }

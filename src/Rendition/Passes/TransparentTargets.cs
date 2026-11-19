@@ -51,14 +51,14 @@ internal static unsafe class TransparentTargets
     public static void CopyScene(Vk api, CommandBuffer cmd, GBuffer targets)
     {
         var copy = targets.SceneColor;
-        api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal, ColorStage, ColorWrite,
-            CopyStage, AccessFlags2.TransferReadBit);
+        api.Transition(cmd, new ImageTransition(targets.Hdr.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal), (ColorStage, ColorWrite),
+            (CopyStage, AccessFlags2.TransferReadBit));
 
         // Glass drawn before may still be reading the last copy.
-        api.Transition(cmd, copy.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, AccessFlags2.None,
-            CopyStage, AccessFlags2.TransferWriteBit, mipCount: copy.Mips);
+        api.Transition(cmd, new ImageTransition(copy.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal) { MipCount = copy.Mips }, (SampledStage, AccessFlags2.None),
+            (CopyStage, AccessFlags2.TransferWriteBit));
 
         var region = new ImageCopy
         {
@@ -71,18 +71,18 @@ internal static unsafe class TransparentTargets
 
         if (copy.Mips > 1)
         {
-            api.Transition(cmd, copy.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal, CopyStage, AccessFlags2.TransferReadBit,
-                SampledStage, AccessFlags2.ShaderSampledReadBit, mipCount: copy.Mips - 1);
+            api.Transition(cmd, new ImageTransition(copy.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal) { MipCount = copy.Mips - 1 },
+                (CopyStage, AccessFlags2.TransferReadBit), (SampledStage, AccessFlags2.ShaderSampledReadBit));
         }
 
-        api.Transition(cmd, copy.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal, CopyStage, AccessFlags2.TransferWriteBit,
-            SampledStage, AccessFlags2.ShaderSampledReadBit, baseMip: copy.Mips - 1);
+        api.Transition(cmd, new ImageTransition(copy.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal) { BaseMip = copy.Mips - 1 },
+            (CopyStage, AccessFlags2.TransferWriteBit), (SampledStage, AccessFlags2.ShaderSampledReadBit));
 
-        api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal, CopyStage, AccessFlags2.TransferReadBit,
-            ColorStage, ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+        api.Transition(cmd, new ImageTransition(targets.Hdr.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal), (CopyStage, AccessFlags2.TransferReadBit),
+            (ColorStage, ColorWrite | AccessFlags2.ColorAttachmentReadBit));
     }
 
     // Blits each mip of the copy from the one before it, at half the size. Every mip but the last is left ready to read
@@ -93,9 +93,9 @@ internal static unsafe class TransparentTargets
         int height = (int)extent.Height;
         for (uint mip = 1; mip < copy.Mips; mip++)
         {
-            api.Transition(cmd, copy.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferDstOptimal, ImageLayout.TransferSrcOptimal, CopyStage, AccessFlags2.TransferWriteBit,
-                CopyStage, AccessFlags2.TransferReadBit, baseMip: mip - 1);
+            api.Transition(cmd, new ImageTransition(copy.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.TransferDstOptimal, ImageLayout.TransferSrcOptimal) { BaseMip = mip - 1 },
+                (CopyStage, AccessFlags2.TransferWriteBit), (CopyStage, AccessFlags2.TransferReadBit));
 
             int nextWidth = Math.Max(1, width / 2);
             int nextHeight = Math.Max(1, height / 2);

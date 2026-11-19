@@ -148,11 +148,10 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         var api = _context.Api;
         var image = Cubes.Image;
         uint baseLayer = (uint)slot * 6;
-        api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.General,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            mipCount: Mips, baseLayer: baseLayer, layerCount: 6);
+        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.General) { MipCount = Mips, BaseLayer = baseLayer, LayerCount = 6 },
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
 
         Span<ImageView> levels = stackalloc ImageView[Mips];
         for (int mip = 0; mip < Mips; mip++)
@@ -162,11 +161,10 @@ internal sealed unsafe class ReflectionProbes : IDisposable
 
         _filter.Record(cmd, frameIndex, capture, levels);
 
-        api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-            ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-            mipCount: Mips, baseLayer: baseLayer, layerCount: 6);
+        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
+            ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal) { MipCount = Mips, BaseLayer = baseLayer, LayerCount = 6 },
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
         _slots[slot] = probe;
     }
 

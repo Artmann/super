@@ -73,25 +73,25 @@ internal sealed unsafe class OpaqueStage
             [targets.BaseColor.Image, targets.Normal.Image, targets.Emissive.Image, targets.Motion.Image, targets.Baked.Image, targets.Mask.Image];
         foreach (var color in colors)
         {
-            _api.Transition(cmd, color, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
+            _api.Transition(cmd, new ImageTransition(color, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal), (SampledStage, SampledAccess), (ColorStage, ColorWrite));
         }
 
-        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, DepthStages, AccessFlags2.DepthStencilAttachmentReadBit, DepthStages,
-            DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
+        _api.Transition(cmd, new ImageTransition(targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal), (DepthStages, AccessFlags2.DepthStencilAttachmentReadBit),
+            (DepthStages, DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit));
 
         bool depthTarget = RecordOpaque(cmd, targets, frameSet, draws, inputs);
         foreach (var color in colors)
         {
-            _api.Transition(cmd, color, ImageAspectFlags.ColorBit,
-                ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
+            _api.Transition(cmd, new ImageTransition(color, ImageAspectFlags.ColorBit,
+                ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal), (ColorStage, ColorWrite), (SampledStage, SampledAccess));
         }
 
         if (depthTarget)
         {
-            _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+            _api.Transition(cmd, new ImageTransition(targets.Depth.Image, ImageAspectFlags.DepthBit,
+                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal), (DepthStages, DepthWrite), (SampledStage, SampledAccess));
         }
     }
 
@@ -149,10 +149,10 @@ internal sealed unsafe class OpaqueStage
         }
 
         const PipelineStageFlags2 copy = PipelineStageFlags2.CopyBit;
-        _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal, ColorStage, ColorWrite, copy, AccessFlags2.TransferReadBit);
-        _api.Transition(cmd, targets.NormalCopy.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, SampledAccess, copy, AccessFlags2.TransferWriteBit);
+        _api.Transition(cmd, new ImageTransition(targets.Normal.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal), (ColorStage, ColorWrite), (copy, AccessFlags2.TransferReadBit));
+        _api.Transition(cmd, new ImageTransition(targets.NormalCopy.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal), (SampledStage, SampledAccess), (copy, AccessFlags2.TransferWriteBit));
         var region = new ImageCopy
         {
             SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
@@ -161,20 +161,20 @@ internal sealed unsafe class OpaqueStage
         };
         _api.CmdCopyImage(cmd, targets.Normal.Image, ImageLayout.TransferSrcOptimal,
             targets.NormalCopy.Image, ImageLayout.TransferDstOptimal, 1, &region);
-        _api.Transition(cmd, targets.NormalCopy.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal, copy, AccessFlags2.TransferWriteBit, SampledStage, SampledAccess);
+        _api.Transition(cmd, new ImageTransition(targets.NormalCopy.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal), (copy, AccessFlags2.TransferWriteBit), (SampledStage, SampledAccess));
         // The decals load the normals and blend over them, so the change of layout must land before
         // that read as well as before their writes.
-        _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal, copy, AccessFlags2.TransferReadBit, ColorStage,
-            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+        _api.Transition(cmd, new ImageTransition(targets.Normal.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal), (copy, AccessFlags2.TransferReadBit),
+            (ColorStage, ColorWrite | AccessFlags2.ColorAttachmentReadBit));
 
         // The colour blends over what the opaque pass wrote.
-        _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+        _api.Transition(cmd, new ImageTransition(targets.BaseColor.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal), (ColorStage, ColorWrite),
+            (ColorStage, ColorWrite | AccessFlags2.ColorAttachmentReadBit));
+        _api.Transition(cmd, new ImageTransition(targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal), (DepthStages, DepthWrite), (SampledStage, SampledAccess));
 
         _decalPass.Record(cmd, targets, frameSet, _ring.Index);
         return true;
@@ -186,15 +186,15 @@ internal sealed unsafe class OpaqueStage
     /// </summary>
     private void RecordAfterDecals(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, InstanceBuffer instances)
     {
-        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
-            DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
-        _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-        _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+        _api.Transition(cmd, new ImageTransition(targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthAttachmentOptimal), (SampledStage, SampledAccess),
+            (DepthStages, DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit));
+        _api.Transition(cmd, new ImageTransition(targets.BaseColor.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal), (ColorStage, ColorWrite),
+            (ColorStage, ColorWrite | AccessFlags2.ColorAttachmentReadBit));
+        _api.Transition(cmd, new ImageTransition(targets.Normal.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal), (ColorStage, ColorWrite),
+            (ColorStage, ColorWrite | AccessFlags2.ColorAttachmentReadBit));
         Pass.Record(cmd, targets, frameSet, new SceneGeometry(draws, _meshes.MeshSlots, _meshes.DetailSlots, instances), ScenePass.OpaqueAfterDecals);
     }
 }

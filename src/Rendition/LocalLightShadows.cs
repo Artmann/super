@@ -106,17 +106,17 @@ internal sealed unsafe class LocalLightShadows
         var atlas = _pass.Atlas.Image;
         if (_tileCount > 0)
         {
-            api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
-                DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
+            api.Transition(cmd, new ImageTransition(atlas, ImageAspectFlags.DepthBit,
+                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal), (ShadowReadStages, SampledAccess),
+                (DepthStages, DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit));
             _pass.RecordTiles(cmd, frameSet, _lights.Tiles, _ranges.AsSpan(0, _tileCount), new SceneGeometry(_draws, _meshes.MeshSlots, _meshes.DetailSlots, instances));
-            api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess);
+            api.Transition(cmd, new ImageTransition(atlas, ImageAspectFlags.DepthBit,
+                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal), (DepthStages, DepthWrite), (ShadowReadStages, SampledAccess));
         }
         else
         {
-            api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, ShadowReadStages, SampledAccess, ShadowReadStages, SampledAccess);
+            api.Transition(cmd, new ImageTransition(atlas, ImageAspectFlags.DepthBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (ShadowReadStages, SampledAccess), (ShadowReadStages, SampledAccess));
         }
     }
 

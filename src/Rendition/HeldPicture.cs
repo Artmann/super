@@ -43,15 +43,15 @@ internal sealed unsafe class HeldPicture(Vk api)
     private void RecordHold(CommandBuffer cmd, GBuffer targets, bool copyLastFrame)
     {
         // The finish pass sampled both in the frame before.
-        api.Transition(cmd, targets.Picture.Held.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, SampledAccess,
-            PipelineStageFlags2.CopyBit | PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit);
+        api.Transition(cmd, new ImageTransition(targets.Picture.Held.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal), (SampledStage, SampledAccess),
+            (PipelineStageFlags2.CopyBit | PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit));
 
         if (copyLastFrame)
         {
-            api.Transition(cmd, targets.Picture.Ldr.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal, SampledStage, SampledAccess,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+            api.Transition(cmd, new ImageTransition(targets.Picture.Ldr.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal), (SampledStage, SampledAccess),
+                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
 
             var region = new ImageCopy
             {
@@ -63,9 +63,9 @@ internal sealed unsafe class HeldPicture(Vk api)
                 targets.Picture.Held.Image, ImageLayout.TransferDstOptimal, 1, &region);
 
             // Tonemapping waits on the fragment stage before it writes Ldr, which comes after this.
-            api.Transition(cmd, targets.Picture.Ldr.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit, SampledStage, AccessFlags2.None);
+            api.Transition(cmd, new ImageTransition(targets.Picture.Ldr.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal),
+                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit), (SampledStage, AccessFlags2.None));
         }
         else
         {
@@ -74,10 +74,10 @@ internal sealed unsafe class HeldPicture(Vk api)
             api.CmdClearColorImage(cmd, targets.Picture.Held.Image, ImageLayout.TransferDstOptimal, &black, 1, &range);
         }
 
-        api.Transition(cmd, targets.Picture.Held.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.CopyBit | PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
-            SampledStage, SampledAccess);
+        api.Transition(cmd, new ImageTransition(targets.Picture.Held.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal),
+            (PipelineStageFlags2.CopyBit | PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit),
+            (SampledStage, SampledAccess));
         targets.Picture.HeldReady = true;
     }
 }

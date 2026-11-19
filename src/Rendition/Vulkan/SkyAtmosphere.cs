@@ -66,10 +66,10 @@ internal sealed unsafe class SkyAtmosphere : IDisposable
         _skyView = CreateTable(new Extent2D(192, 108), "atmosphere_skyview.comp", reads, scattered);
 
         // The cubes' shader binds the sky-view even for a sky that never draws it, so it starts out ready to sample.
-        context.SubmitAndWait(cmd => context.Api.Transition(cmd, _skyView.Target.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.None, AccessFlags2.None,
-            PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit));
+        context.SubmitAndWait(cmd => context.Api.Transition(cmd, new ImageTransition(_skyView.Target.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal),
+            (PipelineStageFlags2.None, AccessFlags2.None),
+            (PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit)));
     }
 
     /// <summary>
@@ -130,18 +130,18 @@ internal sealed unsafe class SkyAtmosphere : IDisposable
         var api = _context.Api;
         var image = table.Target.Image;
         var set = table.Set;
-        api.Transition(cmd, image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General,
-            PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit);
+        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General),
+            (PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
 
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, table.Shader);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
         api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(AirConstants), &constants);
         api.CmdDispatch(cmd, (table.Size.Width + 7) / 8, (table.Size.Height + 7) / 8, 1);
 
-        api.Transition(cmd, image, ImageAspectFlags.ColorBit, ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit);
+        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
+            (PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit));
     }
 
     public void Dispose()
