@@ -122,22 +122,25 @@ engine does the rest: after every `Update`, the game loop moves each animator on
 tick. You never step it yourself.
 
 ```csharp
+Entity fox;
+
+public void Load() => fox = world.Spawn(Transform.At(position), new Animated(controller.Start(FoxState.Idle)));
+
 public void Update(GameTime time)
 {
-    _animator.Set(Speed < 0.05f ? FoxState.Idle : FoxState.Moving);
-    _animator.Parameter = Speed;
+    var animator = world.Get<Animated>(fox).Value;
+    animator.Set(Speed < 0.05f ? FoxState.Idle : FoxState.Moving);
+    animator.Parameter = Speed;
     if (actions.Pressed(Control.Look))
     {
-        _animator.Moves.Play(FoxAction.Look);
+        animator.Moves.Play(FoxAction.Look);
     }
 }
-
-public void Draw(View view) => view.Model(FoxKey, _animator, transform);
 ```
 
-`view.Model(key, animator, transform)` draws the rig's model in the animator's current
-pose. Only the transform is yours to give, since where the character stands is game
-state. With the ECS, even that goes away; see below.
+An `Animated` entity is drawn as the rig's model in the animator's current pose, where its
+`Transform` puts it; see [With the ECS](#with-the-ecs). Drawing by hand,
+`view.Model(key, animator, transform)` does the same for one frame.
 
 | Member | What it does |
 | --- | --- |

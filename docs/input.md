@@ -30,10 +30,6 @@ public class Dungeon(Actions<Control> actions) : IGame
 
         Walk(actions.Vector(Control.Move) * Speed * time.TickSeconds);
     }
-
-    public void Draw(View view)
-    {
-    }
 }
 ```
 

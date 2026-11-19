@@ -108,13 +108,16 @@ going.
 ```csharp
 // In Load:
 _cart = new SplineFollower(path, speed: 14f, SplineLoop.Loop);
+_cartEntity = world.Spawn(Transform.Identity, new Model(cartModel));
 
 // In Update:
 _cart.Update(time);
-
-// In Draw:
-view.Model(1, cartModel, _cart.Smooth(view.Blend).Matrix);
+var pose = _cart.Pose;
+world.Get<Transform>(_cartEntity) = new Transform(pose.Position, pose.Rotation, Vector3.One);
 ```
+
+The world blends the cart between ticks, so it moves smoothly at any frame rate. Drawing
+by hand, `_cart.Smooth(view.Blend)` gives the same blend, and its `Matrix` places the model.
 
 | `SplineLoop` | At the end |
 | --- | --- |
