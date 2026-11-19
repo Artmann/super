@@ -14,7 +14,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
-        var tracing = gpu.Renderer.Tracing!;
+        var tracing = gpu.Renderer.FrameParts.SceneStores.Tracing!;
         int before = tracing.BottomLevelCount;
         var (vertices, indices) = TestMeshes.Quad();
         var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
@@ -37,7 +37,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
-        var tracing = gpu.Renderer.Tracing!;
+        var tracing = gpu.Renderer.FrameParts.SceneStores.Tracing!;
         int before = tracing.BottomLevelCount;
         var (vertices, indices) = TestMeshes.Quad();
         var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
@@ -62,7 +62,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
-        var tracing = gpu.Renderer.Tracing!;
+        var tracing = gpu.Renderer.FrameParts.SceneStores.Tracing!;
         int before = tracing.BottomLevelCount;
         var (vertices, indices) = TestMeshes.Quad();
         var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
@@ -86,7 +86,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
-        var tracing = gpu.Renderer.Tracing!;
+        var tracing = gpu.Renderer.FrameParts.SceneStores.Tracing!;
         int before = tracing.BottomLevelCount;
         var (vertices, indices) = TestMeshes.Quad();
         var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
@@ -114,7 +114,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
-        var tracing = gpu.Renderer.Tracing!;
+        var tracing = gpu.Renderer.FrameParts.SceneStores.Tracing!;
         int before = tracing.BottomLevelCount;
         var opaque = new Material { BaseColor = new Vector4(1f), Roughness = 0.5f };
         var material = gpu.Renderer.Assets.CreateMaterial(opaque);
@@ -163,7 +163,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
-        var tracing = gpu.Renderer.Tracing!;
+        var tracing = gpu.Renderer.FrameParts.SceneStores.Tracing!;
         int before = tracing.BottomLevelCount;
         var material = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(1f), Roughness = 0.5f });
         var (vertices, indices) = TestMeshes.Quad();
@@ -198,7 +198,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
         fresh.RenderOneFrame();
 
         Assert.False(fresh.Renderer.CanTrace);
-        Assert.Null(fresh.Renderer.Tracing);
+        Assert.Null(fresh.Renderer.FrameParts.SceneStores.Tracing);
         Assert.Equal(0, fresh.ValidationErrors);
     }
 }

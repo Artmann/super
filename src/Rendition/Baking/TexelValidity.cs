@@ -14,7 +14,7 @@ internal sealed unsafe class TexelValidity : IDisposable
     private readonly RayTracing _tracing;
     private readonly BakeComputePass _pass;
 
-    public TexelValidity(VulkanContext context, Renderer renderer, RayTracing tracing)
+    public TexelValidity(VulkanContext context, SceneStores stores, RayTracing tracing)
     {
         _context = context;
         _tracing = tracing;
@@ -24,7 +24,7 @@ internal sealed unsafe class TexelValidity : IDisposable
         var bindings = BakeGpu.Bindings(
             DescriptorType.AccelerationStructureKhr, DescriptorType.StorageBuffer,
             DescriptorType.StorageImage, DescriptorType.StorageImage, DescriptorType.StorageImage);
-        _pass = new BakeComputePass(context, renderer, bindings, (uint)sizeof(ValidityConstants), "bake_validity.comp");
+        _pass = new BakeComputePass(context, stores, bindings, (uint)sizeof(ValidityConstants), "bake_validity.comp");
     }
 
     /// <summary>

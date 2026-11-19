@@ -14,7 +14,7 @@ namespace Rendition;
 internal sealed unsafe class TexelDraw : IDisposable
 {
     private readonly VulkanContext _context;
-    private readonly Renderer _renderer;
+    private readonly SceneStores _stores;
     private readonly TexelPages _pages;
     private readonly PipelineLayout _layout;
     private readonly TileResolve _tiles;
@@ -22,10 +22,10 @@ internal sealed unsafe class TexelDraw : IDisposable
     private LivePipeline? _pipeline;
     private bool _pipelineConservative;
 
-    public TexelDraw(VulkanContext context, Renderer renderer, TexelPages pages)
+    public TexelDraw(VulkanContext context, SceneStores stores, TexelPages pages)
     {
         _context = context;
-        _renderer = renderer;
+        _stores = stores;
         _pages = pages;
         _layout = context.CreatePipelineLayout(
             [], new PushConstantRange(ShaderStageFlags.VertexBit, 0, (uint)sizeof(TexelConstants)));
@@ -148,7 +148,7 @@ internal sealed unsafe class TexelDraw : IDisposable
 
         foreach (var (draw, rect) in draws)
         {
-            var mesh = _renderer.MeshFor(draw.Mesh);
+            var mesh = _stores.MeshFor(draw.Mesh);
             var vertexBuffer = mesh.Vertices.Handle;
             ulong offset = 0;
             api.CmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);

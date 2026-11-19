@@ -24,7 +24,7 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
         var quad = CreateMesh(LightmappedQuad());
         var draws = new[] { StaticDraw(quad, 6, Matrix4x4.CreateTranslation(1, 2, 3), 1) };
 
-        using var baker = new Baker(gpu.Context, gpu.Renderer) { ForceMultisample = forceMultisample };
+        using var baker = new Baker(gpu.Context, gpu.Renderer.FrameParts.SceneStores) { ForceMultisample = forceMultisample };
         var rect = SetUp(baker, draws);
         AssertPath(baker, forceMultisample);
 
@@ -94,7 +94,7 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
             new DrawItem { Mesh = box, IndexCount = 36, Material = gpu.Matte, Transform = boxTransform },
         };
 
-        using var baker = new Baker(gpu.Context, gpu.Renderer) { ForceMultisample = forceMultisample };
+        using var baker = new Baker(gpu.Context, gpu.Renderer.FrameParts.SceneStores) { ForceMultisample = forceMultisample };
         var rect = SetUp(baker, draws);
         AssertPath(baker, forceMultisample);
         var (cornerX, cornerY, side) = Texels(rect);
@@ -150,7 +150,7 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
         var sliver = CreateMesh((vertices, [0, 1, 2]));
         var draws = new[] { StaticDraw(sliver, 3, Matrix4x4.Identity, 1) };
 
-        using var baker = new Baker(gpu.Context, gpu.Renderer) { ForceMultisample = forceMultisample };
+        using var baker = new Baker(gpu.Context, gpu.Renderer.FrameParts.SceneStores) { ForceMultisample = forceMultisample };
         var rect = SetUp(baker, draws);
         AssertPath(baker, forceMultisample);
         var (cornerX, cornerY, side) = Texels(rect);
@@ -201,7 +201,7 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
     /// <summary>Lays out the static draws, sets up their texels and returns the first one's rectangle.</summary>
     private LightmapRect SetUp(Baker baker, DrawItem[] draws)
     {
-        var layout = LightmapLayout.Build(draws, gpu.Renderer.AreaOf, new BakeSettings(TexelsPerMetre), _ => true);
+        var layout = LightmapLayout.Build(draws, gpu.Renderer.FrameParts.SceneStores.AreaOf, new BakeSettings(TexelsPerMetre), _ => true);
         gpu.Context.SubmitAndWait(cmd => baker.SetUpTexels(cmd, layout, draws));
         Assert.True(layout.TryGet(draws[0].BakeId, out var rect), "The static draw has no rectangle.");
         return rect;

@@ -25,7 +25,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         try
         {
             var draws = new[] { StaticDraw(quad, Matrix4x4.CreateScale(2f), 1) };
-            using var baker = new Baker(gpu.Context, gpu.Renderer);
+            using var baker = new Baker(gpu.Context, gpu.Renderer.FrameParts.SceneStores);
             var layout = SetUp(baker, draws);
 
             // Every valid texel has the same light: irradiance (0.7, 0.3, 0.2), a direction sum of (0, 0.5, 0) over a
@@ -121,7 +121,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
             // as noisy as a variance of 10000 says, a standard deviation of 100, so the blocks' steps of 2 are noise the
             // luminance term lets the filter smooth.
             var draws = new[] { StaticDraw(quad, Matrix4x4.CreateScale(4f), 10) };
-            using var baker = new Baker(gpu.Context, gpu.Renderer);
+            using var baker = new Baker(gpu.Context, gpu.Renderer.FrameParts.SceneStores);
             var layout = SetUp(baker, draws);
             Assert.True(layout.TryGet(draws[0].BakeId, out var rect), "The quad has no rectangle.");
             var (x0, y0, side) = Texels(rect);
@@ -185,7 +185,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         try
         {
             var draw = StaticDraw(fold, Matrix4x4.Identity, 11) with { IndexCount = 12 };
-            using var baker = new Baker(gpu.Context, gpu.Renderer);
+            using var baker = new Baker(gpu.Context, gpu.Renderer.FrameParts.SceneStores);
             var layout = SetUp(baker, [draw]);
             Assert.True(layout.TryGet(draw.BakeId, out var rect), "The fold has no rectangle.");
             var traced = Synthetic(baker, layout, rect.Page, (_, _) => Light.Dark);
@@ -257,7 +257,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
             // neighbours in the world as well as close on the page.
             var lit = StaticDraw(quad, Matrix4x4.CreateTranslation(-0.5f, 0f, 0f), 3);
             var dark = StaticDraw(quad, Matrix4x4.CreateTranslation(0.5f, 0f, 0f), 4);
-            using var baker = new Baker(gpu.Context, gpu.Renderer) { ForceMultisample = forceMultisample };
+            using var baker = new Baker(gpu.Context, gpu.Renderer.FrameParts.SceneStores) { ForceMultisample = forceMultisample };
             var layout = SetUp(baker, [lit, dark]);
             Assert.True(layout.TryGet(lit.BakeId, out var litRect), "The lit quad has no rectangle.");
             Assert.True(layout.TryGet(dark.BakeId, out var darkRect), "The dark quad has no rectangle.");
@@ -318,7 +318,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
                 Mesh = box, IndexCount = 36, Material = gpu.Matte,
                 Transform = Matrix4x4.CreateScale(0.6f, 0.4f, 0.02f),
             };
-            using var baker = new Baker(gpu.Context, gpu.Renderer);
+            using var baker = new Baker(gpu.Context, gpu.Renderer.FrameParts.SceneStores);
             Assert.True(baker.Conservative,
                 "This test needs conservative rasterization, which spills each quad into the gutter so the two touch.");
             var layout = SetUp(baker, [lit, dark, wall]);
@@ -375,7 +375,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         try
         {
             var draws = new[] { StaticDraw(quad, Matrix4x4.Identity, 5) };
-            using var baker = new Baker(gpu.Context, gpu.Renderer);
+            using var baker = new Baker(gpu.Context, gpu.Renderer.FrameParts.SceneStores);
             var layout = SetUp(baker, draws);
             Assert.True(layout.TryGet(draws[0].BakeId, out var rect), "The quad has no rectangle.");
             var traced = Synthetic(baker, layout, rect.Page, (_, _) => new Light(new Vector3(0.25f, 0.5f, 1f), new Vector4(1f, 0f, 0f, 1f), 0.75f));
@@ -428,7 +428,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         try
         {
             var draws = new[] { StaticDraw(quad, Matrix4x4.Identity, 6) };
-            using var baker = new Baker(gpu.Context, gpu.Renderer);
+            using var baker = new Baker(gpu.Context, gpu.Renderer.FrameParts.SceneStores);
             var layout = SetUp(baker, draws);
             Assert.True(layout.TryGet(draws[0].BakeId, out var rect), "The quad has no rectangle.");
             var (x0, y0, _) = Texels(rect);
@@ -495,7 +495,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         try
         {
             var draws = new[] { StaticDraw(quad, Matrix4x4.Identity, 7) };
-            using var baker = new Baker(gpu.Context, gpu.Renderer);
+            using var baker = new Baker(gpu.Context, gpu.Renderer.FrameParts.SceneStores);
             var layout = SetUp(baker, draws);
             Assert.True(layout.TryGet(draws[0].BakeId, out var rect), "The quad has no rectangle.");
             var (x0, _, side) = Texels(rect);
@@ -588,7 +588,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
 
     private LightmapLayout SetUp(Baker baker, DrawItem[] draws)
     {
-        var layout = LightmapLayout.Build(draws, gpu.Renderer.AreaOf, new BakeSettings(TexelsPerMetre), _ => true);
+        var layout = LightmapLayout.Build(draws, gpu.Renderer.FrameParts.SceneStores.AreaOf, new BakeSettings(TexelsPerMetre), _ => true);
         gpu.Context.SubmitAndWait(cmd => baker.SetUpTexels(cmd, layout, draws));
         return layout;
     }

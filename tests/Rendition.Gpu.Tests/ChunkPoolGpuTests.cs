@@ -142,7 +142,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             Assert.True(frames <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
             Assert.Equal(1, gpu.Renderer.Baking.ChunkBakes.Resident);
             var pages = gpu.Renderer.Baking.ChunkBakes.Entries.Single().Transfer.Select(slot => new TextureHandle(slot)).ToArray();
-            Assert.All(pages, page => Assert.True(gpu.Renderer.Resources.Textures.IsLive(page.Index)));
+            Assert.All(pages, page => Assert.True(gpu.Renderer.FrameParts.SceneStores.Resources.Textures.IsLive(page.Index)));
 
             // Straight after one frame that names no copy, the bake is let go, while the frame before it may still be
             // drawing from it: its pages wait for that frame instead of going at once.
@@ -150,13 +150,13 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             gpu.Renderer.Render(without, [wall]);
             Assert.Equal(0, gpu.Renderer.Baking.ChunkBakes.Resident);
             Assert.Equal(0, gpu.Renderer.Baking.ChunkBakes.Pending);
-            Assert.All(pages, page => Assert.True(gpu.Renderer.Resources.Textures.IsDying(page.Index), "A page went before the frames drawing it were done."));
+            Assert.All(pages, page => Assert.True(gpu.Renderer.FrameParts.SceneStores.Resources.Textures.IsDying(page.Index), "A page went before the frames drawing it were done."));
             for (int i = 0; i < 3; i++)
             {
                 gpu.Renderer.Render(without, [wall]);
             }
 
-            Assert.All(pages, page => Assert.False(gpu.Renderer.Resources.Textures.IsDying(page.Index) || gpu.Renderer.Resources.Textures.IsLive(page.Index)));
+            Assert.All(pages, page => Assert.False(gpu.Renderer.FrameParts.SceneStores.Resources.Textures.IsDying(page.Index) || gpu.Renderer.FrameParts.SceneStores.Resources.Textures.IsLive(page.Index)));
 
             Assert.Equal(errors, gpu.ValidationErrors);
         }
@@ -276,7 +276,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             // then the chunk comes straight back, inside the frames in flight.
             gpu.Renderer.Render(View(First, lamps, []), [wall]);
             Assert.Empty(gpu.Renderer.Baking.ChunkBakes.Entries);
-            Assert.All(oldPages, page => Assert.True(gpu.Renderer.Resources.Textures.IsDying(page.Index), "An old page went before the frames drawing it were done."));
+            Assert.All(oldPages, page => Assert.True(gpu.Renderer.FrameParts.SceneStores.Resources.Textures.IsDying(page.Index), "An old page went before the frames drawing it were done."));
             gpu.Renderer.Render(view, [wall]);
             Assert.True(gpu.Renderer.Baking.LastFrame!.ChunkPending(0), "The chunk came back with its old bake, which was let go.");
 
@@ -744,7 +744,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
     // same frame of it however many frames came between them.
     private byte[] Capture(FrameView view, params DrawItem[] draws)
     {
-        for (int i = 0; i < NoisePeriod - 1 || gpu.Renderer.FrameNumber % NoisePeriod != 0; i++)
+        for (int i = 0; i < NoisePeriod - 1 || gpu.Renderer.FrameDrawer.FrameCameras.FrameNumber % NoisePeriod != 0; i++)
         {
             gpu.Renderer.Render(view, draws);
         }

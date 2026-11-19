@@ -15,7 +15,7 @@ internal sealed unsafe class BakeProbePass : IDisposable
     private readonly RayTracing _tracing;
     private readonly BakeComputePass _pass;
 
-    public BakeProbePass(VulkanContext context, Renderer renderer, RayTracing tracing)
+    public BakeProbePass(VulkanContext context, SceneStores stores, RayTracing tracing)
     {
         _context = context;
         _tracing = tracing;
@@ -26,7 +26,7 @@ internal sealed unsafe class BakeProbePass : IDisposable
             DescriptorType.AccelerationStructureKhr, DescriptorType.StorageBuffer, DescriptorType.StorageBuffer,
             DescriptorType.StorageBuffer, DescriptorType.StorageImage, DescriptorType.StorageImage,
             DescriptorType.CombinedImageSampler);
-        _pass = new BakeComputePass(context, renderer, bindings, (uint)sizeof(ProbeTraceConstants), "bake_probes.comp");
+        _pass = new BakeComputePass(context, stores, bindings, (uint)sizeof(ProbeTraceConstants), "bake_probes.comp");
     }
 
     /// <summary>The size of a batch of probes' faces.</summary>

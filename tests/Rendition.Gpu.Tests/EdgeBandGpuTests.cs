@@ -165,7 +165,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
 
             int banded = WorstJump(quad, wall, room, out var bandedAt, out var inside, out var outside);
             Assert.True(gpu.Renderer.Baking.LastFrame!.SpaceFresh, "The bake isn't drawn, so the test shows nothing.");
-            gpu.Renderer.BakedProbeBand = false;
+            gpu.Renderer.FrameDrawer.FrameUniformWriter.BakedProbeBand = false;
             int hard = WorstJump(quad, wall, room, out var hardAt, out _, out _);
 
             // The gap between the two lights, from their plateaus: the quad deep inside the box, at x = 1.5, before the
@@ -186,7 +186,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.BakedProbeBand = true;
+            gpu.Renderer.FrameDrawer.FrameUniformWriter.BakedProbeBand = true;
             gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.Assets.DestroyMesh(quad);
@@ -355,7 +355,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
     // frame of it however many frames came between them.
     private byte[] Capture(FrameView view, DrawItem[] draws)
     {
-        for (int i = 0; i < NoisePeriod - 1 || gpu.Renderer.FrameNumber % NoisePeriod != 0; i++)
+        for (int i = 0; i < NoisePeriod - 1 || gpu.Renderer.FrameDrawer.FrameCameras.FrameNumber % NoisePeriod != 0; i++)
         {
             gpu.Renderer.Render(view, draws);
         }

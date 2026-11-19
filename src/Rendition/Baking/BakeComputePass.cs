@@ -16,17 +16,17 @@ internal interface IBakePassConstants
 internal sealed unsafe class BakeComputePass : IDisposable
 {
     private readonly VulkanContext _context;
-    private readonly Renderer _renderer;
+    private readonly SceneStores _stores;
     private readonly LivePipeline _pipeline;
 
     public BakeComputePass(
-        VulkanContext context, Renderer renderer, ReadOnlySpan<DescriptorSetLayoutBinding> bindings, uint pushSize, string shader)
+        VulkanContext context, SceneStores stores, ReadOnlySpan<DescriptorSetLayoutBinding> bindings, uint pushSize, string shader)
     {
         _context = context;
-        _renderer = renderer;
+        _stores = stores;
         SetLayout = context.CreateSetLayout(bindings);
         Layout = context.CreatePipelineLayout(
-            [SetLayout, renderer.Resources.Layout], new PushConstantRange(ShaderStageFlags.ComputeBit, 0, pushSize));
+            [SetLayout, stores.Resources.Layout], new PushConstantRange(ShaderStageFlags.ComputeBit, 0, pushSize));
         _pipeline = PipelineFactory.CreateCompute(context, shader, Layout);
     }
 
@@ -43,7 +43,7 @@ internal sealed unsafe class BakeComputePass : IDisposable
     /// <summary>Binds <paramref name="set"/> as set 0 and the renderer's resource table as set 1.</summary>
     public void BindSets(CommandBuffer cmd, DescriptorSet set)
     {
-        var sets = stackalloc DescriptorSet[] { set, _renderer.Resources.Set };
+        var sets = stackalloc DescriptorSet[] { set, _stores.Resources.Set };
         _context.Api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, Layout, 0, 2, sets, 0, null);
     }
 

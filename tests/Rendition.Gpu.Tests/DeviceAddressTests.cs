@@ -15,7 +15,7 @@ public sealed class DeviceAddressTests(GpuFixture gpu)
         int errors = gpu.ValidationErrors;
         var (vertices, indices) = TestMeshes.Quad();
         var handle = gpu.Renderer.Assets.CreateMesh(vertices, indices);
-        var mesh = gpu.Renderer.MeshFor(handle);
+        var mesh = gpu.Renderer.FrameParts.SceneStores.MeshFor(handle);
         Assert.NotEqual(0ul, mesh.Vertices.Address);
         Assert.NotEqual(0ul, mesh.Indices.Address);
         Assert.Equal(errors, gpu.ValidationErrors);

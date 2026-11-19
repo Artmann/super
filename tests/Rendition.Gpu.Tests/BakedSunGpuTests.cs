@@ -34,7 +34,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
         view.Shadows = new ShadowSettings { Radius = 4f, LightAngle = 0.1f };
         view.Baked.Space = Room;
 
-        int rebakes = gpu.Renderer.SkyRebakes;
+        int rebakes = gpu.Renderer.FrameParts.SceneLighting.EnvironmentSky.Rebakes;
         gpu.Renderer.Baking.Bakes = new EveryBakeFresh();
         try
         {
@@ -49,8 +49,8 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
             // The sun was really dropped, so the frame was drawn a second time without it.
             Assert.Equal([0], gpu.Renderer.Baking.LastFrame!.DroppedSuns);
             // The sky changed once, to this sun, and stayed: the frame without the sun didn't bake a sunless sky.
-            Assert.Equal(1, gpu.Renderer.SkyRebakes - rebakes);
-            var disc = gpu.Renderer.Last.SunDisc;
+            Assert.Equal(1, gpu.Renderer.FrameParts.SceneLighting.EnvironmentSky.Rebakes - rebakes);
+            var disc = gpu.Renderer.FrameDrawer.FrameUniformWriter.Last.SunDisc;
             Assert.True(disc.X + disc.Y + disc.Z > 0f, $"The sun's disc is dark: {disc}.");
         }
         finally
@@ -94,7 +94,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
         try
         {
             gpu.Renderer.Render(view, [cube]);
-            var once = gpu.Renderer.Last.Light(0).Radiance;
+            var once = gpu.Renderer.FrameDrawer.FrameUniformWriter.Last.Light(0).Radiance;
 
             gpu.Renderer.Baking.Bakes = new EveryBakeFresh();
             for (int i = 0; i < 3; i++)
@@ -104,7 +104,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
             }
 
             Assert.Equal([0], gpu.Renderer.Baking.LastFrame!.DroppedLocalLights);
-            var drawn = gpu.Renderer.Last.Light(0).Radiance;
+            var drawn = gpu.Renderer.FrameDrawer.FrameUniformWriter.Last.Light(0).Radiance;
             Assert.True(Vector3.Distance(once, drawn) < 1e-4f, $"The sun was {once} with nothing baked but {drawn} without the baked light.");
         }
         finally
@@ -148,7 +148,7 @@ public sealed class BakedSunGpuTests(GpuFixture gpu)
             }
 
             Assert.Equal([0], gpu.Renderer.Baking.LastFrame!.DroppedSuns);
-            Assert.Equal(fill, gpu.Renderer.Last.Light(0).Radiance);
+            Assert.Equal(fill, gpu.Renderer.FrameDrawer.FrameUniformWriter.Last.Light(0).Radiance);
         }
         finally
         {
