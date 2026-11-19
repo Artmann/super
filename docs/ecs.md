@@ -323,6 +323,14 @@ Entities spawned straight on the world belong to no scene and outlive every `Go`
 party, an inventory or the music there. `scenes.Current` is the open scene, or null before
 the first `Go`, and `scenes.Rebuild()` builds it again from the start, for a restart.
 
+Give `Go` a [transition](transitions.md) to cover the swap, such as
+`scenes.Go(scene => Crypt(scene, room: 2), Transition.Fade(0.6f))`. A fade swaps at the
+end of the tick the screen is all colour, so the old scene keeps running while it goes out.
+Asking again before then only changes what gets built; the fade carries on. A dissolve, wipe
+or iris swaps at the end of the tick and shows the old picture going over the new.
+`scenes.IsChanging` is true from `Go` until its transition has finished, which is handy for
+ignoring input meanwhile.
+
 Scenes are for where in the world the game is; [states](states.md) are for where the game
 is, such as a menu or paused. A game can use either or both. A prefab needs nothing from
 Super: it's a method that spawns a few entities under a parent it's given.
