@@ -50,7 +50,7 @@ travel when Mixamo offers no "in place" download, such as a cheer that wanders:
 ```
 
 A model drawn with no pose, such as a fish that only swims (see `Swim` in
-[the ECS](ecs.md)), stands as the file shows it at rest, not as it was bound. Many
+[the world](ecs.md#drawing-entities)), stands as the file shows it at rest, not as it was bound. Many
 files bind the skin a turn away from the rest pose, such as an armature turned up from z-up,
 and the cooker moves the vertices to the rest pose so such a model doesn't lie on its side.
 Played clips look the same either way.

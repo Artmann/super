@@ -1,12 +1,14 @@
-# Drawing with views
+# Drawing by hand
 
-A view is a function that takes some data and says how it looks. If you've used SwiftUI
-or React, this will feel familiar. You don't create scene objects and keep them in sync
-with your game. Each frame, `Draw` describes what's visible.
+Most of a game's picture is [entities in its world](ecs.md#drawing-entities): the camera,
+the lights, the sky and every model draw themselves, so a game made of entities leaves
+`Draw` out. This page is about the rest, drawn by hand in `Draw`: data that isn't an
+entity, and what only one frame shows, such as a flash, a pulse or a burst of dust.
 
-Entities in the [world](ecs.md#drawing-entities) draw themselves before `Draw` runs, so a
-game made of entities can leave `Draw` out. This page is about drawing by hand: data that
-isn't an entity, and what only one frame shows.
+`Draw` takes a view, a function that takes some data and says how it looks. If you've
+used SwiftUI or React, this will feel familiar. Each frame, `Draw` describes what it
+adds, and Super remembers nothing of it into the next frame but the view memory you ask
+for by key.
 
 ```csharp
 struct Box
@@ -56,8 +58,7 @@ component on its entity instead. See [Audio](audio.md).
 
 | Call | What it does |
 | --- | --- |
-| `view.Camera(position, lookAt, fieldOfView)` | A fixed camera. See [Cameras](cameras.md) for the rest |
-| `view.Camera(camera)` | A `Camera` value the game keeps |
+| `view.Camera(camera)` | Takes this frame from another camera than the world's [camera entity](cameras.md#a-camera-entity). Most games only need the entity |
 | `view.Model(key, model, transform, color)` | A model. `color`, if given, tints it and keeps its textures. `ModelRef.Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Plane`, `Quad` and `Torus` are [built in](rendering.md#built-in-shapes) |
 | `view.Model(key, model, transform, new ModelOptions { Meshes = meshes })` | Only the meshes a `MeshMask` shows, such as a body without its helmet. See [Showing some meshes](#showing-some-meshes) |
 | `view.Model(key, model, transform, new ModelOptions { Color = color, Static = true })` | A model that never moves, whose lighting will be baked. See [Static draws](#static-draws) |
@@ -68,36 +69,31 @@ component on its entity instead. See [Audio](audio.md).
 `ModelOptions` holds everything a model draw can take beyond a colour: `Color`, `Swim` for a
 `SwimMotion` that bends a fish as it swims, `Meshes`, `Static` and `Fade`. Leave out what you don't need.
 
-The rest of what a frame shows is set through four parts of the view, each with its own job:
+The suns, point and spot lights, shadows, ambient occlusion, sky, finished look and
+outlines are components in the [world](ecs.md#drawing-entities). The view still takes
+`view.Lights.Point` and `view.Lights.Spot` for a light that only one frame shows, such as
+a muzzle flash. The rest of what a frame shows is set through parts of the view:
 
 | Call | What it does |
 | --- | --- |
-| `view.Lights.Sun(direction, color, shadows, mode)` | A directional light. `color` is linear and can go past 1. The first sun casts shadows unless `shadows: true` picks another. See [Light modes](rendering.md#light-modes) |
-| `view.Lights.Point(key, new PointLight(position, color, range) { Shadows, Radius, Volumetric, Mode })` | A light shining every way, like a candle or a torch. See [Point and spot lights](rendering.md#point-and-spot-lights) |
-| `view.Lights.Spot(key, new SpotLight(position, direction, color, range) { InnerAngle, OuterAngle, ... })` | A light shining in a cone, like a lantern's beam. It takes the same `Shadows`, `Radius`, `Volumetric` and `Mode` as a point light |
-| `view.Lights.Shadows(radius, cascades, sunSize, contact)` | How far shadows reach, how soft they are, and how far contact shadows look where things meet the ground. See [Rendering](rendering.md#shadows) |
-| `view.Indirect.AmbientOcclusion(radius, strength)` | How far corners and creases reach out to darken the soft light, and how dark. See [Rendering](rendering.md#ambient-occlusion) |
 | `view.Indirect.ScreenBounce(strength, radius)` | How much light surfaces on screen pass on to the surfaces near them, and how far it reaches. See [Rendering](rendering.md#light-bounced-across-the-screen) |
 | `view.Indirect.LightProbes(min, max, spacing)` | A box of light probes of your own, finer than the ones the renderer keeps round the camera, whose probes win inside it. `--debug-view probes` shows its probes and those of the finest box round the camera, not the coarser ones. See [Rendering](rendering.md#bounced-light) |
 | `view.Indirect.BakedLighting(name, min, max, probeSpacing, texelsPerMetre)` | Names the one place this frame whose lighting is baked, with lightmaps of `texelsPerMetre` texels a metre (20 unless given). `--bake` bakes it, and once its bake is fresh its surfaces are lit from their lightmap, and anything moving inside it from the bake's probes before the live ones. See [Baked lighting](rendering.md#baked-lighting) |
 | `view.Indirect.BakedChunk(name, transform, min, max, texelsPerMetre, edgeBlend)` | Places a piece of the world that is baked once and reused wherever it stands, each copy relit by the frame's sky and suns. Up to 256 a frame. `edgeBlend`, 0.5 metres by default, blends the chunk's light into the live light over that far in from its four sides; 0 gives a hard edge. See [Baked lighting](rendering.md#baked-lighting) |
 | `view.Indirect.ReflectionProbe(key, position, boxMin, boxMax, blend, priority, update, version)` | A photograph of the scene from one spot, which shiny surfaces and glass in its box reflect, taken during play without stopping the game. Up to 64 a frame; where boxes overlap, the higher priority, then the smaller box, goes first. `update` says when it's taken again: when the light changes (the default), when `version` changes, or always. See [Rendering](rendering.md#reflections) |
-| `view.Surroundings.Sky(settings)` | The sky, its haze and fog. See [Rendering](rendering.md#the-sky) |
 | `view.Surroundings.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
 | `view.Surroundings.Puddles(level, band)` | Lets water stand below `level` on materials that ask for puddles, damp for `band` metres above. See [Rendering](rendering.md#puddles) |
 | `view.Surroundings.Wind(direction, strength, gustiness)` | A breeze that sways grass and leaves on materials that ask for wind, leaning grass 1 m tall `strength` metres downwind, with gusts from 0 for steady to 1. See [Rendering](rendering.md#wind) |
 | `view.Effects.Particles(key, effect, position, age)` | A burst of particles, such as dust or smoke. See [Particles](#particles) |
 | `view.Effects.Decal(key, box, material, blend)` | Grime, damp or a stain projected onto whatever is inside a box. Up to 256 a frame. See [Decals](#decals) |
 | `view.Effects.FogVolume(key, shape, transform, settings)` | A box, ellipsoid, cylinder or cone filled with fog of its own, such as mist in a room or a lamp's beam. Up to 64 a frame. See [Fog volumes](#fog-volumes) |
-| `view.Effects.Finish(settings)` | Exposure, contrast, vignette and other [post-processing](rendering.md#the-look-of-the-picture) |
-| `view.Effects.Outlines(color, thickness, fadeStart, fadeEnd)` | The ink lines drawn round surfaces that ask for them. See [Rendering](rendering.md#toon-shading-and-outlines) |
 
-`view.Lights` holds the suns, point and spot lights and their shadows; `view.Indirect` the light that
-bounces, live, in probes or baked; `view.Surroundings` the sky, water, puddles and wind; and `view.Effects`
-particles, decals, fog volumes and the look of the finished picture.
+`view.Indirect` holds the light that bounces, live, in probes or baked; `view.Surroundings`
+the water, puddles and wind; and `view.Effects` particles, decals and fog volumes.
 
-Worlds in Super are flat: a list of things you draw, not a tree of nodes. To attach one
-thing to another, multiply their transforms:
+What you draw by hand is flat: a list of things, not a tree of nodes. To attach one
+thing to another, multiply their transforms. In the world, a [`Parent`](ecs.md#drawing-entities)
+does this for you:
 
 ```csharp
 view.Model(colonist.AxeId, axe, handOffset * colonist.Transform);
@@ -161,13 +157,14 @@ public void Draw(View view) =>
     view.Model(ball.Id, ballModel, view.Smooth(ball.PreviousTransform, ball.Transform));
 ```
 
-With the ECS, the world does this for every entity by itself; see
-[Drawing entities](ecs.md#drawing-entities).
+The world does this for every entity by itself, so only what you draw by hand needs
+it; see [Drawing entities](ecs.md#drawing-entities).
 
 ## Things that rarely change
 
-A city might have 50,000 walls. Describing them all 60 times a second is wasteful, so
-wrap them in `Cached`. It runs your function again only when the version changes. The
+Walls that are entities don't need this: the world keeps [static entities](ecs.md#static-draws)
+drawn for you. For data you draw by hand, a city might have 50,000 walls. Describing them
+all 60 times a second is wasteful, so wrap them in `Cached`. It runs your function again only when the version changes. The
 key says which chunk this is, and your `Update` adds one to the version when a wall
 moves:
 
@@ -203,7 +200,8 @@ and a seed always replays the same.
 ## Animated models
 
 A rigged model takes a pose from an `Animator`. The game sets its state in `Update`,
-and the game loop moves it on each tick. Give the view the animator, and it draws the
+and the game loop moves it on each tick. Most games put the animator on an entity as an
+[`Animated`](ecs.md#drawing-entities) component. To draw one by hand, give the view the animator, and it draws the
 rig's model in its current pose. The pose keeps moving between ticks, so it's as
 smooth as the frame rate:
 
@@ -255,8 +253,9 @@ game draws with it without allocating.
 
 ## Static draws
 
-A model that never moves, such as a wall, a rock or a house, can be drawn static. Its
-lighting will be baked, so give it `Static = true`:
+A model that never moves, such as a wall, a rock or a house, can be drawn static, and its
+lighting will be baked. In the world that's a [`Static`](ecs.md#static-draws) component;
+drawn by hand, give it `Static = true`:
 
 ```csharp
 view.Model(WallKey, wall, transform, new ModelOptions { Static = true });
@@ -431,7 +430,7 @@ is already burning on the first frame. The burst follows the entity's `Transform
 Particles are lit by the sun, the sky and point and spot lights, shaded by the sun's
 shadows, sit in the fog, fade into haze and melt softly into the ground and anything they touch. A
 glowing particle gives off its own light on top, but doesn't light what's round it: put
-a `view.Lights.Point` at a fire for that. They cast no shadow, and underwater
+a `PointLight` entity at a fire for that. They cast no shadow, and underwater
 they fade with distance but miss the shafts of light. They're sorted with
 [glass](rendering.md#glass), so a puff in front of a pane covers it and one behind is
 seen through it. `Cached` keeps only

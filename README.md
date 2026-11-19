@@ -20,17 +20,21 @@ using Super;
 
 Game.StartWindowsGameLoop<Spinner>(new GameOptions { Title = "Spinner" });
 
-class Spinner : IGame
+class Spinner(World world) : IGame
 {
-    float angle;
+    Entity cube;
 
-    public void Update(GameTime time) => angle += time.TickSeconds;
-
-    public void Draw(View view)
+    public void Load()
     {
-        view.Camera(position: new Vector3(0, 2, 5), lookAt: Vector3.Zero);
-        view.Lights.Sun(direction: new Vector3(1, 2, 1), color: new Vector3(3f));
-        view.Model(key: 1, ModelRef.Cube, Matrix4x4.CreateRotationY(angle));
+        world.Spawn(new Camera(Position: new Vector3(0, 2, 5), Target: Vector3.Zero));
+        world.Spawn(new Sun(Direction: new Vector3(1, 2, 1), Color: new Vector3(3f)));
+        cube = world.Spawn(new Model(ModelRef.Cube));
+    }
+
+    public void Update(GameTime time)
+    {
+        ref var transform = ref world.Get<Transform>(cube);
+        transform.Rotation *= Quaternion.CreateFromAxisAngle(Vector3.UnitY, time.TickSeconds);
     }
 }
 ```
@@ -81,8 +85,9 @@ whole game.
 
 **A game engine, used as a library.** You write a normal .NET program. Super gives you
 the window, a fixed-tick game loop, input, game states, cameras, an interface toolkit,
-JSON content, seeded randomness and an optional ECS. Your state lives in your own
-classes, and you call your own systems in the order you choose.
+JSON content, seeded randomness and a world of entities that draws itself: spawn a
+camera, a sun and a model, and they are on screen. You call your own systems in the
+order you choose.
 
 **Modern C#.** .NET 10, records, primary constructors and
 `Microsoft.Extensions.DependencyInjection`. The interface is SwiftUI-style records.
@@ -138,11 +143,11 @@ dotnet run -c Release --project examples/Terrain
 Start with [Getting started](docs/getting-started.md), then read what you need:
 
 - [Working with coding agents](docs/agents.md)
-- [Drawing with views](docs/views.md), [cameras and clicking](docs/cameras.md) and [rendering](docs/rendering.md)
+- [The world](docs/ecs.md), [cameras and clicking](docs/cameras.md) and [rendering](docs/rendering.md)
 - [Interfaces](docs/interfaces.md), [input](docs/input.md) and [game states](docs/states.md)
 - [JSON content](docs/content.md) and [random numbers](docs/random.md)
 - [Testing](docs/testing.md), [the command line](docs/command-line.md) and [profiling](docs/profiling.md)
-- [The ECS](docs/ecs.md)
+- [Drawing by hand](docs/views.md), for what only one frame shows
 - [What's not here yet](docs/roadmap.md)
 
 The [docs index](docs/README.md) lists every page, and [design.md](docs/design.md)
@@ -163,7 +168,7 @@ marked as planned. The examples are the best place to see it running:
 | [Crafting](examples/Crafting) | An inventory and crafting bench driven entirely by the mouse |
 | [Terrain](examples/Terrain) | Endless generated hills with a custom surface shader, a road built along a spline with a cart driving it, and a flyover on F |
 | [Toon](examples/Toon) | A cartoon garden in flat bands of light with ink outlines, under a low sun, a lantern and fog, beside a physically based chrome ball; T and O turn them off |
-| [Reef](examples/Reef) | 6,240 schooling fish with the ECS, water and a stats panel |
+| [Reef](examples/Reef) | 6,240 schooling fish as entities, water and a stats panel |
 | [Fox](examples/Fox) | A skinned character blending walk into run, with a head turn played over it and footsteps from its clips |
 | [Glass](examples/Glass) | Clear, frosted and tinted panes and glass balls that bend the room, with dust between them |
 | [Archer](examples/Archer) | A short film: a cutscene with slow motion, root motion, a sky and a forest clearing |

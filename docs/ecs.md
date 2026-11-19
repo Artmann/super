@@ -1,8 +1,33 @@
-# The ECS
+# The world
 
-An entity component system suits games with thousands of similar things, like a colony
-sim's workers, animals and items. Every game has a `World`, with nothing to add or
-register: ask for one in a constructor.
+Everything in a Super game lives in its `World`: the camera, the sun and the sky, every
+model, every light and every looping sound. Each is an entity, an ID with components on
+it, and the world draws them every frame, so most games never draw anything by hand.
+Every game has a world, with nothing to add or register: ask for one in a constructor.
+
+```csharp
+public sealed class Farm(World world, Content content) : IGame
+{
+    public void Load()
+    {
+        world.Spawn(new Camera(new Vector3(0f, 6f, 10f), Vector3.Zero));
+        world.Spawn(new Sun(new Vector3(1f, 2f, 1f), new Vector3(3f), CastsShadows: true));
+        world.Spawn(Transform.At(new Vector3(3f, 0f, 1f)), new Model(content.Model("farm/sheep.glb")));
+    }
+
+    public void Update(GameTime time)
+    {
+    }
+}
+```
+
+That's a whole game: a sheep in the sun, seen from a camera. [Drawing entities](#drawing-entities)
+lists everything the world draws, and [Drawing by hand](views.md) covers `Draw`, for what
+isn't an entity.
+
+The world is an entity component system, so it also suits games with thousands of similar
+things, like a colony sim's workers, animals and items. Your own components are plain
+structs, and a query walks every entity that has them:
 
 ```csharp
 Game.StartWindowsGameLoop<Farm>(new GameOptions { Title = "Farm" }, services =>
@@ -59,7 +84,7 @@ outermost query ends, even if the loop throws. One meant for an entity that's be
 destroyed by then is dropped. If a handler throws while they're made, the rest are still
 made, and the first error is thrown after the last one.
 
-## The world
+## Entities
 
 | Call | What it does |
 | --- | --- |
@@ -134,11 +159,14 @@ one type run in the order they were added.
 
 ## Drawing entities
 
-Most entities are drawn the same way: a model at a transform, keyed by the entity's ID.
 Give entities Super's own components and the world draws them itself, every frame, before
-your `Draw` runs:
+your `Draw` runs. A model is drawn at its transform, keyed by the entity's ID, and the
+camera, the lights and the sky are entities too:
 
 ```csharp
+world.Spawn(new Camera(new Vector3(0f, 6f, 10f), Vector3.Zero));
+world.Spawn(new Sun(new Vector3(1f, 2f, 1f), new Vector3(3f)), new Shadows(20f, 3));
+
 var sheep = world.Spawn(
     Transform.At(new Vector3(3f, 0f, 1f)),
     new Model(content.Model("farm/sheep.glb")));
@@ -147,12 +175,6 @@ var bell = world.Spawn(
     Transform.At(new Vector3(0f, 0.8f, 0.5f), scale: 0.2f),
     new Model(content.Model("farm/bell.glb")),
     new Parent(sheep));
-
-public void Draw(View view)
-{
-    view.Camera(camera);
-    view.Lights.Sun(new Vector3(1f, 2f, 1f), new Vector3(3f));
-}
 ```
 
 | Component | What it does |
@@ -168,7 +190,7 @@ public void Draw(View view)
 | `Ambience` | Plays an ambience for as long as the entity has this |
 | `Camera` | The frame is taken from the newest entity with one, blended between ticks and following its `Parent`. See [A camera entity](cameras.md#a-camera-entity) |
 | `Sun`, `PointLight`, `SpotLight` | Lights every frame. A point or spot light's position and direction count from the entity's `Transform` and `Parent`, and a sun's direction stays in the world. See [Lights](rendering.md#lights) |
-| `Sky`, `Shadows`, `AmbientOcclusion`, `Finish`, `Outlines` | The frame's sky, shadows, ambient occlusion, finished look and outlines, from the newest entity with one, as the view calls of the same names set them |
+| `Sky`, `Shadows`, `AmbientOcclusion`, `Finish`, `Outlines` | The frame's [sky](rendering.md#the-sky), [shadows](rendering.md#shadows), [ambient occlusion](rendering.md#ambient-occlusion), [finished look](rendering.md#the-look-of-the-picture) and [outlines](rendering.md#toon-shading-and-outlines), from the newest entity with one. A sun and its `Shadows` can share an entity |
 | `Emitter` | Plays a particle effect at the entity for as long as it has one, a burst every `Every` seconds. See [Particles that loop](views.md#particles-that-loop) |
 | `Ghost` | Draws the entity's model as a see-through ghost, such as a building's placement preview, as `View.Model` with a `Ghost` does |
 | `Hidden` | Leaves the entity and everything parented under it out of the frame and the audio: no models, lights or sounds, and its sounds and ambiences fade out. Remove it to show them again |
@@ -191,7 +213,7 @@ cost nothing here.
 
 `Draw` is optional. A game whose whole picture is entities leaves it out; one that keeps
 it uses it for what only that frame shows, such as a glow that pulses with the display
-time, next to what the world drew. `view.TransformOf(entity)` gives an entity's matrix as
+time, next to what the world drew. See [Drawing by hand](views.md). `view.TransformOf(entity)` gives an entity's matrix as
 it's drawn this frame, between its last two ticks and following its parents, so something
 drawn by hand can sit on it:
 
@@ -205,13 +227,14 @@ public void Draw(View view)
 
 It throws `InvalidOperationException` for an entity with no `Transform`.
 
-The [Reef example](../examples/Reef) uses this for thousands of schooling fish, and its
-`Draw` is only a camera, a sun and the seabed.
+The [Reef example](../examples/Reef) is entities all through, from its camera and sun to
+thousands of schooling fish, and its `Draw` holds only the water and the swell that
+rocks the seagrass.
 
 ### Static draws
 
 Give an entity that never moves the `Static` component, and the world draws it
-static, the same as `new ModelOptions { Static = true }` in [Views](views.md#static-draws):
+static, the same as a [static draw by hand](views.md#static-draws):
 
 ```csharp
 world.Add(wall, Transform.At(new Vector3(4f, 0f, 0f)));
@@ -248,7 +271,7 @@ world.Add(engine, new Sound(content.Sounds.Sound("sounds/engine.ogg"), Volume: 0
 ```
 
 With a `Transform` the sound sits where the entity is drawn (blended between
-ticks and following its `Parent`, as for `Models`) and follows it. Without one it's flat. The fields are `Clip`,
+ticks and following its `Parent`, as a model is) and follows it. Without one it's flat. The fields are `Clip`,
 `Volume` (1), `Channel` (`Effects`), `Near` (2 m) and `Far` (50 m); see
 [Audio](audio.md#sounds-and-ambiences-on-entities).
 
