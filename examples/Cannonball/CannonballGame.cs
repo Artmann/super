@@ -56,6 +56,8 @@ public sealed class CannonballGame(World world, Content content, Physics physics
     private readonly RagdollOverlay _overlay = new(physics);
     private AnimationController<Stance, Move> _controller = null!;
     private RagdollBody _body = null!;
+    private Entity _camera;
+    private bool _cut;
     private bool _showBodies;
 
     public Stage Stage => _flight.Stage;
@@ -105,7 +107,21 @@ public sealed class CannonballGame(World world, Content content, Physics physics
             .Action(Move.StandUpFromFront, rig.Clip("StandUpFront"), fadeSeconds: 0f, speed: 1.5f)
             .Action(Move.Cheer, rig.Clip("Rallying"), fadeSeconds: 0.25f);
 
+        world.Spawn(
+            new Sun(new Vector3(0.5f, 0.8f, -0.35f), new Vector3(4.2f, 3.8f, 3.2f), CastsShadows: true),
+            new Sky(new SkySettings
+            {
+                Zenith = new Vector3(0.18f, 0.38f, 0.8f),
+                Horizon = new Vector3(0.75f, 0.82f, 0.9f),
+                Ground = new Vector3(0.25f, 0.3f, 0.15f),
+                Brightness = 1f,
+                HazeStart = 60f,
+                HazeEnd = 220f,
+            }),
+            new Shadows(20f, 3));
+        _field.Cannon();
         _field.Build();
+        _camera = world.Spawn(Camera.Current);
         Load(fresh: false);
     }
 
@@ -123,23 +139,22 @@ public sealed class CannonballGame(World world, Content content, Physics physics
         }
 
         Camera.Update(Hips, seconds);
+
+        // A new shot cuts straight to the cannon instead of sweeping back across the field.
+        if (_cut)
+        {
+            world.Teleport(_camera, Camera.Current);
+            _cut = false;
+        }
+        else
+        {
+            world.Get<Camera>(_camera) = Camera.Current;
+        }
     }
 
+    // Only the ragdoll's bodies are drawn here, when D shows them: they're a look inside the physics, not part of the world.
     public void Draw(View view)
     {
-        view.Camera(Camera.At(view.Blend));
-        view.Lights.Sun(new Vector3(0.5f, 0.8f, -0.35f), new Vector3(4.2f, 3.8f, 3.2f), shadows: true);
-        view.Surroundings.Sky(new SkySettings
-        {
-            Zenith = new Vector3(0.18f, 0.38f, 0.8f),
-            Horizon = new Vector3(0.75f, 0.82f, 0.9f),
-            Ground = new Vector3(0.25f, 0.3f, 0.15f),
-            Brightness = 1f,
-            HazeStart = 60f,
-            HazeEnd = 220f,
-        });
-        view.Lights.Shadows(20f, cascades: 3);
-        CannonballField.DrawCannon(view);
         if (_showBodies)
         {
             _overlay.Draw(view, Stuntman);
@@ -164,5 +179,6 @@ public sealed class CannonballGame(World world, Content content, Physics physics
         world.Add(stuntman, new Ragdoll(_body) { Mode = RagdollMode.Off, BlendSeconds = 0.5f });
         _flight.Load(stuntman);
         Camera.Jump();
+        _cut = true;
     }
 }

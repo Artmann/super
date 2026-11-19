@@ -10,16 +10,14 @@ namespace ToonExample;
 /// softens the back. One chrome ball keeps the physically based look, to show both can share a scene. T turns the
 /// toon shading off, so everything is drawn the physically based way, and O the outlines.
 /// </summary>
-public sealed class ToonGarden(Content content, Input input) : IGame
+public sealed class ToonGarden(World world, Content content, Input input) : IGame
 {
-    private const int LanternKey = 1;
-
-    private readonly List<(ModelRef Toon, ModelRef Plain, Matrix4x4 Place)> _pieces = [];
-    private ModelRef _chrome;
+    private readonly List<(ModelRef Toon, ModelRef Plain, Entity Entity)> _pieces = [];
+    private Entity _camera;
+    private Entity _outlines;
     private bool _plain;
     private bool _noOutlines;
     private float _turn;
-    private float _previousTurn;
 
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
     {
@@ -61,7 +59,11 @@ public sealed class ToonGarden(Content content, Input input) : IGame
 
         // A golden ring standing on the lawn to the right, and the chrome ball beside it.
         Add(Shapes.Torus(0.45f, 0.12f, surface: gold), Matrix4x4.CreateRotationY(0.6f) * Matrix4x4.CreateTranslation(1.7f, 0.57f, 0.4f));
-        _chrome = content.Mesh(Shapes.Sphere(0.35f, surface: new Surface { Color = new Vector3(0.95f), Metallic = 1f, Roughness = 0.08f }));
+        var chrome = content.Mesh(Shapes.Sphere(0.35f, surface: new Surface { Color = new Vector3(0.95f), Metallic = 1f, Roughness = 0.08f }));
+        world.Spawn(Transform.At(new Vector3(2.4f, 0.35f, 1.5f)), new Model(chrome));
+        Light();
+        _outlines = world.Spawn(new Outlines(Thickness: 1.5f));
+        _camera = world.Spawn(Camera());
     }
 
     public void Update(GameTime time)
@@ -69,42 +71,43 @@ public sealed class ToonGarden(Content content, Input input) : IGame
         if (input.Pressed(Key.T))
         {
             _plain = !_plain;
+            foreach (var (toon, plain, entity) in _pieces)
+            {
+                world.Get<Model>(entity) = new Model(_plain ? plain : toon);
+            }
         }
 
         if (input.Pressed(Key.O))
         {
             _noOutlines = !_noOutlines;
+            world.Get<Outlines>(_outlines) = new Outlines(Thickness: _noOutlines ? 0f : 1.5f);
         }
 
-        _previousTurn = _turn;
         _turn += 0.05f * time.TickSeconds;
+        world.Get<Camera>(_camera) = Camera();
     }
 
-    public void Draw(View view)
+    // The camera circles the snowman slowly.
+    private Camera Camera()
     {
-        float turn = float.Lerp(_previousTurn, _turn, view.Blend);
-        var eye = new Vector3(MathF.Sin(turn) * 5.5f, 2.4f, MathF.Cos(turn) * 5.5f);
-        view.Camera(position: eye, lookAt: new Vector3(0f, 0.9f, 0f), fieldOfView: 0.9f);
-        view.Surroundings.Sky(new SkySettings
-        {
-            Zenith = new Vector3(0.25f, 0.4f, 0.8f),
-            Horizon = new Vector3(0.85f, 0.7f, 0.6f),
-            Ground = new Vector3(0.2f, 0.25f, 0.15f),
-            Brightness = 0.6f,
-            Fog = new FogSettings(Density: 0.03f, Height: 0f, Falloff: 0.2f, SunScatter: 0.4f),
-        });
-        view.Lights.Sun(direction: new Vector3(0.7f, 0.55f, 0.4f), color: new Vector3(4.5f, 4f, 3.3f), shadows: true);
-        view.Lights.Shadows(10f, 2);
-        view.Lights.Point(LanternKey, new PointLight(new Vector3(-2.5f, 1.3f, 1.6f), new Vector3(6f, 3.5f, 1.5f), 3.5f));
-        view.Effects.Outlines(thickness: _noOutlines ? 0f : 1.5f);
+        var eye = new Vector3(MathF.Sin(_turn) * 5.5f, 2.4f, MathF.Cos(_turn) * 5.5f);
+        return new Camera(eye, new Vector3(0f, 0.9f, 0f), 0.9f);
+    }
 
-        for (int i = 0; i < _pieces.Count; i++)
-        {
-            var (toon, plain, place) = _pieces[i];
-            view.Model(10 + i, _plain ? plain : toon, place);
-        }
-
-        view.Model(9, _chrome, Matrix4x4.CreateTranslation(2.4f, 0.35f, 1.5f));
+    private void Light()
+    {
+        world.Spawn(
+            new Sky(new SkySettings
+            {
+                Zenith = new Vector3(0.25f, 0.4f, 0.8f),
+                Horizon = new Vector3(0.85f, 0.7f, 0.6f),
+                Ground = new Vector3(0.2f, 0.25f, 0.15f),
+                Brightness = 0.6f,
+                Fog = new FogSettings(Density: 0.03f, Height: 0f, Falloff: 0.2f, SunScatter: 0.4f),
+            }),
+            new Sun(new Vector3(0.7f, 0.55f, 0.4f), new Vector3(4.5f, 4f, 3.3f), CastsShadows: true),
+            new Shadows(10f, 2));
+        world.Spawn(new PointLight(new Vector3(-2.5f, 1.3f, 1.6f), new Vector3(6f, 3.5f, 1.5f), 3.5f));
     }
 
     private static Surface Cartoon(Vector3 color, int steps = 3, float roughness = 0.8f, float metallic = 0f, Vector3 rim = default, bool outline = true) =>
@@ -118,6 +121,10 @@ public sealed class ToonGarden(Content content, Input input) : IGame
         };
 
     // Each piece twice: toon, and plain for T.
-    private void Add(GeneratedMesh mesh, Matrix4x4 place) =>
-        _pieces.Add((content.Mesh(mesh), content.Mesh(mesh with { Surface = mesh.Surface with { Toon = null, Features = SurfaceFeatures.None } }), place));
+    private void Add(GeneratedMesh mesh, Matrix4x4 place)
+    {
+        var toon = content.Mesh(mesh);
+        var plain = content.Mesh(mesh with { Surface = mesh.Surface with { Toon = null, Features = SurfaceFeatures.None } });
+        _pieces.Add((toon, plain, world.Spawn(Transform.From(place), new Model(toon))));
+    }
 }

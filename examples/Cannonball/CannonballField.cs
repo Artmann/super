@@ -27,9 +27,6 @@ public sealed class CannonballField(World world)
     // Balls are drawn and collide at this radius: a unit sphere scaled to twice it.
     private const float BallRadius = 0.6f;
 
-    // Above any entity's ID, so these keys never meet the ones the world gives entities.
-    private const int CannonKey = 1_000_000;
-
     /// <summary>The point the cannon turns about, at the back of the barrel.</summary>
     public static readonly Vector3 Breech = new(0f, 1.2f, 0f);
 
@@ -58,21 +55,24 @@ public sealed class CannonballField(World world)
         BuildBales();
     }
 
-    /// <summary>Draws the cannon. It's scenery the stuntman flies out of, so it has no collider to catch on.</summary>
-    public static void DrawCannon(View view)
+    /// <summary>
+    /// Puts the cannon in the world, once: it stays put when the field is stacked up again. It's scenery the stuntman
+    /// flies out of, so it has no collider to catch on.
+    /// </summary>
+    public void Cannon()
     {
         var tilt = Quaternion.CreateFromAxisAngle(Vector3.UnitX, (MathF.PI / 2f) - Elevation);
         var barrel = Matrix4x4.CreateScale(1.1f, BarrelLength, 1.1f) * Matrix4x4.CreateTranslation(0f, BarrelLength / 2f, 0f)
             * Matrix4x4.CreateFromQuaternion(tilt) * Matrix4x4.CreateTranslation(Breech);
-        view.Model(CannonKey, ModelRef.Cylinder, barrel, new Vector3(0.12f, 0.12f, 0.14f));
+        world.Spawn(Transform.From(barrel), new Model(ModelRef.Cylinder, new Vector3(0.12f, 0.12f, 0.14f)));
         var muzzle = Matrix4x4.CreateScale(1.4f, 0.25f, 1.4f) * Matrix4x4.CreateTranslation(0f, BarrelLength - 0.1f, 0f)
             * Matrix4x4.CreateFromQuaternion(tilt) * Matrix4x4.CreateTranslation(Breech);
-        view.Model(CannonKey + 1, ModelRef.Cylinder, muzzle, new Vector3(0.7f, 0.15f, 0.12f));
-        view.Model(CannonKey + 2, ModelRef.Cube, Matrix4x4.CreateScale(1.6f, 0.9f, 2.4f) * Matrix4x4.CreateTranslation(0f, 0.45f, -0.2f), new Vector3(0.45f, 0.25f, 0.12f));
+        world.Spawn(Transform.From(muzzle), new Model(ModelRef.Cylinder, new Vector3(0.7f, 0.15f, 0.12f)));
+        world.Spawn(new Transform(new Vector3(0f, 0.45f, -0.2f), Quaternion.Identity, new Vector3(1.6f, 0.9f, 2.4f)), new Model(ModelRef.Cube, new Vector3(0.45f, 0.25f, 0.12f)));
         foreach (float side in (ReadOnlySpan<float>)[-1f, 1f])
         {
-            var wheel = Matrix4x4.CreateScale(1.5f, 0.2f, 1.5f) * Matrix4x4.CreateRotationZ(MathF.PI / 2f) * Matrix4x4.CreateTranslation(side * 0.95f, 0.75f, 0f);
-            view.Model(CannonKey + (side < 0f ? 3 : 4), ModelRef.Cylinder, wheel, new Vector3(0.5f, 0.12f, 0.1f));
+            var turn = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2f);
+            world.Spawn(new Transform(new Vector3(side * 0.95f, 0.75f, 0f), turn, new Vector3(1.5f, 0.2f, 1.5f)), new Model(ModelRef.Cylinder, new Vector3(0.5f, 0.12f, 0.1f)));
         }
     }
 
