@@ -105,17 +105,17 @@ internal sealed unsafe class FsrPass : IDisposable
         RecordInputs(cmd, sets, _fsr, (_motion, _exposure));
 
         // FSR samples depth from compute shaders, in the layout it was told.
-        api.Transition(cmd, depth, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthReadOnlyOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit | PipelineStageFlags2.FragmentShaderBit,
-            AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit);
+        api.Transition(cmd, new ImageTransition(depth, ImageAspectFlags.DepthBit,
+            ImageLayout.DepthReadOnlyOptimal, ImageLayout.ShaderReadOnlyOptimal),
+            (PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit | PipelineStageFlags2.FragmentShaderBit,
+            AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
 
         // Last frame's passes after FSR sampled the output. FSR writes all of it, so what it held goes.
-        api.Transition(cmd, output, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.General,
-            PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderStorageReadBit);
+        api.Transition(cmd, new ImageTransition(output, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.General),
+            (PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderStorageReadBit));
 
         // FSR's own passes read what the fragment passes above wrote, and keep their history between frames.
         MemoryBarrier(cmd);
@@ -124,14 +124,14 @@ internal sealed unsafe class FsrPass : IDisposable
             frame.Jitter, frame.Milliseconds, frame.Reset, frame.CameraNear, frame.VerticalFov));
         MemoryBarrier(cmd);
 
-        api.Transition(cmd, output, ImageAspectFlags.ColorBit,
-            ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit);
-        api.Transition(cmd, depth, ImageAspectFlags.DepthBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit);
+        api.Transition(cmd, new ImageTransition(output, ImageAspectFlags.ColorBit,
+            ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
+            (PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
+        api.Transition(cmd, new ImageTransition(depth, ImageAspectFlags.DepthBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
     }
 
     // Draws the motion vectors FSR reads, and the exposure it reads, into their own targets.

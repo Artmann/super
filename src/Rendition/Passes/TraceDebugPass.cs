@@ -68,21 +68,21 @@ internal sealed unsafe class TraceDebugPass : IDisposable
         _tracing.ReadyToTrace(cmd);
 
         // Last frame sampled it, copied it and metered it; its contents are all replaced.
-        api.Transition(cmd, output.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.General,
-            PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit,
-            AccessFlags2.None,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit);
+        api.Transition(cmd, new ImageTransition(output.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.General),
+            (PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit,
+            AccessFlags2.None),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
 
         var sets = stackalloc DescriptorSet[] { tables.Frame, set, tables.Resources };
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipeline);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 3, sets, 0, null);
         api.CmdDispatch(cmd, (extent.Width + GroupSize - 1) / GroupSize, (extent.Height + GroupSize - 1) / GroupSize, 1);
 
-        api.Transition(cmd, output.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit);
+        api.Transition(cmd, new ImageTransition(output.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
+            (PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
     }
 
     private void WriteSet(DescriptorSet set, in TopLevelStructure scene, ImageView target)

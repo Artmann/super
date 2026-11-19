@@ -119,10 +119,10 @@ internal sealed unsafe class BloomPass : IDisposable
     /// still binds it, so it's made ready to sample.
     /// </summary>
     public void RecordSkipped(CommandBuffer cmd) =>
-        _context.Api.Transition(cmd, _levels.Up[0].Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit);
+        _context.Api.Transition(cmd, new ImageTransition(_levels.Up[0].Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal),
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
 
     /// <summary>Expects the HDR image to be ready for sampling.</summary>
     public void Record(CommandBuffer cmd)

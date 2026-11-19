@@ -148,15 +148,15 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
         api.EndColorTarget(cmd, layers.Far.Image);
 
         // The combine blends over the picture, so it keeps what's there. The meter, a compute pass, reads it after.
-        api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.ColorAttachmentOptimal,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentReadBit | AccessFlags2.ColorAttachmentWriteBit);
+        api.Transition(cmd, new ImageTransition(target.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.ColorAttachmentOptimal),
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentReadBit | AccessFlags2.ColorAttachmentWriteBit));
         _combinePass.Record(cmd, [target.View], target.Extent, [frameSet, _sets.Combine], bytes);
-        api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
-            PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit);
+        api.Transition(cmd, new ImageTransition(target.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal),
+            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit),
+            (PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
     }
 
     public void Dispose()

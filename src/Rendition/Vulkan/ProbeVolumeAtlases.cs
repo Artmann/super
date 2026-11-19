@@ -154,9 +154,8 @@ internal sealed unsafe class ProbeVolumeAtlases : IDisposable
         var image = made.Image;
         _context.SubmitAndWait(cmd =>
         {
-            api.Transition(cmd, image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General,
-                PipelineStageFlags2.None, AccessFlags2.None, PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
-                layerCount: Layers);
+            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General) { LayerCount = Layers },
+                (PipelineStageFlags2.None, AccessFlags2.None), (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit));
             var black = new ClearColorValue(0f, 0f, 0f, 0f);
             var cleared = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, Layers);
             api.CmdClearColorImage(cmd, image, ImageLayout.General, &black, 1, &cleared);

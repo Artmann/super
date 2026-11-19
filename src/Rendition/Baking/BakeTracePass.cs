@@ -74,15 +74,15 @@ internal sealed unsafe class BakeTracePass : IDisposable
         var range = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1);
         foreach (var sum in sums)
         {
-            api.Transition(cmd, sum.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.General,
-                PipelineStageFlags2.None, AccessFlags2.None,
-                PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit);
+            api.Transition(cmd, new ImageTransition(sum.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.General),
+                (PipelineStageFlags2.None, AccessFlags2.None),
+                (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit));
             api.CmdClearColorImage(cmd, sum.Image, ImageLayout.General, &clear, 1, &range);
-            api.Transition(cmd, sum.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.General, ImageLayout.General,
-                PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
+            api.Transition(cmd, new ImageTransition(sum.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.General, ImageLayout.General),
+                (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit),
+                (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit));
         }
     }
 

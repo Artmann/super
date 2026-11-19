@@ -57,11 +57,11 @@ internal sealed unsafe class ProbeDebugPass : IDisposable
         const AccessFlags2 depthRead = AccessFlags2.DepthStencilAttachmentReadBit;
         const AccessFlags2 depthAccess = depthRead | AccessFlags2.DepthStencilAttachmentWriteBit;
 
-        api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, colorStage, colorAccess, colorStage, colorAccess);
-        api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthReadOnlyOptimal, ImageLayout.DepthAttachmentOptimal,
-            depthStages | PipelineStageFlags2.FragmentShaderBit, depthRead | AccessFlags2.ShaderSampledReadBit, depthStages, depthAccess);
+        api.Transition(cmd, new ImageTransition(targets.Hdr.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal), (colorStage, colorAccess), (colorStage, colorAccess));
+        api.Transition(cmd, new ImageTransition(targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.DepthReadOnlyOptimal, ImageLayout.DepthAttachmentOptimal),
+            (depthStages | PipelineStageFlags2.FragmentShaderBit, depthRead | AccessFlags2.ShaderSampledReadBit), (depthStages, depthAccess));
 
         Begin(cmd, targets);
         var sets = stackalloc DescriptorSet[] { frameSet, lightingSet };
@@ -70,10 +70,10 @@ internal sealed unsafe class ProbeDebugPass : IDisposable
         api.CmdDraw(cmd, VerticesPerSphere, spheres, 0, 0);
         api.CmdEndRendering(cmd);
 
-        api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthAttachmentOptimal, ImageLayout.DepthReadOnlyOptimal,
-            depthStages, AccessFlags2.DepthStencilAttachmentWriteBit,
-            depthStages | PipelineStageFlags2.FragmentShaderBit, depthRead | AccessFlags2.ShaderSampledReadBit);
+        api.Transition(cmd, new ImageTransition(targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.DepthAttachmentOptimal, ImageLayout.DepthReadOnlyOptimal),
+            (depthStages, AccessFlags2.DepthStencilAttachmentWriteBit),
+            (depthStages | PipelineStageFlags2.FragmentShaderBit, depthRead | AccessFlags2.ShaderSampledReadBit));
     }
 
     // Begins rendering into Hdr, keeping what is there, with depth attached to test and write.

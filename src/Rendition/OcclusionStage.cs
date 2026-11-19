@@ -54,10 +54,10 @@ internal sealed unsafe class OcclusionStage : IDisposable
         if (off.HasFlag(RenderEffects.AmbientOcclusion))
         {
             targets.Occlusion.HistoryReady = false;
-            _api.Transition(cmd, targets.Occlusion.AoBlurred.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
-            _api.Transition(cmd, targets.Occlusion.BounceBlurred.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+            _api.Transition(cmd, new ImageTransition(targets.Occlusion.AoBlurred.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (SampledStage, SampledAccess), (SampledStage, SampledAccess));
+            _api.Transition(cmd, new ImageTransition(targets.Occlusion.BounceBlurred.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (SampledStage, SampledAccess), (SampledStage, SampledAccess));
             timer.Mark(cmd);
             timer.Mark(cmd);
             return;
@@ -99,10 +99,10 @@ internal sealed unsafe class OcclusionStage : IDisposable
         if (!targets.Occlusion.HistoryReady)
         {
             // The pass binds the history even before there is any.
-            _api.Transition(cmd, targets.Occlusion.AoHistory.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
-            _api.Transition(cmd, targets.Occlusion.BounceHistory.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+            _api.Transition(cmd, new ImageTransition(targets.Occlusion.AoHistory.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (SampledStage, SampledAccess), (SampledStage, SampledAccess));
+            _api.Transition(cmd, new ImageTransition(targets.Occlusion.BounceHistory.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (SampledStage, SampledAccess), (SampledStage, SampledAccess));
         }
 
         var extent = targets.Occlusion.Extent;

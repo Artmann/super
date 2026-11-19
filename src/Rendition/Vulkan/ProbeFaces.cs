@@ -43,9 +43,9 @@ internal sealed unsafe class ProbeFaces : IDisposable
         // The fold samples the faces, so they start readable for the first frame's barriers.
         var api = context.Api;
         var faces = _color.Image;
-        context.SubmitAndWait(cmd => api.Transition(cmd, faces, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, PipelineStageFlags2.None, AccessFlags2.None,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit, layerCount: layers));
+        context.SubmitAndWait(cmd => api.Transition(cmd, new ImageTransition(faces, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal) { LayerCount = layers }, (PipelineStageFlags2.None, AccessFlags2.None),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit)));
     }
 
     /// <summary>How many probes' faces fit: the rasterized budget.</summary>

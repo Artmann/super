@@ -82,10 +82,10 @@ internal sealed unsafe class TexelDraw : IDisposable
         var api = _context.Api;
         foreach (var target in targets.Colors)
         {
-            api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal,
-                PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit, AccessFlags2.None,
-                PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit);
+            api.Transition(cmd, new ImageTransition(target.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal),
+                (PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit, AccessFlags2.None),
+                (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit));
         }
 
         var extent = new Extent2D(LightmapLayout.PageSize, LightmapLayout.PageSize);
@@ -93,10 +93,10 @@ internal sealed unsafe class TexelDraw : IDisposable
 
         foreach (var target in targets.Colors)
         {
-            api.Transition(cmd, target.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.ColorAttachmentOptimal, ImageLayout.General,
-                PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit);
+            api.Transition(cmd, new ImageTransition(target.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.ColorAttachmentOptimal, ImageLayout.General),
+                (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit),
+                (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit));
         }
     }
 

@@ -86,12 +86,12 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
     public void RecordStart(CommandBuffer cmd)
     {
         var api = _context.Api;
-        api.Transition(cmd, _color.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, ComputeStage, AccessFlags2.ShaderSampledReadBit,
-            ColorStage, AccessFlags2.ColorAttachmentWriteBit, layerCount: 6);
-        api.Transition(cmd, _depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, DepthStages, AccessFlags2.DepthStencilAttachmentWriteBit,
-            DepthStages, AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.DepthStencilAttachmentWriteBit, layerCount: 6);
+        api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal) { LayerCount = 6 }, (ComputeStage, AccessFlags2.ShaderSampledReadBit),
+            (ColorStage, AccessFlags2.ColorAttachmentWriteBit));
+        api.Transition(cmd, new ImageTransition(_depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal) { LayerCount = 6 }, (DepthStages, AccessFlags2.DepthStencilAttachmentWriteBit),
+            (DepthStages, AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.DepthStencilAttachmentWriteBit));
     }
 
     /// <summary>
@@ -101,9 +101,9 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
     public void RecordFinish(CommandBuffer cmd, float environmentIntensity)
     {
         var api = _context.Api;
-        api.Transition(cmd, _color.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.General, ColorStage, AccessFlags2.ColorAttachmentWriteBit,
-            ComputeStage, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit, layerCount: 6);
+        api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.General) { LayerCount = 6 }, (ColorStage, AccessFlags2.ColorAttachmentWriteBit),
+            (ComputeStage, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit));
 
         var set = _set;
         var constants = new SkyConstants { EnvironmentIntensity = environmentIntensity };
@@ -113,9 +113,9 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
         uint groups = (ProbeCubes.FaceSize + 7) / 8;
         api.CmdDispatch(cmd, groups, groups, 6);
 
-        api.Transition(cmd, _color.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.General, ImageLayout.TransferSrcOptimal, ComputeStage, AccessFlags2.ShaderStorageWriteBit,
-            CopyStage, AccessFlags2.TransferReadBit, layerCount: 6);
+        api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.General, ImageLayout.TransferSrcOptimal) { LayerCount = 6 }, (ComputeStage, AccessFlags2.ShaderStorageWriteBit),
+            (CopyStage, AccessFlags2.TransferReadBit));
         RecordMips(cmd);
     }
 
@@ -126,9 +126,9 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
         int size = (int)ProbeCubes.FaceSize;
         for (uint mip = 1; mip < Mips; mip++)
         {
-            api.Transition(cmd, _color.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.TransferDstOptimal, ComputeStage, AccessFlags2.ShaderSampledReadBit,
-                CopyStage, AccessFlags2.TransferWriteBit, baseMip: mip, layerCount: 6);
+            api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.TransferDstOptimal) { BaseMip = mip, LayerCount = 6 },
+                (ComputeStage, AccessFlags2.ShaderSampledReadBit), (CopyStage, AccessFlags2.TransferWriteBit));
             int next = Math.Max(size / 2, 1);
             var blit = new ImageBlit
             {
@@ -138,15 +138,15 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
             blit.SrcOffsets[1] = new Offset3D(size, size, 1);
             blit.DstOffsets[1] = new Offset3D(next, next, 1);
             api.CmdBlitImage(cmd, _color.Image, ImageLayout.TransferSrcOptimal, _color.Image, ImageLayout.TransferDstOptimal, 1, &blit, Filter.Linear);
-            api.Transition(cmd, _color.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferDstOptimal, ImageLayout.TransferSrcOptimal, CopyStage, AccessFlags2.TransferWriteBit,
-                CopyStage, AccessFlags2.TransferReadBit, baseMip: mip, layerCount: 6);
+            api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.TransferDstOptimal, ImageLayout.TransferSrcOptimal) { BaseMip = mip, LayerCount = 6 },
+                (CopyStage, AccessFlags2.TransferWriteBit), (CopyStage, AccessFlags2.TransferReadBit));
             size = next;
         }
 
-        api.Transition(cmd, _color.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal, CopyStage, AccessFlags2.TransferReadBit,
-            ComputeStage, AccessFlags2.ShaderSampledReadBit, mipCount: Mips, layerCount: 6);
+        api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal) { MipCount = Mips, LayerCount = 6 },
+            (CopyStage, AccessFlags2.TransferReadBit), (ComputeStage, AccessFlags2.ShaderSampledReadBit));
     }
 
     private ImageView CreateView(ImageViewType type, uint mips)

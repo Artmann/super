@@ -132,24 +132,24 @@ internal sealed unsafe class SunShadows
         var shadowMap = _pass.Target.Image;
         if (_drawn)
         {
-            _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
-                DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit, layerCount: ShadowPass.MaxCascades);
+            _api.Transition(cmd, new ImageTransition(shadowMap, ImageAspectFlags.DepthBit,
+                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal) { LayerCount = ShadowPass.MaxCascades },
+                (ShadowReadStages, SampledAccess), (DepthStages, DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit));
             for (int cascade = 0; cascade < _cascades; cascade++)
             {
                 var casters = _draws[cascade].AsSpan(0, _counts[cascade]);
                 _pass.Record(cmd, frameSet, new SceneGeometry(casters, _meshes.MeshSlots, _meshes.DetailSlots, instances), cascade);
             }
 
-            _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess,
-                layerCount: ShadowPass.MaxCascades);
+            _api.Transition(cmd, new ImageTransition(shadowMap, ImageAspectFlags.DepthBit,
+                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal) { LayerCount = ShadowPass.MaxCascades },
+                (DepthStages, DepthWrite), (ShadowReadStages, SampledAccess));
         }
         else
         {
-            _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, ShadowReadStages, SampledAccess, ShadowReadStages, SampledAccess,
-                layerCount: ShadowPass.MaxCascades);
+            _api.Transition(cmd, new ImageTransition(shadowMap, ImageAspectFlags.DepthBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal) { LayerCount = ShadowPass.MaxCascades },
+                (ShadowReadStages, SampledAccess), (ShadowReadStages, SampledAccess));
         }
     }
 

@@ -208,25 +208,25 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
 
         System.Buffers.ArrayPool<int>.Shared.Return(order);
 
-        api.Transition(cmd, volume.Faces!.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit, layerCount: layers);
+        api.Transition(cmd, new ImageTransition(volume.Faces!.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal) { LayerCount = layers },
+            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
     }
 
     // Makes the first `layers` faces ready to draw into, colour and depth. The last fold may still be reading them.
     private void ReadyFaces(CommandBuffer cmd, ProbeVolume volume, uint layers)
     {
         var api = _context.Api;
-        api.Transition(cmd, volume.Faces!.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.ColorAttachmentOptimal,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit, layerCount: layers);
-        api.Transition(cmd, volume.Faces!.DepthImage, ImageAspectFlags.DepthBit,
-            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal,
-            PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit, AccessFlags2.DepthStencilAttachmentWriteBit,
-            PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit,
-            AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.DepthStencilAttachmentWriteBit, layerCount: layers);
+        api.Transition(cmd, new ImageTransition(volume.Faces!.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.ColorAttachmentOptimal) { LayerCount = layers },
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit));
+        api.Transition(cmd, new ImageTransition(volume.Faces!.DepthImage, ImageAspectFlags.DepthBit,
+            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal) { LayerCount = layers },
+            (PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit, AccessFlags2.DepthStencilAttachmentWriteBit),
+            (PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit,
+            AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.DepthStencilAttachmentWriteBit));
     }
 
     public void Dispose()

@@ -12,36 +12,31 @@ internal static unsafe class VulkanExtensions
         }
     }
 
-    /// <summary>Records an image layout change along with the access ordering around it.</summary>
+    /// <summary>
+    /// Records an image layout change along with the access ordering around it: work at <paramref name="before"/>
+    /// finishes, and its writes are visible to <paramref name="after"/>.
+    /// </summary>
     public static void Transition(
         this Vk api,
         CommandBuffer cmd,
-        Image image,
-        ImageAspectFlags aspect,
-        ImageLayout from,
-        ImageLayout to,
-        PipelineStageFlags2 sourceStage,
-        AccessFlags2 sourceAccess,
-        PipelineStageFlags2 destinationStage,
-        AccessFlags2 destinationAccess,
-        uint mipCount = 1,
-        uint baseMip = 0,
-        uint baseLayer = 0,
-        uint layerCount = 1)
+        in ImageTransition transition,
+        (PipelineStageFlags2 Stage, AccessFlags2 Access) before,
+        (PipelineStageFlags2 Stage, AccessFlags2 Access) after)
     {
         var barrier = new ImageMemoryBarrier2
         {
             SType = StructureType.ImageMemoryBarrier2,
-            SrcStageMask = sourceStage,
-            SrcAccessMask = sourceAccess,
-            DstStageMask = destinationStage,
-            DstAccessMask = destinationAccess,
-            OldLayout = from,
-            NewLayout = to,
+            SrcStageMask = before.Stage,
+            SrcAccessMask = before.Access,
+            DstStageMask = after.Stage,
+            DstAccessMask = after.Access,
+            OldLayout = transition.From,
+            NewLayout = transition.To,
             SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
             DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
-            Image = image,
-            SubresourceRange = new ImageSubresourceRange(aspect, baseMip, mipCount, baseLayer, layerCount),
+            Image = transition.Image,
+            SubresourceRange = new ImageSubresourceRange(
+                transition.Aspect, transition.BaseMip, transition.MipCount, transition.BaseLayer, transition.LayerCount),
         };
         var dependency = new DependencyInfo
         {
@@ -81,15 +76,15 @@ internal static unsafe class VulkanExtensions
     /// frames in flight, so this waits for the previous frame's sampling to finish.
     /// </summary>
     public static void BeginColorTarget(this Vk api, CommandBuffer cmd, Image image) =>
-        api.Transition(cmd, image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit);
+        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal),
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit));
 
     /// <summary>Makes a finished target ready for the next pass to sample.</summary>
     public static void EndColorTarget(this Vk api, CommandBuffer cmd, Image image) =>
-        api.Transition(cmd, image, ImageAspectFlags.ColorBit, ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit);
+        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal),
+            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit),
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
 
     /// <summary>Sets the viewport and scissor to cover the whole target.</summary>
     public static void SetFullViewport(this Vk api, CommandBuffer cmd, Extent2D extent)

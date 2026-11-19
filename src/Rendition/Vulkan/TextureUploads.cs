@@ -47,10 +47,10 @@ internal static unsafe class TextureUploads
         var readers = texture.Context.CanTrace
             ? PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit | RayTracing.TraceStages
             : PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit;
-        api.Transition(cmd, texture.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
-            PipelineStageFlags2.None, AccessFlags2.None,
-            PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit, texture.MipCount, 0, 0, texture.Layers);
+        api.Transition(cmd, new ImageTransition(texture.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal) { MipCount = texture.MipCount, LayerCount = texture.Layers },
+            (PipelineStageFlags2.None, AccessFlags2.None),
+            (PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit));
 
         // One region per mip per layer. Arrays with many layers go past what the stack should hold.
         int regionCount = (int)(texture.MipCount * texture.Layers);
@@ -61,10 +61,10 @@ internal static unsafe class TextureUploads
             api.CmdCopyBufferToImage(cmd, staging.Handle, texture.Image, ImageLayout.TransferDstOptimal, (uint)regionCount, first);
         }
 
-        api.Transition(cmd, texture.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit,
-            readers, AccessFlags2.ShaderSampledReadBit, texture.MipCount, 0, 0, texture.Layers);
+        api.Transition(cmd, new ImageTransition(texture.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal) { MipCount = texture.MipCount, LayerCount = texture.Layers },
+            (PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit),
+            (readers, AccessFlags2.ShaderSampledReadBit));
     }
 
     /// <summary>
@@ -78,10 +78,10 @@ internal static unsafe class TextureUploads
         var api = texture.Context.Api;
         if (band.Opens)
         {
-            api.Transition(cmd, texture.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
-                PipelineStageFlags2.None, AccessFlags2.None,
-                PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit, 1, 0, 0, 1);
+            api.Transition(cmd, new ImageTransition(texture.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.TransferDstOptimal),
+                (PipelineStageFlags2.None, AccessFlags2.None),
+                (PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit));
         }
 
         var region = new BufferImageCopy
@@ -98,10 +98,10 @@ internal static unsafe class TextureUploads
             var readers = texture.Context.CanTrace
                 ? PipelineStageFlags2.FragmentShaderBit | RayTracing.TraceStages
                 : PipelineStageFlags2.FragmentShaderBit;
-            api.Transition(cmd, texture.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
-                PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit,
-                readers, AccessFlags2.ShaderSampledReadBit, 1, 0, 0, 1);
+            api.Transition(cmd, new ImageTransition(texture.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal),
+                (PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit),
+                (readers, AccessFlags2.ShaderSampledReadBit));
         }
     }
 

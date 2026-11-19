@@ -134,10 +134,10 @@ internal sealed unsafe class TransparentPass : IDisposable
         // needs a readable layout on frames that don't make one. Its contents go unread.
         if (glassCount > 0 && !_steps.Exists(step => step.Kind == TransparentStepKind.Copy))
         {
-            _context.Api.Transition(cmd, targets.SceneColor.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal,
-                PipelineStageFlags2.FragmentShaderBit, AccessFlags2.None,
-                PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit, mipCount: targets.SceneColor.Mips);
+            _context.Api.Transition(cmd, new ImageTransition(targets.SceneColor.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal) { MipCount = targets.SceneColor.Mips },
+                (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.None),
+                (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
         }
 
         TransparentTargets.Begin(_context.Api, cmd, targets);

@@ -43,11 +43,10 @@ internal sealed unsafe class ProbeCubes : IDisposable
         var api = context.Api;
         var image = _image;
         uint layers = (uint)Capacity * 6;
-        context.SubmitAndWait(cmd => api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.None, AccessFlags2.None,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-            mipCount: Mips, layerCount: layers));
+        context.SubmitAndWait(cmd => api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal) { MipCount = Mips, LayerCount = layers },
+            (PipelineStageFlags2.None, AccessFlags2.None),
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit)));
     }
 
     /// <summary>One cube's mip as six layers, for the blur to write.</summary>
@@ -80,16 +79,14 @@ internal sealed unsafe class ProbeCubes : IDisposable
     private void RecordCopy(CommandBuffer cmd, Image old, Image image, uint oldLayers, uint layers)
     {
         var api = _context.Api;
-        api.Transition(cmd, old, ImageAspectFlags.ColorBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit,
-            mipCount: Mips, layerCount: oldLayers);
-        api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
-            PipelineStageFlags2.None, AccessFlags2.None,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
-            mipCount: Mips, layerCount: layers);
+        api.Transition(cmd, new ImageTransition(old, ImageAspectFlags.ColorBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal) { MipCount = Mips, LayerCount = oldLayers },
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
+        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal) { MipCount = Mips, LayerCount = layers },
+            (PipelineStageFlags2.None, AccessFlags2.None),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit));
 
         var regions = stackalloc ImageCopy[Mips];
         for (int mip = 0; mip < Mips; mip++)
@@ -104,11 +101,10 @@ internal sealed unsafe class ProbeCubes : IDisposable
         }
 
         api.CmdCopyImage(cmd, old, ImageLayout.TransferSrcOptimal, image, ImageLayout.TransferDstOptimal, Mips, regions);
-        api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-            mipCount: Mips, layerCount: layers);
+        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal) { MipCount = Mips, LayerCount = layers },
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit),
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
     }
 
     private void CreateViews()
