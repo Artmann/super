@@ -4,9 +4,9 @@ using Rendition;
 namespace Super;
 
 /// <summary>
-/// What the world puts in a frame by itself, before the game's Draw: every entity's model, and in time its camera,
-/// lights, settings and emitters, so a game describes the world once, as entities, and Draw is only for what one frame
-/// shows.
+/// What the world puts in a frame by itself, before the game's Draw: every entity's model, camera,
+/// lights, settings, decals, fog volumes, probes and emitters, so a game describes the world once, as entities,
+/// and Draw is only for what one frame shows.
 /// </summary>
 internal static class WorldFrame
 {
@@ -27,6 +27,7 @@ internal static class WorldFrame
         }
 
         WorldLights.Describe(view, world);
+        WorldPlaced.Describe(view, world);
         Models(view, world);
         WorldEmitters.Describe(view, world);
     }
@@ -219,6 +220,39 @@ internal static class WorldFrame
                 ? float.Lerp(LastTicks[i].PreviousPhase, swim.Phase, blend)
                 : swim.Phase;
             return new SwimMotion(swim.Amplitude, swim.BodyLength, phase);
+        }
+    }
+
+    /// <summary>What <see cref="EachShown"/> does with each entity, as a struct so the call is made without a delegate.</summary>
+    internal interface IShownVisitor
+    {
+        void Visit<T>(View view, World world, Entity entity, ref T value)
+            where T : struct;
+    }
+
+    /// <summary>Hands every <typeparamref name="T"/> in the world whose entity isn't <see cref="IsHidden"/> to the visitor.</summary>
+    internal static void EachShown<T, TVisitor>(View view, World world)
+        where T : struct
+        where TVisitor : struct, IShownVisitor
+    {
+        int type = world.Archetypes.TypeIdOrMissing<T>();
+        if (type < 0)
+        {
+            return;
+        }
+
+        int index = -1;
+        while (world.Archetypes.NextMatching(ref index, default(ComponentMask).With(type)) is { } archetype)
+        {
+            var values = archetype.Column<T>(type).Values;
+            for (int i = 0; i < archetype.Count; i++)
+            {
+                var entity = archetype.Entities[i];
+                if (!IsHidden(world, entity))
+                {
+                    default(TVisitor).Visit(view, world, entity, ref values[i]);
+                }
+            }
         }
     }
 

@@ -31,7 +31,7 @@ And when a scene asks for it:
 - [Height fog](#fog) that glows towards the sun, and [volumetric fog](#volumetric-fog) near the camera, with shafts of sunlight and halos round lamps
 - [Auto exposure](#auto-exposure) that meters the frame and adapts like a camera
 - [Depth of field](#focus) from a lens with a focus distance, an aperture and a focal length
-- [Decals](views.md#decals) that lay grime, rust, moss and boot prints onto what is under them
+- [Decals](#decals) that lay grime, rust, moss and boot prints onto what is under them
 - [Puddles](#puddles) of standing water, with a damp band, wherever the ground lies below a level
 - [Wind](#wind) that sways grass, leaves and their shadows
 - [Wear and dirt](#wear-and-dirt) on edges and in hollows, from masks the cook bakes from the mesh
@@ -97,13 +97,13 @@ next frame follows, so it can back an options menu.
 | `Atmosphere.Stars` | A [physical sky](#night) at night has no stars. The moon stays. They cost a little per sky pixel, so they stay on even in `Graphics.Fastest()` |
 | `Atmosphere.Underwater` | An `Underwater` entity is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
 | `Atmosphere.VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps, and under water no shafts of light. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
-| `Atmosphere.FogVolumes` | The [fog volumes](views.md#fog-volumes) a view places are left out, and only the scene's own fog fills the volumetric fog. They show only while `VolumetricFog` is on too. `Graphics.Fastest()` turns it off |
+| `Atmosphere.FogVolumes` | The [fog volumes](#fog-volumes) a frame places are left out, and only the scene's own fog fills the volumetric fog. They show only while `VolumetricFog` is on too. `Graphics.Fastest()` turns it off |
 | `Atmosphere.VolumetricFogCellSize` | Not a switch: how many scene pixels across, each way, one cell of the [volumetric fog's](#volumetric-fog) grid covers, from 4 to 32. 8 is the default. Smaller cells show finer shafts and sharper edges on fog volumes; each halving costs about four times the memory and work. The size is after `RenderScale`. Anything else is refused. A change remakes the grid before the next frame, which waits for the GPU once and starts its history again. See [the grid's cost](#the-grids-cost) |
 | `Atmosphere.VolumetricFogSlices` | Not a switch: how many slices deep the volumetric fog's grid is, from 16 to 128, out to `FogSettings.VolumetricDistance`. 64 is the default. More slices keep shafts and fog volumes sharp further out, for memory and work that grow with the count. Anything else is refused. A change remakes the grid like `VolumetricFogCellSize`. `GraphicsQuality.Ultra` sets 128 |
 | `Picture.AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
 | `Picture.DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
 | `Surfaces.Particles` | No [particles](views.md#particles) are drawn, and none is uploaded. The game can still emit them |
-| `Surfaces.Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Effects.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
+| `Surfaces.Decals` | No [decals](#decals): surfaces show as they are, without the grime and stains `Decal` entities lay on them. It saves a copy of the normal target and a pass over the decals' pixels |
 | `Surfaces.Puddles` | Every surface is dry, whatever level a `Puddles` entity sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
 | `Surfaces.Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever a `Wind` entity sets, and so do their shadows |
 | `Baking.BakedLighting` | Every bake is ignored, so each [baked area](#baked-lighting) is lit live, as if it had never been baked: lights its bake holds are drawn again. It shows what a bake changes. A bake costs less than the live light it stands in for, so `Graphics.Fastest()` leaves it on |
@@ -692,8 +692,8 @@ world.Spawn(new BakedLighting("crypt", Min: new(-8f, -1f, -12f), Max: new(8f, 6f
 
 foreach (var house in village.Houses)
 {
-    view.Indirect.BakedChunk("house-garden", house.Transform, min: new(-6f, 0f, -8f), max: new(6f, 7f, 8f),
-        edgeBlend: 0.5f);
+    world.Spawn(house.Transform,
+        new BakedPiece("house-garden", Min: new(-6f, 0f, -8f), Max: new(6f, 7f, 8f), EdgeBlend: 0.5f));
 }
 ```
 
@@ -729,12 +729,14 @@ has at most one space: when several entities have one the newest wins, and drawi
 `view.Indirect.BakedLighting(name, min, max, probeSpacing)` names it for one frame, where naming a
 second throws with both names. Its bake is
 `lighting/<name>.lightbake`. `TexelsPerMetre`, 20 by default (5 cm texels), sets how fine its
-lightmap is, from 1 to 200; anything else throws with the value. `view.Indirect.BakedChunk` takes the same
-parameter for a chunk.
+lightmap is, from 1 to 200; anything else throws with the value. A `BakedPiece` takes the same
+`TexelsPerMetre` for a chunk.
 
-`BakedChunk` places a chunk: a piece of the world, such as a house, baked once in its own
-space and placed with `transform`. `min` and `max` are its box in its own space, before
-`transform`. One chunk can be placed many times in a frame, so its name may repeat, and every
+A `BakedPiece` entity places a chunk: a piece of the world, such as a house, baked once in its own
+space and placed by the entity's `Transform`, following its `Parent` if it has one. `Min` and `Max`
+are its box in its own space, before the transform. Drawing by hand,
+`view.Indirect.BakedChunk(name, transform, min, max, texelsPerMetre, edgeBlend)` places one for a
+frame, with the transform as a matrix. One chunk can be placed many times in a frame, so its name may repeat, and every
 copy with the same contents will share one bake, kept in `lighting/<name>/<hash>.lightbake`
 with the 16 hex digits of a hash of its contents. A frame places at most 256 chunks. The
 transform may only turn and move the chunk: its first three rows must be unit length and
@@ -742,19 +744,19 @@ square to each other within 0.0001, without a mirror, and its last column (0, 0,
 that scales, shears or mirrors throws, since one bake serves every copy.
 
 A chunk's bake knows only the chunk, so where its floor meets the world beside it the two
-would be lit differently, and a seam would show along the chunk's side. `edgeBlend`, half a
+would be lit differently, and a seam would show along the chunk's side. `EdgeBlend`, half a
 metre by default, blends them: over that many metres in from each of the chunk's four sides
 (its x and z faces, not the top or bottom), its lightmap fades into the live light the world
 beyond it gets, with its ambient occlusion and shadow mask. At the side itself the chunk is lit
-like the world next to it, and from `edgeBlend` in it is lit by its bake alone. `edgeBlend: 0`
+like the world next to it, and from `EdgeBlend` in it is lit by its bake alone. `EdgeBlend: 0`
 gives a hard edge. It may be at most half the box's smaller side across x and z, so the bands of
 opposite sides never overlap; more than that, a negative value or NaN throws with the value. A
-chunk narrower than a metre is too small for the default, so give it `edgeBlend: 0` or a smaller
+chunk narrower than a metre is too small for the default, so give it `EdgeBlend: 0` or a smaller
 blend.
 The band is drawn each frame, not baked, so changing it needs no new bake.
 
 A name is one or more letters, digits, `-` or `_`, since it names a file; a slash, a dot or a
-space throws. Each box must reach further than it starts on every axis, and `probeSpacing`
+space throws. Each box must reach further than it starts on every axis, and `ProbeSpacing`
 must be more than zero. Everything else throws when it's named, with the value and the limit.
 For Rendition alone, `FrameView.Baked.Space` and `FrameView.Baked.Chunks` carry the same, and
 `Renderer.Render` throws for more than 256 chunks or a chunk transform that isn't only a turn
@@ -1058,7 +1060,8 @@ area left unbaked, such as `Not baking gallery: no VK_KHR_ray_query`. A publishe
 ## Reflections
 
 ```csharp
-view.Indirect.ReflectionProbe(key: 1, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));
+world.Spawn(Transform.At(new Vector3(3.5f, 1.6f, -1.5f)),
+    new ReflectionCapture(BoxMin: new(-6.5f, -2.6f, -8.5f), BoxMax: new(6.5f, 4.4f, 8.5f)));
 ```
 
 Shiny surfaces first mirror what's on screen. What they'd see off the edge of the screen, and
@@ -1068,46 +1071,58 @@ reflects the walls and the house opposite rather than a sky it can't see. Put it
 height in the middle of the space, and make the box match the space's walls, ground and
 roof: a reflected ray runs on to the box before it looks the probe up, so what it shows lands
 where it would really be and doesn't slide as the camera moves. Towards the sides of its box a
-probe fades out over `blend` metres, 0.5 by default, into the sky or the next probe.
+probe fades out over `Blend` metres, 0.5 by default, into the sky or the next probe.
 
-Where boxes overlap, the probe with the higher `priority` (0 by default) goes first, and the
+A `ReflectionCapture` entity is photographed from where it stands, following its `Parent` if it
+has one. Its box runs from `BoxMin` to `BoxMax` measured from there along the world's axes, so
+the entity's turn and scale don't change it, and the box must hold the entity's place: one that
+doesn't throws when the frame meets it. Drawing by hand,
+`view.Indirect.ReflectionProbe(key, position, boxMin, boxMax, blend, priority, update, version)`
+places one for a frame, with its box in the world.
+
+Where boxes overlap, the probe with the higher `Priority` (0 by default) goes first, and the
 next fills in only what the first leaves as it fades out towards its sides. Between equal
 priorities the smaller box goes first, so a room's probe wins inside the room and the yard's
 round it takes over at the door, with no priorities to set:
 
 ```csharp
-view.Indirect.ReflectionProbe(key: 1, position: new(0f, 2f, 0f), boxMin: new(-40f, -1f, -40f), boxMax: new(40f, 20f, 40f)); // the yard
-view.Indirect.ReflectionProbe(key: 2, position: new(3f, 1.6f, 5f), boxMin: new(0f, 0f, 2f), boxMax: new(6f, 3f, 8f), blend: 0.3f); // a house in it
+world.Spawn(Transform.At(new Vector3(0f, 2f, 0f)), new ReflectionCapture(new(-40f, -3f, -40f), new(40f, 18f, 40f))); // the yard
+world.Spawn(Transform.At(new Vector3(3f, 1.6f, 5f)), new ReflectionCapture(new(-3f, -1.6f, -3f), new(3f, 1.4f, 3f), Blend: 0.3f)); // a house in it
 ```
 
 A pixel blends at most four probes, the first four that reach it in that order.
 
 ![The Gallery's chapel at the same moment, before and after it got a probe of its own: before, the lantern's metal frame reflects the blue sky through the roof; after, it reflects the dark chapel round it](media/reflection-probes-chapel.webp)
 
-The key names the probe across frames, so place it every frame like a light. Probes are
+The entity names the probe across frames; drawing by hand, the key does, so place it every
+frame like a light. Probes are
 photographed during play, inside the frame and without stopping the game: one a frame, in the
 order they asked, so a new probe shows a frame or a few after it's first placed, and surfaces
 reflect the sky behind it until then. A probe left out of a frame is dropped, and the rest keep
 their photographs.
 
-A probe is photographed again whenever it moves or its box changes, and otherwise as `update`
+A probe is photographed again whenever it moves or its box changes, and otherwise as `Update`
 says:
 
-| `update` | Photographed again |
+| `Update` | Photographed again |
 | --- | --- |
 | `ProbeUpdate.OnChange`, the default | When the light on it changes: the sun's direction or colour, the sky and its brightness, the bake, the `SunShadows`, `Materials`, `Emissive`, `EnvironmentLight`, `LocalLights` or `LightShadows` switches, or a point or spot light that reaches its box appearing, going out, or changing its range, cone or shadow. Once the [light probes](#bounced-light) round the camera have first settled, every probe is photographed once more |
-| `ProbeUpdate.OnRequest` | Only when `version` changes, so the game says when |
+| `ProbeUpdate.OnRequest` | Only when `Version` changes, so the game says when |
 | `ProbeUpdate.Always` | Over and over, taking turns with the others: with three such probes each is photographed every third frame |
 
 Moving the camera never counts, because the photograph frames the sun's shadow on the probe's
 own box, and nor does moving or adding objects. A light's colour and where it is aren't watched
 either, so a flickering candle or a swinging lantern doesn't keep a probe busy. For a probe that
 should follow something that moves, use `Always`; for one that should follow a lamp the game
-dims, use `OnRequest` and change `version` with it:
+dims, use `OnRequest` and change `Version` with it:
 
 ```csharp
-view.Indirect.ReflectionProbe(key: 3, position: new(0f, 1.5f, 0f), boxMin: new(-4f, 0f, -4f), boxMax: new(4f, 3f, 4f),
-    update: ProbeUpdate.OnRequest, version: _lampLevel);
+var chapel = world.Spawn(Transform.At(new Vector3(0f, 1.5f, 0f)),
+    new ReflectionCapture(new(-4f, -1.5f, -4f), new(4f, 1.5f, 4f), Update: ProbeUpdate.OnRequest));
+
+// When the lamp dims:
+ref var probe = ref world.Get<ReflectionCapture>(chapel);
+probe = probe with { Version = probe.Version + 1 };
 ```
 
 The [Gallery](../examples/Gallery) shows it: L puts the chapel's lantern out, and C dims the sky,
@@ -1127,8 +1142,8 @@ On an M4 Mac a photograph takes about 0.7 ms of the GPU's time.
 
 At most 64 probes fit in a frame, and a sixty-fifth throws. Each probe takes about 1 MB of
 GPU memory. Room for 8 is made at the start and doubles when it runs out, up to 64, which
-waits for the GPU once. The position must be inside the box, `boxMax` above `boxMin` on
-every axis, `blend` 0 or more, `priority` a finite number, `update` one of the three, and each
+waits for the GPU once. The position must be inside the box, `BoxMax` above `BoxMin` on
+every axis, `Blend` 0 or more, `Priority` a finite number, `Update` one of the three, and, drawing by hand, each
 key used once a frame. With `Graphics.Lighting.Reflections` off, no probes are photographed and shiny
 surfaces and glass reflect only the sky.
 
@@ -1560,12 +1575,57 @@ off, which gives the plain fog exactly, and `Graphics.Fastest()` turns it off.
 
 #### Fog volumes
 
-A fog volume is fog in a shape a game places, a box, an ellipsoid, a cylinder or a cone,
-with its own density, colour, soft edge and drifting noise. `view.Effects.FogVolume` places one
-for a frame; [Fog volumes in views.md](views.md#fog-volumes) has the shapes, the settings
-and an example. Volumes are drawn into the volumetric fog's grid, so they are lit the
-same way: the sun falls through them in shafts, a torch glows in them, and the scene's
-fog and any volumes that overlap add up.
+A `FogVolume` entity fills a shape with fog of its own: mist pooled in a cellar, steam over a
+pool, or the haze a lamp's beam lights up. It is drawn into the
+[volumetric fog](#volumetric-fog)'s grid, so the sun and the lights shine through it
+and cast shadows in it, the same as the scene's fog. The shape is one of four unit shapes,
+moved, turned and sized by the entity's `Transform`, following its `Parent` if it has one:
+
+| `FogShape` | Before the transform |
+| --- | --- |
+| `Box` | From −0.5 to 0.5 on each axis |
+| `Ellipsoid` | A sphere of radius 0.5 |
+| `Cylinder` | Along Y, radius 0.5, from y −0.5 to 0.5 |
+| `Cone` | Its tip at y 0.5 and a base of radius 0.5 at y −0.5 |
+
+```csharp
+// Mist a metre deep over a cellar floor ten metres by eight.
+var mist = new FogVolumeSettings(0.4f) { Noise = 0.5f, Wind = new Vector3(0.2f, 0f, 0f) };
+world.Spawn(
+    new Transform(new Vector3(0f, 0.5f, 0f), Quaternion.Identity, new Vector3(10f, 1f, 8f)),
+    new FogVolume(FogShape.Box, mist));
+```
+
+`FogVolumeSettings` says what the fog is like. Only the density has to be given:
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `Density` | | How much of the light the fog stops per metre, 0 or more, the same measure as `FogSettings.Density`. 0.05 is a thin haze; at 0.5 you can barely see across a room |
+| `Color` | white | The colour the fog scatters light in, each channel from 0 to 1 |
+| `EdgeFade` | 0.25 | The share of the way in from the surface over which the fog thickens from nothing to full, from 0 for a hard edge to 1 for fog thickest only at the centre |
+| `Noise` | 0 | How much noise breaks the fog up, from 0 for even fog to 1 for patches with gaps between |
+| `NoiseSize` | 2 | How big the patches are, in metres, more than 0 |
+| `Wind` | 0 | How fast the patches drift, in metres per second |
+
+Where volumes overlap, and where they overlap the scene's fog, the fog adds up. Drawing by
+hand, `view.Effects.FogVolume(key, shape, transform, settings)` places one for a frame, with
+the transform as a matrix and a key that names the volume, the same as a decal's.
+
+The frame that meets a bad fog volume throws, with a message naming what's wrong:
+
+- more than 64 fog volumes in a frame;
+- a key used twice in a frame, which only drawing by hand can do;
+- a shape that isn't one of the four;
+- a transform squashed flat on any axis, or holding a number that isn't finite;
+- a density below 0 or not finite, a colour channel or `EdgeFade` or `Noise` outside 0 to 1,
+  a `NoiseSize` of 0 or less, or a `Wind` that isn't finite.
+
+Fog volumes show only where the volumetric fog reaches, out to
+`FogSettings.VolumetricDistance`, and only while
+[`Graphics.Atmosphere.VolumetricFog`](#graphics-settings) is on.
+`Graphics.Atmosphere.FogVolumes` turns them off on their own, and `Graphics.Fastest()` turns both off.
+The grid's [cell size and slices](#the-grids-cost) set how sharp their edges are.
+
 
 ![The Crypt without and with its floor mist: on the right, a box-shaped fog volume lies over the floor, lit by the torches](media/crypt-mist.webp)
 
@@ -1639,7 +1699,7 @@ The shafts are the sun's caustics coming down through the water, brightest looki
 the sun. They are drawn in the [volumetric fog's](#volumetric-fog) grid, out to
 `ShaftDistance`, so the sun's shadow cuts them: a ledge or a hull overhead leaves dark
 water under it. The grid also holds the water's own colour out to that distance, and any
-[fog volumes](views.md#fog-volumes), such as silt over the floor; past it the water's colour
+[fog volumes](#fog-volumes), such as silt over the floor; past it the water's colour
 fills in as before. A wide `ShaftDistance` spreads the grid's slices over more water, so
 shafts close by blur, the way a wide [`VolumetricDistance`](#the-grids-cost) does on land.
 
@@ -1748,6 +1808,100 @@ world.Get<Wind>(wind) = new Wind(surgeDirection * MathF.Sign(surge), 0.45f * Mat
 [`Graphics.Surfaces.Wind`](#graphics-settings) turns it off, and
 `Graphics.Fastest()` turns it off. The Courtyard blows a breeze of 0.35 across its grass, with
 a share of 0.08 for the ivy and 0.4 for the tree's crown.
+
+## Decals
+
+A `Decal` entity lays a material onto whatever is already drawn inside a box: damp rising up a
+wall, a puddle stain on a floor, rust run down from a bolt. The box is the cube from −0.5 to
+0.5 that the entity's `Transform` places, turns and sizes, following its `Parent` if it has
+one, and the material is projected along the box's own −Y, so its +Y should look
+out of the surface. The material's U runs along the box's X and its V runs against its Z,
+each across the whole box, from −0.5 to 0.5 in the box's own units. Its normal map reads
+as it does on a mesh, with green pointing the way V falls, towards the box's +Z, and a
+mirrored box reads it the same way. A material graph is the usual material, loaded on its
+own with `content.Surface`:
+
+```csharp
+Surface damp = content.Surface("materials/grime.material.cs");
+
+// A metre wide, half a metre high, on a wall that faces +Z. Its +Y looks out of the wall,
+// and its +Z points down, so V is 0 at the bottom edge.
+var box = new Transform(
+    new Vector3(2f, 0.6f, -3.98f),
+    Quaternion.CreateFromAxisAngle(Vector3.UnitX, MathF.PI / 2f),
+    new Vector3(1f, 0.2f, 0.5f));
+
+world.Spawn(box, new Decal(damp));
+```
+
+Drawing by hand, `view.Effects.Decal(key, box.Matrix, damp)` lays it for one frame, with a
+key of your own.
+
+The material's opacity fades the decal: a graph's `Opacity`, or the alpha of a colour
+texture. Where it shows, the decal blends its colour over the surface, makes it as rough
+as its own roughness, and lays its bumps over the surface's own, so a brick wall's edges
+and mortar still show through the damp. Lighting, shadows, ambient occlusion and
+reflections all see the result. It also fades where the surface turns away from the box's
++Y, so a box over a corner stains the wall and not the floor below it, and over the last
+fifth of the box's depth at either end.
+
+`DecalBlend` sets how much of each part goes on, each from 0 to 1:
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `Color` | 1 | How much of the decal's colour covers the surface's |
+| `Normal` | 1 | How much of its bumps are laid on. 0 keeps the surface's bumps alone |
+| `Roughness` | 1 | How far the surface's roughness moves to the decal's. A wet stain is smoother, a dusty one rougher |
+| `AngleFade` | 0.5 | How far the surface can turn from the box's +Y before the decal fades. It's gone where the cosine of the angle is below this, and whole halfway from there to facing +Y. At 0.5 it fades from about 41° and is gone at 60°. At 0 it fades from 60° and is gone only where the surface is side-on |
+
+```csharp
+// Darkens the bricks but keeps them their own roughness.
+world.Spawn(box, new Decal(soot, new DecalBlend { Roughness = 0f }));
+```
+
+A surface's `Color` tints the decal's colour, so `damp with { Color = new Vector3(0.6f) }`
+lays the same stain darker. Each different surface gets a material of its own the first
+time a decal uses it. Make them once in `Load` rather than a new one each frame: past 512,
+the ones the frame didn't use are let go and made again when next used.
+
+The frame that meets a bad decal throws, with a message naming what's wrong:
+
+- more than 256 decals in a frame;
+- a key used twice in a frame, which only drawing by hand can do;
+- a box squashed flat on any axis, or holding a number that isn't finite, since it can't be
+  inverted;
+- a `DecalBlend` field outside 0 to 1;
+- a surface with a [surface shader](#surface-shaders), since a decal draws only
+  textures;
+- a surface naming a texture its content doesn't have.
+
+A character walking through a puddle stain or standing over a scorch mark shouldn't wear it,
+so animated characters never take decals: a rigged model drawn with a pose is drawn after the
+decals are laid, over them. Any surface can opt out the same way with `Features = SurfaceFeatures.NoDecals`, such
+as a crate set down in a stain, whose lid the stain would otherwise reach; a cooked model's
+material takes `"noDecals": true` in its rule. What doesn't take decals still covers them where
+it stands in front, and the decals still land on the ground round it.
+
+![Two crates in one tall stain decal: the left one takes decals, so the stain covers its lid too; the right one has NoDecals, so its lid keeps its wood colour while the floor round it is stained](media/decal-opt-out.webp)
+
+[`Graphics.Surfaces.Decals`](#graphics-settings) turns them all off, and
+`Graphics.Fastest()` does too. The Courtyard lays its damp, the dirty water under its sill
+and the rust under its anchor plates as decals, and the gravel kicked off its path into the
+mud along both arms and round the barrel. D turns them off and on there.
+
+![The foot of the Courtyard's brick wall under the window, before and after. On the left the damp is a dithered quad on the wall and shows only faintly. On the right it is a decal that darkens the bricks and the mortar above the plinth and fades upward in streaks, while the bricks' edges still show through](media/decals.webp)
+
+Decals have some limits:
+
+- Where two decals overlap, both colours show, but the later one's bumps and roughness
+  replace the earlier one's.
+- A decal can't change how metallic a surface is or make it glow.
+- A decal's material uses its colour, normal and surface textures, and its colour,
+  roughness and opacity. Its detail textures, height map and world variation are ignored.
+- On strongly bumped surfaces, the fade by angle follows the bumps, so near the limit it
+  fades in specks.
+- Reflection probes and light probes don't see decals, so a decal shows in no reflection probe and doesn't tint bounced light.
+
 
 ## Fading with distance
 
@@ -2026,7 +2180,7 @@ Other options are the `baseColor`, `normal`, `surface`, `emissive` and [`occlusi
 textures, `occlusionUv`, `noOcclusionMap`, [`toon` and `outline`](#toon-shading-and-outlines),
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`,
 `detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap`,
-`worldVariation`, `dithered`, `puddles`, [`noDecals`](views.md#decals), `wind` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
+`worldVariation`, `dithered`, `puddles`, [`noDecals`](#decals), `wind` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
 `detailGraphSize`, and `shader`, `shaderParameters` and `shaderTextures`, below; see
 `src/Super.Cook.Models/ImportSettings.cs`.
 
@@ -2040,7 +2194,7 @@ Each frame a share of its pixels as large as its opacity is drawn, a different s
 time, and anti-aliasing blends them into a smooth fade. Its shadow fades the same way. With
 `AntiAliasing` off the pattern shows as grain. Like any opaque surface, a dithered one
 replaces the normal and roughness of what's behind it. For grime, damp or a stain on a
-wall, use a [decal](views.md#decals) instead of a dithered quad in front of it: a decal
+wall, use a [decal](#decals) instead of a dithered quad in front of it: a decal
 blends its colour and roughness into the wall and lays its bumps over the wall's own, so
 the bricks still show through, and it never floats off the surface or flickers against it.
 Keep `dithered` for things that should fade as a whole, such as a leaf or a cobweb.
@@ -2088,7 +2242,7 @@ left whole, so a graph can cut out leaves, lace or a torn edge. Otherwise it sta
 so for glass whose grime clouds it, add `"transparent": true` and the graph's opacity
 scales the tint, as the Courtyard's window does. With `"dithered": true` the opacity fades the
 material out instead. A stain such as the Courtyard's `grime.material.cs` looks better as a
-[decal](views.md#decals): `content.Surface` loads the graph on its own, and its opacity
+[decal](#decals): `content.Surface` loads the graph on its own, and its opacity
 fades the decal.
 
 A graph that sets a `Height` also gives the material a height map, so its grooves sink in

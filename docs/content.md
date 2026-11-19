@@ -424,7 +424,7 @@ the message to cook it again.
 
 Bakes of a frame's [baked lighting](rendering.md#baked-lighting) live in a `lighting/`
 folder in the game's first content root. A space named with `new BakedLighting("crypt", …)`
-gets `lighting/crypt.lightbake`. A chunk named with `view.Indirect.BakedChunk("house-garden", …)` gets
+gets `lighting/crypt.lightbake`. A chunk named with `new BakedPiece("house-garden", …)` gets
 one file for each version of its contents, named by the 16 hex digits of their hash, such as
 `lighting/house-garden/00000000000000ab.lightbake`. `BakeFiles.Space` and `BakeFiles.Chunk`
 give these names. `Renderer.Baking.Bake` makes a space's bytes, and
