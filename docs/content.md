@@ -427,7 +427,7 @@ folder in the game's first content root. A space named with `view.Indirect.Baked
 gets `lighting/crypt.lightbake`. A chunk named with `view.Indirect.BakedChunk("house-garden", …)` gets
 one file for each version of its contents, named by the 16 hex digits of their hash, such as
 `lighting/house-garden/00000000000000ab.lightbake`. `BakeFiles.Space` and `BakeFiles.Chunk`
-give these names. `Renderer.Bake` makes a space's bytes, and
+give these names. `Renderer.Baking.Bake` makes a space's bytes, and
 [`--bake`](command-line.md#baking-lighting) writes them to this folder. A game played from source also writes a
 space's bake here by itself when it is missing or stale; see
 [Baking without a build step](rendering.md#baking-without-a-build-step).

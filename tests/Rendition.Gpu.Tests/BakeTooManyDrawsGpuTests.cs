@@ -71,14 +71,14 @@ public sealed class BakeTooManyDrawsGpuTests(GpuFixture gpu)
     {
         var view = gpu.View(DebugView.None);
         view.Baked.Space = space;
-        return gpu.Renderer.Bake(view, draws, new BakeSettings(Density, BakeQuality.Preview));
+        return gpu.Renderer.Baking.Bake(view, draws, new BakeSettings(Density, BakeQuality.Preview));
     }
 
     private byte[] BakeChunk(BakedChunk chunk, DrawItem[] draws)
     {
         var view = gpu.View(DebugView.None);
         view.Baked.Chunks = new[] { chunk };
-        return gpu.Renderer.BakeChunk(view, draws, 0, new BakeSettings(Density, BakeQuality.Preview));
+        return gpu.Renderer.Baking.BakeChunk(view, draws, 0, new BakeSettings(Density, BakeQuality.Preview));
     }
 
     // Each draw is its own instance, so none shares a rectangle.

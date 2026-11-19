@@ -39,17 +39,17 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             // Drawn with no chunk named, the Baked lamp is real-time.
             byte[] live = Capture(View(First, lamps, []), wall);
 
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             var view = View(First, lamps, [Chunk(First)]);
             // While the load is held every frame still draws: the chunk is pending, so its lamp is drawn live and the
             // frame is the same as one with no chunk at all.
             byte[] pending = Capture(view, wall);
-            var frame = gpu.Renderer.LastBakeFrame!;
+            var frame = gpu.Renderer.Baking.LastFrame!;
             Assert.True(frame.ChunkPending(0), "The chunk isn't pending while its load is held.");
             Assert.Equal([false], frame.ChunkFresh);
             Assert.Empty(frame.DroppedLocalLights);
-            Assert.Equal(0, gpu.Renderer.ChunkBakes.Resident);
-            Assert.Equal(1, gpu.Renderer.ChunkBakes.Pending);
+            Assert.Equal(0, gpu.Renderer.Baking.ChunkBakes.Resident);
+            Assert.Equal(1, gpu.Renderer.Baking.ChunkBakes.Pending);
             Assert.Equal(live, pending);
             Assert.Equal(1, store.Loads);
             Assert.NotEqual(Environment.CurrentManagedThreadId, store.LoadThread);
@@ -58,11 +58,11 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             int frames = RenderUntilFresh(view, wall);
 
             Assert.True(frames <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
-            frame = gpu.Renderer.LastBakeFrame!;
+            frame = gpu.Renderer.Baking.LastFrame!;
             Assert.False(frame.ChunkPending(0));
             Assert.Equal([0], frame.DroppedLocalLights);
-            Assert.Equal(1, gpu.Renderer.ChunkBakes.Resident);
-            Assert.Equal(0, gpu.Renderer.ChunkBakes.Pending);
+            Assert.Equal(1, gpu.Renderer.Baking.ChunkBakes.Resident);
+            Assert.Equal(0, gpu.Renderer.Baking.ChunkBakes.Pending);
             Assert.Equal(1, store.Loads);
         }
         finally
@@ -91,7 +91,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             store.Release();
             byte[] unlit = Capture(View(First, [], []), first, second);
 
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             BakedChunk[] chunks = [Chunk(First), Chunk(Second)];
             int frames = RenderUntilFresh(View(First, lamps, chunks), first, second);
             Assert.True(frames <= MostFrames, $"The chunks' bake wasn't resident after {MostFrames} frames.");
@@ -99,11 +99,11 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             byte[] seenFromFirst = Capture(View(First, lamps, chunks), first, second);
             byte[] seenFromSecond = Capture(View(Second, lamps, chunks), first, second);
 
-            var frame = gpu.Renderer.LastBakeFrame!;
+            var frame = gpu.Renderer.Baking.LastFrame!;
             Assert.Equal([true, true], frame.ChunkFresh);
             // Both lamps are left to the bake, so the walls' light comes from the one lightmap.
             Assert.Equal([0, 1], frame.DroppedLocalLights);
-            Assert.Equal(1, gpu.Renderer.ChunkBakes.Resident);
+            Assert.Equal(1, gpu.Renderer.Baking.ChunkBakes.Resident);
             Assert.Equal(1, store.Loads);
             Assert.NotEqual(unlit, seenFromFirst);
             int lit = 0;
@@ -137,19 +137,19 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             LocalLight[] lamps = [Lamp(First, 7421)];
             store.Hold(Bake(wall, First, lamps));
             store.Release();
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             int frames = RenderUntilFresh(View(First, lamps, [Chunk(First)]), wall);
             Assert.True(frames <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
-            Assert.Equal(1, gpu.Renderer.ChunkBakes.Resident);
-            var pages = gpu.Renderer.ChunkBakes.Entries.Single().Transfer.Select(slot => new TextureHandle(slot)).ToArray();
+            Assert.Equal(1, gpu.Renderer.Baking.ChunkBakes.Resident);
+            var pages = gpu.Renderer.Baking.ChunkBakes.Entries.Single().Transfer.Select(slot => new TextureHandle(slot)).ToArray();
             Assert.All(pages, page => Assert.True(gpu.Renderer.Resources.Textures.IsLive(page.Index)));
 
             // Straight after one frame that names no copy, the bake is let go, while the frame before it may still be
             // drawing from it: its pages wait for that frame instead of going at once.
             var without = View(First, lamps, []);
             gpu.Renderer.Render(without, [wall]);
-            Assert.Equal(0, gpu.Renderer.ChunkBakes.Resident);
-            Assert.Equal(0, gpu.Renderer.ChunkBakes.Pending);
+            Assert.Equal(0, gpu.Renderer.Baking.ChunkBakes.Resident);
+            Assert.Equal(0, gpu.Renderer.Baking.ChunkBakes.Pending);
             Assert.All(pages, page => Assert.True(gpu.Renderer.Resources.Textures.IsDying(page.Index), "A page went before the frames drawing it were done."));
             for (int i = 0; i < 3; i++)
             {
@@ -181,17 +181,17 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             LocalLight[] lamps = [Lamp(First, 7431)];
             store.Hold(Bake(wall, First, lamps));
             store.Release();
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             var view = View(First, lamps, [Chunk(First)]);
             Assert.True(RenderUntilFresh(view, wall) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
 
             store.Reloads++;
             gpu.Renderer.Render(view, [wall]);
 
-            Assert.True(gpu.Renderer.LastBakeFrame!.ChunkPending(0), "The chunk's old bake was kept through the reload.");
+            Assert.True(gpu.Renderer.Baking.LastFrame!.ChunkPending(0), "The chunk's old bake was kept through the reload.");
             Assert.True(RenderUntilFresh(view, wall) <= MostFrames, $"The chunk's bake wasn't resident again after {MostFrames} frames.");
             Assert.Equal(2, store.Loads);
-            Assert.Equal(1, gpu.Renderer.ChunkBakes.Resident);
+            Assert.Equal(1, gpu.Renderer.Baking.ChunkBakes.Resident);
         }
         finally
         {
@@ -219,7 +219,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             store.Hold(bake with { Transfer = bake.Transfer with { SunTint = wrong } });
             store.Release();
 
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             var view = View(First, lamps, [Chunk(First)]);
             int frames = 0;
             do
@@ -227,16 +227,16 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
                 gpu.Renderer.Render(view, [wall]);
                 frames++;
             }
-            while (gpu.Renderer.LastBakeFrame!.ChunkPending(0) && frames < MostFrames);
+            while (gpu.Renderer.Baking.LastFrame!.ChunkPending(0) && frames < MostFrames);
 
             Assert.True(frames < MostFrames, $"The chunk was still pending after {MostFrames} frames.");
             byte[] refused = Capture(view, wall);
-            var frame = gpu.Renderer.LastBakeFrame!;
+            var frame = gpu.Renderer.Baking.LastFrame!;
             Assert.Equal([false], frame.ChunkFresh);
             Assert.False(frame.ChunkPending(0));
             Assert.Empty(frame.DroppedLocalLights);
-            Assert.Equal(0, gpu.Renderer.ChunkBakes.Resident);
-            Assert.Empty(gpu.Renderer.ChunkBakes.Entries);
+            Assert.Equal(0, gpu.Renderer.Baking.ChunkBakes.Resident);
+            Assert.Empty(gpu.Renderer.Baking.ChunkBakes.Entries);
             Assert.Equal(1, store.Loads);
 
             // The same scene with no chunk at all, straight after: the refused chunk is drawn just as live.
@@ -266,25 +266,25 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             store.Release();
             byte[] live = Capture(View(First, lamps, []), wall);
 
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             var view = View(First, lamps, [Chunk(First)]);
             Assert.True(RenderUntilFresh(view, wall) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
             byte[] resident = Capture(view, wall);
-            var oldPages = gpu.Renderer.ChunkBakes.Entries.Single().Transfer.Select(slot => new TextureHandle(slot)).ToArray();
+            var oldPages = gpu.Renderer.Baking.ChunkBakes.Entries.Single().Transfer.Select(slot => new TextureHandle(slot)).ToArray();
 
             // One frame without the chunk lets its bake go while the frames before it may still be drawing from it,
             // then the chunk comes straight back, inside the frames in flight.
             gpu.Renderer.Render(View(First, lamps, []), [wall]);
-            Assert.Empty(gpu.Renderer.ChunkBakes.Entries);
+            Assert.Empty(gpu.Renderer.Baking.ChunkBakes.Entries);
             Assert.All(oldPages, page => Assert.True(gpu.Renderer.Resources.Textures.IsDying(page.Index), "An old page went before the frames drawing it were done."));
             gpu.Renderer.Render(view, [wall]);
-            Assert.True(gpu.Renderer.LastBakeFrame!.ChunkPending(0), "The chunk came back with its old bake, which was let go.");
+            Assert.True(gpu.Renderer.Baking.LastFrame!.ChunkPending(0), "The chunk came back with its old bake, which was let go.");
 
             Assert.True(RenderUntilFresh(view, wall) <= MostFrames, $"The chunk's bake wasn't resident again after {MostFrames} frames.");
             byte[] again = Capture(view, wall);
 
             Assert.Equal(2, store.Loads);
-            Assert.Equal(1, gpu.Renderer.ChunkBakes.Resident);
+            Assert.Equal(1, gpu.Renderer.Baking.ChunkBakes.Resident);
             Assert.NotEqual(live, resident);
             AssertWithinOneStep(resident, again, "first resident", "back again");
             Assert.Equal(errors, gpu.ValidationErrors);
@@ -323,7 +323,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             byte[] liveFirst = Capture(View(First, lamps, []), first, second);
             byte[] liveSecond = Capture(View(Second, lamps, []), first, second);
 
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             BakedChunk[] chunks = [Chunk(First), Chunk(Second)];
             int frames = 0;
             do
@@ -331,15 +331,15 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
                 gpu.Renderer.Render(View(First, lamps, chunks), [first, second]);
                 frames++;
             }
-            while (!gpu.Renderer.LastBakeFrame!.ChunkFresh[0] && frames <= MostFrames);
+            while (!gpu.Renderer.Baking.LastFrame!.ChunkFresh[0] && frames <= MostFrames);
 
             Assert.True(frames <= MostFrames, $"The first chunk's bake wasn't resident after {MostFrames} frames.");
             byte[] seenFromSecond = Capture(View(Second, lamps, chunks), first, second);
-            var frame = gpu.Renderer.LastBakeFrame!;
+            var frame = gpu.Renderer.Baking.LastFrame!;
             Assert.Equal([true, false], frame.ChunkFresh);
             Assert.True(frame.ChunkPending(1), "The second chunk isn't pending while its load is held.");
-            Assert.Equal(1, gpu.Renderer.ChunkBakes.Resident);
-            Assert.Equal(1, gpu.Renderer.ChunkBakes.Pending);
+            Assert.Equal(1, gpu.Renderer.Baking.ChunkBakes.Resident);
+            Assert.Equal(1, gpu.Renderer.Baking.ChunkBakes.Pending);
             // The pending copy is drawn live, just as with no chunk named, not with the resident copy's lightmap.
             Assert.Equal(liveSecond, seenFromSecond);
 
@@ -374,11 +374,11 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             ];
             store.Add(Bake(first, First, [lamps[0]]), release: true);
             store.Add(Bake(second, Second, [lamps[1]]), release: true);
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             BakedChunk[] chunks = [Chunk(First), Chunk(Second)];
             var view = View(First, lamps, chunks);
             Assert.True(RenderUntilFresh(view, first, second) <= MostFrames, $"The chunks' bakes weren't resident after {MostFrames} frames.");
-            Assert.Equal(2, gpu.Renderer.ChunkBakes.Resident);
+            Assert.Equal(2, gpu.Renderer.Baking.ChunkBakes.Resident);
             string firstFile = store.FileOf(0);
             string secondFile = store.FileOf(1);
             Assert.NotEqual(firstFile, secondFile);
@@ -387,18 +387,18 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             gpu.Renderer.Render(view, [first, second]);
 
             // Only the forgotten file is read again; both chunks stay drawn from their bakes meanwhile.
-            var frame = gpu.Renderer.LastBakeFrame!;
+            var frame = gpu.Renderer.Baking.LastFrame!;
             Assert.True(frame.ChunkFresh[0], "The chunk that wasn't forgotten isn't fresh.");
             Assert.True(frame.ChunkFresh[1], "The forgotten chunk's old bake wasn't drawn while the new one is read.");
             int frames = 1;
-            while (store.LoadsOf(secondFile) < 2 || gpu.Renderer.ChunkBakes.Pending > 0)
+            while (store.LoadsOf(secondFile) < 2 || gpu.Renderer.Baking.ChunkBakes.Pending > 0)
             {
                 Assert.True(frames++ <= MostFrames, $"The forgotten chunk's bake wasn't read and resident again after {MostFrames} frames.");
                 gpu.Renderer.Render(view, [first, second]);
             }
 
-            Assert.Equal([true, true], gpu.Renderer.LastBakeFrame!.ChunkFresh);
-            Assert.Equal(2, gpu.Renderer.ChunkBakes.Resident);
+            Assert.Equal([true, true], gpu.Renderer.Baking.LastFrame!.ChunkFresh);
+            Assert.Equal(2, gpu.Renderer.Baking.ChunkBakes.Resident);
             Assert.Equal(1, store.LoadsOf(firstFile));
             Assert.Equal(2, store.LoadsOf(secondFile));
         }
@@ -429,7 +429,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             float live = CentreMean(Capture(View(First, lamps, []), wall));
 
             store.Bake = bright;
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             var view = View(First, lamps, [Chunk(First)]);
             Assert.True(RenderUntilFresh(view, wall) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
             float old = CentreMean(Capture(view, wall));
@@ -446,7 +446,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             }
 
             store.Release();
-            for (int frame = 0; store.Loads < 2 || gpu.Renderer.ChunkBakes.Pending > 0; frame++)
+            for (int frame = 0; store.Loads < 2 || gpu.Renderer.Baking.ChunkBakes.Pending > 0; frame++)
             {
                 Assert.True(frame < MostFrames, $"The new bake wasn't resident after {MostFrames} frames.");
                 seen.Add(CentreMean(gpu.Renderer.Capture(view, [wall], out _, out _)));
@@ -535,7 +535,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             }
 
             Console.SetError(log);
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             var view = View(First, lamps, [Chunk(First)]);
             int frames = 0;
             do
@@ -543,7 +543,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
                 gpu.Renderer.Render(view, [wall]);
                 frames++;
             }
-            while (gpu.Renderer.LastBakeFrame!.ChunkPending(0) && frames < MostFrames);
+            while (gpu.Renderer.Baking.LastFrame!.ChunkPending(0) && frames < MostFrames);
 
             Assert.True(frames < MostFrames, $"The chunk was still pending after {MostFrames} frames.");
             Assert.Equal(
@@ -551,10 +551,10 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
                     "its sun transfer page, since the renderer holds at most 1024 textures."],
                 log.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
             byte[] refused = Capture(view, wall);
-            Assert.Equal([false], gpu.Renderer.LastBakeFrame!.ChunkFresh);
-            Assert.False(gpu.Renderer.LastBakeFrame.ChunkPending(0));
-            Assert.Empty(gpu.Renderer.ChunkBakes.Entries);
-            Assert.Equal(0, gpu.Renderer.ChunkBakes.Resident);
+            Assert.Equal([false], gpu.Renderer.Baking.LastFrame!.ChunkFresh);
+            Assert.False(gpu.Renderer.Baking.LastFrame.ChunkPending(0));
+            Assert.Empty(gpu.Renderer.Baking.ChunkBakes.Entries);
+            Assert.Equal(0, gpu.Renderer.Baking.ChunkBakes.Resident);
             Assert.Equal(1, store.Loads);
             Assert.Equal(live, refused);
 
@@ -610,15 +610,15 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             long budget = bytes / 4;
             Assert.True(budget >= 16L * pages.Max(page => page.Pixels.Length / page.Height),
                 $"The bake's {bytes} bytes are too few rows for a budget of {budget}.");
-            gpu.Renderer.ChunkBakes.UploadBudget = budget;
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.ChunkBakes.UploadBudget = budget;
+            gpu.Renderer.Baking.Bakes = store;
             var view = View(First, lamps, [Chunk(First)]);
 
             var done = new List<long>();
             for (int frame = 0; frame < MostFrames; frame++)
             {
                 gpu.Renderer.Render(view, [wall]);
-                var entry = gpu.Renderer.ChunkBakes.Entries.Single();
+                var entry = gpu.Renderer.Baking.ChunkBakes.Entries.Single();
                 long now = entry.Pages.Sum(page => (long)page.Texture.RowsSize(page.RowsDone));
                 Assert.True(entry.IsResident == (now == bytes),
                     $"The bake is {(entry.IsResident ? "resident" : "not resident")} with {now} of its {bytes} bytes up.");
@@ -637,7 +637,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.ChunkBakes.UploadBudget = ChunkBakePool.ChunkUploadBudget;
+            gpu.Renderer.Baking.ChunkBakes.UploadBudget = ChunkBakePool.ChunkUploadBudget;
             store.Release();
             LetGo(quad);
         }
@@ -662,7 +662,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
         for (int frames = 1; frames <= MostFrames; frames++)
         {
             gpu.Renderer.Render(view, draws);
-            if (gpu.Renderer.LastBakeFrame!.ChunkFresh.All(fresh => fresh))
+            if (gpu.Renderer.Baking.LastFrame!.ChunkFresh.All(fresh => fresh))
             {
                 return frames;
             }
@@ -674,7 +674,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
     // Puts the renderer back: no store, and a frame without chunks so nothing stays in the pool.
     private void LetGo(MeshHandle quad)
     {
-        gpu.Renderer.Bakes = NoBakes.Instance;
+        gpu.Renderer.Baking.Bakes = NoBakes.Instance;
         gpu.RenderOneFrame();
         gpu.Renderer.DestroyMesh(quad);
     }
@@ -705,7 +705,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         var view = View(chunk, lamps, [Chunk(chunk)]);
-        return LightBakeFile.Read(gpu.Renderer.BakeChunk(view, [wall], 0, new BakeSettings(Density, BakeQuality.Preview)));
+        return LightBakeFile.Read(gpu.Renderer.Baking.BakeChunk(view, [wall], 0, new BakeSettings(Density, BakeQuality.Preview)));
     }
 
     private MeshHandle CreateQuad()

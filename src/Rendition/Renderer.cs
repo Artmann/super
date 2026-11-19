@@ -198,7 +198,6 @@ public sealed unsafe class Renderer : IDisposable
 
         _resources = new ResourceTable(_context);
         _retired = new RetiredResources(_ring, _meshStore, _resources);
-        _chunkPool = new ChunkBakePool(_context, _resources, ChunkBakePool.ChunkUploadBudget, _readableBakes.ChunkUnreadable);
         if (_context.CanTrace)
         {
             _tracing = new RayTracing(_context, _resources, (MeshFor, _uploads.IsPending),
@@ -245,14 +244,25 @@ public sealed unsafe class Renderer : IDisposable
         Stats = new RendererStats(_context.Waits, _gpuTimer, gpuWork, () => _upscaling ? _fsrPass.Version : null);
         WriteTargetDescriptors();
 
-        _areaInputs = new AreaInputs(_meshStore.PartBounds, () => EnvironmentHash);
-        var spaceBake = new SpaceBake(_readableBakes, data => CreateTexture(data, TextureEdges.Clamp), DestroyTexture);
-        _frameBakes = new FrameBakes(_readableBakes, _chunkPool, _retired, _areaInputs, spaceBake);
-        BakeJobs = new BakeJobs(_context, new PreparedBakers(_context, _sky.Map, () => new Baker(_context, this)),
-            _meshStore, _resources, _areaInputs);
-        BackgroundBakes = new BackgroundBakes(_context, _ring, _retired, BakeJobs,
-            new BackgroundBakes.BakeWants(_frameBakes.Resolver, _readableBakes, _areaInputs.Lights));
-        Reflections = new RendererReflections((_probes, _reflectionCapture), (_sky, LightProbes, _frameBakes), ProbeCubesGrew);
+        Baking = CreateBaking();
+        Reflections = new RendererReflections((_probes, _reflectionCapture), (_sky, LightProbes, Baking.Frame), ProbeCubesGrew);
+    }
+
+    // Makes the bakes' parts: where bakes are read from, the chunk bakes on the GPU, the frame's baked areas, the jobs
+    // that bake and the bakes made in the background.
+    private RendererBaking CreateBaking()
+    {
+        // Bakes are asked through this, so a bake that can't be read counts as missing until the store reloads.
+        var readableBakes = new ReadableBakes();
+        var chunkPool = new ChunkBakePool(_context, _resources, ChunkBakePool.ChunkUploadBudget, readableBakes.ChunkUnreadable);
+        var areaInputs = new AreaInputs(_meshStore.PartBounds, () => EnvironmentHash);
+        var spaceBake = new SpaceBake(readableBakes, data => CreateTexture(data, TextureEdges.Clamp), DestroyTexture);
+        var frameBakes = new FrameBakes(readableBakes, chunkPool, _retired, areaInputs, spaceBake);
+        var bakeJobs = new BakeJobs(_context, new PreparedBakers(_context, _sky.Map, () => new Baker(_context, this)),
+            _meshStore, _resources, areaInputs);
+        var backgroundBakes = new BackgroundBakes(_context, _ring, _retired, bakeJobs,
+            new BackgroundBakes.BakeWants(frameBakes.Resolver, readableBakes, areaInputs.Lights));
+        return new RendererBaking((_context, _uploads, _sky), frameBakes, (bakeJobs, backgroundBakes, chunkPool));
     }
 
     // Points the lighting and the glass at the reflection probes' new cube array after it grew.
@@ -325,7 +335,7 @@ public sealed unsafe class Renderer : IDisposable
         _retired.AfterLastSubmitted.FreedMeshes.Add(live);
 
         // A background bake still tracing it would read freed buffers.
-        BackgroundBakes.StopIfReads(job => job.Area.Uses(mesh));
+        Baking.Background.StopIfReads(job => job.Area.Uses(mesh));
 
         // Its structures read its buffers, and its handle may go to another mesh, so they go with it.
         _tracing?.Forget(mesh);
@@ -407,7 +417,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         _shadowWorld++;
         // A background bake whose materials read it would trace a freed image.
-        BackgroundBakes.StopIfReads(job => BakeReadsTexture(job, slot));
+        Baking.Background.StopIfReads(job => BakeReadsTexture(job, slot));
 
         _uploads.Cancel(_resources.Textures.MarkDying(slot));
         _retired.AfterLastSubmitted.FreedTextures.Add(slot);
@@ -441,7 +451,7 @@ public sealed unsafe class Renderer : IDisposable
         // The slot may go to a material with a different opaque flag, so no structure may keep using it, and a
         // background bake tracing those structures can't go on.
         var material = new MaterialHandle(slot);
-        BackgroundBakes.StopIfReads(job => job.Area.Uses(material));
+        Baking.Background.StopIfReads(job => job.Area.Uses(material));
         _tracing?.ForgetMaterial(material);
         _resources.Materials.MarkDying(slot);
         _retired.AfterLastSubmitted.FreedMaterials.Add(slot);
@@ -478,155 +488,12 @@ public sealed unsafe class Renderer : IDisposable
     public ulong EnvironmentHash => _sky.Hash;
 
     /// <summary>
-    /// Where bakes are looked up, such as a <see cref="LightBakeStore"/> over the game's content. With none, or with
-    /// <see cref="RenderEffects.BakedLighting"/> in <see cref="FrameView.Off"/>, every bake counts as missing and every
-    /// area is lit live. See "Baked lighting" in docs/rendering.md.
+    /// Baked lighting: where bakes are looked up, how they fade in, what the last frame's baked areas came to, the
+    /// bakes that wait for the GPU and the ones the renderer makes by itself. See "Baked lighting" in docs/rendering.md.
     /// </summary>
-    public IBakeStore Bakes
-    {
-        get;
-        set
-        {
-            ArgumentNullException.ThrowIfNull(value);
-            field = value;
-        }
-    } = NoBakes.Instance;
+    public RendererBaking Baking { get; }
 
-    /// <summary>
-    /// How long a bake that arrives while its area is on screen takes to fade in, in seconds of
-    /// <see cref="FrameView.Time"/>. 0 shows it at once. A bake already there on the first frame that names its area
-    /// always shows at once. From 0 to 10. See "With a fresh bake" in docs/rendering.md.
-    /// </summary>
-    public float BakeFadeSeconds
-    {
-        get => _frameBakes.Resolver.FadeSeconds;
-        set => _frameBakes.Resolver.FadeSeconds = value is >= 0f and <= MaxBakeFadeSeconds
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), string.Create(
-                CultureInfo.InvariantCulture, $"BakeFadeSeconds must be from 0 to {MaxBakeFadeSeconds}, not {value}."));
-    }
-
-    /// <summary>The longest <see cref="BakeFadeSeconds"/> can be.</summary>
-    public const float MaxBakeFadeSeconds = 10f;
-
-    /// <summary>
-    /// What the last frame's baked areas came to, or null when it named no baked space or chunk. See "Baked lighting"
-    /// in docs/rendering.md.
-    /// </summary>
-    public BakeFrame? LastBakeFrame => _frameBakes.Last;
-
-    private readonly AreaInputs _areaInputs;
     private bool _drawingWithoutBakedLights;
-
-    // Bakes is asked through this, so a bake that can't be read counts as missing until the store reloads.
-    private readonly ReadableBakes _readableBakes = new();
-
-    // The chunk bakes on the GPU, shared by every copy of a chunk.
-    private readonly ChunkBakePool _chunkPool;
-
-    /// <summary>The chunk bakes being read, uploaded or on the GPU. For tests.</summary>
-    internal ChunkBakePool ChunkBakes => _chunkPool;
-
-    // The frame's baked areas and what it draws of them.
-    private readonly FrameBakes _frameBakes;
-
-    /// <summary>
-    /// Makes the jobs that bake a frame's space or chunks, on the baker it prepares. Tests prepare it and make jobs
-    /// through this; <see cref="Bake"/> and <see cref="BakeChunk"/> run a job to the end.
-    /// </summary>
-    internal BakeJobs BakeJobs { get; }
-
-    /// <summary>The bakes the renderer makes by itself, a slice a frame. See <see cref="AutoBake"/>.</summary>
-    internal BackgroundBakes BackgroundBakes { get; }
-
-    /// <summary>
-    /// Path traces the view's baked space into a lightmap and returns it as a <c>.lightbake</c> file's bytes, made from
-    /// the frame's inputs so a frame drawn like this one finds it fresh. Every static draw in the frame blocks and
-    /// bounces light; those the space owns, without wind and not transparent, get a lightmap rectangle. Emissive
-    /// surfaces, the sky and Baked lights are baked in full; a Mixed light only after its first bounce, since its direct
-    /// light stays real-time, and it gets a shadow mask channel. A Realtime light or one that is moving is left out.
-    /// The space's light probes are baked too, by the same rules, into tiles laid out as the live probes' are.
-    /// Waits for the GPU, taking seconds at <see cref="BakeQuality.Final"/>. See "Baked lighting" in docs/rendering.md.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// The view names no baked space, the space holds more than <see cref="BakeFiles.MaxSpaceProbes"/> probes, some of its
-    /// draws don't fit in <see cref="LightmapLayout.MaxPages"/> pages, or the GPU can't trace rays.
-    /// </exception>
-    /// <exception cref="ArgumentException">
-    /// <paramref name="settings"/> asks for another texel density than the space's
-    /// <see cref="BakedSpace.TexelsPerMetre"/>, so no frame would find the bake fresh.
-    /// </exception>
-    public byte[] Bake(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings) =>
-        BakeTinted(SkyModel.Tinted(view, ref _tintedLights), draws, settings);
-
-    private byte[] BakeTinted(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
-    {
-        var space = BakeJobs.StartSpace(view, draws, settings);
-        SettleForBake(view);
-        BakeJobs.Bakers.Prepare(probes: true);
-        using var job = BakeJobs.SpaceJob(view, draws, settings, space);
-        return BakeJobs.RunToEnd(job);
-    }
-
-    // Readies the GPU for a bake that waits: nothing in flight, no background bake on the baker's pages, every upload
-    // done, and the view's sky drawn.
-    private void SettleForBake(in FrameView view)
-    {
-        _context.WaitIdle();
-        BackgroundBakes.DropAll();
-        _uploads.Flush();
-        _sky.Follow(view);
-        _sky.Flush();
-    }
-
-    /// <summary>
-    /// What the renderer bakes by itself, in the background, a slice a frame: each area a frame names whose bake is
-    /// missing or stale, once its lights have settled. Null, the default, bakes nothing. Ignored where
-    /// <see cref="CanTrace"/> is false. Setting it stops the running bake and forgets what was baked, and prepares
-    /// baking, which waits for the GPU the first time, so set it outside a frame. Where the GPU can trace rays but
-    /// can't bake, that is reported once and nothing is baked. See "Baking in the background" in docs/rendering.md.
-    /// </summary>
-    public AutoBake? AutoBake
-    {
-        get => BackgroundBakes.AutoBake;
-        set => BackgroundBakes.AutoBake = value;
-    }
-
-    /// <summary>
-    /// How the background bake is getting on, or null when none runs and no area waits for one. While areas wait and
-    /// none runs yet, its name is empty and its fraction 0. See <see cref="AutoBake"/>.
-    /// </summary>
-    public BakeProgress? BakeProgress => BackgroundBakes.Progress;
-
-    /// <summary>
-    /// Path traces chunk <paramref name="chunk"/> of the frame in its own space and returns its <c>.lightbake</c> bytes,
-    /// made from the frame's inputs so a frame placing the chunk like this, or anywhere else, finds it fresh. Only the
-    /// static draws the chunk owns are in it, moved into the chunk's space as <see cref="BakeAreas.Relative"/> moves
-    /// them, so they alone block and bounce light; those without wind and not transparent share one lightmap page,
-    /// <see cref="LightmapLayout.BuildSingle"/>. Its plain light holds its own Baked lights in full, its Mixed lights
-    /// after their first bounce, and glowing surfaces, but no sky and no sun; it is only stored when there is such a
-    /// light or surface. Its transfer holds how the sky and a sun from any direction light it, so the game can light a
-    /// placed copy by its own sky and sun. A chunk has no probes. Waits for the GPU. See "Baked lighting" in
-    /// docs/rendering.md and "Chunk transfer" in docs/design.md.
-    /// </summary>
-    /// <exception cref="ArgumentOutOfRangeException">The frame has no chunk <paramref name="chunk"/>.</exception>
-    /// <exception cref="ArgumentException">
-    /// <paramref name="settings"/> asks for another texel density than the chunk's <see cref="BakedChunk.TexelsPerMetre"/>.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// The chunk owns no static draws, some of its draws don't fit in its one page, or the GPU can't trace rays.
-    /// </exception>
-    public byte[] BakeChunk(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings) =>
-        BakeChunkTinted(SkyModel.Tinted(view, ref _tintedLights), draws, chunk, settings);
-
-    private byte[] BakeChunkTinted(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings)
-    {
-        var resolved = BakeJobs.StartChunk(view, draws, chunk, settings);
-        SettleForBake(view);
-        BakeJobs.Bakers.Prepare(probes: false);
-        using var job = BakeJobs.ChunkJob(view, draws, settings, resolved);
-        return BakeJobs.RunToEnd(job);
-    }
 
     /// <summary>
     /// Uploads a photographed sky, cooked from an equirectangular .hdr, for <see cref="AnalyticSky.Image"/>. It waits
@@ -797,7 +664,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             // Structures bake each part's opaque flag in, so ones drawn in this material are rebuilt when next traced.
             // A background bake's held top level still points at the old ones, so it stops first.
-            BackgroundBakes.StopIfReads(job => job.Area.Uses(handle));
+            Baking.Background.StopIfReads(job => job.Area.Uses(handle));
             _tracing!.ForgetMaterial(handle);
         }
     }
@@ -1098,15 +965,15 @@ public sealed unsafe class Renderer : IDisposable
     private bool DrewWithoutBakedLights(in FrameView view, ReadOnlySpan<DrawItem> draws)
     {
         // Before the bakes are resolved, so a file Done saves can be fresh this very frame.
-        BackgroundBakes.TakeFinished();
+        Baking.Background.TakeFinished();
 
         // Worked out once, from the original view: a frame drawn again without its baked sun keeps the sky that sun
         // lights, and its disc.
         _sky.Follow(view);
-        bool relit = _frameBakes.TryResolve(view, draws, Bakes, out var withoutBakedLights);
+        bool relit = Baking.Frame.TryResolve(view, draws, Baking.Bakes, out var withoutBakedLights);
 
         // From the frame with every light, since a bake takes the lights a fresh bake would drop.
-        BackgroundBakes.Update(view, draws, LastBakeFrame);
+        Baking.Background.Update(view, draws, Baking.LastFrame);
         if (!relit)
         {
             return false;
@@ -1135,7 +1002,7 @@ public sealed unsafe class Renderer : IDisposable
         long waitStart = Stopwatch.GetTimestamp();
         _api.WaitForFences(_context.Device, 1, &fence, true, ulong.MaxValue).Check();
         _retired.Release(_ring.Index);
-        BackgroundBakes.Slicer.Timer.Measure(_ring.Index, BackgroundBakes.AutoBake);
+        Baking.Background.Slicer.Timer.Measure(_ring.Index, Baking.AutoBake);
 
         uint acquiredIndex = 0;
         var acquired = _context.SwapchainApi.AcquireNextImage(
@@ -1241,7 +1108,7 @@ public sealed unsafe class Renderer : IDisposable
         var (cameraCount, shadowCount) = SelectDraws(view, camera.ViewProjection, draws, castsShadow);
         int tileDrawCount = _localShadows.Select(draws, Settings.MeshDetailScale);
         _frames.ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
-        _frameBakes.Relight.WriteTo(frame.Chunks, _frameBakes.MaskSlots.SpaceSlots);
+        Baking.Frame.Relight.WriteTo(frame.Chunks, Baking.Frame.MaskSlots.SpaceSlots);
 
         return cameraCount;
     }
@@ -1276,9 +1143,9 @@ public sealed unsafe class Renderer : IDisposable
         var retiring = _retired.AfterRecording;
         _uploads.Record(cmd, retiring.FreedOthers);
         // The chunk bakes no copy named this frame are let go once it is done.
-        _chunkPool.Record(cmd, retiring.FreedTextures, retiring.FreedOthers);
+        Baking.ChunkBakes.Record(cmd, retiring.FreedTextures, retiring.FreedOthers);
         // After the uploads, so a mesh made this frame is in the bake's scene.
-        BackgroundBakes.Slicer.RecordSlice(cmd);
+        Baking.Background.Slicer.RecordSlice(cmd);
         return cmd;
     }
 
@@ -1409,7 +1276,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private int SelectCameraDraws(in DetailView camera, ReadOnlySpan<DrawItem> draws)
     {
-        if (!_frameBakes.Relight.Active)
+        if (!Baking.Frame.Relight.Active)
         {
             return DrawSelection.Select(camera, draws, _meshStore.DetailSlots, _cameraDraws, _switches.WindReach, fades: _switches.FadeRules);
         }
@@ -1423,7 +1290,7 @@ public sealed unsafe class Renderer : IDisposable
         int cameraCount = DrawSelection.Select(camera, draws, _meshStore.DetailSlots, _cameraDraws, _switches.WindReach, _cameraSources, _switches.FadeRules);
         for (int i = 0; i < cameraCount; i++)
         {
-            _cameraChunks[i] = _frameBakes.Relight.DrawChunks[_cameraSources[i]];
+            _cameraChunks[i] = Baking.Frame.Relight.DrawChunks[_cameraSources[i]];
         }
 
         return cameraCount;
@@ -1477,14 +1344,14 @@ public sealed unsafe class Renderer : IDisposable
     {
         _context.WaitIdle();
         _uploads.Discard();
-        BackgroundBakes.DropAll();
+        Baking.Background.DropAll();
         for (int slot = 0; slot < FrameRing.Count; slot++)
         {
             _retired.Release(slot);
         }
 
         // Its pages already in the material table go with the table.
-        _chunkPool.Dispose();
+        Baking.ChunkBakes.Dispose();
         DisposePasses();
         _resources.Dispose();
         _meshStore.Dispose();
@@ -1500,10 +1367,10 @@ public sealed unsafe class Renderer : IDisposable
     private void DisposePasses()
     {
         _traceDebugPass?.Dispose();
-        BakeJobs.Bakers.Dispose();
+        Baking.Jobs.Bakers.Dispose();
         _tracing?.Dispose();
         _gpuTimer.Dispose();
-        BackgroundBakes.Dispose();
+        Baking.Background.Dispose();
         _finish.Dispose();
         _fsrPass.Dispose();
         _post.Dispose();
@@ -1561,7 +1428,7 @@ public sealed unsafe class Renderer : IDisposable
         _localShadows.RecordTiles(cmd, frameSet, instances);
         _gpuTimer.Mark(cmd);
         RecordLightSetup(cmd, frameSet, draws, instances);
-        _opaque.Record(cmd, targets, frameSet, draws.Camera, new OpaqueInputs(instances, _frameBakes, _sky.Sh, _motion, _cameraChunks, DepthFirstView));
+        _opaque.Record(cmd, targets, frameSet, draws.Camera, new OpaqueInputs(instances, Baking.Frame, _sky.Sh, _motion, _cameraChunks, DepthFirstView));
         _gpuTimer.Mark(cmd);
 
         _occlusion.Record(cmd, targets, frameSet, _switches.Off, _gpuTimer);
@@ -1634,20 +1501,20 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->CountBlock.ProbeCount = _probes.Prepare(
             view.View, view.Projection, new Span<GpuReflectionProbe>(frame.ReflectionProbes.Mapped, ReflectionProbeOrder.MaxProbes));
         ProbeUniforms.WriteLive(uniforms, view, LightProbes);
-        ProbeUniforms.WriteBaked(uniforms, _frameBakes, BakedProbeBand);
+        ProbeUniforms.WriteBaked(uniforms, Baking.Frame, BakedProbeBand);
         WriteSky(uniforms, view);
         _fog.WriteWater(uniforms, view);
 
         uniforms->CountBlock.Time = view.Time;
         uniforms->CountBlock.PreviousTime = historyValid ? _previousTime : view.Time;
-        bool castsShadow = _sunShadows.Write(uniforms, view, casters, Settings.MaxShadowCascades,_frameBakes.MaskSlots.Sun);
+        bool castsShadow = _sunShadows.Write(uniforms, view, casters, Settings.MaxShadowCascades,Baking.Frame.MaskSlots.Sun);
         uniforms->CountBlock.Off = unchecked((int)(_switches.Off & ShadedEffects & ~RenderEffects.DepthFirst))
             | (_switches.Off.HasFlag(RenderEffects.Fades) ? FadesOffBit : 0)
             | (_switches.TraceView ? DebugViewBit : 0);
         uniforms->CountBlock.MipBias = _switches.Off.HasFlag(RenderEffects.AntiAliasing) ? 0f
             : _upscaling ? FsrMipBias(_gBuffer.Extent.Width, _gBuffer.Picture.Display.Width)
             : TemporalMipBias;
-        _localShadows.Write(frame, uniforms, view, _gBuffer.Extent, (_frameBakes.MaskSlots.Channels, _probes.Order));
+        _localShadows.Write(frame, uniforms, view, _gBuffer.Extent, (Baking.Frame.MaskSlots.Channels, _probes.Order));
 
         // Probe updates and reflection probe captures light their faces with every point and spot light of the frame,
         // and see the sun's shadow through maps of their own, each zero when there is none this frame.

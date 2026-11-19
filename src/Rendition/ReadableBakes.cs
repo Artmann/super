@@ -2,7 +2,7 @@ namespace Rendition;
 
 /// <summary>
 /// A store's bakes, less those found unreadable, which count as missing until the store reloads. The renderer asks
-/// <see cref="Renderer.Bakes"/> through this.
+/// <see cref="RendererBaking.Bakes"/> through this.
 /// </summary>
 internal sealed class ReadableBakes : IBakeStore
 {

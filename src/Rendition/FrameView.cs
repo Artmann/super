@@ -233,7 +233,7 @@ public ref struct BakedAreas
 {
     /// <summary>
     /// The one fixed place this frame whose lighting is baked, or none. Each frame it is checked for a fresh bake; see
-    /// <see cref="Renderer.LastBakeFrame"/> and docs/rendering.md.
+    /// <see cref="RendererBaking.LastFrame"/> and docs/rendering.md.
     /// </summary>
     public BakedSpace? Space;
 

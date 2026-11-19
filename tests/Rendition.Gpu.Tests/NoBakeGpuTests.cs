@@ -52,7 +52,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         {
             Capture(cube, LightMode.Baked, baked: true);
 
-            var frame = Assert.IsType<BakeFrame>(gpu.Renderer.LastBakeFrame);
+            var frame = Assert.IsType<BakeFrame>(gpu.Renderer.Baking.LastFrame);
             Assert.NotNull(frame.Space);
             Assert.False(frame.SpaceFresh);
             Assert.Empty(frame.DroppedLocalLights);
@@ -75,11 +75,11 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         try
         {
             Capture(cube, LightMode.Baked, baked: true);
-            Assert.NotNull(gpu.Renderer.LastBakeFrame);
+            Assert.NotNull(gpu.Renderer.Baking.LastFrame);
 
             Capture(cube, LightMode.Baked, baked: false);
 
-            Assert.Null(gpu.Renderer.LastBakeFrame);
+            Assert.Null(gpu.Renderer.Baking.LastFrame);
         }
         finally
         {
@@ -98,19 +98,19 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         {
             byte[] unlit = Capture(cube, LightMode.Mixed, baked: false, withPointLight: false);
             byte[] lit = Capture(cube, LightMode.Mixed, baked: false);
-            gpu.Renderer.Bakes = new EveryBakeFresh();
+            gpu.Renderer.Baking.Bakes = new EveryBakeFresh();
             byte[] dropped = Capture(cube, LightMode.Baked, baked: true);
             // Twice, so the array the kept lights are copied into is reused.
             byte[] droppedAgain = Capture(cube, LightMode.Baked, baked: true);
 
             Assert.NotEqual(unlit, lit);
-            Assert.Equal([0], gpu.Renderer.LastBakeFrame!.DroppedLocalLights);
+            Assert.Equal([0], gpu.Renderer.Baking.LastFrame!.DroppedLocalLights);
             Assert.Equal(unlit, dropped);
             Assert.Equal(unlit, droppedAgain);
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.DestroyMesh(cube.Mesh);
         }
 
@@ -125,11 +125,11 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         try
         {
             byte[] lit = Capture(cube, LightMode.Mixed, baked: false);
-            gpu.Renderer.Bakes = new EveryBakeFresh();
+            gpu.Renderer.Baking.Bakes = new EveryBakeFresh();
             // The lamp stays on, so with the bake ignored it lights the cube live, as it does unbaked.
             byte[] off = Capture(cube, LightMode.Baked, baked: true, off: RenderEffects.All & ~RenderEffects.LocalLights);
 
-            var frame = Assert.IsType<BakeFrame>(gpu.Renderer.LastBakeFrame);
+            var frame = Assert.IsType<BakeFrame>(gpu.Renderer.Baking.LastFrame);
             Assert.False(frame.SpaceFresh);
             Assert.Equal([false], frame.ChunkFresh);
             Assert.Empty(frame.DroppedLocalLights);
@@ -137,7 +137,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.DestroyMesh(cube.Mesh);
         }
 
@@ -154,23 +154,23 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         {
             byte[] plain = Capture(cube, LightMode.Mixed, baked: false);
             // A store that could load bakes, but has none for this chunk, so nothing goes to the pool.
-            gpu.Renderer.Bakes = store;
+            gpu.Renderer.Baking.Bakes = store;
             byte[] missing = Capture(cube, LightMode.Baked, baked: true, inChunk: true);
 
-            var frame = Assert.IsType<BakeFrame>(gpu.Renderer.LastBakeFrame);
+            var frame = Assert.IsType<BakeFrame>(gpu.Renderer.Baking.LastFrame);
             Assert.Null(frame.Space);
             Assert.Equal(1, frame.ChunkStaticDraws(0));
             Assert.Equal([false], frame.ChunkFresh);
             Assert.False(frame.ChunkPending(0));
             Assert.Empty(frame.DroppedLocalLights);
-            Assert.Equal(0, gpu.Renderer.ChunkBakes.Pending);
-            Assert.Equal(0, gpu.Renderer.ChunkBakes.Resident);
+            Assert.Equal(0, gpu.Renderer.Baking.ChunkBakes.Pending);
+            Assert.Equal(0, gpu.Renderer.Baking.ChunkBakes.Resident);
             Assert.Equal(0, store.Loads);
             Assert.Equal(plain, missing);
         }
         finally
         {
-            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.Baking.Bakes = NoBakes.Instance;
             gpu.Renderer.DestroyMesh(cube.Mesh);
         }
 

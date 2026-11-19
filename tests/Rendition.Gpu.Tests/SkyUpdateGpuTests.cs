@@ -74,7 +74,7 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
             gpu.Renderer.Render(RoomView(Towards(20f)), [cube]);
 
             // The bake is the first thing to see the sun towards B: no frame has drawn it.
-            var bake = gpu.Renderer.Bake(RoomView(Towards(70f)), [cube], new BakeSettings(Room.TexelsPerMetre, BakeQuality.Preview));
+            var bake = gpu.Renderer.Baking.Bake(RoomView(Towards(70f)), [cube], new BakeSettings(Room.TexelsPerMetre, BakeQuality.Preview));
             Assert.NotEmpty(bake);
             var baked = gpu.Renderer.ProjectSky();
 

@@ -87,7 +87,7 @@ public sealed class RendererReflections
     /// A number that changes whenever something that lights every reflection probe's picture changes, so update the
     /// probes when it does. It covers the suns, the sky, whether sun shadows are drawn, the light probes and whether
     /// they have settled at least once since they were made, the bakes loaded and whether one is still fading in
-    /// (see <see cref="Renderer.BakeFadeSeconds"/>), and the switches that change what a capture draws. Moving
+    /// (see <see cref="RendererBaking.FadeSeconds"/>), and the switches that change what a capture draws. Moving
     /// things or the camera doesn't change it, and nor do point and spot lights, which reach only the probes near
     /// them: see <see cref="LightsHash"/>.
     /// </summary>

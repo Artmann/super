@@ -53,7 +53,7 @@ public sealed class GpuFixture : IDisposable
             });
             // Most tests draw an area live and then with its bake at one fixed time, which a fade would keep live, and
             // the renderer is shared, so a fade would tie each test to the ones before it. BakeFadeGpuTests turn it on.
-            Renderer.BakeFadeSeconds = 0f;
+            Renderer.Baking.FadeSeconds = 0f;
             Matte = Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f), Roughness = 0.8f });
         }
         catch

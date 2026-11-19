@@ -99,7 +99,7 @@ public enum RenderEffects : long
     Wind = 1 << 17,
 
     /// <summary>
-    /// Light read from the <c>.lightbake</c> files in <see cref="Renderer.Bakes"/> for the
+    /// Light read from the <c>.lightbake</c> files in <see cref="RendererBaking.Bakes"/> for the
     /// <see cref="BakedAreas.Space"/> and <see cref="BakedAreas.Chunks"/>. Without it every bake counts as
     /// missing, so each area is lit live, as if it had never been baked.
     /// </summary>

@@ -27,7 +27,7 @@ internal sealed class SceneRenderer : IDisposable
         Baking = new SceneBakes(Renderer);
 
         // Shots, recordings and profiles show each bake whole from the first frame; play in a window fades them in.
-        Renderer.BakeFadeSeconds = 0f;
+        Renderer.Baking.FadeSeconds = 0f;
         // White, so a draw's color comes out exactly as asked. The built-in shapes are greyed where they're drawn.
         var white = Renderer.CreateMaterial(new Material { BaseColor = new Vector4(Vector3.One, 1f), Roughness = DefaultRoughness });
         _items = new UploadedItems(Renderer, white, (prepared, content) => _uploads!.Upload(prepared, content));
@@ -68,17 +68,17 @@ internal sealed class SceneRenderer : IDisposable
 
     /// <summary>
     /// Bakes the view's baked space from the same frame <see cref="Render"/> would draw, and returns the
-    /// <c>.lightbake</c> file's bytes. See <see cref="Renderer.Bake"/>.
+    /// <c>.lightbake</c> file's bytes. See <see cref="RendererBaking.Bake"/>.
     /// </summary>
     public byte[] Bake(View view, Content content, FrameRequest request, BakeSettings settings) =>
-        Renderer.Bake(Ready(view, content, request), _draws.Shown, settings);
+        Renderer.Baking.Bake(Ready(view, content, request), _draws.Shown, settings);
 
     /// <summary>
     /// Bakes chunk <paramref name="chunk"/> of the view from the same frame <see cref="Render"/> would draw, and returns
-    /// the <c>.lightbake</c> file's bytes. See <see cref="Renderer.BakeChunk"/>.
+    /// the <c>.lightbake</c> file's bytes. See <see cref="RendererBaking.BakeChunk"/>.
     /// </summary>
     public byte[] BakeChunk(View view, Content content, FrameRequest request, int chunk, BakeSettings settings) =>
-        Renderer.BakeChunk(Ready(view, content, request), _draws.Shown, chunk, settings);
+        Renderer.Baking.BakeChunk(Ready(view, content, request), _draws.Shown, chunk, settings);
 
     /// <summary>
     /// Adds up what the view drew, model by model. Copies with different mesh masks are

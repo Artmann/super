@@ -3,7 +3,7 @@ using System.Numerics;
 namespace Rendition.Gpu.Tests;
 
 /// <summary>
-/// <see cref="Renderer.AutoBake"/>: a frame that names an unbaked area has it baked a slice a frame, within the budget,
+/// <see cref="RendererBaking.AutoBake"/>: a frame that names an unbaked area has it baked a slice a frame, within the budget,
 /// without waiting for the GPU, and the file is the one a whole bake makes.
 /// </summary>
 [Collection(GpuCollection.Name)]
@@ -31,7 +31,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         {
             var room = Room(gpu, quad);
             var view = RoomView(gpu, room);
-            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], d => done = d);
+            gpu.Renderer.Baking.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], d => done = d);
 
             int frames = RenderUntil(view, room, () => done is not null);
 
@@ -40,14 +40,14 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             Assert.Equal(BakeFiles.Space("auto-room"), bake.File);
             Assert.Equal("auto-room", bake.Name);
             Assert.Equal(BakeQuality.Preview, bake.Quality);
-            Assert.Equal(gpu.Renderer.LastBakeFrame!.Space, bake.Inputs);
+            Assert.Equal(gpu.Renderer.Baking.LastFrame!.Space, bake.Inputs);
             var file = LightBakeFile.Read(bake.Bytes);
             Assert.Equal(BakeQuality.Preview, file.Quality);
             Assert.Equal(bake.Inputs, file.Inputs);
         }
         finally
         {
-            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.Baking.AutoBake = null;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -65,14 +65,14 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         {
             var room = Room(gpu, quad);
             var view = RoomView(gpu, room);
-            int jobs = gpu.Renderer.BakeJobs.Bakers.LiveJobs;
-            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], dones.Add);
+            int jobs = gpu.Renderer.Baking.Jobs.Bakers.LiveJobs;
+            gpu.Renderer.Baking.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], dones.Add);
 
             // Far enough in that the job holds the baker's pages.
-            int traced = RenderUntil(view, room, () => gpu.Renderer.BakeProgress is { Fraction: > 0f } || dones.Count > 0);
-            Assert.True(gpu.Renderer.BakeProgress is { Fraction: > 0f and < 1f },
+            int traced = RenderUntil(view, room, () => gpu.Renderer.Baking.Progress is { Fraction: > 0f } || dones.Count > 0);
+            Assert.True(gpu.Renderer.Baking.Progress is { Fraction: > 0f and < 1f },
                 $"The background bake hadn't started tracing after {traced} frames, or had already finished.");
-            var before = gpu.Renderer.LastBakeFrame!.Space;
+            var before = gpu.Renderer.Baking.LastFrame!.Space;
 
             // The Baked light gets brighter: it is left out while it moves, then baked again once it holds still, so
             // the area's inputs change twice while the bake runs.
@@ -82,20 +82,20 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             // Game time goes on from where it was, since time going back would forget the light was ever dimmer.
             int frames = RenderUntil(view, room, () => dones.Count > 0, first: traced);
 
-            var after = gpu.Renderer.LastBakeFrame!.Space;
+            var after = gpu.Renderer.Baking.LastFrame!.Space;
             Assert.NotEqual(before, after);
             Assert.True(dones.Count > 0, $"No background bake was done in the {frames} frames after the light changed.");
             Assert.All(dones, done => Assert.Equal(after, done.Inputs));
 
             // Every stopped job is freed once the frames that may still run its steps are done, so none is left over
             // to hold the baker's pages.
-            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.Baking.AutoBake = null;
             RenderUntil(view, room, () => false, first: traced + frames, frames: 4);
-            Assert.Equal(jobs, gpu.Renderer.BakeJobs.Bakers.LiveJobs);
+            Assert.Equal(jobs, gpu.Renderer.Baking.Jobs.Bakers.LiveJobs);
         }
         finally
         {
-            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.Baking.AutoBake = null;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -114,13 +114,13 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         {
             var room = Room(gpu, quad, wall);
             var view = RoomView(gpu, room);
-            int jobs = gpu.Renderer.BakeJobs.Bakers.LiveJobs;
-            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], dones.Add);
+            int jobs = gpu.Renderer.Baking.Jobs.Bakers.LiveJobs;
+            gpu.Renderer.Baking.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], dones.Add);
 
-            int traced = RenderUntil(view, room, () => gpu.Renderer.BakeProgress is { Fraction: > 0f } || dones.Count > 0);
-            Assert.True(gpu.Renderer.BakeProgress is { Fraction: > 0f and < 1f },
+            int traced = RenderUntil(view, room, () => gpu.Renderer.Baking.Progress is { Fraction: > 0f } || dones.Count > 0);
+            Assert.True(gpu.Renderer.Baking.Progress is { Fraction: > 0f and < 1f },
                 $"The background bake hadn't started tracing after {traced} frames, or had already finished.");
-            float before = gpu.Renderer.BakeProgress!.Value.Fraction;
+            float before = gpu.Renderer.Baking.Progress!.Value.Fraction;
 
             // Cut out everywhere, so rays pass through the back wall. Its structures lose the opaque flag, so the ones
             // the running bake traces are freed and built again.
@@ -129,23 +129,23 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
                 BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 0f), Roughness = 0.8f, AlphaCutoff = 0.5f,
             });
             RenderUntil(view, room, () => true, first: traced);
-            Assert.True(gpu.Renderer.BakeProgress is not { } after || after.Fraction < before,
+            Assert.True(gpu.Renderer.Baking.Progress is not { } after || after.Fraction < before,
                 $"The background bake went on from {before} after its wall's structures were freed.");
 
             int frames = RenderUntil(view, room, () => dones.Count > 0, first: traced + 1);
             Assert.True(dones.Count > 0, $"No background bake was done in the {frames} frames after the wall changed.");
 
             // The bake that finished traced the wall as it is now.
-            gpu.Renderer.AutoBake = null;
-            var whole = gpu.Renderer.Bake(view, room, new BakeSettings(4, BakeQuality.Preview));
+            gpu.Renderer.Baking.AutoBake = null;
+            var whole = gpu.Renderer.Baking.Bake(view, room, new BakeSettings(4, BakeQuality.Preview));
             Assert.Equal(Normal(whole), Normal(dones[^1].Bytes));
 
             RenderUntil(view, room, () => false, first: traced + 1 + frames, frames: 4);
-            Assert.Equal(jobs, gpu.Renderer.BakeJobs.Bakers.LiveJobs);
+            Assert.Equal(jobs, gpu.Renderer.Baking.Jobs.Bakers.LiveJobs);
         }
         finally
         {
-            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.Baking.AutoBake = null;
             gpu.Renderer.DestroyMesh(quad);
             gpu.Renderer.DestroyMaterial(wall);
         }
@@ -166,28 +166,28 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         {
             var room = Room(gpu, quad, wall);
             var view = RoomView(gpu, room);
-            int jobs = gpu.Renderer.BakeJobs.Bakers.LiveJobs;
-            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], _ => { });
+            int jobs = gpu.Renderer.Baking.Jobs.Bakers.LiveJobs;
+            gpu.Renderer.Baking.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], _ => { });
 
-            int traced = RenderUntil(view, room, () => gpu.Renderer.BakeProgress is { Fraction: > 0f });
-            Assert.True(gpu.Renderer.BakeProgress is { Fraction: > 0f and < 1f },
+            int traced = RenderUntil(view, room, () => gpu.Renderer.Baking.Progress is { Fraction: > 0f });
+            Assert.True(gpu.Renderer.Baking.Progress is { Fraction: > 0f and < 1f },
                 $"The background bake hadn't started tracing after {traced} frames, or had already finished.");
-            float before = gpu.Renderer.BakeProgress!.Value.Fraction;
+            float before = gpu.Renderer.Baking.Progress!.Value.Fraction;
 
             // The wall stops naming the texture as it goes, as a game must, so only the bake still reads it.
             gpu.Renderer.DestroyTexture(texture);
             gpu.Renderer.UpdateMaterial(wall, plain);
             RenderUntil(view, room, () => true, first: traced);
-            Assert.True(gpu.Renderer.BakeProgress is not { } after || after.Fraction < before,
+            Assert.True(gpu.Renderer.Baking.Progress is not { } after || after.Fraction < before,
                 $"The background bake went on from {before} after a texture it reads was destroyed.");
 
-            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.Baking.AutoBake = null;
             RenderUntil(view, room, () => false, first: traced + 1, frames: 4);
-            Assert.Equal(jobs, gpu.Renderer.BakeJobs.Bakers.LiveJobs);
+            Assert.Equal(jobs, gpu.Renderer.Baking.Jobs.Bakers.LiveJobs);
         }
         finally
         {
-            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.Baking.AutoBake = null;
             gpu.Renderer.DestroyMesh(quad);
             gpu.Renderer.DestroyMaterial(wall);
         }
@@ -208,7 +208,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             var view = RoomView(gpu, room);
 
             // Setting it prepares baking, which may wait the first time; the frames after it never do.
-            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], d => done = d);
+            gpu.Renderer.Baking.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], d => done = d);
             int waits = gpu.Context.Waits.SubmitAndWaitCount;
 
             int frames = RenderUntil(view, room, () => done is not null);
@@ -218,7 +218,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.Baking.AutoBake = null;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -240,18 +240,18 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             // one slice would be far over the budget, while one page's filter still fits. Final, since a Preview
             // traces only 64 passes, which a slow ramp would still be ramping through.
             var view = RoomView(gpu, room, texelsPerMetre: 180);
-            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Final], d => done = d);
+            gpu.Renderer.Baking.AutoBake = new AutoBake(Budget, true, [BakeQuality.Final], d => done = d);
 
             // The first slices find out how long a pass takes, so only those from the fourth on must fit.
-            int measured = gpu.Renderer.BackgroundBakes.Slicer.Timer.SlicesMeasured;
+            int measured = gpu.Renderer.Baking.Background.Slicer.Timer.SlicesMeasured;
             int slices = 0;
             float largest = 0f;
             int largestAt = -1;
             int frames = RenderUntil(view, room, () =>
             {
-                if (gpu.Renderer.BackgroundBakes.Slicer.Timer.SlicesMeasured != measured && gpu.Renderer.BakeProgress is { } progress)
+                if (gpu.Renderer.Baking.Background.Slicer.Timer.SlicesMeasured != measured && gpu.Renderer.Baking.Progress is { } progress)
                 {
-                    measured = gpu.Renderer.BackgroundBakes.Slicer.Timer.SlicesMeasured;
+                    measured = gpu.Renderer.Baking.Background.Slicer.Timer.SlicesMeasured;
                     slices++;
                     if (slices >= 4 && progress.LastSliceMilliseconds > largest)
                     {
@@ -270,7 +270,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.Baking.AutoBake = null;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -291,9 +291,9 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             // Dense enough that one page's sums, filtered light and transfer are tens of megabytes, which take tens of
             // milliseconds to turn into arrays; a step that did that on the render thread would show here. A small
             // whole bake first, so the steps' first run in this process doesn't time the compiler.
-            gpu.Renderer.Bake(RoomView(gpu, room), room, new BakeSettings(4, BakeQuality.Preview));
+            gpu.Renderer.Baking.Bake(RoomView(gpu, room), room, new BakeSettings(4, BakeQuality.Preview));
             var view = RoomView(gpu, room, texelsPerMetre: 180);
-            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], d => done = d);
+            gpu.Renderer.Baking.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], d => done = d);
 
             float largest = 0f;
             int largestAt = -1;
@@ -301,9 +301,9 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             int frames = RenderUntil(view, room, () =>
             {
                 frame++;
-                if (gpu.Renderer.BackgroundBakes.Slicer.StepCpuMilliseconds > largest)
+                if (gpu.Renderer.Baking.Background.Slicer.StepCpuMilliseconds > largest)
                 {
-                    largest = gpu.Renderer.BackgroundBakes.Slicer.StepCpuMilliseconds;
+                    largest = gpu.Renderer.Baking.Background.Slicer.StepCpuMilliseconds;
                     largestAt = frame;
                 }
 
@@ -317,7 +317,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.Baking.AutoBake = null;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -335,19 +335,19 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         {
             var room = Room(gpu, quad);
             var view = RoomView(gpu, room);
-            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], d => done = d);
+            gpu.Renderer.Baking.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], d => done = d);
 
             int frames = RenderUntil(view, room, () => done is not null);
             Assert.True(done is not null, $"No background bake was done after {frames} frames.");
-            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.Baking.AutoBake = null;
 
-            var whole = gpu.Renderer.Bake(view, room, new BakeSettings(4, BakeQuality.Preview));
+            var whole = gpu.Renderer.Baking.Bake(view, room, new BakeSettings(4, BakeQuality.Preview));
 
             Assert.Equal(Normal(whole), Normal(done.Value.Bytes));
         }
         finally
         {
-            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.Baking.AutoBake = null;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -365,7 +365,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         {
             var room = Room(gpu, quad);
             var view = RoomView(gpu, room);
-            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], d => done = d);
+            gpu.Renderer.Baking.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], d => done = d);
 
             // Time going back starts the watch for moving lights over, so the lights settle a second after this.
             const float start = -1000f;
@@ -374,13 +374,13 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             {
                 view.Time = start + frame * FrameSeconds;
                 gpu.Renderer.Render(view, room);
-                Assert.True(gpu.Renderer.BakeProgress is null,
+                Assert.True(gpu.Renderer.Baking.Progress is null,
                     $"A background bake started at frame {frame}, {frame * FrameSeconds} seconds in, before the lights settled.");
             }
 
             Assert.True(frame > 10, $"Only {frame} frames were drawn before the lights settled.");
             int unsettled = frame;
-            for (; gpu.Renderer.BakeProgress is null; frame++)
+            for (; gpu.Renderer.Baking.Progress is null; frame++)
             {
                 Assert.True(frame < unsettled + 100, "No background bake started in the 100 frames after the lights settled.");
                 view.Time = start + frame * FrameSeconds;
@@ -389,7 +389,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         }
         finally
         {
-            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.Baking.AutoBake = null;
             gpu.Renderer.DestroyMesh(quad);
         }
 
@@ -416,7 +416,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         var view = RoomView(fresh, room);
         if (autoBake)
         {
-            fresh.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview],
+            fresh.Renderer.Baking.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview],
                 _ => Assert.Fail("A renderer that can't trace finished a background bake."));
         }
 
@@ -424,7 +424,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         {
             view.Time = frame * FrameSeconds;
             fresh.Renderer.Render(view, room);
-            Assert.Null(fresh.Renderer.BakeProgress);
+            Assert.Null(fresh.Renderer.Baking.Progress);
         }
 
         view.Time = 60 * FrameSeconds;
