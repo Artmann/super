@@ -31,7 +31,7 @@ public sealed class Field
             }
         }
 
-        Road = Spline.Through(Corners.Select(corner => Center(corner.X, corner.Z)).ToArray());
+        Road = Spline.Bezier(Knots());
     }
 
     /// <summary>The path enemies walk, through the middle of the road tiles.</summary>
@@ -46,6 +46,34 @@ public sealed class Field
 
     /// <summary>Whether a tile is part of the road.</summary>
     public bool IsRoad(int x, int z) => _road.Contains((x, z));
+
+    /// <summary>
+    /// The road's knots: straight lines between the corners, and a tight quarter circle at each
+    /// corner that stays inside the corner's tile. A smooth curve through the corners themselves
+    /// would swing wide of the road.
+    /// </summary>
+    private List<SplineKnot> Knots()
+    {
+        const float Radius = 1f;
+        // Handles this long make a Bézier curve close to a quarter circle.
+        const float Handle = Radius * 0.55f;
+
+        var points = Corners.Select(corner => Center(corner.X, corner.Z)).ToArray();
+        var first = Vector3.Normalize(points[1] - points[0]);
+        var knots = new List<SplineKnot> { new(points[0], Out: first * Handle) };
+        for (int i = 1; i < points.Length - 1; i++)
+        {
+            var coming = Vector3.Normalize(points[i] - points[i - 1]);
+            var going = Vector3.Normalize(points[i + 1] - points[i]);
+            // Start turning half a tile before the corner and finish half a tile after it.
+            knots.Add(new SplineKnot(points[i] - coming * Radius, In: -coming * Handle, Out: coming * Handle));
+            knots.Add(new SplineKnot(points[i] + going * Radius, In: -going * Handle, Out: going * Handle));
+        }
+
+        var last = Vector3.Normalize(points[^1] - points[^2]);
+        knots.Add(new SplineKnot(points[^1], In: -last * Handle));
+        return knots;
+    }
 
     /// <summary>The tile a point on the ground is in, or null when it's off the field.</summary>
     public (int X, int Z)? TileAt(Vector3 point)

@@ -67,6 +67,24 @@ public class OutpostTests
     }
 
     [Fact]
+    public void Enemies_stay_on_the_road_round_the_corners()
+    {
+        var field = new Field();
+
+        // An enemy walks up to 0.3 metres to the side, and its body is about 0.2 wide on top of that.
+        for (float distance = 0f; distance <= field.Road.Length; distance += 0.1f)
+        {
+            var pose = field.Road.FrameAtDistance(distance);
+            foreach (float side in new[] { -0.5f, 0f, 0.5f })
+            {
+                var point = pose.Position + pose.Right * side;
+                var tile = field.TileAt(point);
+                Assert.True(tile is { } t && field.IsRoad(t.X, t.Z), $"At {distance:0.0} m, {side} m to the side, {point} is off the road.");
+            }
+        }
+    }
+
+    [Fact]
     public void The_road_is_46_metres_long()
     {
         var field = new Field();
