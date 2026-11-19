@@ -1,6 +1,6 @@
 {
   "entryPoints": ["**/*.material.cs"],
-  "libraryProjects": ["Super", "Super.Ecs", "Super.Materials", "Super.Physics", "Super.Random", "Super.Testing"],
+  "libraryProjects": ["Super", "Super.Materials", "Super.Physics", "Super.Random", "Super.Testing"],
   "health": {
     "excludeTests": true,
     "baseline": "roe-baseline.json"

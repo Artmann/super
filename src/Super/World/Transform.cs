@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace Super.Ecs;
+namespace Super;
 
 /// <summary>
 /// Where an entity is, which way it faces and how big it is. Keep it on entities that

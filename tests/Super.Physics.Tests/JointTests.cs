@@ -1,5 +1,4 @@
 using System.Numerics;
-using Super.Ecs;
 
 namespace Super.Physics.Tests;
 

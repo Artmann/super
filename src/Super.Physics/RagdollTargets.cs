@@ -1,6 +1,5 @@
 using System.Numerics;
 using Rendition;
-using Super.Ecs;
 
 namespace Super.Physics;
 

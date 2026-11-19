@@ -1,4 +1,4 @@
-namespace Super.Ecs;
+namespace Super;
 
 /// <summary>
 /// Where each entity lives: its archetype and row, and the generation that tells a live handle from a stale one. IDs of

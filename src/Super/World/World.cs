@@ -1,4 +1,4 @@
-namespace Super.Ecs;
+namespace Super;
 
 /// <summary>A thing in the world. It's only an ID; its data lives in components.</summary>
 public readonly record struct Entity(int Id, int Generation);

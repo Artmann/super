@@ -65,7 +65,6 @@ itself. Keep them in one extension method that both call:
 public static class ColonyServices
 {
     public static IServiceCollection AddColony(this IServiceCollection services) => services
-        .AddSuperEcs()
         .AddSingleton<Colony>()
         .AddSingleton<IWeather, SeasonalWeather>();
 }
@@ -172,7 +171,7 @@ loading screen and two areas by playing input, and check states, text and drawn 
 [Fact]
 public void Starting_goes_through_loading_to_the_house()
 {
-    using var run = HeadlessGame.Create<RoomsGame>(1, services => services.AddSuperEcs());
+    using var run = HeadlessGame.Create<RoomsGame>(1);
     run.HoldLoading();
     run.Input.Press(Control.Start);
     run.Ticks(1);

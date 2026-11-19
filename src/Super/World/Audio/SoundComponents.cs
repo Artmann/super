@@ -1,4 +1,4 @@
-namespace Super.Ecs;
+namespace Super;
 
 /// <summary>
 /// Makes an entity play a looping sound for as long as it has this. With a <see cref="Transform"/> (and

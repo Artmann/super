@@ -1,6 +1,5 @@
 using System.Numerics;
 using JoltPhysicsSharp;
-using Super.Ecs;
 
 namespace Super.Physics;
 

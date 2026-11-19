@@ -182,7 +182,7 @@ forest.OnEnter(Screen.Forest, () =>
 });
 ```
 
-These need `services.AddSuperEcs()`. A frame sends the mixer a command only for what
+A frame sends the mixer a command only for what
 changed, so a thousand still sounds cost nothing frame to frame. The flip side: if the queue to
 the mixer is full and a move or volume change is dropped, it isn't sent again until that value
 changes again.

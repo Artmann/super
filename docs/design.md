@@ -11,7 +11,7 @@ the rest is not yet.
 
 | Area | Choice | Why |
 | --- | --- | --- |
-| Projects | `Super`, `Super.Random`, optional `Super.Ecs` and `Super.Testing`, and `Rendition`, which knows nothing of the others | Each layer stays usable without those above it |
+| Projects | `Super`, which holds the world (`src/Super/World`, registered by `HostServices` for every game), `Super.Random`, optional `Super.Physics` and `Super.Testing`, and `Rendition`, which knows nothing of the others | Each layer stays usable without those above it |
 | Namespaces | `Super.Random` keeps its types in the `Super` namespace | `using Super;` is enough, and it can't hide `System.Random` |
 | Random generator | xoshiro256**, with streams seeded by hashing their name with FNV-1a | Fast and well tested. `string.GetHashCode` changes between runs, so it can't be used. A test pins the sequence, because changing it breaks every recorded seed |
 | Per-draw color | A tint pushed with each draw, multiplied into the model's own material | Textured models keep their textures, and no draw needs a material of its own, so the 1024 material slots can't run out however many colors a game uses |
@@ -317,8 +317,8 @@ Ambiences fade in, change and fade out over 2 s. Music cross-fades over `fadeSec
 the old track's voice stops with that fade and the new one starts with it as its fade-in.
 Music takes its ids from the same pool as loops.
 
-**Sounds from entities.** `SoundSync` (in `src/Super.Ecs/Audio`) is an `IDrawHook` that
-`AddSuperEcs` registers. After each frame's Draw it walks the entities with `Sound` and
+**Sounds from entities.** `SoundSync` (in `src/Super/World/Audio`) is an `IDrawHook` that
+`HostServices` registers for every game. After each frame's Draw it walks the entities with `Sound` and
 with `Ambience` and compares them with what it sent last frame, keyed by `Entity` (id and
 generation, so an id reused in the same tick is a new sound). Per entity it remembers the
 loop's id and the clip, channel, near, far, volume and world position it last sent. A new

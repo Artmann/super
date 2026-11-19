@@ -14,7 +14,7 @@ public sealed class MeshMask
     internal MeshMask(int model, int count, ReadOnlySpan<int> kept)
     {
         _bits = new ulong[(count + 63) / 64];
-        Model = model;
+        ModelIndex = model;
         Count = count;
 
         foreach (int part in kept)
@@ -33,7 +33,7 @@ public sealed class MeshMask
     }
 
     /// <summary>The index of the <see cref="ModelRef"/> the mask was made for.</summary>
-    internal int Model { get; }
+    internal int ModelIndex { get; }
 
     /// <summary>How many parts the model is drawn in, shown or not.</summary>
     public int Count { get; }

@@ -17,7 +17,7 @@ public enum RagdollMode
 }
 
 /// <summary>
-/// Makes an entity with a <see cref="Super.Ecs.Transform"/> and an <see cref="Super.Ecs.Animated"/> fall like a
+/// Makes an entity with a <see cref="Transform"/> and an <see cref="Animated"/> fall like a
 /// ragdoll. Physics builds one body per <see cref="RagdollPart"/>, joined at the joints, while
 /// <see cref="Mode"/> isn't <see cref="RagdollMode.Off"/>. Switching to <see cref="RagdollMode.Simulated"/> starts
 /// the bodies where the animation has the limbs, moving as fast as they were, and the entity then follows the pelvis.

@@ -1,4 +1,4 @@
-namespace Super.Ecs;
+namespace Super;
 
 public readonly ref struct Row<T1>(Entity entity, ref T1 first)
 {

@@ -1,6 +1,5 @@
 using Forest;
 using Super;
-using Super.Ecs;
 using Super.Testing;
 
 namespace Forest.Tests;
@@ -10,7 +9,7 @@ public sealed class ForestTests
     private const int TicksPerSecond = 30;
 
     private static HeadlessRun<ForestGame> Start(int seed = 1) =>
-        HeadlessGame.Create<ForestGame>(seed, services => services.AddSuperEcs());
+        HeadlessGame.Create<ForestGame>(seed);
 
     private static bool Hammering(PlayingSound sound) => sound.Clip == "sounds/hammering.wav";
 

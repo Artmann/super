@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Super.Testing;
 using AudioService = Super.Audio;
 
-namespace Super.Ecs.Tests;
+namespace Super.Tests;
 
 public class SoundTests
 {
@@ -78,7 +78,7 @@ public class SoundTests
             .Add("shot.wav", Wav(0.2))
             .Add("forest.ambience.json", System.Text.Encoding.UTF8.GetBytes("""{ "layers": [ { "file": "creak.wav" } ] }"""))
             .Add("cave.ambience.json", System.Text.Encoding.UTF8.GetBytes("""{ "layers": [ { "file": "hum.wav" } ] }"""));
-        return HeadlessGame.Create<Hearing>(1, services => services.AddSuperEcs().AddContentFiles(files));
+        return HeadlessGame.Create<Hearing>(1, services => services.AddContentFiles(files));
     }
 
     private static Entity Make(HeadlessRun<Hearing> run, SoundRef clip, Vector3? at = null, float volume = 1)

@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using Super.Ecs;
 
 namespace Super.Physics;
 

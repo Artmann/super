@@ -1,7 +1,7 @@
 using System.Numerics;
 using Rendition;
 
-namespace Super.Ecs.Tests;
+namespace Super.Tests;
 
 public class ModelsTests
 {
