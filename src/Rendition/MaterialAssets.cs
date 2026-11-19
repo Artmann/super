@@ -9,7 +9,7 @@ namespace Rendition;
 /// <see cref="RendererAssets"/>.
 /// </summary>
 internal sealed class MaterialAssets(
-    (VulkanContext Context, ResourceTable Resources, RetiredResources Retired, RayTracing? Tracing) gpu,
+    SceneStores stores,
     Action<Func<BakeJob, bool>> stopBakesThat,
     GBufferPass shaders,
     TextureAssets textures)
@@ -17,17 +17,17 @@ internal sealed class MaterialAssets(
     /// <summary>See <see cref="RendererAssets.CreateMaterial"/>.</summary>
     public MaterialHandle Create(in Material material)
     {
-        MaterialChecks.Check(material, gpu.Resources, shaders.ShaderCount);
-        return gpu.Resources.Materials.Add(material);
+        MaterialChecks.Check(material, stores.Resources, shaders.ShaderCount);
+        return stores.Resources.Materials.Add(material);
     }
 
     /// <summary>See <see cref="RendererAssets.UpdateMaterial"/>.</summary>
     public void Update(MaterialHandle handle, in Material material)
     {
-        MaterialChecks.Check(material, gpu.Resources, shaders.ShaderCount);
-        var materials = gpu.Resources.Materials;
+        MaterialChecks.Check(material, stores.Resources, shaders.ShaderCount);
+        var materials = stores.Resources.Materials;
         // A destroyed material's structures are already gone, so only a live one is checked.
-        bool traced = gpu.Tracing is not null && materials.IsLive(handle);
+        bool traced = stores.Tracing is not null && materials.IsLive(handle);
         var opaqueBefore = traced ? TraceEncoding.GeometryFlagsFor(materials[handle].Cutouts, materials[handle].Flags) : default;
         materials.Update(handle, material);
         if (traced && TraceEncoding.GeometryFlagsFor(materials[handle].Cutouts, materials[handle].Flags) != opaqueBefore)
@@ -35,14 +35,14 @@ internal sealed class MaterialAssets(
             // Structures bake each part's opaque flag in, so ones drawn in this material are rebuilt when next traced.
             // A background bake's held top level still points at the old ones, so it stops first.
             stopBakesThat(job => job.Area.Uses(handle));
-            gpu.Tracing!.ForgetMaterial(handle);
+            stores.Tracing!.ForgetMaterial(handle);
         }
     }
 
     /// <summary>See <see cref="RendererAssets.DestroyMaterial"/>.</summary>
     public void Destroy(MaterialHandle material)
     {
-        if (!gpu.Resources.Materials.IsLive(material))
+        if (!stores.Resources.Materials.IsLive(material))
         {
             throw new ArgumentException("The material does not exist.", nameof(material));
         }
@@ -58,12 +58,12 @@ internal sealed class MaterialAssets(
     {
         foreach (ref readonly var part in parts)
         {
-            if (!gpu.Resources.Materials.IsLive(part.Material))
+            if (!stores.Resources.Materials.IsLive(part.Material))
             {
                 continue;
             }
 
-            foreach (int texture in gpu.Resources.Materials.TexturesOf(part.Material))
+            foreach (int texture in stores.Resources.Materials.TexturesOf(part.Material))
             {
                 textures.DestroyIfLive(texture);
             }
@@ -85,16 +85,21 @@ internal sealed class MaterialAssets(
     }
 
     /// <summary>See <see cref="RendererAssets.ReloadShaders"/>.</summary>
-    public int ReloadShaders(IReadOnlySet<string> names) => PipelineFactory.Reload(gpu.Context, names);
+    public int ReloadShaders(IReadOnlySet<string> names)
+    {
+        stores.ShadowWorld.Changed();
+        return PipelineFactory.Reload(stores.Context, names);
+    }
 
     private void QueueDestroy(int slot)
     {
         // The slot may go to a material with a different opaque flag, so no structure may keep using it, and a
         // background bake tracing those structures can't go on.
+        stores.ShadowWorld.Changed();
         var material = new MaterialHandle(slot);
         stopBakesThat(job => job.Area.Uses(material));
-        gpu.Tracing?.ForgetMaterial(material);
-        gpu.Resources.Materials.MarkDying(slot);
-        gpu.Retired.AfterLastSubmitted.FreedMaterials.Add(slot);
+        stores.Tracing?.ForgetMaterial(material);
+        stores.Resources.Materials.MarkDying(slot);
+        stores.Retired.AfterLastSubmitted.FreedMaterials.Add(slot);
     }
 }

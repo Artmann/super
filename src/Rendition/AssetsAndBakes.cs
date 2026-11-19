@@ -19,7 +19,7 @@ internal static class AssetsAndBakes
         // made there is no bake to stop.
         BackgroundBakes? background = null;
         void StopBakesThat(Func<BakeJob, bool> reads) => background?.StopIfReads(reads);
-        var textures = new TextureAssets((context, stores.Uploads, resources, retired), StopBakesThat, stages.FinishStage);
+        var textures = new TextureAssets(stores, StopBakesThat, stages.FinishStage);
 
         // Bakes are asked through this, so a bake that can't be read counts as missing until the store reloads.
         var readableBakes = new ReadableBakes();
@@ -33,8 +33,8 @@ internal static class AssetsAndBakes
             new BackgroundBakes.BakeWants(frameBakes.Resolver, readableBakes, areaInputs.Lights));
         var baking = new RendererBaking((context, stores.Uploads, sky), frameBakes, (bakeJobs, background, chunkPool));
 
-        var assets = new RendererAssets(new MeshAssets((context, stores.Uploads, retired, stores.Tracing), stores.Meshes, StopBakesThat),
-            textures, new MaterialAssets((context, resources, retired, stores.Tracing), StopBakesThat, stages.OpaqueStage.Pass, textures));
+        var assets = new RendererAssets(new MeshAssets(stores, StopBakesThat),
+            textures, new MaterialAssets(stores, StopBakesThat, stages.OpaqueStage.Pass, textures));
         return (baking, assets);
     }
 }

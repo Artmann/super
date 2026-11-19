@@ -2,11 +2,15 @@ using Silk.NET.GLFW;
 
 namespace Super;
 
-/// <summary>Feeds the window's events into the game's input. Only the interactive loop listens.</summary>
+/// <summary>
+/// Feeds the window's events into the game's input. Only the interactive loop listens. The stats panel's
+/// <see cref="GameStats.ToggleKey"/> belongs to the engine, and the game never sees it.
+/// </summary>
 internal sealed unsafe class WindowInputFeed
 {
     private readonly OsWindow _window;
     private readonly Input _input;
+    private readonly GameStats _stats;
 
     // GLFW keeps only a pointer to each callback, so the delegates live here to stay alive.
     private readonly GlfwCallbacks.KeyCallback _onKey;
@@ -16,10 +20,11 @@ internal sealed unsafe class WindowInputFeed
     private readonly GlfwCallbacks.ScrollCallback _onScroll;
     private readonly GlfwCallbacks.CharCallback _onChar;
 
-    public WindowInputFeed(OsWindow window, Input input)
+    public WindowInputFeed(OsWindow window, Input input, GameStats stats)
     {
         _window = window;
         _input = input;
+        _stats = stats;
         _onKey = OnKey;
         _onMouseButton = OnMouseButton;
         _onCursorPos = OnCursorPos;
@@ -52,6 +57,11 @@ internal sealed unsafe class WindowInputFeed
     private void OnKey(WindowHandle* window, Silk.NET.GLFW.Keys key, int scanCode, InputAction action, KeyModifiers mods)
     {
         if (action == InputAction.Repeat || !GlfwInput.TryMapKey((int)key, out var mapped))
+        {
+            return;
+        }
+
+        if (_stats.TakeKey(mapped, action == InputAction.Press))
         {
             return;
         }

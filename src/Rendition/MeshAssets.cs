@@ -11,19 +11,18 @@ namespace Rendition;
 /// <see cref="RendererAssets"/>.
 /// </summary>
 internal sealed class MeshAssets(
-    (VulkanContext Context, UploadQueue Uploads, RetiredResources Retired, RayTracing? Tracing) gpu,
-    MeshStore meshes,
+    SceneStores stores,
     Action<Func<BakeJob, bool>> stopBakesThat)
 {
     /// <summary>See <see cref="RendererAssets.CreateMesh"/>.</summary>
     public MeshHandle Create(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices)
     {
-        var traceInput = GpuBuffer.TraceInput(gpu.Context);
-        var vertexBuffer = GpuBuffer.CreateDeviceLocalStaged(gpu.Context, vertices, BufferUsageFlags.VertexBufferBit | traceInput, out var vertexStaging);
-        gpu.Uploads.Add(vertexStaging, vertexBuffer);
-        var indexBuffer = GpuBuffer.CreateDeviceLocalStaged(gpu.Context, indices, BufferUsageFlags.IndexBufferBit | traceInput, out var indexStaging);
-        gpu.Uploads.Add(indexStaging, indexBuffer);
-        return meshes.AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length)
+        var traceInput = GpuBuffer.TraceInput(stores.Context);
+        var vertexBuffer = GpuBuffer.CreateDeviceLocalStaged(stores.Context, vertices, BufferUsageFlags.VertexBufferBit | traceInput, out var vertexStaging);
+        stores.Uploads.Add(vertexStaging, vertexBuffer);
+        var indexBuffer = GpuBuffer.CreateDeviceLocalStaged(stores.Context, indices, BufferUsageFlags.IndexBufferBit | traceInput, out var indexStaging);
+        stores.Uploads.Add(indexStaging, indexBuffer);
+        return stores.Meshes.AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length)
         {
             CumulativeAreas = LightmapLayout.CumulativeAreas(vertices, indices),
         });
@@ -32,19 +31,20 @@ internal sealed class MeshAssets(
     /// <summary>See <see cref="RendererAssets.DestroyMesh"/>.</summary>
     public void Destroy(MeshHandle mesh)
     {
-        var live = meshes.TakeMesh(mesh);
+        var live = stores.Meshes.TakeMesh(mesh);
+        stores.ShadowWorld.Changed();
 
         // A mesh made this frame may still be waiting for its bytes. That copy must not
         // run into a buffer that is about to be freed.
-        gpu.Uploads.Cancel(live.Vertices);
-        gpu.Uploads.Cancel(live.Indices);
-        gpu.Retired.AfterLastSubmitted.FreedMeshes.Add(live);
+        stores.Uploads.Cancel(live.Vertices);
+        stores.Uploads.Cancel(live.Indices);
+        stores.Retired.AfterLastSubmitted.FreedMeshes.Add(live);
 
         // A background bake still tracing it would read freed buffers.
         stopBakesThat(job => job.Area.Uses(mesh));
 
         // Its structures read its buffers, and its handle may go to another mesh, so they go with it.
-        gpu.Tracing?.Forget(mesh);
+        stores.Tracing?.Forget(mesh);
     }
 
     /// <summary>
@@ -66,7 +66,7 @@ internal sealed class MeshAssets(
             var detail = simplify
                 ? MeshDetail.Build(vertices, partIndices, allIndices)
                 : MeshDetail.Full(vertices, partIndices);
-            details[i] = meshes.AddDetail(detail with { Radius = detail.Radius * radiusScale });
+            details[i] = stores.Meshes.AddDetail(detail with { Radius = detail.Radius * radiusScale });
             draws[i] = new DrawItem
             {
                 FirstIndex = part.FirstIndex,
@@ -78,7 +78,7 @@ internal sealed class MeshAssets(
         }
 
         var mesh = Create(vertices, CollectionsMarshal.AsSpan(allIndices));
-        meshes.LiveMesh(mesh).Details = details;
+        stores.Meshes.LiveMesh(mesh).Details = details;
         foreach (ref var draw in draws.AsSpan())
         {
             draw.Mesh = mesh;
@@ -88,5 +88,5 @@ internal sealed class MeshAssets(
     }
 
     /// <summary>See <see cref="RendererAssets.BoundsOf"/>.</summary>
-    public BakeSphere BoundsOf(DetailHandle detail) => meshes.PartBounds(detail);
+    public BakeSphere BoundsOf(DetailHandle detail) => stores.Meshes.PartBounds(detail);
 }

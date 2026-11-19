@@ -19,7 +19,8 @@ internal sealed class SceneLighting
         ShadowPass = new ShadowPass(context, kit.FrameSetLayout, stores.Resources, stores.Settings.ShadowResolution);
         stores.Frames.WriteAtlas(ShadowPass.Atlas.View);
         SunShadows = new SunShadows(context.Api, ShadowPass, meshes, stores.Switches);
-        LocalLightShadows = new LocalLightShadows(context, kit.FrameSetLayout, ShadowPass, meshes, stores.Switches);
+        LocalLightShadows = new LocalLightShadows(context, kit.FrameSetLayout, ShadowPass, stores.Switches,
+            (meshes, stores.ShadowWorld, stores.Resources.Materials));
         EnvironmentSky = new EnvironmentSky(context, stores.Ring);
         stores.Frames.WriteSkySh(EnvironmentSky.Sh);
         var map = EnvironmentSky.Map;

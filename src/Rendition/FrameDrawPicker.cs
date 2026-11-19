@@ -71,6 +71,24 @@ internal sealed class FrameDrawPicker(FrameParts parts, FrameBakes bakes, Render
     }
 
     /// <summary>
+    /// Picks what each point and spot light's shadow tile draws, after <see cref="Select"/>, and returns how many draws
+    /// there are in all. While the GPU is measured, the tiles' triangles join the shadows' and the tiles drawn and kept
+    /// are counted.
+    /// </summary>
+    public int SelectTiles(ReadOnlySpan<DrawItem> draws)
+    {
+        var (shadows, settings) = (parts.SceneLighting.LocalLightShadows, parts.SceneStores.Settings);
+        int count = shadows.Select(draws, settings.MeshDetailScale);
+        if (settings.MeasureGpu)
+        {
+            stats.DrawnTriangles = (stats.DrawnTriangles.Camera, stats.DrawnTriangles.Shadows + DrawSelection.Triangles(shadows.Tiles.Drawn));
+        }
+
+        stats.ShadowTiles = settings.MeasureGpu ? shadows.Tiles.Counts : default;
+        return count;
+    }
+
+    /// <summary>
     /// Picks the camera's draws. While chunks are relit, each picked draw also keeps the chunk its source is relit as.
     /// </summary>
     private int SelectCamera(in DetailView camera, ReadOnlySpan<DrawItem> draws)

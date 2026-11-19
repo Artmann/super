@@ -12,29 +12,25 @@ namespace Rendition;
 /// </summary>
 internal sealed unsafe class LocalLightShadows
 {
-    // How far a simpler model may stray in a shadow. Shadows are soft, so they can afford more than the camera.
-    private const float ShadowDetailError = 2f;
-
     private readonly VulkanContext _context;
-    private readonly ShadowPass _pass;
-    private readonly MeshStore _meshes;
     private readonly FrameSwitches _switches;
     private readonly LocalLights _lights = new();
-    private readonly (int First, int Count)[] _ranges = new (int, int)[LocalLights.MaxTiles];
     private readonly PipelineLayout _clusterLayout;
     private readonly LivePipeline _clusterPipeline;
-    private DrawItem[] _draws = [];
-    private int _tileCount;
 
-    public LocalLightShadows(VulkanContext context, DescriptorSetLayout frameSetLayout, ShadowPass pass, MeshStore meshes, FrameSwitches switches)
+    public LocalLightShadows(
+        VulkanContext context, DescriptorSetLayout frameSetLayout, ShadowPass pass, FrameSwitches switches,
+        (MeshStore Meshes, ShadowWorld World, MaterialTable Materials) casters)
     {
         _context = context;
-        _pass = pass;
-        _meshes = meshes;
         _switches = switches;
+        Tiles = new LightShadowTiles(context.Api, pass, switches, casters);
         _clusterLayout = context.CreatePipelineLayout([frameSetLayout]);
         _clusterPipeline = PipelineFactory.CreateCompute(context, "cluster.comp", _clusterLayout);
     }
+
+    /// <summary>The lights' shadow tiles: what each draws, which a frame draws again, and how many it kept.</summary>
+    public LightShadowTiles Tiles { get; }
 
     /// <summary>Whether this frame sorts anything into the clusters: a point or spot light, or a reflection probe.</summary>
     public bool ClustersNeeded { get; private set; }
@@ -65,7 +61,6 @@ internal sealed unsafe class LocalLightShadows
             shadows: !_switches.Off.HasFlag(RenderEffects.LightShadows),
             maskChannels: sorting.MaskChannels,
             cover: probes.Count > 0 ? (probes.NearDepth, probes.FarDepth) : null);
-        _tileCount = _lights.TileCount;
         ClustersNeeded = _lights.LightCount > 0 || probes.Count > 0;
         uniforms->CountBlock.LocalLightCount = _lights.LightCount;
         uniforms->Clusters = new Vector4(_lights.NearDepth, _lights.FarDepth, _lights.Parallel ? 1f : 0f, 0f);
@@ -73,52 +68,14 @@ internal sealed unsafe class LocalLightShadows
     }
 
     /// <summary>
-    /// Picks what each shadow tile of the atlas can see, one after another, and returns how many there are in all.
+    /// Picks what each shadow tile of the atlas can see, one after another, and returns how many draws there are in
+    /// all. A tile the atlas still holds as it would be drawn gets none.
     /// </summary>
-    public int Select(ReadOnlySpan<DrawItem> draws, float meshDetailScale)
-    {
-        var tiles = _lights.Tiles;
-        int total = 0;
-        for (int tile = 0; tile < tiles.Length; tile++)
-        {
-            if (_draws.Length < total + draws.Length * 2)
-            {
-                Array.Resize(ref _draws, Math.Max(_draws.Length * 2, total + draws.Length * 2));
-            }
+    public int Select(ReadOnlySpan<DrawItem> draws, float meshDetailScale) => Tiles.Select(_lights.Tiles, draws, meshDetailScale);
 
-            ref readonly var view = ref tiles[tile];
-            var shadow = new DetailView(
-                view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, _switches.DetailError(ShadowDetailError, meshDetailScale), far: true, cull: _switches.Culls);
-            int count = DrawSelection.Select(shadow, draws, _meshes.DetailSlots, _draws.AsSpan(total), _switches.WindReach, fades: _switches.FadeRules);
-            _ranges[tile] = (total, count);
-            total += count;
-        }
-
-        return total;
-    }
-
-    /// <summary>Draws the shadow tiles of the point and spot lights into the atlas.</summary>
-    public void RecordTiles(CommandBuffer cmd, DescriptorSet frameSet, InstanceBuffer instances)
-    {
-        var api = _context.Api;
-
-        // The lighting pass binds the atlas even when no light has a tile in it.
-        var atlas = _pass.Atlas.Image;
-        if (_tileCount > 0)
-        {
-            api.Transition(cmd, new ImageTransition(atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal), (ShadowReadStages, SampledAccess),
-                (DepthStages, DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit));
-            _pass.RecordTiles(cmd, frameSet, _lights.Tiles, _ranges.AsSpan(0, _tileCount), new SceneGeometry(_draws, _meshes.MeshSlots, _meshes.DetailSlots, instances));
-            api.Transition(cmd, new ImageTransition(atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal), (DepthStages, DepthWrite), (ShadowReadStages, SampledAccess));
-        }
-        else
-        {
-            api.Transition(cmd, new ImageTransition(atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (ShadowReadStages, SampledAccess), (ShadowReadStages, SampledAccess));
-        }
-    }
+    /// <summary>Draws the shadow tiles of the point and spot lights that need it into the atlas.</summary>
+    public void RecordTiles(CommandBuffer cmd, DescriptorSet frameSet, InstanceBuffer instances) =>
+        Tiles.Record(cmd, frameSet, _lights.Tiles, instances);
 
     /// <summary>
     /// Sorts the point and spot lights into the view's clusters on the GPU, before anything

@@ -22,6 +22,7 @@ public static class Game
         using var host = MakeHost<TGame>(options, arguments, services, seed, gameId);
         host.Script = FindScript<TGame>(host, arguments.ScriptName);
         host.Ui.Scale = arguments.UiScale ?? options.UiScale;
+        host.Stats.Shown = arguments.Stats;
 
         using var window = MakeWindow(options, arguments, host.Graphics);
         if (!PrepareWindow(host, window, arguments))

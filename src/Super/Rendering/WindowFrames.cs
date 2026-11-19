@@ -24,6 +24,9 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
 
     private bool _takingShot;
 
+    /// <summary>Hands the frames drawn to the stats panel while it shows.</summary>
+    public RenderStatsFeed Stats { get; } = new(scene);
+
     /// <summary>
     /// What every frame shows when <c>--debug-view</c> asked for a view, or <see cref="Rendition.DebugView.None"/>
     /// when it didn't, and then the game's <see cref="Graphics.DebugView"/> decides.
@@ -44,6 +47,7 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
         // Reflection probes are photographed one a frame and each waits in line once at most, so after a frame for every
         // probe each holds a picture taken in the settled light.
         Settle(host, time, scene.Renderer.Reflections.Count);
+        MeasureForStats(host, time);
 
         host.Capture.Screenshot(path);
         Show(host, time);
@@ -150,6 +154,25 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
     }
 
     /// <summary>
+    /// With the stats panel shown, draws the settled frame over and over until the panel has measured half a second of
+    /// them, so a screenshot shows the figures of frames like its own. Nothing ticks, so the shot is the same.
+    /// </summary>
+    private void MeasureForStats(GameLoop host, float time)
+    {
+        if (!host.Stats.Shown)
+        {
+            return;
+        }
+
+        host.Stats.Restart();
+        for (int i = 0; i < RenderStatsFeed.MostScreenshotFrames && !host.Stats.Latest.Render.Measured; i++)
+        {
+            Show(host, time);
+            Draw(host, 1f);
+        }
+    }
+
+    /// <summary>
     /// Renders frames until <paramref name="settled"/> says there's nothing left to wait for, or <paramref name="cap"/>
     /// frames have been rendered, and returns how many were. None are rendered if it's settled already.
     /// </summary>
@@ -172,21 +195,31 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
         host.Draw(blend);
     }
 
-    /// <summary>Puts the last Draw on screen, and hands it to the capture if that wants it.</summary>
+    /// <summary>
+    /// Puts the last Draw on screen, and hands it to the capture if that wants it, and to the stats panel while it
+    /// shows.
+    /// </summary>
     public void Show(GameLoop host, float time)
     {
         var (width, height) = window.FramebufferSize();
+        bool measured = Stats.Begin(host.Stats);
 
         // A minimized window has no pixels to read.
         if (!host.Capture.WantsFrame || width == 0 || height == 0)
         {
             Render(host, width, height, time);
-            return;
+        }
+        else
+        {
+            ApplyGraphics(host.Graphics);
+            byte[] pixels = scene.Capture(host.View, host.Content, width, height, time, out int capturedWidth, out int capturedHeight);
+            host.Capture.Accept(pixels, capturedWidth, capturedHeight);
         }
 
-        ApplyGraphics(host.Graphics);
-        byte[] pixels = scene.Capture(host.View, host.Content, width, height, time, out int capturedWidth, out int capturedHeight);
-        host.Capture.Accept(pixels, capturedWidth, capturedHeight);
+        if (measured)
+        {
+            Stats.Add(host.Stats, width, height);
+        }
     }
 
     /// <summary>Renders the last Draw with the game's graphics settings as they are now.</summary>

@@ -91,6 +91,7 @@ internal sealed unsafe class GpuMemory(Vk api, PhysicalDevice physicalDevice, De
         if (allocation.Pool < 0)
         {
             api.FreeMemory(device, allocation.Memory, null);
+            _dedicated -= allocation.Size;
             return;
         }
 
@@ -118,6 +119,7 @@ internal sealed unsafe class GpuMemory(Vk api, PhysicalDevice physicalDevice, De
         if (requirements.Size > BlockSize)
         {
             var memory = AllocateRaw(requirements.Size, memoryType, hostVisible, out byte* mapped);
+            _dedicated += requirements.Size;
             return new GpuAllocation { Memory = memory, Size = requirements.Size, Mapped = mapped, Pool = -1, Block = -1 };
         }
 

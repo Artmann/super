@@ -32,6 +32,7 @@ internal abstract class GameLoop
         Audio = services.GetRequiredService<Audio>();
         Content.Animators.Play = (sound, at, volume, pitchVariation) => Audio.Play(sound, at: at, volume: volume, pitchVariation: pitchVariation);
         Graphics = services.GetRequiredService<Graphics>();
+        Stats = services.GetRequiredService<GameStats>();
         LoopedGame = makeGame(services);
         Halts = new LoopHalts(Input);
         Input.Mouse.Feed.RoutesMouse = true;
@@ -63,6 +64,9 @@ internal abstract class GameLoop
 
     /// <summary>How the game is drawn. Changes show from the next frame.</summary>
     public Graphics Graphics { get; }
+
+    /// <summary>How the game is running, and whether the engine's stats panel shows it.</summary>
+    public GameStats Stats { get; }
 
     public View View { get; } = new();
 

@@ -37,7 +37,7 @@ internal sealed unsafe class OcclusionStage : IDisposable
         _aoSteadyAcrossSet = kit.NewSet(kit.FourTextureLayout);
         _aoDownSet = kit.NewSet(kit.FourTextureLayout);
         _aoPass = new FullscreenPass(
-            context, "ao.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [kit.FrameSetLayout, kit.FourTextureLayout], sizeof(int));
+            context, "ao.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [kit.FrameSetLayout, kit.FourTextureLayout], 2 * sizeof(int));
         _aoBlurPass = new FullscreenPass(
             context, "ao_blur.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [kit.FrameSetLayout, kit.FourTextureLayout], 3 * sizeof(int));
         _aoSteadyPass = new FullscreenPass(
@@ -65,16 +65,18 @@ internal sealed unsafe class OcclusionStage : IDisposable
 
         var extent = targets.Occlusion.Extent;
         int scale = targets.Occlusion.Resolution == OcclusionResolution.Full ? 1 : 2;
+
+        // Averaged with the frames before, where there are any to keep, and that average kept for the next frame.
+        bool averaged = !off.HasFlag(RenderEffects.OcclusionHistory);
+        var constants = new AoConstants(scale, AoSlices(scale, averaged));
         ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
         _api.BeginColorTarget(cmd, targets.Occlusion.Ao.Image);
         _api.BeginColorTarget(cmd, targets.Occlusion.Bounce.Image);
-        _aoPass.Record(cmd, [targets.Occlusion.Ao.View, targets.Occlusion.Bounce.View], extent, aoSets, new ReadOnlySpan<byte>(&scale, sizeof(int)));
+        _aoPass.Record(cmd, [targets.Occlusion.Ao.View, targets.Occlusion.Bounce.View], extent, aoSets, new ReadOnlySpan<byte>(&constants, sizeof(AoConstants)));
         _api.EndColorTarget(cmd, targets.Occlusion.Ao.Image);
         _api.EndColorTarget(cmd, targets.Occlusion.Bounce.Image);
         timer.Mark(cmd);
 
-        // Averaged with the frames before, where there are any to keep, and that average kept for the next frame.
-        bool averaged = !off.HasFlag(RenderEffects.OcclusionHistory);
         if (averaged)
         {
             RecordAverage(cmd, targets, frameSet, scale);
@@ -178,6 +180,17 @@ internal sealed unsafe class OcclusionStage : IDisposable
     /// <summary>ao_blur.frag's constants: one pixel along the way a pass blurs, and screen pixels per pixel of occlusion.</summary>
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct AoBlurStep(int X, int Y, int Scale);
+
+    /// <summary>ao.frag's constants: screen pixels per pixel of occlusion, and how many slices each pixel traces.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly record struct AoConstants(int Scale, int Slices);
+
+    /// <summary>
+    /// How many slices round a pixel the occlusion traces a frame. At full size with the frames averaged one does, a
+    /// different way each frame, and the average gathers the turns. That is still twice the slices a screen pixel gets
+    /// at half size, where each pixel traces two every fourth frame. Without the average, or at half size, two do.
+    /// </summary>
+    private static int AoSlices(int scale, bool averaged) => scale == 1 && averaged ? 1 : 2;
 
     /// <summary>ao_temporal.frag's constants: screen pixels per pixel of occlusion, and 1 when there is a history to read.</summary>
     [StructLayout(LayoutKind.Sequential)]

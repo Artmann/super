@@ -262,7 +262,7 @@ public class LocalLightTests
 
         Dictionary<int, (int X, int Y, int Size)> Places(LocalLight[] lights)
         {
-            prepared.Prepare(lights, LookingDownZ, Perspective, Height, gpu, tiles);
+            prepared.Prepare(lights, (LookingDownZ, Perspective, Height), gpu, tiles);
             Assert.Equal(lights.Length, prepared.LightCount);
             var places = new Dictionary<int, (int X, int Y, int Size)>();
             for (int light = 0; light < lights.Length; light++)

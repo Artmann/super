@@ -26,7 +26,6 @@ internal sealed class SceneStores
             Tracing = new RayTracing(Context, Resources, (MeshFor, Uploads.IsPending),
                 (AfterSubmitted: structure => Retired.AfterLastSubmitted.FreedOthers.Add(structure),
                 AfterRecorded: used => Retired.AfterRecording.FreedOthers.Add(used)));
-            TraceScene = new TraceScene(TraceFlagsOf);
         }
     }
 
@@ -57,8 +56,8 @@ internal sealed class SceneStores
     /// <summary>The acceleration structures rays are traced through, or null when the GPU can't trace.</summary>
     public RayTracing? Tracing { get; }
 
-    /// <summary>What a frame's draws come to as the instances rays are traced through, or null when the GPU can't trace.</summary>
-    public TraceScene? TraceScene { get; }
+    /// <summary>Counts the changes that can change any light's shadow tile, such as a mesh or texture going.</summary>
+    public ShadowWorld ShadowWorld { get; } = new();
 
     /// <summary>The samplers and set layouts every pass shares.</summary>
     public DescriptorKit Kit { get; }

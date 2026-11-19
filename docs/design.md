@@ -1442,13 +1442,14 @@ light 0.8 times its radius wide (`SHADOW_WIDTH_PER_RADIUS`). Glass and particles
 The atlas keeps its depths from frame to frame, and a tile is only drawn again when what
 it would draw changed. `ShadowTileCache` hashes each tile's matrix and place in the atlas
 with what its casters show the light: mesh, index range, transform, swim, cross-fade
-dither, and the material's `ShadowShapeOf`, a hash of its opacity, cut-off, their
-textures and its flags, so a material that only changes colour keeps its shadows. A tile
+dither, and the material's `MaterialFacts.ShadowShape`, a hash of its opacity, cut-off, their
+textures and its flags, so a material that only changes colour keeps its shadows. `LightShadowTiles` picks each
+tile's draws and asks the cache, and records the tiles to draw. A tile
 matches the hash that its own place held last frame, and a place no tile used last frame
 is drawn again, since another tile may have drawn over it. A tile with a skinned caster,
 or one that sways in the wind, is drawn every frame, as those move on the GPU with nothing
 in the draw changing. Destroying a mesh, texture or material, or reloading shaders, bumps
-a count that forgets every tile, as a handle may come back for something else. A drawn
+a count (`ShadowWorld`, in `SceneStores`) that forgets every tile, as a handle may come back for something else. A drawn
 tile is cleared with `vkCmdClearAttachments` over its own square, and the pass loads the
 rest. When no tile needs drawing, the pass and its barriers are skipped. In the Crypt at
 1600 by 900, 19 of its 32 tiles are kept each frame; the other 13 see the lantern swinging
@@ -1530,7 +1531,7 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
   `SceneDraws.Record` runs its shading round alone.
 
 `Subsurface` (bit 31, `OFF_SUBSURFACE`) is the last bit the shaders can read. `RenderEffects` is a `long` now, and the
-renderer passes only its low 32 bits on, as `frame.off` (`ShadedEffects` in `Renderer.cs`). Bit 30 is the debug view bit,
+renderer passes only its low 32 bits on, as `frame.off` (`ShadedEffects` in `FrameUniformWriter.cs`). Bit 30 is the debug view bit,
 so no effect uses it, and bit 31 fills the `int`: a switch the shaders must read after this needs a new uniform field,
 or a bit the shaders don't otherwise read, as `Fades` (bit 36) borrows bit 29 (see [Fades](#fades)).
 `writeSurface()` in `surface.glsl` marks a subsurface surface plain, so the lighting shades it as matte and writes no
@@ -3641,7 +3642,7 @@ steps: an average over time, and then a narrow blur.
 
 At `OcclusionResolution.Full` with the average over time running, each pixel walks one
 slice a frame instead of two, pushed to the shader as `slices` with the scale (`AoSlices`
-in `Renderer.cs`). The noise turns the slice every frame, so the average of 8 frames still
+in `OcclusionStage.cs`). The noise turns the slice every frame, so the average of 8 frames still
 sees 8 directions, as it saw 16, and the Crypt shot with one slice is hard to tell from the
 one with two (45 dB PSNR, no edge stands out in the difference). That made the occlusion
 pass about 28% cheaper in the Crypt at 1600 by 900. At `Half` each pixel already stands for
@@ -4846,21 +4847,21 @@ panel (`StatsOverlay`, shown while `GameStats.Shown` is on) takes the third plac
 
 ### The stats panel
 
-While `GameStats.Shown` is on, `GameWindow.Show` turns on `Renderer.MeasureGpu`, unless a
-`--profile` run is measuring, and after each frame hands `GameStats.AddRender` the GPU's pass
+While `GameStats.Shown` is on, `WindowFrames.Show` has `RenderStatsFeed` turn on `Renderer.Settings.MeasureGpu`,
+unless a `--profile` run is measuring, and after each frame hands `GameStats.AddRender` the GPU's pass
 times, the wait for the GPU and the display, and the frame's counts. The pass times arrive a
 frame or two late and are empty on frames the GPU didn't time, so GPU time is averaged over
 the frames that had times and the wait over every rendered frame. `EndFrame` takes the
 averages and the five slowest passes into `FrameStats.Render` twice a second.
 
-Draw calls come from `SceneDraws.Issued`, a static counter that `Recorder.Issue` bumps with
+Draw calls come from `DrawCallCount.Issued`, a static counter that `SceneDraws.Record` bumps with
 `Interlocked.Increment` after each `CmdDrawIndexed`, since the scene's draws are recorded on
-several threads. `Renderer.RenderTinted` reads it before and after `RecordCommands` and keeps
-the difference in `DrawCalls`, which is 0 while the renderer isn't measured. Triangles and
+several threads. `FrameRecorder.Record` reads it before and after recording the frame and keeps
+the difference in `Renderer.Stats.DrawCalls`, which is 0 while the renderer isn't measured. Triangles and
 shadow tiles are the counters the renderer already keeps for `--profile`, and GPU memory is
 `GpuMemory.UsedBytes` and `ReservedBytes`.
 
-`WindowInput`'s key callback hands every mapped key to `GameStats.TakeKey` first, which flips
+`WindowInputFeed`'s key callback hands every mapped key to `GameStats.TakeKey` first, which flips
 `Shown` on a press of `ToggleKey` (F3 by default, null for none) and says the key was taken,
 so it isn't forwarded to `Input`. The callback reads `ToggleKey` on each key, so a change
 while playing takes effect at once. A `--stats`
