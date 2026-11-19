@@ -86,10 +86,10 @@ public sealed class BakedSpaceTests
         var (started, content) = Started();
         using var run = started;
 
-        // The baked space is named in Draw, as it is every frame.
+        // The baked space is an entity, which the world describes into every frame.
         var view = new View();
         view.Begin(0f);
-        run.Game.Draw(view);
+        WorldFrame.Describe(view, run.World);
         var space = view.Indirect.BakedSpace;
         Assert.NotNull(space);
         Assert.Equal("crypt", space.Value.Name);

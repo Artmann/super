@@ -14,8 +14,6 @@ namespace Crypt;
 /// </summary>
 public sealed class CryptGame(World world, Content content, Input input, Graphics graphics) : IGame
 {
-    private const int MistKey = 350;
-
     public const float HallWidth = 9f;
     public const float HallFront = 4f;
     public const float HallBack = -9.5f;
@@ -81,6 +79,7 @@ public sealed class CryptGame(World world, Content content, Input input, Graphic
         Candles();
         ChestAndLantern();
         ColdShaft();
+        BakedSpaceAndMist();
     }
 
     public void Update(GameTime time)
@@ -100,11 +99,11 @@ public sealed class CryptGame(World world, Content content, Input input, Graphic
     /// The baked space, and a cold mist over the whole floor, in a box 0.8 m deep with soft edges, in patches drifting
     /// slowly towards the door, so the torches and candles glow in it. V switches the mist off.
     /// </summary>
-    public void Draw(View view)
+    private void BakedSpaceAndMist()
     {
         // The hall is one baked space, "crypt". Its box holds the walls and the vault with a little to spare, and its
         // probes light the lantern as it swings.
-        view.Indirect.BakedLighting("crypt", new Vector3(-5.2f, -0.2f, -10.2f), new Vector3(5.2f, 5.5f, 4.7f), 0.8f);
+        world.Spawn(new BakedLighting("crypt", new Vector3(-5.2f, -0.2f, -10.2f), new Vector3(5.2f, 5.5f, 4.7f), 0.8f));
 
         var mist = new FogVolumeSettings(0.3f)
         {
@@ -113,9 +112,9 @@ public sealed class CryptGame(World world, Content content, Input input, Graphic
             NoiseSize = 1.5f,
             Wind = new Vector3(0.05f, 0f, 0.12f),
         };
-        view.Effects.FogVolume(MistKey, FogShape.Box,
-            Matrix4x4.CreateScale(HallWidth, 0.8f, HallFront - HallBack) * Matrix4x4.CreateTranslation(0f, 0.2f, (HallFront + HallBack) / 2f),
-            mist);
+        world.Spawn(
+            new Transform(new Vector3(0f, 0.2f, (HallFront + HallBack) / 2f), Quaternion.Identity, new Vector3(HallWidth, 0.8f, HallFront - HallBack)),
+            new FogVolume(FogShape.Box, mist));
     }
 
     /// <summary>A model that stands still, so its light is baked.</summary>

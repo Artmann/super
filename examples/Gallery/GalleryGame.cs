@@ -51,6 +51,13 @@ public sealed class GalleryGame(World world, Content content, Input input, Graph
             new AmbientOcclusion(0.8f, 1f));
         world.Spawn(Finish());
 
+        // One box of probes over the whole gallery. At most 4,096 fit, so they're 1.65 m apart.
+        // It's kept on top of the probes that follow the camera: without it the rooms' walls and
+        // floors came out blotchy, and the building greyer from the overview. The same box is the
+        // baked space "gallery": once it has a bake, the building's static pieces take their light from it.
+        world.Spawn(new LightProbes(ProbesMin, ProbesMax, 1.65f), new BakedLighting("gallery", ProbesMin, ProbesMax, 1.65f));
+        ReflectionProbes.Spawn(world);
+
         var bust = content.Model("models/marble_bust_01/marble_bust_01.gltf");
         var whale = content.Model("models/bronze_whale_statue/bronze_whale_statue.gltf");
         world.Spawn(new Transform(GalleryPlan.BustAt, Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2f), Vector3.One), new Model(bust));
@@ -78,21 +85,6 @@ public sealed class GalleryGame(World world, Content content, Input input, Graph
         _lampRoom.Roll(seconds);
         _chapel.Swing(seconds);
         _chapel.Light(_changes.LanternLit);
-    }
-
-    /// <summary>The light probes, the baked space and the reflection probes.</summary>
-    public void Draw(View view)
-    {
-        // One box of probes over the whole gallery. At most 4,096 fit, so they're 1.65 m apart.
-        // It's kept on top of the probes that follow the camera: without it the rooms' walls and
-        // floors came out blotchy, and the building greyer from the overview.
-        view.Indirect.LightProbes(ProbesMin, ProbesMax, 1.65f);
-
-        // The same box is the baked space "gallery": once it has a bake, the building's static
-        // pieces take their light from it.
-        view.Indirect.BakedLighting("gallery", ProbesMin, ProbesMax, 1.65f);
-
-        ReflectionProbes.Place(view);
     }
 
     /// <summary>The lighting modes in the bottom-left corner, with the current one in bold.</summary>

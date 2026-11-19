@@ -17,9 +17,6 @@ namespace Hamlet;
 /// </summary>
 public sealed class HamletGame(World world, GameRandom random, Input input, Content content, Graphics graphics) : IGame
 {
-    /// <summary>The lightmap density of every building's bake.</summary>
-    internal const int TexelsPerMetre = 10;
-
     private readonly LightingSwitch _lighting = new(input, graphics);
     private Kinds _kinds = null!;
     private CameraTour _tour = null!;
@@ -85,16 +82,6 @@ public sealed class HamletGame(World world, GameRandom random, Input input, Cont
         }
 
         Light(seconds);
-    }
-
-    /// <summary>Every building's baked chunk: its box is its plan's, placed where the village put it, so every copy of a plan shares one bake.</summary>
-    public void Draw(View view)
-    {
-        foreach (var building in _scene.Village.Buildings)
-        {
-            var plan = building.Plan;
-            view.Indirect.BakedChunk(plan.Name, building.Placement, plan.Min, plan.Max, TexelsPerMetre, plan.EdgeBlend);
-        }
     }
 
     /// <summary>The lighting modes in the bottom-left corner, with the current one in bold, and whether P shows the probes.</summary>

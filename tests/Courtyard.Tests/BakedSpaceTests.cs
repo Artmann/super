@@ -16,19 +16,16 @@ public sealed class BakedSpaceTests
     [Fact]
     public void Courtyard_names_one_baked_space_and_static_yard()
     {
-        // Draw doesn't need the cooked content, only the names Load would have made, so the game is not loaded: the yard
-        // is spawned on its own, as Load spawns it.
+        // The yard and its baked space are spawned on their own, as Load spawns them, so the cooked content isn't needed.
         var world = new World();
         var memory = new MemoryContent();
         memory.AddModel("models/courtyard.glb");
         var content = new Content(memory);
         CourtyardYard.Spawn(world, content.Model("models/courtyard.glb"));
-        var game = new CourtyardGame(world, content, new Input(), new Graphics());
         var view = new View();
         view.Begin(0f);
 
         WorldFrame.Describe(view, world);
-        game.Draw(view);
 
         var space = view.Indirect.BakedSpace;
         Assert.NotNull(space);
