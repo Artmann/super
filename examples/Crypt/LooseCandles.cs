@@ -1,16 +1,14 @@
 using System.Numerics;
-using Rendition;
 using Super;
 
 namespace Crypt;
 
 /// <summary>Candles standing on the floor in clusters, each its own height and width, each with its flame and light.</summary>
-internal sealed class LooseCandles
+internal sealed class LooseCandles(World world)
 {
-    private const int CandleKey = 1000;
-    private const int FlameKey = 200_000;
+    private static readonly Vector3 Wax = new(0.85f, 0.78f, 0.62f);
 
-    private readonly List<(Vector3 Foot, float Height, float Width)> _candles = [];
+    private int _count;
 
     /// <summary>Scatters <paramref name="count"/> candles over a box <paramref name="half"/> wide each way round <paramref name="middle"/>.</summary>
     public void Scatter(Random random, Vector3 middle, Vector2 half, int count)
@@ -33,25 +31,17 @@ internal sealed class LooseCandles
         }
     }
 
-    /// <summary>Draws the candles, their flames flickering with <paramref name="seconds"/>.</summary>
-    public void Draw(View view, float seconds)
-    {
-        var wax = new Vector3(0.85f, 0.78f, 0.62f);
-        for (int i = 0; i < _candles.Count; i++)
-        {
-            var (foot, height, width) = _candles[i];
-            view.Model(CandleKey + i, ModelRef.Cylinder, Matrix4x4.CreateScale(width, height, width) * Matrix4x4.CreateTranslation(foot + new Vector3(0f, height * 0.5f, 0f)), new ModelOptions { Color = wax, Static = true });
-            var wick = foot + new Vector3(0f, height + 0.012f, 0f);
-            float flicker = 1f + (0.15f * MathF.Sin(seconds * 13f + i));
-            view.Lights.Point(CandleKey + i, new PointLight(wick + new Vector3(0f, 0.03f, 0f), new Vector3(0.16f, 0.075f, 0.022f) * flicker, 1.6f) { Shadows = false });
-            CryptFire.Draw(view, FlameKey + (i * 1000), CryptFire.CandleFlame, wick, seconds);
-        }
-    }
-
+    /// <summary>A candle of its own height and width at <paramref name="foot"/>, burning with a flame and a little light that flickers.</summary>
     private void Add(Random random, Vector3 foot)
     {
         float height = 0.06f + (0.22f * MathF.Pow((float)random.NextDouble(), 1.5f));
         float width = 0.035f + (0.035f * (float)random.NextDouble());
-        _candles.Add((foot, height, width));
+        var wick = foot + new Vector3(0f, height + 0.012f, 0f);
+        var color = new Vector3(0.16f, 0.075f, 0.022f);
+
+        world.Spawn(new Transform(foot + new Vector3(0f, height * 0.5f, 0f), Quaternion.Identity, new Vector3(width, height, width)), new Model(ModelRef.Cylinder, Wax), new Static());
+        world.Spawn(new PointLight(wick + new Vector3(0f, 0.03f, 0f), color, 1.6f) { Shadows = false }, new Flicker(color, 0.15f, 13f, _count));
+        world.Spawn(Transform.At(wick), new Emitter(CryptFire.CandleFlame));
+        _count++;
     }
 }

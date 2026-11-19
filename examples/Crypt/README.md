@@ -43,7 +43,7 @@ See [CREDITS.md](../../CREDITS.md) for who made what.
 ## Baked lighting
 
 The hall is a baked space named `crypt`, in a box a little larger than the walls and the vault, with
-probes 0.8 m apart. Everything that stands still is drawn static (`new ModelOptions { Static = true }`): the floor, walls,
+probes 0.8 m apart. Everything that stands still is an entity with `Static`: the floor, walls,
 vault, pillars, altar, statue, chest, barrels, candelabras, the loose candles and the torches' sticks.
 The shapes made in code are made static too, so they get lightmap UVs. The lantern and its chain swing,
 so they stay dynamic, and the probes light them as they move. The bake is
@@ -66,9 +66,8 @@ from the lightmap alone and cannot flicker, and a `Realtime` one would lose the 
 | Lantern spot and flame (swing) | Mixed | They swing, so the bake can't hold their light | Real-time. They move, so the bake leaves them out and logs it |
 
 The bake's shadow mask has four channels, and the four torches take them. Every other `Mixed`
-light found none, and the bake lists them: 143 lights, the grate (340), the altar's flames and glow
-(600 to 614 and 699) and the 126 candles (1000 to 1125). They keep the real-time shadows they had
-before, or none.
+light found none, and the bake lists them: 143 lights, the grate, the altar's 15 flames and glow and the 126
+candles, each by its entity's id. They keep the real-time shadows they had before, or none.
 
 ### Rebaking
 
