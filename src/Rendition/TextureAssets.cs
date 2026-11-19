@@ -8,23 +8,23 @@ namespace Rendition;
 /// and let go of two frames after they're destroyed. Part of <see cref="RendererAssets"/>.
 /// </summary>
 internal sealed class TextureAssets(
-    (VulkanContext Context, UploadQueue Uploads, ResourceTable Resources, RetiredResources Retired) gpu,
+    SceneStores stores,
     Action<Func<BakeJob, bool>> stopBakesThat,
     FinishStage finish)
 {
     /// <summary>See <see cref="RendererAssets.CreateTexture"/>.</summary>
     public TextureHandle Create(TextureData data, TextureEdges edges)
     {
-        var texture = new GpuTexture(gpu.Context, new TextureShape(data.Width, data.Height, data.Kind, (uint)data.Mips.Length, Format: data.Format));
-        gpu.Uploads.Add(texture.CreateStaging([data]), texture);
+        var texture = new GpuTexture(stores.Context, new TextureShape(data.Width, data.Height, data.Kind, (uint)data.Mips.Length, Format: data.Format));
+        stores.Uploads.Add(texture.CreateStaging([data]), texture);
         try
         {
-            return gpu.Resources.AddTexture(texture, edges);
+            return stores.Resources.AddTexture(texture, edges);
         }
         catch
         {
             // A full table has already let the texture go, so its copy must never ride a frame.
-            gpu.Uploads.Cancel(texture);
+            stores.Uploads.Cancel(texture);
             throw;
         }
     }
@@ -51,15 +51,15 @@ internal sealed class TextureAssets(
             }
         }
 
-        var texture = new GpuTexture(gpu.Context, new TextureShape(first.Width, first.Height, first.Kind, (uint)first.Mips.Length, (uint)layers.Length, first.Format) { Array = true });
-        gpu.Uploads.Add(texture.CreateStaging(layers), texture);
-        return gpu.Resources.AddTextureArray(texture);
+        var texture = new GpuTexture(stores.Context, new TextureShape(first.Width, first.Height, first.Kind, (uint)first.Mips.Length, (uint)layers.Length, first.Format) { Array = true });
+        stores.Uploads.Add(texture.CreateStaging(layers), texture);
+        return stores.Resources.AddTextureArray(texture);
     }
 
     /// <summary>See <see cref="RendererAssets.DestroyTexture"/>.</summary>
     public void Destroy(TextureHandle texture)
     {
-        if (gpu.Resources.Defaults.Holds(texture) || !gpu.Resources.Textures.IsLive(texture.Index))
+        if (stores.Resources.Defaults.Holds(texture) || !stores.Resources.Textures.IsLive(texture.Index))
         {
             throw new ArgumentException("The texture does not exist.", nameof(texture));
         }
@@ -70,20 +70,20 @@ internal sealed class TextureAssets(
     /// <summary>See <see cref="RendererAssets.DestroyTextureArray"/>.</summary>
     public void DestroyArray(TextureArrayHandle array)
     {
-        if (gpu.Resources.Defaults.Holds(array) || !gpu.Resources.TextureArrays.IsLive(array.Index))
+        if (stores.Resources.Defaults.Holds(array) || !stores.Resources.TextureArrays.IsLive(array.Index))
         {
             throw new ArgumentException("The texture array does not exist.", nameof(array));
         }
 
-        gpu.Uploads.Cancel(gpu.Resources.TextureArrays.MarkDying(array.Index));
-        gpu.Retired.AfterLastSubmitted.FreedTextureArrays.Add(array.Index);
+        stores.Uploads.Cancel(stores.Resources.TextureArrays.MarkDying(array.Index));
+        stores.Retired.AfterLastSubmitted.FreedTextureArrays.Add(array.Index);
     }
 
     /// <summary>Lets go of a texture a model's material names, unless it's a default or already gone.</summary>
     public void DestroyIfLive(int slot)
     {
         var handle = new TextureHandle(slot);
-        if (slot >= 0 && !gpu.Resources.Defaults.Holds(handle) && gpu.Resources.Textures.IsLive(handle.Index))
+        if (slot >= 0 && !stores.Resources.Defaults.Holds(handle) && stores.Resources.Textures.IsLive(handle.Index))
         {
             QueueDestroy(slot);
         }
@@ -95,11 +95,12 @@ internal sealed class TextureAssets(
     /// <summary>Marks a live texture as gone, drops any copy still waiting for it, and queues its release.</summary>
     private void QueueDestroy(int slot)
     {
+        stores.ShadowWorld.Changed();
         // A background bake whose materials read it would trace a freed image.
         stopBakesThat(job => BakeReads(job, slot));
 
-        gpu.Uploads.Cancel(gpu.Resources.Textures.MarkDying(slot));
-        gpu.Retired.AfterLastSubmitted.FreedTextures.Add(slot);
+        stores.Uploads.Cancel(stores.Resources.Textures.MarkDying(slot));
+        stores.Retired.AfterLastSubmitted.FreedTextures.Add(slot);
     }
 
     // Whether a material of one of the job's draws names the texture in this slot.
@@ -107,12 +108,12 @@ internal sealed class TextureAssets(
     {
         foreach (ref readonly var draw in job.Area.Draws.AsSpan())
         {
-            if (!gpu.Resources.Materials.IsLive(draw.Material))
+            if (!stores.Resources.Materials.IsLive(draw.Material))
             {
                 continue;
             }
 
-            foreach (int texture in gpu.Resources.Materials.TexturesOf(draw.Material))
+            foreach (int texture in stores.Resources.Materials.TexturesOf(draw.Material))
             {
                 if (texture == slot)
                 {

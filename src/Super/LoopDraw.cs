@@ -17,6 +17,7 @@ internal sealed class LoopDraw
     private readonly Transitions _transitions;
     private readonly Audio _audio;
     private readonly GameStats _stats;
+    private readonly Gpu _gpu;
     private readonly IDrawHook[] _hooks;
     private readonly StateChanges _changes;
 
@@ -30,6 +31,7 @@ internal sealed class LoopDraw
         _transitions = services.GetRequiredService<Transitions>();
         _audio = services.GetRequiredService<Audio>();
         _stats = services.GetRequiredService<GameStats>();
+        _gpu = services.GetRequiredService<Gpu>();
         _hooks = services.GetServices<IDrawHook>().ToArray();
         _changes = services.GetRequiredService<StateChanges>();
     }
@@ -117,11 +119,17 @@ internal sealed class LoopDraw
 
     /// <summary>
     /// While stopped by Update, the world is still drawn, with the error in place of the game's interface. In play, the
-    /// line saying what bakes in the background goes over either.
+    /// line saying what bakes in the background goes over either, and so does the engine's stats panel while it shows.
     /// </summary>
     private UiView? Interface()
     {
         var ui = _halts.Stopped is { } error ? StoppedPanel.For(error) : _looped.Ui;
-        return ShowsBakes ? BakeOverlay.Over(ui, BakeProgress) : ui;
+        if (!ShowsBakes && !_stats.Shown)
+        {
+            return ui;
+        }
+
+        var stats = _stats.Shown ? StatsOverlay.Panel(_stats.Latest, _gpu.Name) : null;
+        return BakeOverlay.Over(ui, ShowsBakes ? BakeProgress : null, stats);
     }
 }

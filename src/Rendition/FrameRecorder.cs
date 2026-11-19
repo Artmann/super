@@ -9,12 +9,17 @@ namespace Rendition;
 /// Records a frame's command buffer: the uploads, the chunk bakes going up and a slice of the background bake, the
 /// sky, and then the frame itself, from the shadow maps to the window.
 /// </summary>
-internal sealed unsafe class FrameRecorder(FrameParts parts, RendererBaking baking, FrameDrawPicker picker, FrameCameras cameras)
+internal sealed unsafe class FrameRecorder(
+    FrameParts parts, RendererBaking baking, (FrameDrawPicker Picker, FrameCameras Cameras) steps, RendererStats stats)
 {
-    /// <summary>Records the frame's command buffer: the uploads, a bake slice, the sky, and then the frame itself.</summary>
+    /// <summary>
+    /// Records the frame's command buffer: the uploads, a bake slice, the sky, and then the frame itself. Counts its
+    /// draw calls while the GPU is measured.
+    /// </summary>
     public CommandBuffer Record(in FrameSlot frame, in FrameView view, uint imageIndex, in FrameDraws draws, bool timed)
     {
         var (stores, stages) = (parts.SceneStores, parts.FrameStages);
+        long issued = DrawCallCount.Issued;
         var cmd = Begin(frame);
         // One top-level structure a frame, shared by the trace debug view and the traced probe updates, made only on
         // a frame that traces something.
@@ -23,7 +28,7 @@ internal sealed unsafe class FrameRecorder(FrameParts parts, RendererBaking baki
         {
             // After the uploads, so a mesh made this frame is traced this frame. From here until the submit below,
             // nothing may destroy or change a material: see RayTracing.TopLevel.
-            traced = stores.Tracing!.TopLevel(cmd, stores.TraceScene!.Collect(draws.Scene));
+            traced = stores.Tracing!.TopLevel(cmd, stages.TraceScene!.Collect(draws.Scene));
         }
 
         int overlayQuads = stages.FinishStage.UploadOverlay(view.Extras.Overlay);
@@ -45,6 +50,7 @@ internal sealed unsafe class FrameRecorder(FrameParts parts, RendererBaking baki
         RecordFrame(cmd, frame.Set, imageIndex, new FrameDraws(draws.Camera, draws.Scene, traced), overlayQuads);
         stages.GpuTimer.End(cmd);
         stores.Context.Api.EndCommandBuffer(cmd).Check();
+        stats.DrawCalls = stores.Settings.MeasureGpu ? (int)(DrawCallCount.Issued - issued) : 0;
         return cmd;
     }
 
@@ -81,7 +87,7 @@ internal sealed unsafe class FrameRecorder(FrameParts parts, RendererBaking baki
         stages.HeldPicture.Record(cmd, gBuffer);
         RecordScene(cmd, frameSet, draws);
         var display = (targets.ReadsAntiAliased, parts.SceneStores.Switches.Off);
-        stages.ResolveStage.Record(cmd, frameSet, gBuffer, targets.Upscaling ? (stages.FsrPass, cameras.FsrFrame, stages.PostStage.Meter.Set) : null, display);
+        stages.ResolveStage.Record(cmd, frameSet, gBuffer, targets.Upscaling ? (stages.FsrPass, steps.Cameras.FsrFrame, stages.PostStage.Meter.Set) : null, display);
         stages.GpuTimer.Mark(cmd);
         stages.PostStage.Record(cmd, frameSet, gBuffer, display);
         stages.FinishStage.Record(cmd, frameSet, (targets.Swapchain, imageIndex), (gBuffer, stages.HeldPicture.Transition), overlayQuads);
@@ -110,7 +116,7 @@ internal sealed unsafe class FrameRecorder(FrameParts parts, RendererBaking baki
         stages.GpuTimer.Mark(cmd);
         RecordLightSetup(cmd, frameSet, draws, instances);
         stages.OpaqueStage.Record(cmd, gBuffer, frameSet, draws.Camera,
-            new OpaqueInputs(instances, baking.Frame, lights.EnvironmentSky.Sh, cameras.Motion, picker.CameraChunks, picker.DepthFirstView));
+            new OpaqueInputs(instances, baking.Frame, lights.EnvironmentSky.Sh, steps.Cameras.Motion, steps.Picker.CameraChunks, steps.Picker.DepthFirstView));
         stages.GpuTimer.Mark(cmd);
 
         stages.OcclusionStage.Record(cmd, gBuffer, frameSet, stores.Switches.Off, stages.GpuTimer);

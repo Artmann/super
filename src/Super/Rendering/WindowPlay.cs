@@ -59,7 +59,7 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
     {
         if (host.Script is null)
         {
-            _feed = new WindowInputFeed(window, host.Input);
+            _feed = new WindowInputFeed(window, host.Input, host.Stats);
             _feed.Listen();
         }
 

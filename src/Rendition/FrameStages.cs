@@ -15,6 +15,7 @@ internal sealed class FrameStages
     {
         var (context, kit, ring, meshes, resources) = (stores.Context, stores.Kit, stores.Ring, stores.Meshes, stores.Resources);
         var map = lights.EnvironmentSky.Map;
+        TraceScene = stores.Tracing is null ? null : new TraceScene(stores.TraceFlagsOf);
         TraceDebugPass = stores.Tracing is null ? null
             : new TraceDebugPass(context, stores.Tracing, FrameRing.Count, kit.FrameSetLayout, resources.Layout);
         var copier = new HistoryCopier(context.Api);
@@ -33,6 +34,9 @@ internal sealed class FrameStages
         OpaqueStage = new OpaqueStage(context, kit, ring, meshes, (resources, stores.Switches));
         FsrPass = new FsrPass(context, kit.NearestSampler, kit.FrameSetLayout, PostStage.Meter.SetLayout);
     }
+
+    /// <summary>What a frame's draws come to as the instances rays are traced through, or null when the GPU can't trace.</summary>
+    public TraceScene? TraceScene { get; }
 
     /// <summary>Draws what rays hit in place of the lit picture, or null when the GPU can't trace.</summary>
     public TraceDebugPass? TraceDebugPass { get; }

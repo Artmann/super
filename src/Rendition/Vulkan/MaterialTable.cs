@@ -10,8 +10,12 @@ namespace Rendition.Vulkan;
 /// <param name="Fade">How it fades out with distance, null when it never does.</param>
 /// <param name="Glows">Whether it gives light of its own: some channel of its emissive colour is above 0.</param>
 /// <param name="Subsurface">Whether it scatters light under its surface.</param>
+/// <param name="ShadowShape">
+/// A hash of what in it shapes its shadow: its opacity, cut-off, the textures they come from and its flags, so a
+/// material that only changes colour keeps the shadows it casts.
+/// </param>
 internal readonly record struct MaterialFacts(
-    MaterialFlags Flags, int Shader, bool Cutouts, float Wind, DistanceFade? Fade, bool Glows, bool Subsurface);
+    MaterialFlags Flags, int Shader, bool Cutouts, float Wind, DistanceFade? Fade, bool Glows, bool Subsurface, int ShadowShape);
 
 /// <summary>
 /// Every material, in a buffer the shaders index by <see cref="MaterialHandle"/>, binding 1 of the
@@ -137,7 +141,8 @@ internal sealed unsafe class MaterialTable
             GpuMaterials.Sway(material),
             material.Fade,
             material.Emissive.X > 0f || material.Emissive.Y > 0f || material.Emissive.Z > 0f,
-            material.Subsurface.IsOn);
+            material.Subsurface.IsOn,
+            HashCode.Combine(material.BaseColor.W, material.AlphaCutoff, material.Textures.BaseColor, material.Textures.Surface, material.Flags));
 
         var owned = _textures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);
         owned[0] = material.Textures.BaseColor?.Index ?? -1;

@@ -29,6 +29,7 @@ internal sealed class WindowProfiler(OsWindow window, SceneRenderer scene, Windo
         string path = request.Path;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
 
+        frames.Stats.Profiling = true;
         scene.Renderer.Settings.MeasureGpu = true;
         var warmup = new ProfiledFrame[ProfileWarmupFrames];
         var gpu = new Dictionary<string, double>();
@@ -41,6 +42,7 @@ internal sealed class WindowProfiler(OsWindow window, SceneRenderer scene, Windo
         MeasureFrames(host, clock, step, measured, gpu);
         var stacks = sampler.Stop(nameof(MeasureFrames));
         scene.Renderer.Settings.MeasureGpu = false;
+        frames.Stats.Profiling = false;
 
         foreach (string pass in gpu.Keys)
         {
@@ -49,7 +51,7 @@ internal sealed class WindowProfiler(OsWindow window, SceneRenderer scene, Windo
 
         var (width, height) = window.FramebufferSize();
         var run = new ProfileRun(request.Title, request.Seed, firstTick, width, height, measured, gpu, stacks,
-            scene.CountModels(host.View, host.Content), scene.Renderer.Stats.DrawnTriangles);
+            scene.CountModels(host.View, host.Content), scene.Renderer.Stats.DrawnTriangles, scene.Renderer.Stats.ShadowTiles);
         File.WriteAllText(path, ProfileReport.Write(run));
         File.WriteAllText(Path.ChangeExtension(path, ".csv"), ProfileReport.WriteFrames(measured));
     }

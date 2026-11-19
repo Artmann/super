@@ -17,7 +17,7 @@ public sealed class Renderer : IDisposable
         var stages = new FrameStages(stores, lights, first.Scene, first.Window.Format);
         var targets = new FrameTargets(stores, (lights, stages), first);
         FrameParts = new FrameParts(stores, lights, stages, targets);
-        Stats = new RendererStats(stores.Context.Waits, stages.GpuTimer, stages.GpuWork, () => targets.UpscalerVersion);
+        Stats = new RendererStats(stores.Context, stages.GpuTimer, stages.GpuWork, () => targets.UpscalerVersion);
         targets.WriteDescriptors();
 
         (Baking, Assets) = AssetsAndBakes.Make(FrameParts);

@@ -28,7 +28,7 @@ internal sealed class FrameDrawer
         FrameCameras = new FrameCameras(parts.FrameTargets);
         _picker = new FrameDrawPicker(parts, baking.Frame, stats);
         FrameUniformWriter = new FrameUniformWriter(parts, baking.Frame, FrameCameras);
-        _recorder = new FrameRecorder(parts, baking, _picker, FrameCameras);
+        _recorder = new FrameRecorder(parts, baking, (_picker, FrameCameras), stats);
         _presenter = new FramePresenter(parts, baking.Background, stats);
         var stores = parts.SceneStores;
         ProbeTests = new ProbeTestHooks(stores.Context, parts.SceneLighting.LightProbes, stores.Kit,
@@ -217,7 +217,7 @@ internal sealed class FrameDrawer
         FrameCameras.Advance(frame, view, draws, camera);
         _parts.FrameStages.HeldPicture.Take(view.Picture.Transition);
         var (cameraCount, shadowCount) = _picker.Select(view, camera.ViewProjection, draws, castsShadow);
-        int tileDrawCount = lights.LocalLightShadows.Select(draws, stores.Settings.MeshDetailScale);
+        int tileDrawCount = _picker.SelectTiles(draws);
         stores.Frames.ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
         _baking.Frame.Relight.WriteTo(frame.Chunks, _baking.Frame.MaskSlots.SpaceSlots);
         return cameraCount;

@@ -170,11 +170,12 @@ internal sealed unsafe class ShadowPass : IDisposable
     }
 
     /// <summary>
-    /// Draws every tile of the atlas in one pass, each through its own viewport.
-    /// <paramref name="ranges"/> says which of the <paramref name="casters"/> belong to each tile.
+    /// Clears and draws the tiles of the atlas that <paramref name="ranges"/> marks to redraw, in one pass, each
+    /// through its own viewport, and leaves the rest of the atlas as it was. <paramref name="ranges"/> also says which
+    /// of the <paramref name="casters"/> belong to each tile.
     /// </summary>
     public void RecordTiles(
-        CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<ShadowView> tiles, ReadOnlySpan<(int First, int Count)> ranges,
+        CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<ShadowView> tiles, ReadOnlySpan<TileDraws> ranges,
         in SceneGeometry casters)
     {
         var api = _context.Api;
@@ -200,12 +201,13 @@ internal sealed unsafe class ShadowPass : IDisposable
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
         for (int tile = 0; tile < tiles.Length; tile++)
         {
-            ref readonly var view = ref tiles[tile];
-            var viewport = new Viewport(view.X, view.Y, view.Size, view.Size, 0, 1);
-            var scissor = new Rect2D(new Offset2D(view.X, view.Y), new Extent2D((uint)view.Size, (uint)view.Size));
-            api.CmdSetViewport(cmd, 0, 1, &viewport);
-            api.CmdSetScissor(cmd, 0, 1, &scissor);
-            var (first, count) = ranges[tile];
+            var (first, count, redraw) = ranges[tile];
+            if (!redraw)
+            {
+                continue;
+            }
+
+            ClearTile(cmd, tiles[tile]);
             SceneDraws.Record(new SceneTarget(api, cmd, _layout), _scene, casters.Slice(first, count),
                 new SceneDrawOptions(ScenePass.Shadow) { Cascade = MaxCascades + tile });
         }

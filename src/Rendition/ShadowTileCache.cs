@@ -33,7 +33,7 @@ internal sealed class ShadowTileCache
 
     /// <summary>
     /// Whether the tile has to be drawn this frame, given the casters it sees, the frame's <paramref name="wind"/>, and
-    /// each material's <see cref="Vulkan.ResourceTable.ShadowShapeOf"/>. A tile that isn't drawn keeps last frame's
+    /// each material's <see cref="Vulkan.MaterialFacts.ShadowShape"/>. A tile that isn't drawn keeps last frame's
     /// depths.
     /// </summary>
     public bool NeedsDrawing(in ShadowView view, ReadOnlySpan<DrawItem> casters, WindReach wind, Func<MaterialHandle, int> shape)

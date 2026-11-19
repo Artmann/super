@@ -47,7 +47,7 @@ internal sealed class ShadowTileAtlas
 
     private readonly int[] _sizes = new int[LocalLight.MaxPerFrame];
     private readonly int[] _bySize = new int[LocalLight.MaxPerFrame];
-    private readonly float[] _sizeOrder = new float[LocalLight.MaxPerFrame];
+    private readonly long[] _placeOrder = new long[LocalLight.MaxPerFrame];
     private readonly int[] _sizeKeys = new int[LocalLight.MaxPerFrame];
     private readonly ShadowView[] _tiles = new ShadowView[MaxTiles];
 
@@ -136,7 +136,7 @@ internal sealed class ShadowTileAtlas
     /// </summary>
     private void PlaceTiles(ReadOnlySpan<LocalLight> lights, in SeenLights seen, Span<GpuShadowTile> gpuTiles)
     {
-        int count = SortBySize(seen.Shadowed);
+        int count = SortBySize(lights, seen);
         long offset = 0;
         int tiles = 0;
         for (int t = 0; t < count; t++)
@@ -171,21 +171,23 @@ internal sealed class ShadowTileAtlas
         Count = tiles;
     }
 
-    // Puts the shadowed lights that got a tile size in _bySize, biggest first, and returns how many.
-    private int SortBySize(ReadOnlySpan<int> shadowed)
+    // Puts the shadowed lights that got a tile size in _bySize, biggest first, and returns how many. Lights of one size
+    // go in the order of their keys, so a light keeps its place in the atlas from frame to frame and its kept shadow
+    // stays good, however their brightness or distance swaps them.
+    private int SortBySize(ReadOnlySpan<LocalLight> lights, in SeenLights seen)
     {
         int count = 0;
-        foreach (int k in shadowed)
+        foreach (int k in seen.Shadowed)
         {
             if (_sizes[k] > 0)
             {
                 _bySize[count] = k;
-                _sizeOrder[count] = -_sizes[k];
+                _placeOrder[count] = ((long)(MaxTile - _sizes[k]) << 32) | (uint)lights[seen.Kept[k]].Key;
                 count++;
             }
         }
 
-        _sizeOrder.AsSpan(0, count).Sort(_bySize.AsSpan(0, count));
+        _placeOrder.AsSpan(0, count).Sort(_bySize.AsSpan(0, count));
         return count;
     }
 
