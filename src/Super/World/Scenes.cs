@@ -60,9 +60,17 @@ public sealed class Scenes(World world, Transitions transitions)
         transitions.Play(transition, () => _cutDue = true);
     }
 
-    /// <summary>Builds the open scene again from the start, once this tick ends, for a restart or after a code change.</summary>
+    /// <summary>
+    /// Builds the open scene again from the start, once this tick ends, for a restart or after a code change. After a
+    /// <see cref="Go"/> that hasn't swapped yet it does nothing, as that scene is about to be built fresh anyway.
+    /// </summary>
     public void Rebuild()
     {
+        if (_next is not null)
+        {
+            return;
+        }
+
         if (Current is null)
         {
             throw new InvalidOperationException("There's no scene to rebuild yet. Call Go first.");

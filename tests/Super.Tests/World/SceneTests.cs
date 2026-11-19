@@ -142,6 +142,34 @@ public class SceneTests
     }
 
     [Fact]
+    public void Rebuild_after_a_Go_in_the_same_tick_keeps_the_Go()
+    {
+        using var run = HeadlessGame.Create<Empty>(1);
+        var built = new List<string>();
+        run.Scenes.Go(_ => built.Add("crypt"));
+        run.Ticks(1);
+
+        run.Scenes.Go(_ => built.Add("tower"));
+        run.Scenes.Rebuild();
+        run.Ticks(1);
+
+        Assert.Equal(["crypt", "tower"], built);
+    }
+
+    [Fact]
+    public void Rebuild_while_the_first_Go_waits_builds_it_once()
+    {
+        using var run = HeadlessGame.Create<Empty>(1);
+        int builds = 0;
+        run.Scenes.Go(_ => builds++);
+
+        run.Scenes.Rebuild();
+        run.Ticks(1);
+
+        Assert.Equal(1, builds);
+    }
+
+    [Fact]
     public void Rebuild_before_any_scene_throws()
     {
         using var run = HeadlessGame.Create<Empty>(1);
