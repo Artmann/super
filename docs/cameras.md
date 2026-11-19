@@ -1,7 +1,7 @@
 # Cameras and clicking
 
-`view.Camera(position, lookAt)` is all a fixed camera needs. For anything else, keep a
-`Camera` in your game. A `Camera` is a plain value: a position, a target, a field of
+A camera is an entity in the world, and `world.Spawn(new Camera(position, target))` is
+all a fixed camera needs. A `Camera` is a plain value: a position, a target, a field of
 view and optionally a `Size`, a `Shift` and a `WideAs`.
 
 ## A camera entity
@@ -43,14 +43,14 @@ world's, and a [cutscene](cutscenes.md) wins over both.
 ## Clicking on things
 
 Input can only be read in `Update`, so that's where a click turns into a place in the
-world. Keep the camera in your game so both `Update` and `Draw` can use it:
+world. Make the ray with the camera the player sees:
 
 ```csharp
-readonly Camera camera = new(new Vector3(0, 12, 12), Vector3.Zero);
+public void Load() => world.Spawn(new Camera(new Vector3(0, 12, 12), Vector3.Zero));
 
 public void Update(GameTime time)
 {
-    if (input.Pressed(MouseButton.Left) && !input.Mouse.OverUi)
+    if (input.Pressed(MouseButton.Left) && !input.Mouse.OverUi && world.ActiveCamera() is { } camera)
     {
         var ray = input.Mouse.Ray(camera);
 
@@ -72,8 +72,6 @@ public void Update(GameTime time)
         }
     }
 }
-
-public void Draw(View view) => view.Camera(camera);
 ```
 
 | Call | Gives |
@@ -94,8 +92,10 @@ leave those clicks alone.
 
 Six helpers cover the usual kinds of game. They all work the same way, and share it
 through the `CameraRig` base class: keep one in your game, step it once a tick in
-`Update`, and draw `At(view.Blend)` so it moves smoothly at any frame rate. `Current` is
-the camera as of the last tick, which is the one to pass to `input.Mouse.Ray`.
+`Update`, and write its `Current` to a [camera entity](#a-camera-entity), which the world
+blends between ticks so it moves smoothly at any frame rate. `Current` is the camera as
+of the last tick, which is the one to pass to `input.Mouse.Ray`. Drawing by hand,
+`view.Camera(rig.At(view.Blend))` gives the same blend.
 
 | Helper | For |
 | --- | --- |
@@ -133,9 +133,8 @@ public void Update(GameTime time)
 
     // Lag is about how many seconds behind the target it stays.
     follow.Update(player.Position, time.TickSeconds);
+    world.Get<Camera>(camera) = follow.Current;
 }
-
-public void Draw(View view) => view.Camera(follow.At(view.Blend));
 ```
 
 ### Third person
