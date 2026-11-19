@@ -2,30 +2,6 @@
   "version": 1,
   "findings": [
     {
-      "kind": "long-method",
-      "name": "Rendition.Renderer.Renderer",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 72
-    },
-    {
-      "kind": "too-many-parameters",
-      "name": "Rendition.Vulkan.VulkanExtensions.Transition",
-      "file": "src/Rendition/Vulkan/VulkanExtensions.cs",
-      "metric": 10
-    },
-    {
-      "kind": "large-file",
-      "name": "src/Rendition/Renderer.cs",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 2034
-    },
-    {
-      "kind": "large-type",
-      "name": "Rendition.Renderer",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 178
-    },
-    {
       "kind": "large-type",
       "name": "Super.Cook.Models.MaterialRule",
       "file": "src/Super.Cook.Models/ImportSettings.cs",
