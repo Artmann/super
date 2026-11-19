@@ -14,21 +14,14 @@ internal sealed class FlyCamera(Input input)
 
     private bool _flying;
     private Vector3 _position;
-    private Vector3 _previousPosition;
     private float _yaw;
     private float _pitch;
-    private float _previousYaw;
-    private float _previousPitch;
 
-    /// <summary>Puts the flying camera at <paramref name="position"/>, where it starts if F is pressed straight away.</summary>
-    public void Start(Vector3 position)
-    {
-        _position = position;
-        _previousPosition = _position;
-    }
-
-    /// <summary>Turns flying on and off with F, and flies one tick of <paramref name="tickSeconds"/>.</summary>
-    public void Update(Tour tour, float seconds, float tickSeconds)
+    /// <summary>
+    /// Turns flying on and off with F, and flies one tick of <paramref name="tickSeconds"/>. Gives the camera for this
+    /// tick: where it flies, or the tour's shot at <paramref name="seconds"/>.
+    /// </summary>
+    public Camera Update(Tour tour, float seconds, float tickSeconds)
     {
         if (input.Pressed(Key.F))
         {
@@ -45,12 +38,9 @@ internal sealed class FlyCamera(Input input)
         }
 
         input.Mouse.Locked = _flying;
-        _previousPosition = _position;
-        _previousYaw = _yaw;
-        _previousPitch = _pitch;
         if (!_flying)
         {
-            return;
+            return tour.At(seconds);
         }
 
         var turn = input.Mouse.Delta * TurnPerPixel;
@@ -64,22 +54,7 @@ internal sealed class FlyCamera(Input input)
         step += right * (Axis(Key.D, Key.A));
         step.Y += Axis(Key.E, Key.Q);
         _position += step * (FlySpeed * tickSeconds);
-    }
-
-    /// <summary>Points the view's camera: where it flies, or the tour's shot at <paramref name="seconds"/>.</summary>
-    public void Aim(View view, Tour tour, float seconds)
-    {
-        if (_flying)
-        {
-            var position = Vector3.Lerp(_previousPosition, _position, view.Blend);
-            float yaw = _previousYaw + (_yaw - _previousYaw) * view.Blend;
-            float pitch = _previousPitch + (_pitch - _previousPitch) * view.Blend;
-            view.Camera(position, position + Forward(yaw, pitch), 1f);
-        }
-        else
-        {
-            view.Camera(tour.At(seconds));
-        }
+        return new Camera(_position, _position + Forward(_yaw, _pitch), 1f);
     }
 
     private float Axis(Key positive, Key negative) =>

@@ -1,5 +1,6 @@
 using System.Numerics;
 using Rendition;
+using Examples;
 using Super;
 
 namespace Crypt;
@@ -85,10 +86,7 @@ public sealed class CryptGame(World world, Content content, Input input, Graphic
     public void Update(GameTime time)
     {
         float seconds = time.Tick / (float)time.TicksPerSecond;
-        foreach (var row in world.Query<Flicker, PointLight>())
-        {
-            row.Second = row.Second with { Color = row.First.At(seconds) };
-        }
+        Flicker.Update(world, seconds);
 
         _lantern.Swing(seconds);
 

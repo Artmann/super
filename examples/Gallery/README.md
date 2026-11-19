@@ -29,10 +29,10 @@ rooms:
 At the end of the corridor a tinted glass screen closes off an open courtyard.
 
 Everything except the two statues is built in code from boxes, cylinders and spheres in
-`Building.cs`, placed by `GalleryShapes.cs`, with flat matte materials: light-grey plaster with
+`Building.cs`, spawned as entities by `GalleryShapes.cs`, with flat matte materials: light-grey plaster with
 a faint noise from `PlasterNoise.cs` and a few strong colours. `GalleryPlan.cs` says where the
-sun is and where the openings, the statues and the lamps stand. `LampRoom.cs` and `Chapel.cs` draw
-what moves in those rooms. The glowing discs and panels use a small surface shader,
+sun is and where the openings, the statues and the lamps stand. `LampRoom.cs` and `Chapel.cs` spawn
+what moves in those rooms, and move it each tick. The glowing discs and panels use a small surface shader,
 `Shaders/glow.frag`, because a `Surface` has no emissive colour of its own. The glow
 doesn't light anything; the point lights under the lamps do. Reflection probes run no surface
 shader, so the discs don't glow in them, though the light under each does.
@@ -48,7 +48,7 @@ does both.
 ## Baked lighting
 
 The Gallery is a baked space named `gallery`, over the same box as its light probes. The
-building's boxes, cylinders and spheres are drawn static (`new ModelOptions { Static = true }`), so they get
+building's boxes, cylinders and spheres are entities with `Static`, so they get
 lightmap UVs; the statues, the rolling sphere, the lantern and the candles stay dynamic. Its
 bake is `content/lighting/gallery.lightbake`, made at the final quality.
 

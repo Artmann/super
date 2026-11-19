@@ -17,7 +17,7 @@ namespace Gallery;
 /// Keys 1, 2 and 3 switch between live lighting, the bake, and direct light only. Where things
 /// stand is in <see cref="GalleryPlan"/>.
 /// </summary>
-public sealed class GalleryGame(Content content, Input input, Graphics graphics) : IGame
+public sealed class GalleryGame(World world, Content content, Input input, Graphics graphics) : IGame
 {
     /// <summary>Key presses for profiling the reflection probes catching up. See <see cref="LiveChanges.Scripts"/>.</summary>
     public IReadOnlyDictionary<string, InputScript> Scripts => LiveChanges.Scripts;
@@ -29,51 +29,60 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
     private readonly Tour _tour = new();
     private readonly LiveChanges _changes = new();
     private readonly LightingSwitch _lighting = new(input, graphics);
-    private readonly FlyCamera _camera = new(input);
-    private Building _building = null!;
+    private readonly FlyCamera _flyCamera = new(input);
     private LampRoom _lampRoom = null!;
     private Chapel _chapel = null!;
-    private ModelRef _bust;
-    private ModelRef _whale;
-    private float _seconds;
+    private Entity _camera;
+    private Entity _sky;
 
     public void Load()
     {
         var materials = Materials(content);
-        _building = new Building(content, materials);
-        _building.Build();
+        new Building(world, content, materials).Build();
 
-        _bust = content.Model("models/marble_bust_01/marble_bust_01.gltf");
-        _whale = content.Model("models/bronze_whale_statue/bronze_whale_statue.gltf");
-        _lampRoom = new LampRoom(content);
-        _chapel = new Chapel(content, materials["shade"]);
+        _camera = world.Spawn(_tour.At(0f));
 
-        _camera.Start(_tour.At(0f).Position);
+        // Mixed: real-time cascades near the camera, and the bake's mask past the last one. A crisp sun with two
+        // cascades: the last ends 15 m round the camera's target, well short of the far end of the 42 m corridor.
+        _sky = world.Spawn(
+            new Sun(GalleryPlan.SunDirection, new Vector3(7.2f, 6.8f, 6f), Mode: LightMode.Mixed),
+            Sky(_changes.SkyBrightness),
+            new Shadows(5f, Cascades: 2, SunSize: 0.02f),
+            new AmbientOcclusion(0.8f, 1f));
+        world.Spawn(Finish());
+
+        var bust = content.Model("models/marble_bust_01/marble_bust_01.gltf");
+        var whale = content.Model("models/bronze_whale_statue/bronze_whale_statue.gltf");
+        world.Spawn(new Transform(GalleryPlan.BustAt, Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2f), Vector3.One), new Model(bust));
+        world.Spawn(new Transform(GalleryPlan.WhaleAt, Quaternion.CreateFromAxisAngle(Vector3.UnitY, 0.5f), Vector3.One), new Model(whale));
+        _lampRoom = new LampRoom(world, content);
+        _chapel = new Chapel(world, content, materials["shade"]);
+
         _lighting.Use(_lighting.Current);
     }
 
     public void Update(GameTime time)
     {
-        _seconds = time.Tick / (float)time.TicksPerSecond;
+        float seconds = time.Tick / (float)time.TicksPerSecond;
         _lighting.Update();
         _changes.Update(input);
-        _camera.Update(_tour, _seconds, time.TickSeconds);
+        world.Get<Camera>(_camera) = _flyCamera.Update(_tour, seconds, time.TickSeconds);
+
+        ref var sky = ref world.Get<Sky>(_sky);
+        if (sky.Settings.Brightness != _changes.SkyBrightness)
+        {
+            sky = Sky(_changes.SkyBrightness);
+        }
+
+        Flicker.Update(world, seconds);
+        _lampRoom.Roll(seconds);
+        _chapel.Swing(seconds);
+        _chapel.Light(_changes.LanternLit);
     }
 
+    /// <summary>The light probes, the baked space and the reflection probes.</summary>
     public void Draw(View view)
     {
-        float seconds = view.SecondsSince(0);
-        _camera.Aim(view, _tour, seconds);
-
-        // Mixed: real-time cascades near the camera, and the bake's mask past the last one.
-        view.Lights.Sun(GalleryPlan.SunDirection, new Vector3(7.2f, 6.8f, 6f), mode: LightMode.Mixed);
-        Sky(view, _changes.SkyBrightness);
-
-        // A crisp sun with two cascades: the last ends 15 m round the camera's target, well short
-        // of the far end of the 42 m corridor.
-        view.Lights.Shadows(5f, cascades: 2, sunSize: 0.02f);
-        view.Indirect.AmbientOcclusion(0.8f, 1f);
-
         // One box of probes over the whole gallery. At most 4,096 fit, so they're 1.65 m apart.
         // It's kept on top of the probes that follow the camera: without it the rooms' walls and
         // floors came out blotchy, and the building greyer from the overview.
@@ -84,19 +93,6 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
         view.Indirect.BakedLighting("gallery", ProbesMin, ProbesMax, 1.65f);
 
         ReflectionProbes.Place(view);
-        Finish(view);
-
-        var pieces = _building.Pieces;
-        for (int i = 0; i < pieces.Count; i++)
-        {
-            view.Model(1 + i, pieces[i].Mesh, pieces[i].Transform, new ModelOptions { Static = true });
-        }
-
-        view.Model(GalleryPlan.DynamicKey, _bust, Matrix4x4.CreateRotationY(MathF.PI / 2f) * Matrix4x4.CreateTranslation(GalleryPlan.BustAt));
-        view.Model(GalleryPlan.DynamicKey + 1, _whale, Matrix4x4.CreateRotationY(0.5f) * Matrix4x4.CreateTranslation(GalleryPlan.WhaleAt));
-
-        _lampRoom.Draw(view, seconds);
-        _chapel.Draw(view, seconds, _seconds, _changes.LanternLit);
     }
 
     /// <summary>The lighting modes in the bottom-left corner, with the current one in bold.</summary>
@@ -131,9 +127,8 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
     }
 
     /// <summary>A blue sky with a light haze, at <paramref name="brightness"/>.</summary>
-    private static void Sky(View view, float brightness)
-    {
-        view.Surroundings.Sky(new SkySettings
+    private static Sky Sky(float brightness) =>
+        new(new SkySettings
         {
             Zenith = new Vector3(0.2f, 0.38f, 0.8f),
             Horizon = new Vector3(0.75f, 0.8f, 0.85f),
@@ -142,11 +137,9 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
             Turbidity = 2.5f,
             Fog = new FogSettings(Density: 0.004f, Height: 0f, Falloff: 0.1f, SunScatter: 0.6f),
         });
-    }
 
-    private static void Finish(View view)
-    {
-        view.Effects.Finish(new PostSettings
+    private static Finish Finish() =>
+        new(new PostSettings
         {
             AutoExposure = true,
             Exposure = 1.1f,
@@ -156,5 +149,4 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
             Bloom = 0.04f,
             Sharpen = 0.15f,
         });
-    }
 }
