@@ -210,4 +210,32 @@ public class FrameSettingsTests
 
         Assert.StartsWith("The wind's strength must be 0 or more metres", error.Message);
     }
+
+    [Fact]
+    public void Draw_overrides_the_world_baked_space()
+    {
+        DrawOverTheWorldBakedSpace();
+
+        Assert.Equal("crypt-lit", _view.Indirect.BakedSpace?.Name);
+    }
+
+    [Fact]
+    public void Drawing_two_baked_spaces_by_hand_still_throws()
+    {
+        DrawOverTheWorldBakedSpace();
+        var error = Assert.Throws<InvalidOperationException>(
+            () => _view.Indirect.BakedLighting("crypt-dark", new Vector3(-4f), new Vector3(4f), 1f));
+
+        Assert.Equal(
+            "The baked space \"crypt-lit\" was already named this frame, so \"crypt-dark\" can't be. A frame has at most one baked space.",
+            error.Message);
+    }
+
+    // Names the baked space "crypt" in the world, describes the frame, then names "crypt-lit" from Draw.
+    private void DrawOverTheWorldBakedSpace()
+    {
+        _world.Spawn(new BakedLighting("crypt", new Vector3(-8f, -1f, -12f), new Vector3(8f, 6f, 12f), 1f));
+        Describe();
+        _view.Indirect.BakedLighting("crypt-lit", new Vector3(-4f), new Vector3(4f), 1f);
+    }
 }
