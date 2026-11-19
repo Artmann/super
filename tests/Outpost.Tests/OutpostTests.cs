@@ -30,6 +30,34 @@ public class OutpostTests
     }
 
     [Fact]
+    public void The_road_runs_from_the_left_edge_to_the_base()
+    {
+        var field = new Field();
+
+        Assert.True(field.IsRoad(0, 1));
+        Assert.True(field.IsRoad(4, 3));
+        Assert.True(field.IsRoad(7, 6));
+        Assert.True(field.IsRoad(10, 4));
+        Assert.True(field.IsRoad(14, 2));
+        Assert.False(field.IsRoad(7, 4));
+        Assert.False(field.IsRoad(3, 2));
+
+        var end = field.Road.PointAtDistance(field.Road.Length);
+        Assert.Equal(field.Center(14, 2).X, end.X, 0.01f);
+        Assert.Equal(field.Center(14, 2).Y, end.Y, 0.01f);
+        Assert.Equal(field.Center(14, 2).Z, end.Z, 0.01f);
+    }
+
+    [Fact]
+    public void The_road_is_46_metres_long()
+    {
+        var field = new Field();
+
+        // 8 + 10 + 12 + 8 + 8 metres between the corners, a little less where the curve cuts them.
+        Assert.InRange(field.Road.Length, 44f, 48f);
+    }
+
+    [Fact]
     public void Every_tile_is_drawn()
     {
         using var run = Start();

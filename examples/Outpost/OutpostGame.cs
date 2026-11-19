@@ -6,6 +6,8 @@ namespace OutpostExample;
 public sealed class OutpostGame(Field field) : IGame
 {
     private static readonly Vector3 Grass = new(0.25f, 0.55f, 0.18f);
+    private static readonly Vector3 Sand = new(0.8f, 0.6f, 0.3f);
+    private static readonly Vector3 Stone = new(0.3f, 0.3f, 0.32f);
 
     public Camera Camera { get; } = new(new Vector3(0, 22, 16), Vector3.Zero) { WideAs = 16f / 9f };
 
@@ -30,8 +32,11 @@ public sealed class OutpostGame(Field field) : IGame
             {
                 var tile = Matrix4x4.CreateScale(1.96f, 0.2f, 1.96f)
                     * Matrix4x4.CreateTranslation(field.Center(x, z) - new Vector3(0, 0.1f, 0));
-                view.Model(10_000 + z * Field.Width + x, ModelRef.Cube, tile, Grass);
+                view.Model(10_000 + z * Field.Width + x, ModelRef.Cube, tile, field.IsRoad(x, z) ? Sand : Grass);
             }
         }
+
+        var baseBox = Matrix4x4.CreateScale(1.6f) * Matrix4x4.CreateTranslation(field.BaseCenter + new Vector3(0, 0.8f, 0));
+        view.Model(1, ModelRef.Cube, baseBox, Stone);
     }
 }

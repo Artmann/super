@@ -200,3 +200,83 @@ A green field. It's not much of a game yet, but everything from here on is addin
 
 The game in the repository references the engine's project instead of the NuGet package,
 so it builds against the latest code. That's the only difference from yours.
+
+## 2. A road to walk
+
+Enemies need a road. It comes in on the left edge, winds across the field, and ends at your
+base on the right.
+
+The road has two jobs. When the player builds, we need to know which tiles are road, so
+towers can't go on it. And when enemies walk, they need a smooth path to follow. So we
+describe the road once, as the tiles where it turns, and make both from that.
+
+Add this to `Field`, above `Center`:
+
+```csharp
+/// <summary>The tiles where the road turns, from where enemies come in to the base.</summary>
+private static readonly (int X, int Z)[] Corners = [(0, 1), (4, 1), (4, 6), (10, 6), (10, 2), (14, 2)];
+
+private readonly HashSet<(int X, int Z)> _road = [];
+
+public Field()
+{
+    // Walk from each corner to the next, one tile at a time, marking every tile on the way.
+    for (int i = 0; i < Corners.Length - 1; i++)
+    {
+        var (x, z) = Corners[i];
+        var to = Corners[i + 1];
+        _road.Add((x, z));
+        while ((x, z) != to)
+        {
+            x += Math.Sign(to.X - x);
+            z += Math.Sign(to.Z - z);
+            _road.Add((x, z));
+        }
+    }
+
+    Road = Spline.Through(Corners.Select(corner => Center(corner.X, corner.Z)).ToArray());
+}
+
+/// <summary>The path enemies walk, through the middle of the road tiles.</summary>
+public Spline Road { get; }
+
+/// <summary>Where the base stands: the last tile of the road.</summary>
+public Vector3 BaseCenter => Center(Corners[^1].X, Corners[^1].Z);
+
+/// <summary>Whether a tile is part of the road.</summary>
+public bool IsRoad(int x, int z) => _road.Contains((x, z));
+```
+
+`Field.cs` now needs `using Super;` at the top, for `Spline`.
+
+The set of road tiles is what building will check. `Road` is a
+[spline](../splines.md): a smooth curve through the middle of each corner tile. A spline
+knows its own length, and it can tell you the point any distance along it. That's exactly
+what an enemy needs. An enemy only has to remember how far it has walked, and the spline
+says where that is. It also rounds the corners a little, so enemies turn smoothly instead
+of snapping round.
+
+Now draw it. In `OutpostGame`, add two more colours next to `Grass`:
+
+```csharp
+private static readonly Vector3 Sand = new(0.8f, 0.6f, 0.3f);
+private static readonly Vector3 Stone = new(0.3f, 0.3f, 0.32f);
+```
+
+In the tile loop, pick the colour by asking the field:
+
+```csharp
+view.Model(10_000 + z * Field.Width + x, ModelRef.Cube, tile, field.IsRoad(x, z) ? Sand : Grass);
+```
+
+And after the loop, draw the base as a stone block at the end of the road:
+
+```csharp
+var baseBox = Matrix4x4.CreateScale(1.6f) * Matrix4x4.CreateTranslation(field.BaseCenter + new Vector3(0, 0.8f, 0));
+view.Model(1, ModelRef.Cube, baseBox, Stone);
+```
+
+The cube is centred on its middle, so we lift it by half its height to stand it on the
+ground. The base gets key 1, well away from the tiles.
+
+![A sand road winding across the green field to a grey block on the right](../media/outpost-2-road.webp)
