@@ -107,6 +107,21 @@ public sealed class Enemies(Field field, Player player, GameRandom random)
         }
     }
 
+    /// <summary>Draws each enemy as a capsule, blended between its last two ticks.</summary>
+    public void Draw(View view)
+    {
+        foreach (var enemy in _all)
+        {
+            var stats = Stats(enemy.Kind);
+            // The capsule is 2 metres tall, so lifting it by its size stands it on the road.
+            var lift = new Vector3(0, stats.Size, 0);
+            var scale = Matrix4x4.CreateScale(stats.Size);
+            var previous = scale * Matrix4x4.CreateTranslation(enemy.PreviousPosition + lift);
+            var current = scale * Matrix4x4.CreateTranslation(enemy.Position + lift);
+            view.Model(100_000 + enemy.Id, ModelRef.Capsule, view.Smooth(previous, current), stats.Color);
+        }
+    }
+
     /// <summary>Takes every enemy off the road, for a new game.</summary>
     public void Clear()
     {

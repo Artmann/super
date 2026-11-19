@@ -12,6 +12,8 @@ Everything is drawn with Super's built-in shapes, so there's nothing to download
 models, no textures, no sounds. The finished game is in
 [examples/Outpost](../../examples/Outpost) if you'd like to peek ahead.
 
+![Outpost in its second wave: red walkers on a sandy road winding across a green field, two blue-roofed towers beside it and a grey base at the end](../media/outpost.webp)
+
 What you'll need:
 
 - The .NET 10 SDK
@@ -506,20 +508,34 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies) : I
 `Load` runs once before the first tick. The `Player` and `Enemies` properties aren't needed
 by the game itself, but the tests in chapter 8 will use them to look inside.
 
-At the end of `Draw`, draw each enemy as a capsule:
+The enemies can draw themselves. Add this to `Enemies`, which draws each one as a capsule.
+It takes the same `View` the game's `Draw` is given, so any class can add models to it:
 
 ```csharp
-foreach (var enemy in enemies.All)
+/// <summary>Draws each enemy as a capsule, blended between its last two ticks.</summary>
+public void Draw(View view)
 {
-    var stats = Enemies.Stats(enemy.Kind);
-    // The capsule is 2 metres tall, so lifting it by its size stands it on the road.
-    var lift = new Vector3(0, stats.Size, 0);
-    var scale = Matrix4x4.CreateScale(stats.Size);
-    var previous = scale * Matrix4x4.CreateTranslation(enemy.PreviousPosition + lift);
-    var current = scale * Matrix4x4.CreateTranslation(enemy.Position + lift);
-    view.Model(100_000 + enemy.Id, ModelRef.Capsule, view.Smooth(previous, current), stats.Color);
+    foreach (var enemy in _all)
+    {
+        var stats = Stats(enemy.Kind);
+        // The capsule is 2 metres tall, so lifting it by its size stands it on the road.
+        var lift = new Vector3(0, stats.Size, 0);
+        var scale = Matrix4x4.CreateScale(stats.Size);
+        var previous = scale * Matrix4x4.CreateTranslation(enemy.PreviousPosition + lift);
+        var current = scale * Matrix4x4.CreateTranslation(enemy.Position + lift);
+        view.Model(100_000 + enemy.Id, ModelRef.Capsule, view.Smooth(previous, current), stats.Color);
+    }
 }
 ```
+
+And call it at the end of the game's `Draw`:
+
+```csharp
+enemies.Draw(view);
+```
+
+Keeping each part's drawing next to the rest of that part stops the game's `Draw` from
+growing into one long method as the game grows.
 
 The game ticks 30 times a second, but your screen probably shows 60 frames or more. If we
 drew each enemy right where it is, it would sit still for a frame or two and then jump.
@@ -653,24 +669,32 @@ ticks, which is what keeps it repeatable.
 
 ### Drawing the towers
 
-Each tower is a cylinder with a cone for a roof. Add the colours:
+Each tower is a cylinder with a cone for a roof. Like the enemies, the towers draw
+themselves. Add the colours and a `Draw` to `Towers`:
 
 ```csharp
-private static readonly Vector3 TowerWall = new(0.9f, 0.85f, 0.75f);
-private static readonly Vector3 TowerRoof = new(0.2f, 0.4f, 0.9f);
+private static readonly Vector3 Wall = new(0.9f, 0.85f, 0.75f);
+private static readonly Vector3 Roof = new(0.2f, 0.4f, 0.9f);
+
+/// <summary>Draws each tower as a cylinder with a cone for a roof.</summary>
+public void Draw(View view)
+{
+    for (int i = 0; i < _all.Count; i++)
+    {
+        var spot = field.Center(_all[i].X, _all[i].Z);
+        var wall = Matrix4x4.CreateScale(0.8f, 1.2f, 0.8f) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 0.6f, 0));
+        var roof = Matrix4x4.CreateScale(1.1f, 0.8f, 1.1f) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 1.6f, 0));
+        view.Model(20_000 + i, ModelRef.Cylinder, wall, Wall);
+        view.Model(30_000 + i, ModelRef.Cone, roof, Roof);
+    }
+}
 ```
 
-And after the base in `Draw`:
+And call it in the game's `Draw`, after the base and before the enemies:
 
 ```csharp
-for (int i = 0; i < towers.All.Count; i++)
-{
-    var spot = field.Center(towers.All[i].X, towers.All[i].Z);
-    var wall = Matrix4x4.CreateScale(0.8f, 1.2f, 0.8f) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 0.6f, 0));
-    var roof = Matrix4x4.CreateScale(1.1f, 0.8f, 1.1f) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 1.6f, 0));
-    view.Model(20_000 + i, ModelRef.Cylinder, wall, TowerWall);
-    view.Model(30_000 + i, ModelRef.Cone, roof, TowerRoof);
-}
+towers.Draw(view);
+enemies.Draw(view);
 ```
 
 Towers are never taken down during a game, so a tower's place in the list makes a fine key.
@@ -877,22 +901,31 @@ before something else, you put its line first.
 
 ### Drawing the shots
 
-Shots are small yellow balls. Add the colour:
+Shots are small yellow balls, smoothed between ticks just like the enemies. Add the colour
+and a `Draw` to `Shots`:
 
 ```csharp
-private static readonly Vector3 ShotGlow = new(1f, 0.8f, 0.1f);
+private static readonly Vector3 Glow = new(1f, 0.8f, 0.1f);
+
+/// <summary>Draws each shot as a small yellow ball, blended between its last two ticks.</summary>
+public void Draw(View view)
+{
+    foreach (var shot in _all)
+    {
+        var size = Matrix4x4.CreateScale(0.4f);
+        var previous = size * Matrix4x4.CreateTranslation(shot.PreviousPosition);
+        var current = size * Matrix4x4.CreateTranslation(shot.Position);
+        view.Model(200_000 + shot.Id, ModelRef.Sphere, view.Smooth(previous, current), Glow);
+    }
+}
 ```
 
-And draw them last in `Draw`, smoothed between ticks just like the enemies:
+And call it last in the game's `Draw`, so `Draw` now ends like this:
 
 ```csharp
-foreach (var shot in shots.All)
-{
-    var size = Matrix4x4.CreateScale(0.4f);
-    var previous = size * Matrix4x4.CreateTranslation(shot.PreviousPosition);
-    var current = size * Matrix4x4.CreateTranslation(shot.Position);
-    view.Model(200_000 + shot.Id, ModelRef.Sphere, view.Smooth(previous, current), ShotGlow);
-}
+towers.Draw(view);
+enemies.Draw(view);
+shots.Draw(view);
 ```
 
 Shots come and go all the time, so they use their `Id` for a key, not their place in the
@@ -1472,3 +1505,33 @@ game every time. `--script` plays one of the input scripts from `Scripts`, so th
 past the title and builds its towers. With the same options you get the same picture, which
 makes it easy to compare before and after a change. [The command line](../command-line.md)
 lists every option.
+
+## 9. Where to go next
+
+That's a whole game: a title, ten waves, towers, gold, lives, and a way to win or lose,
+with tests that play it for you. Outpost is yours now, so change it. Here are a few
+places to start, each with a page that explains the part of Super it needs.
+
+[Audio](../audio.md) plays sounds from a file. Give each shot a little pop with
+`audio.Play(shot, at: tower)`, so it comes from the tower that fired, and play a low thud
+when an enemy reaches the base.
+
+[JSON content](../content.md) loads records from files in a `content` folder. Move the wave
+table and the enemy stats into JSON, and you can balance the game without touching the code.
+Edit a file while the game runs and it reloads on its own.
+
+[Hot reload](../hot-reload.md) does the same for code. Run the game with `dotnet watch`,
+make the shots bigger in `Shots.Draw` or change how a tower picks its target, save, and
+see the change in the window without starting over. The towers you built stay where they are.
+
+[Interfaces](../interfaces.md) has buttons, so the HUD could get one per kind of tower, or
+an Upgrade button that shows when you click a tower and spends gold to make it shoot faster.
+
+[Physics](../physics.md) gives you falling, bouncing bodies. Make a cannon tower whose
+balls fly in an arc and roll along the road, or have a brute knocked flying when it dies.
+
+[The ECS](../ecs.md) keeps thousands of things fast. Outpost's lists are fine for a few
+dozen enemies, but if you want waves of hundreds, keeping them as entities is the way to go.
+
+The finished game is in [examples/Outpost](../../examples/Outpost), with its tests in
+[tests/Outpost.Tests](../../tests/Outpost.Tests). Have fun with it.

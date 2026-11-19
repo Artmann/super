@@ -9,9 +9,6 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies, Tow
     private static readonly Vector3 Grass = new(0.25f, 0.55f, 0.18f);
     private static readonly Vector3 Sand = new(0.8f, 0.6f, 0.3f);
     private static readonly Vector3 Stone = new(0.3f, 0.3f, 0.32f);
-    private static readonly Vector3 TowerWall = new(0.9f, 0.85f, 0.75f);
-    private static readonly Vector3 TowerRoof = new(0.2f, 0.4f, 0.9f);
-    private static readonly Vector3 ShotGlow = new(1f, 0.8f, 0.1f);
 
     public Camera Camera { get; } = new(new Vector3(0, 22, 16), Vector3.Zero) { WideAs = 16f / 9f };
 
@@ -124,32 +121,8 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies, Tow
         var baseBox = Matrix4x4.CreateScale(1.6f) * Matrix4x4.CreateTranslation(field.BaseCenter + new Vector3(0, 0.8f, 0));
         view.Model(1, ModelRef.Cube, baseBox, Stone);
 
-        for (int i = 0; i < towers.All.Count; i++)
-        {
-            var spot = field.Center(towers.All[i].X, towers.All[i].Z);
-            var wall = Matrix4x4.CreateScale(0.8f, 1.2f, 0.8f) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 0.6f, 0));
-            var roof = Matrix4x4.CreateScale(1.1f, 0.8f, 1.1f) * Matrix4x4.CreateTranslation(spot + new Vector3(0, 1.6f, 0));
-            view.Model(20_000 + i, ModelRef.Cylinder, wall, TowerWall);
-            view.Model(30_000 + i, ModelRef.Cone, roof, TowerRoof);
-        }
-
-        foreach (var enemy in enemies.All)
-        {
-            var stats = Enemies.Stats(enemy.Kind);
-            // The capsule is 2 metres tall, so lifting it by its size stands it on the road.
-            var lift = new Vector3(0, stats.Size, 0);
-            var scale = Matrix4x4.CreateScale(stats.Size);
-            var previous = scale * Matrix4x4.CreateTranslation(enemy.PreviousPosition + lift);
-            var current = scale * Matrix4x4.CreateTranslation(enemy.Position + lift);
-            view.Model(100_000 + enemy.Id, ModelRef.Capsule, view.Smooth(previous, current), stats.Color);
-        }
-
-        foreach (var shot in shots.All)
-        {
-            var size = Matrix4x4.CreateScale(0.4f);
-            var previous = size * Matrix4x4.CreateTranslation(shot.PreviousPosition);
-            var current = size * Matrix4x4.CreateTranslation(shot.Position);
-            view.Model(200_000 + shot.Id, ModelRef.Sphere, view.Smooth(previous, current), ShotGlow);
-        }
+        towers.Draw(view);
+        enemies.Draw(view);
+        shots.Draw(view);
     }
 }
