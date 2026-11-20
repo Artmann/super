@@ -39,6 +39,30 @@ public class SpawnTests
     }
 
     [Fact]
+    public void Spawn_takes_five_components()
+    {
+        var entity = _world.Spawn(new Name("crate"), new Position(1f), new Velocity(2f), new Health(3), new Armor(4));
+
+        Assert.Equal("crate", _world.Get<Name>(entity).Text);
+        Assert.Equal(1f, _world.Get<Position>(entity).X);
+        Assert.Equal(2f, _world.Get<Velocity>(entity).X);
+        Assert.Equal(3, _world.Get<Health>(entity).Value);
+        Assert.Equal(4, _world.Get<Armor>(entity).Value);
+    }
+
+    [Fact]
+    public void Spawns_that_differ_only_in_the_fifth_component_stay_apart()
+    {
+        var armored = _world.Spawn(new Name("a"), new Position(1f), new Velocity(2f), new Health(3), new Armor(4));
+        var placed = _world.Spawn(new Name("b"), new Position(1f), new Velocity(2f), new Health(3), Transform.At(Vector3.One));
+
+        Assert.True(_world.Has<Armor>(armored));
+        Assert.False(_world.Has<Transform>(armored));
+        Assert.True(_world.Has<Transform>(placed));
+        Assert.False(_world.Has<Armor>(placed));
+    }
+
+    [Fact]
     public void A_type_given_twice_keeps_the_last()
     {
         var entity = _world.Spawn(new Health(1), new Health(2));

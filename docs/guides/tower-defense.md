@@ -195,13 +195,12 @@ Last, replace everything in `Program.cs` with:
 using OutpostExample;
 using Super;
 
-Game.StartWindowsGameLoop<OutpostGame>(
+Game.Run<OutpostGame>(
     new GameOptions { Title = "Outpost", Width = 1280, Height = 720 },
     services => services.AddOutpost());
 ```
 
-`StartWindowsGameLoop` opens a window and runs the game until you close it. Despite the
-name, it works on a Mac too. Run it:
+`Game.Run` opens a window and runs the game until you close it. Run it:
 
 ```
 dotnet run -c Release

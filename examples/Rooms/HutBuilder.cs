@@ -38,7 +38,7 @@ internal sealed class HutBuilder(World world, Scenes scenes, Catalog<Motion> mot
         {
             ref var height = ref row.Second.Height;
             height.Update(time);
-            row.First.Position = row.First.Position with { Y = height.Value };
+            row.First.Position.Y = height.Value;
             if (height.Completed)
             {
                 _risen.Add(row.Entity);

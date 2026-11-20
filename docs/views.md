@@ -362,6 +362,7 @@ sizes, colours and opacities multiply.
 | | `Cone(direction, angle, speed)` | Within a cone that many radians either side of the direction, like a fountain |
 | Force | `Drag(perSecond)` | Slows them. At 2, a particle has lost 86% of its speed after a second |
 | | `Gravity(pull)` | A pull in the world, in metres per second per second. A positive y rises |
+| | `Gravity(down)` | The same with one number, straight down: `Gravity(9.8f)` falls as things do on Earth |
 | | `Wind(velocity)` | Moving air. It needs drag to catch them; the more drag, the sooner they go with it |
 | Motion | `Wobble(metres, perSecond)` | A smooth wandering sway, like eddies in the air |
 | | `Swirl(turnsPerSecond)` | Turns them round the upright axis through the middle, like a dust devil |

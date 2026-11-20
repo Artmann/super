@@ -39,7 +39,7 @@ public sealed class Actions<TControl> : IInputListener
             _bindings[i] = [];
         }
 
-        input.Listen(this);
+        input.Listeners.Add(this);
     }
 
     /// <summary>Adds ways to perform an action. Call it in Load; bindings are kept as plain data.</summary>

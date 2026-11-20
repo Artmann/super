@@ -12,7 +12,7 @@ var drop = Tween.Between(5f, 0f, seconds: 0.6f, Easing.BounceOut);
 
 // In Update:
 drop.Update(time);
-crate.Position = crate.Position with { Y = drop.Value };
+crate.Position.Y = drop.Value;
 ```
 
 ## Easings
@@ -173,7 +173,7 @@ foreach (var row in world.Query<Transform, Rising>())
 {
     ref var height = ref row.Second.Height;
     height.Update(time);
-    row.First.Position = row.First.Position with { Y = height.Value };
+    row.First.Position.Y = height.Value;
 }
 ```
 

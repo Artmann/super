@@ -24,7 +24,6 @@ public sealed class Input
 
     private readonly InputTick _tick = new();
     private readonly ButtonSet _keys = new(KeyCount);
-    private readonly List<IInputListener> _listeners = [];
     private readonly StringBuilder _typing = new();
 
     public Input()
@@ -74,7 +73,8 @@ public sealed class Input
 
     internal void CheckReadable() => _tick.Check();
 
-    internal void Listen(IInputListener listener) => _listeners.Add(listener);
+    /// <summary>What hears each tick roll over: every <see cref="Actions{TControl}"/> adds itself.</summary>
+    internal List<IInputListener> Listeners { get; } = [];
 
     /// <summary>Whether the key is down right now, between ticks, for the interface to read as a press happens.</summary>
     internal bool Held(Key key) => _keys.Physical((int)key);
@@ -95,7 +95,7 @@ public sealed class Input
         Typed = _typing.Length == 0 ? string.Empty : _typing.ToString();
         _typing.Clear();
 
-        foreach (var listener in _listeners)
+        foreach (var listener in Listeners)
         {
             listener.Rolled();
         }

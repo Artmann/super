@@ -148,6 +148,19 @@ public void Update(GameTime time)
 | `Footing` | `Ground`, `SteepGround` (it slides), `Unsupported` (on an edge) or `InAir` |
 | `Grounded` | `Footing` is `Ground` |
 | `GroundNormal`, `Ground` | Which way the ground faces, and its entity |
+| `GroundVelocity` | How fast the ground under it is moving, such as a lift. Zero in the air and on still ground |
+
+A character isn't carried by what it stands on. To ride a lift or a moving platform, add
+the ground's velocity to the next move:
+
+```csharp
+var move = physics.Characters.Move(player, walk + carried, time.DeltaSeconds);
+carried = move.GroundVelocity;
+```
+
+It works for any kinematic collider moved through its Transform, and for dynamic bodies.
+It's zero from the tick the character leaves the ground, so keep the last one yourself if
+a jump off a moving platform should keep its speed.
 
 A character can't have a `Parent` or a dynamic `Body`. Setting its Transform teleports it.
 Its collider is also a kinematic body, so rays and triggers find it and falling crates
@@ -179,6 +192,30 @@ public void Update(GameTime time)
 | `physics.Triggers.Entered` | Who came into a trigger in the last step, as `(Trigger, Other)` pairs |
 | `physics.Triggers.Exited` | Who left one in the last step |
 | `physics.Triggers.Inside(trigger)` | Who's in it now |
+| `physics.Triggers.Entered<TTrigger, TOther>()` | The same pairs, kept when the area has a `TTrigger` and the visitor a `TOther` |
+| `physics.Triggers.Entered<TTrigger>()` | Everyone who came into an area that has a `TTrigger` |
+| `physics.Triggers.Exited<TTrigger, TOther>()`, `Exited<TTrigger>()` | The same for who left |
+| `physics.Triggers.Inside<TTrigger, TOther>()` | Every pair that's inside now. `Anyone` as `TOther` takes every visitor |
+
+With more than one kind of area, pick the events by component and skip the checks:
+
+```csharp
+foreach (var (gem, _) in physics.Triggers.Entered<Gem, Player>())
+{
+    score += world.Get<Gem>(gem).Worth;
+    world.Destroy(gem);
+}
+
+if (physics.Triggers.Inside<Lava, Player>().Any())
+{
+    Burn();
+}
+```
+
+These are walked with `foreach` and allocate nothing. The components are checked as the
+loop goes, so an area destroyed in the loop drops out of the rest of it. An entity
+destroyed while inside has no components left, so `Exited<TTrigger, TOther>` skips it, and
+`Exited<TTrigger>` still lists it.
 
 Each lists in trigger order, then entity order, so a seeded run repeats. Triggers notice
 colliders on their `Detects` layers (every layer by default), but never other triggers.

@@ -92,6 +92,92 @@ public class ScriptedInputTests
         }
     }
 
+    private class Keyless(Input input) : IGame
+    {
+        public void Update(GameTime time) => input.Down(Key.W);
+    }
+
+    private class Holder(Actions<Control> actions) : IGame
+    {
+        public Actions<Control> Actions => actions;
+
+        public int TicksHeld { get; private set; }
+
+        public void Update(GameTime time)
+        {
+            if (actions.Down(Control.Jump))
+            {
+                TicksHeld++;
+            }
+        }
+    }
+
+    [Fact]
+    public void A_script_presses_an_action_for_one_tick_whatever_it_is_bound_to()
+    {
+        using var run = HeadlessGame.Create<Listener>(1);
+
+        run.Play(new InputScript().Wait(1).Press(Control.Jump));
+        run.Ticks(4);
+
+        // No key went down, so only the action shows, and only once.
+        Assert.Equal(["jump"], run.Game.Seen);
+    }
+
+    [Fact]
+    public void A_script_press_lets_go_of_the_action_after_one_tick()
+    {
+        using var run = HeadlessGame.Create<Holder>(1);
+
+        run.Play(new InputScript().Press(Control.Jump));
+        run.Ticks(4);
+
+        Assert.Equal(1, run.Game.TicksHeld);
+    }
+
+    [Fact]
+    public void A_script_holds_an_action_at_a_vector_until_it_releases_it()
+    {
+        using var run = HeadlessGame.Create<Listener>(1);
+
+        run.Play(new InputScript().Hold(Control.Move, new Vector2(0f, 1f)).Wait(3).Release(Control.Move));
+        run.Ticks(6);
+
+        Assert.Equal(["move", "move", "move"], run.Game.Seen);
+    }
+
+    [Fact]
+    public void A_script_holds_an_action_as_a_button_until_it_releases_it()
+    {
+        using var run = HeadlessGame.Create<Holder>(1);
+
+        run.Play(new InputScript().Hold(Control.Jump).Wait(2).Release(Control.Jump));
+        run.Ticks(6);
+
+        Assert.Equal(2, run.Game.TicksHeld);
+    }
+
+    [Fact]
+    public void A_script_action_in_a_game_without_those_actions_says_what_is_missing()
+    {
+        using var run = HeadlessGame.Create<Keyless>(1);
+        run.Play(new InputScript().Press(Control.Jump));
+
+        var error = Assert.Throws<InvalidOperationException>(() => run.Ticks(1));
+
+        Assert.Equal(
+            "A script played a Control action, but the game has no Actions<Control>. Inject one and bind it in Load.",
+            error.Message);
+    }
+
+    [Fact]
+    public void Service_hands_out_the_same_service_the_game_was_given()
+    {
+        using var run = HeadlessGame.Create<Holder>(1);
+
+        Assert.Same(run.Game.Actions, run.Service<Actions<Control>>());
+    }
+
     [Fact]
     public void A_scripted_tap_is_pressed_then_released()
     {

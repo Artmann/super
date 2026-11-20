@@ -67,6 +67,17 @@ public static class WorldSpawn
         where T4 : struct =>
         new Spawning(world, NoScene).Fill(in first, in second, in third, in fourth);
 
+    extension(World world)
+    {
+        public Entity Spawn<T1, T2, T3, T4, T5>(in T1 first, in T2 second, in T3 third, in T4 fourth, in T5 fifth)
+            where T1 : struct
+            where T2 : struct
+            where T3 : struct
+            where T4 : struct
+            where T5 : struct =>
+            new Spawning(world, NoScene).Fill(in first, in second, in third, in fourth, in fifth);
+    }
+
     /// <summary>
     /// Gives every entity that gets a <typeparamref name="TComponent"/> a copy of <paramref name="value"/>, unless
     /// it has a <typeparamref name="TNeeded"/> already. Entities that have one now are left as they are.
@@ -92,7 +103,7 @@ public static class WorldSpawn
             where T1 : struct
         {
             int a = world.TypeId<T1>();
-            var plan = Plan(a, -1, -1, -1);
+            var plan = Plan(new SpawnKey(SceneType, a));
             var entity = Start(plan, out int row);
             Give(plan, row, a, in first);
             return Finish(entity, plan, row);
@@ -104,7 +115,7 @@ public static class WorldSpawn
         {
             int a = world.TypeId<T1>();
             int b = world.TypeId<T2>();
-            var plan = Plan(a, b, -1, -1);
+            var plan = Plan(new SpawnKey(SceneType, a, b));
             var entity = Start(plan, out int row);
             Give(plan, row, a, in first);
             Give(plan, row, b, in second);
@@ -119,7 +130,7 @@ public static class WorldSpawn
             int a = world.TypeId<T1>();
             int b = world.TypeId<T2>();
             int c = world.TypeId<T3>();
-            var plan = Plan(a, b, c, -1);
+            var plan = Plan(new SpawnKey(SceneType, a, b, c));
             var entity = Start(plan, out int row);
             Give(plan, row, a, in first);
             Give(plan, row, b, in second);
@@ -137,7 +148,7 @@ public static class WorldSpawn
             int b = world.TypeId<T2>();
             int c = world.TypeId<T3>();
             int d = world.TypeId<T4>();
-            var plan = Plan(a, b, c, d);
+            var plan = Plan(new SpawnKey(SceneType, a, b, c, d));
             var entity = Start(plan, out int row);
             Give(plan, row, a, in first);
             Give(plan, row, b, in second);
@@ -146,8 +157,31 @@ public static class WorldSpawn
             return Finish(entity, plan, row);
         }
 
-        private SpawnPlan Plan(int a, int b, int c, int d) =>
-            world.Archetypes.Plans.For(scene == NoScene ? -1 : world.TypeId<SceneMember>(), a, b, c, d);
+        public Entity Fill<T1, T2, T3, T4, T5>(in T1 first, in T2 second, in T3 third, in T4 fourth, in T5 fifth)
+            where T1 : struct
+            where T2 : struct
+            where T3 : struct
+            where T4 : struct
+            where T5 : struct
+        {
+            int a = world.TypeId<T1>();
+            int b = world.TypeId<T2>();
+            int c = world.TypeId<T3>();
+            int d = world.TypeId<T4>();
+            int e = world.TypeId<T5>();
+            var plan = Plan(new SpawnKey(SceneType, a, b, c, d, e));
+            var entity = Start(plan, out int row);
+            Give(plan, row, a, in first);
+            Give(plan, row, b, in second);
+            Give(plan, row, c, in third);
+            Give(plan, row, d, in fourth);
+            Give(plan, row, e, in fifth);
+            return Finish(entity, plan, row);
+        }
+
+        private int SceneType => scene == NoScene ? -1 : world.TypeId<SceneMember>();
+
+        private SpawnPlan Plan(in SpawnKey key) => world.Archetypes.Plans.For(in key);
 
         private Entity Start(SpawnPlan plan, out int row)
         {

@@ -58,7 +58,7 @@ Each class gets its own indented JSON file, named after the class, such as
 The id comes from `GameOptions.Id`:
 
 ```csharp
-Game.StartWindowsGameLoop<MyGame>(new GameOptions { Title = "Reef: Deep Sea", Id = "reef" });
+Game.Run<MyGame>(new GameOptions { Title = "Reef: Deep Sea", Id = "reef" });
 ```
 
 Never change the id once the game ships, or players lose what was kept. Without one,

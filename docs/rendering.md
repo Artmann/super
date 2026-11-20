@@ -51,7 +51,7 @@ to cap it. The settings come in groups: `Screen`, `Shadowing`, `Lighting`, `Atmo
 `Picture`, `Baking` and `Drawing`. A game that must run fast on modest hardware turns off what it doesn't need:
 
 ```csharp
-Game.StartWindowsGameLoop<MyGame>(new GameOptions
+Game.Run<MyGame>(new GameOptions
 {
     Title = "My game",
     Graphics = new Graphics

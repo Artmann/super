@@ -8,6 +8,18 @@ namespace Super;
 /// </summary>
 public record struct Transform(Vector3 Position, Quaternion Rotation, Vector3 Scale)
 {
+    // Fields and not properties, so one axis can be set in place through a reference to the component:
+    // world.Get<Transform>(entity).Position.Y = 2f.
+
+    /// <summary>Where it is.</summary>
+    public Vector3 Position = Position;
+
+    /// <summary>Which way it faces.</summary>
+    public Quaternion Rotation = Rotation;
+
+    /// <summary>How big it is along each of its own axes.</summary>
+    public Vector3 Scale = Scale;
+
     public static Transform Identity { get; } = new(Vector3.Zero, Quaternion.Identity, Vector3.One);
 
     /// <summary>A transform at a position, unrotated.</summary>

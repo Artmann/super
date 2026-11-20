@@ -56,6 +56,15 @@ public class ParticleTests
     }
 
     [Fact]
+    public void Gravity_as_one_number_pulls_straight_down()
+    {
+        // Falling at 4 m/s² for 1.5 s drops it 4.5 m, and nothing moves it sideways.
+        var particle = Assert.Single(Draw(Single.Gravity(4f), 1.5f));
+
+        Near(new Vector3(0f, -4.5f, 0f), particle.Position);
+    }
+
+    [Fact]
     public void Speeds_and_forces_add_up()
     {
         // Two speeds of 1 m/s along x make 2 m/s; two pulls of 1 m/s² down make 2, so a

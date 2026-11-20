@@ -43,14 +43,17 @@ public enum Footing
 
 /// <summary>
 /// Where a <see cref="PhysicsCharacters.Move"/> left a character. <see cref="Velocity"/> is what it really moved at, after
-/// walls and slopes; keep its Y for gravity and jumps.
+/// walls and slopes; keep its Y for gravity and jumps. <see cref="GroundVelocity"/> is how fast what it stands on
+/// is moving, such as a lift, and zero in the air. A character isn't carried by its ground, so add this to the
+/// velocity of the next move to ride along.
 /// </summary>
 public readonly record struct CharacterMove(
     Vector3 Position,
     Vector3 Velocity,
     Footing Footing,
     Vector3 GroundNormal,
-    Entity? Ground)
+    Entity? Ground,
+    Vector3 GroundVelocity = default)
 {
     /// <summary>Whether it stands on ground it can walk on.</summary>
     public bool Grounded => Footing == Footing.Ground;

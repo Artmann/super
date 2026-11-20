@@ -1,4 +1,4 @@
 using BricksExample;
 using Super;
 
-Game.StartWindowsGameLoop<BricksGame>(new GameOptions { Title = "Bricks", Width = 1280, Height = 720 });
+Game.Run<BricksGame>(new GameOptions { Title = "Bricks", Width = 1280, Height = 720 });
