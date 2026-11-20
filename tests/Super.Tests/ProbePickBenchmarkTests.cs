@@ -48,6 +48,8 @@ public sealed class ProbePickBenchmarkTests(ITestOutputHelper output)
         }, warmUp: 200);
 
         output.WriteLine($"Pick: {pick:F3} ms, measuring: {measure:F3} ms, for {all.Length} probes, the nearest {MathF.Sqrt(nearest):F2} away.");
-        Assert.True(pick <= 6 * measure, $"Picking took {pick:F3} ms against {measure:F3} ms measuring each probe's distance.");
+        // Picking is about 3.5 times the measuring on a desktop and up to 9 on CI runners, whose plain loop is quicker.
+        // Sorting every probe instead of bringing the lowest forward is about 20 times, so 12 still catches that.
+        Assert.True(pick <= 12 * measure,$"Picking took {pick:F3} ms against {measure:F3} ms measuring each probe's distance.");
     }
 }
