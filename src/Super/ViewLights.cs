@@ -6,13 +6,14 @@ using Rendition;
 namespace Super;
 
 /// <summary>
-/// The lights of a frame, reached through <see cref="View.Lights"/>: suns, point and spot lights, and how far and how
+/// The lights of a frame, reached through <see cref="View.Lights"/>: suns, point and spot lights, the lens flare they make, and how far and how
 /// softly the shadows reach. Like the rest of a view, it holds only what this frame says.
 /// </summary>
 public sealed class ViewLights
 {
     private readonly List<Sun> _suns = [];
     private readonly List<LocalLight> _lights = [];
+    private readonly ViewLensFlare _flare = new();
 
     internal ViewLights()
     {
@@ -33,6 +34,31 @@ public sealed class ViewLights
     internal int ShadowCascades { get; private set; }
     internal float SunSize { get; private set; }
     internal float ShadowContact { get; private set; } = ShadowSettings.DefaultContactLength;
+
+    /// <summary>
+    /// The lens flare set with <see cref="LensFlare"/>, with its lights followed by those named with
+    /// <see cref="FlareLight"/>. It allocates nothing.
+    /// </summary>
+    internal LensFlareSettings LensFlareSettings => _flare.Settings;
+
+    /// <summary>
+    /// Sets the lens flare: how strong it is, which ghosts, rings and streaks it is made of, and which bright lights
+    /// flare besides the sun. Left alone, the sun flares with a subtle set, <see cref="LensFlareSettings.DefaultElements"/>,
+    /// whenever it is on screen and not hidden. A <see cref="LensFlareSettings"/> component on an entity does the same.
+    /// At most <see cref="LensFlareSettings.MaxElements"/> elements and <see cref="LensFlareSettings.MaxLights"/>
+    /// lights fit. See "Lens flare" in docs/rendering.md.
+    /// </summary>
+    public void LensFlare(in LensFlareSettings settings) => _flare.Set(settings, nameof(settings));
+
+    /// <summary>
+    /// Makes a bright light flare this frame, such as a lamp or a muzzle flash, with the elements of
+    /// <see cref="LensFlare"/>. The flare shows while the light is on screen, fades as something covers its
+    /// <paramref name="radius"/> in metres, and takes its colour, so pass the light's linear colour times how bright
+    /// it looks. With the lights in <see cref="LensFlareSettings.Lights"/>, at most
+    /// <see cref="LensFlareSettings.MaxLights"/> flare a frame.
+    /// </summary>
+    public void FlareLight(Vector3 position, Vector3 color, float radius = 0.2f) =>
+        _flare.Add(new LensFlareLight(position, color, radius), nameof(position));
 
     /// <summary>
     /// Adds a sun. The direction points from the ground towards it, and needn't be one
@@ -129,6 +155,7 @@ public sealed class ViewLights
     {
         _suns.Clear();
         _lights.Clear();
+        _flare.Clear();
         ShadowRadius = 8f;
         ShadowCascades = 1;
         SunSize = DefaultSunSize;

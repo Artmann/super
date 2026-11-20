@@ -81,6 +81,11 @@ internal static class WorldLights
             view.Lights.Shadows(shadows.Radius, shadows.Cascades, shadows.SunSize, shadows.Contact);
         }
 
+        if (Newest<LensFlareSettings>(world) is { } flare)
+        {
+            view.Lights.LensFlare(flare);
+        }
+
         if (Newest<AmbientOcclusion>(world) is { } occlusion)
         {
             view.Indirect.AmbientOcclusion(occlusion.Radius, occlusion.Strength);

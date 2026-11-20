@@ -104,6 +104,7 @@ public sealed class Graphics
             Sharpening = false,
             ChromaticAberration = false,
             SpeedBlur = false,
+            LensFlare = false,
         },
         Drawing = { MeshDetail = 0.5f },
     };

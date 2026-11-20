@@ -11,6 +11,8 @@ layout(location = 0) in vec2 inUv;
 
 layout(set = 1, binding = 0) uniform sampler2D hdrTexture;
 layout(set = 1, binding = 1) uniform sampler2D bloomTexture;
+// The lens flare, half the picture's size. LensFlareDraw clears it when there is none. Binding 3 is left free.
+layout(set = 1, binding = 2) uniform sampler2D flareTexture;
 
 // The whole grade, from white balance to the artist's table, baked by grade_lut.comp.
 layout(set = 3, binding = 0) uniform sampler3D gradeTable;
@@ -78,7 +80,8 @@ void main() {
         return;
     }
 
-    vec3 color = scene(inUv);
+    // The flare is light in the lens, so the speed blur and the fringes, which move the scene, leave it be.
+    vec3 color = scene(inUv) + textureLod(flareTexture, inUv, 0.0).rgb;
 
     // Auto exposure puts the metered brightness at middle grey, and grade.x becomes compensation
     // on top. Left out, the fixed exposure is all there is, exactly as before.

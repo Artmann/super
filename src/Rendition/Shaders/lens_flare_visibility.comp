@@ -1,0 +1,94 @@
+#version 460
+
+// How much of each flaring light is seen: one group a light, each thread reading the depth at one point of a disc round
+// it. A point is seen where whatever is there lies beyond the light, and for the sun only where the sky shows. The
+// share seen goes into a ring of the last four frames, and lens_flare.vert dims the light's elements by the most of
+// them under anti-aliasing, or by this frame's alone. Nothing comes back to the CPU.
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) buffer Visibility
+{
+    // Each light has eight: its four frames, then what the flare is drawn with, then pads.
+    float values[];
+} visibility;
+
+layout(set = 0, binding = 1) uniform sampler2D depthTexture;
+
+// Must match VisibilityConstants in LensFlarePass.cs.
+layout(push_constant) uniform Constants
+{
+    // xy where the light is, as a fraction of the screen; z the depth something must lie beyond to leave it seen, 0
+    // for the sun; w how far round it to look, in screen heights.
+    vec4 sources[4];
+    float aspect;
+    int count;
+    int slot;
+    int flags;
+} constants;
+
+const int TAPS = 64;
+const int SOURCE_FLOATS = 8;
+const int HELD_FRAMES = 4;
+const int HOLD = 1;
+const int RESET = 2;
+const float GOLDEN_ANGLE = 2.39996323;
+
+shared float seen[TAPS];
+
+// How much of the sun's light the sky lets through at uv. The sky is clear for now; clouds will dim the sun here.
+float skyTransmittance(vec2 uv) {
+    return 1.0;
+}
+
+void main() {
+    uint source = gl_WorkGroupID.x;
+    uint tap = gl_LocalInvocationID.x;
+    vec4 light = constants.sources[source];
+
+    // A Vogel disc: the points spread evenly however many there are.
+    float radius = sqrt((float(tap) + 0.5) / float(TAPS)) * light.w;
+    float angle = float(tap) * GOLDEN_ANGLE;
+    vec2 uv = light.xy + vec2(cos(angle) / constants.aspect, sin(angle)) * radius;
+
+    // Points off the screen are taken as covered: nothing says what is there.
+    float hit = 0.0;
+    if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
+        // Reversed-Z: nearer is larger, and the sky is 0.
+        float depth = textureLod(depthTexture, uv, 0.0).r;
+        if (depth <= light.z) {
+            hit = light.z <= 0.0 ? skyTransmittance(uv) : 1.0;
+        }
+    }
+
+    seen[tap] = hit;
+    barrier();
+    for (uint stride = TAPS / 2; stride > 0; stride >>= 1) {
+        if (tap < stride) {
+            seen[tap] += seen[tap + stride];
+        }
+
+        barrier();
+    }
+
+    if (tap != 0) {
+        return;
+    }
+
+    float share = seen[0] / float(TAPS);
+    uint base = source * SOURCE_FLOATS;
+    if ((constants.flags & RESET) != 0) {
+        for (int frame = 0; frame < HELD_FRAMES; frame++) {
+            visibility.values[base + frame] = share;
+        }
+    } else {
+        visibility.values[base + constants.slot] = share;
+    }
+
+    float drawn = share;
+    if ((constants.flags & HOLD) != 0) {
+        drawn = max(max(visibility.values[base], visibility.values[base + 1]), max(visibility.values[base + 2], visibility.values[base + 3]));
+    }
+
+    visibility.values[base + HELD_FRAMES] = drawn;
+}

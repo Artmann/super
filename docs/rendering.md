@@ -125,6 +125,7 @@ next frame follows, so it can back an options menu.
 | `Picture.SpeedBlur` | No blur at speed, whatever `ScreenEffects.SpeedBlur` asks for. The picture is read once a pixel instead of 16 times while it'd show. `Graphics.Fastest()` turns it off |
 | `Picture.Flashes` | No flashes, whatever `ScreenEffects.Flash` asks for, for a player who is sensitive to flashing light. The fade stays. It costs nothing |
 | `Picture.ScreenEffects` | None of the [screen effects](#screen-effects) a game sets, but the fade: no fringes, blur, flash, edge tints, loss of colour or paper. The fade stays, since a game uses it to say something, such as that the player fell |
+| `Picture.LensFlare` | No [lens flare](#lens-flare) from the sun or the lights a game names, and its passes don't run. `Graphics.Fastest()` turns it off |
 | `Drawing.Culling` | Every model is drawn into the picture, each of the sun's cascades and each light's shadow tile, seen or not. It only costs time: it's there to check that culling hides nothing it shouldn't |
 | `Drawing.SimplerModels` | Every model is drawn at full detail at any distance, whatever `MeshDetail` says, in the picture and the shadows. It only costs time: it's there to see what the simpler versions change |
 | `Drawing.DepthFirst` | Large solid surfaces are no longer drawn twice, depth first and then shaded, so a surface drawn before the one that hides it is shaded for nothing. It only costs time: it's there to measure what drawing depth first saves. The picture is the same, but where two surfaces lie in the very same plane, where the other of the two may show |
@@ -1373,6 +1374,72 @@ The [Cannonball](../examples/Cannonball) example blurs the screen with the stunt
 flashes it red on the hit. Each effect on its own, and Cannonball's:
 
 ![Each screen effect at work, labelled](media/screen-effects.webp)
+
+### Lens flare
+
+When the sun is on screen, light bouncing between the camera's lenses leaves glints across the
+picture: a thin streak and a faint halo round the sun, a few soft ghosts and hexagons towards and
+past the middle of the screen, and a ring on the far side. It needs no setup and is subtle by
+default.
+
+The flare fades as something covers the light, so it dims behind a tree and goes out behind a
+hill. It also dims in fog and fades out as the light nears the edge of the screen. The moon doesn't
+flare.
+
+Change it for one frame with `view.Lights.LensFlare`, or keep it on an entity as a
+`LensFlareSettings` component, where the newest one wins:
+
+```csharp
+view.Lights.LensFlare(new LensFlareSettings
+{
+    Intensity = 0.5f,
+    Elements = new[]
+    {
+        new LensFlareElement(LensFlareShape.Ghost, 0.6f, 0.1f, new Vector3(0.04f, 0.03f, 0.02f)),
+        new LensFlareElement(LensFlareShape.Polygon, 1.5f, 0.12f, new Vector3(0.01f, 0.02f, 0.03f)) { Sides = 5 },
+        new LensFlareElement(LensFlareShape.Ring, 2.1f, 0.25f, new Vector3(0.01f, 0.01f, 0.02f)),
+    },
+});
+```
+
+`Intensity` scales the whole flare. It is 1 when left out, and 0 turns the flare off. `Elements`
+replaces the default set, which `LensFlareSettings.DefaultElements` holds, so you can start from
+it. A flare has at most 16 elements.
+
+Each `LensFlareElement` has a shape, a position, a size and a colour:
+
+- The shape is `Ghost` (a soft disc with a brighter rim), `Ring`, `Polygon` (the aperture's shape,
+  with `Sides` sides from 3, or 0 for six), `Streak` (a thin line across the screen, as from an
+  anamorphic lens) or `Halo` (a wide faint rainbow ring round the light).
+- The position places it on the line from the light through the middle of the screen: 0 is on the
+  light, 1 is the middle and 2 is the light's mirror across the middle.
+- The size is its width in screen heights.
+- The colour is linear and is multiplied by the light's colour, so small values such as 0.02 suit
+  the sun.
+
+Besides the sun, up to three bright lights can flare, such as a lighthouse lamp or a car's
+headlight. Name them each frame with `view.Lights.FlareLight`, or in the settings' `Lights`:
+
+```csharp
+view.Lights.FlareLight(lampPosition, new Vector3(40f, 32f, 20f), radius: 0.3f);
+```
+
+The colour is the light's brightness, like a light's radiance. The radius is how far round the light,
+in metres, something must cover to hide it. Anything nearer the camera than the light by less than
+the radius doesn't hide it, so the lamp's own glass doesn't. A fourth light is refused, as is a
+setting that can't be drawn, and the message says why.
+
+Under temporal anti-aliasing, the flare keeps the most of the light seen over the last four frames,
+so a sun shining through leaves doesn't flicker as the camera jitters. A cut starts afresh.
+
+The `Picture.LensFlare` switch turns it off, and `Graphics.Fastest()` does too. With Rendition
+alone, set `PictureSettings.LensFlare` on the frame's `Picture`, and turn it off with
+`RenderEffects.LensFlare`.
+
+The flare doesn't show clouds covering the sun yet, and the default streak is hard to see against
+a bright sky. Hamlet under a low sun, without and with it:
+
+![Hamlet's low sun without and with a lens flare, labelled](media/lens-flare.webp)
 
 ### Auto exposure
 

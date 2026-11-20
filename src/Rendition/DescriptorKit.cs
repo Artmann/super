@@ -37,7 +37,7 @@ internal sealed unsafe class DescriptorKit : IDisposable
             FrameRing.Count + 12,
             new DescriptorPoolSize(DescriptorType.UniformBuffer, FrameRing.Count),
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 10 * FrameRing.Count),
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 40 + 3 * FrameRing.Count));
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 42 + 3 * FrameRing.Count));
         _lightingPool = context.CreateDescriptorPool(
             DescriptorPoolCreateFlags.UpdateAfterBindBit, 1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 18));
     }

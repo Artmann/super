@@ -1568,6 +1568,9 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
   too: `PostGrade.Without` zeroes the matching amounts of `PostSettings.Screen`, and `ScreenEffects`
   keeps only the fade. The shaders skip each effect at 0, so none needs a shader flag. See
   [Screen effects](#screen-effects).
+- `LensFlare` (bit 47) skips the flare in `LensFlarePass.Take`, as an intensity of 0 or no light
+  on screen does: neither the visibility nor the draw is recorded, and the flare's target is
+  cleared once so the tonemap adds nothing. See [Lens flare](#lens-flare).
 - `Culling` (bit 27) makes `DetailView.CanSee` true for every ball, for the camera, the
   cascades and the light tiles alike. `SimplerModels` (bit 28) hands `DetailView` a `MaxError`
   of 0, which no simpler level meets, since every level's error is above 0.
@@ -3990,6 +3993,45 @@ put on screen. `screenCanvas.w` is the slot or -1, and `FrameUniformWriter` send
 texture is gone, so a destroyed paper never reads a freed slot. Super names the paper by its
 content index (`TextureRef` turns into a `TextureHandle`), and `FrameMaker.WithRendererItems`
 swaps in the renderer's handle, as it does for the colour table.
+
+### Lens flare
+
+The lens flare (`Passes/LensFlarePass.cs`) is split in three. `LensFlareFrame` works on the CPU
+before the frame is recorded, with nothing allocated. It finds the lights that flare: the sun, when
+`SkyModel.SunIndex` gives one that isn't the moon and it lies in front of the camera, then the
+view's named lights while they fit, up to `LensFlareSettings.MaxSources` (4). Each becomes a
+`FlareSource`: its uv from the top left, the depth something must lie beyond to leave it seen (0
+for the sun, which only the sky leaves seen), how far round it to look, and its colour. The colour
+is dimmed by the height fog from `Fog.Pack`, taking the sun as 10 km away, and faded to nothing
+over the last 8% of the screen towards each edge. Then it writes one `FlareQuad` per element per
+light, at most 64, each placed on the line from the light through the middle and coloured by its
+light and the settings' intensity.
+
+`LensFlareVisibility` works out how much of each light is seen, on the GPU, so nothing is read
+back. `lens_flare_visibility.comp` runs one group per light, each of its 64 threads reading the
+depth at one point of a Vogel disc round the light, at least 3 pixels across and at most 0.05
+screen heights in radius. Points off screen count as covered. The share seen goes into a ring of
+four frames in a small storage buffer, along with the value the flare is drawn with: the most of
+the four under TAA, or this frame's alone without it. The ring starts afresh when there is no
+history, after a frame with no flare, when the number of lights changes and when a light's uv
+moves more than 0.1 in a frame, as on a cut. The set (the buffer, which compute and vertex shaders
+read, and the depth) is made with `Descriptors.CreateStateSet`, which the exposure meter uses too.
+`skyTransmittance` in the shader is where clouds will dim the sun. It returns 1 for now.
+
+`LensFlareDraw` copies the quads into the ring slot's buffer and draws them as instanced quads into
+a half-size target in the HDR format, adding onto black. `lens_flare.vert` reads the light's
+visibility from the buffer and folds a quad with none to a point. A frame that skips the flare
+clears the target once, and later skipped frames leave it alone. The tonemap reads the target at
+set 1, binding 2, and adds it to the scene and bloom before exposure, outside the speed blur and
+the fringes, since it is light in the lens and shouldn't move with the scene. That set now uses
+`FourTextureLayout`, and binding 3 is left empty because `tonemap.frag` never reads it. The flare
+is recorded inside bloom's `GpuTimer` span, so the stats panel counts it as bloom. `PostStage`
+reads the exposure step from `ExposureClock.Step` instead of keeping a copy of its own.
+
+In Super, `FrameMaker` copies `ViewLights.LensFlareSettings` into `FrameView.Picture.LensFlare`.
+The API lives on `ViewLights` (`LensFlare` and `FlareLight`) through `ViewLensFlare`, which joins
+the named lights to the settings' own in one array, because `ViewEffects` is at Roe's member
+limit. `WorldLights` reads the newest `LensFlareSettings` component.
 
 Auto exposure meters the frame on the GPU and never reads it back. Before the tonemap,
 `exposure_histogram.comp` reads the image the tonemap and bloom read (resolved, or HDR

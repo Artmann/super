@@ -4,7 +4,7 @@ using Rendition.Vulkan;
 
 namespace Rendition;
 
-/// <summary>Blurs what is out of focus, adds bloom, meters the exposure and tonemaps the picture into Ldr.</summary>
+/// <summary>Blurs what is out of focus, adds bloom and the lens flare, meters the exposure and tonemaps the picture into Ldr.</summary>
 internal sealed class PostStage
 {
     private readonly VulkanContext _context;
@@ -16,21 +16,23 @@ internal sealed class PostStage
     private readonly FullscreenPass _tonemap;
     private readonly DescriptorSet _tonemapSet;
     private DepthOfFieldConstants? _lens;
-    private ExposureStep? _step;
 
     public PostStage(VulkanContext context, DescriptorKit kit, GpuTimer timer, GBuffer targets, ImageView source)
     {
         _context = context;
         _kit = kit;
         _timer = timer;
-        _tonemapSet = kit.NewSet(kit.TwoTextureLayout);
+        // The picture, bloom and the lens flare. The fourth binding is free: tonemap.frag never reads it.
+        _tonemapSet = kit.NewSet(kit.FourTextureLayout);
         _bloom = new BloomPass(context, kit.LinearSampler, targets.Picture.Resolved.View, targets.Picture.Display);
+        Flare = new LensFlarePass(context, kit.NearestSampler, targets.Picture.Display);
+        Flare.SetDepth(targets.Depth.View);
         Meter = new ExposureMeter(context, kit.NearestSampler);
         _depthOfField = new DepthOfFieldPass(context, kit.NearestSampler, kit.LinearSampler, kit.FrameSetLayout);
         _depthOfField.SetTargets(source, targets.Depth.View, targets.Extent);
         Grade = new GradeLut(context, kit);
         _tonemap = new FullscreenPass(context, "tonemap.frag", GBuffer.LdrFormat,
-            [kit.FrameSetLayout, kit.TwoTextureLayout, Meter.SetLayout, kit.OneTextureLayout]);
+            [kit.FrameSetLayout, kit.FourTextureLayout, Meter.SetLayout, kit.OneTextureLayout]);
     }
 
     /// <summary>What meters the frame's brightness for auto exposure, which FSR and tonemapping read.</summary>
@@ -38,6 +40,9 @@ internal sealed class PostStage
 
     /// <summary>The grade baked into a table, which tonemapping reads, and the artists' colour tables.</summary>
     public GradeLut Grade { get; }
+
+    /// <summary>The lens flare, which takes the frame's lights before the frame is recorded and draws after bloom.</summary>
+    public LensFlarePass Flare { get; }
 
     /// <summary>Takes the lens the view asks for, or none when depth of field is left out or the lens is a pinhole.</summary>
     public void TakeLens(in FrameView view, RenderEffects off, int sceneWidth) =>
@@ -48,13 +53,11 @@ internal sealed class PostStage
     /// never drawn doesn't move the clock.
     /// </summary>
     public void StepExposure(in FrameView view, RenderEffects off) =>
-        _step = _clock.Next(!off.HasFlag(RenderEffects.AutoExposure), view.Time, Exposure.Speed(view.Picture.Post.AdaptationSpeed));
+        _clock.Next(!off.HasFlag(RenderEffects.AutoExposure), view.Time, Exposure.Speed(view.Picture.Post.AdaptationSpeed));
 
     /// <summary>Blurs what is out of focus, adds bloom, meters the exposure and tonemaps the picture into Ldr.</summary>
     public void Record(CommandBuffer cmd, DescriptorSet frameSet, GBuffer targets, (bool ReadsAntiAliased, RenderEffects Off) display)
     {
-        var api = _context.Api;
-
         // The picture's size from anti-aliasing on: the scene's, or the window's once FSR has rebuilt it.
         var extent = targets.Picture.Display;
 
@@ -77,19 +80,21 @@ internal sealed class PostStage
             _bloom.Record(cmd);
         }
 
+        // Timed with bloom: both are light added onto the picture, which the tonemap reads.
+        Flare.Record(cmd);
         _timer.Mark(cmd);
 
         // Metered from the lit frame before bloom. Its time counts towards the tonemap's.
-        if (_step is { } exposureStep)
+        if (_clock.Step is { } exposureStep)
         {
             Meter.Record(cmd, exposureStep);
         }
 
         Grade.Record(cmd, frameSet);
         ReadOnlySpan<DescriptorSet> tonemapSets = [frameSet, _tonemapSet, Meter.Set, Grade.ReadSet];
-        api.BeginColorTarget(cmd, targets.Picture.Ldr.Image);
+        _context.Api.BeginColorTarget(cmd, targets.Picture.Ldr.Image);
         _tonemap.Record(cmd, targets.Picture.Ldr.View, extent, tonemapSets);
-        api.EndColorTarget(cmd, targets.Picture.Ldr.Image);
+        _context.Api.EndColorTarget(cmd, targets.Picture.Ldr.Image);
         _timer.Mark(cmd);
     }
 
@@ -104,6 +109,7 @@ internal sealed class PostStage
         [
             new(_kit.LinearSampler, source, ImageLayout.ShaderReadOnlyOptimal),
             new(_kit.LinearSampler, _bloom.Result, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.LinearSampler, Flare.Result, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         Meter.SetSource(source, targets.Picture.Display);
     }
@@ -114,12 +120,15 @@ internal sealed class PostStage
         _bloom.SetSource(source);
         WriteSets(source, targets);
         _depthOfField.SetSource(source, targets.Depth.View);
+        Flare.SetDepth(targets.Depth.View);
     }
 
-    /// <summary>Makes bloom's chain and depth of field's targets for new targets.</summary>
+    /// <summary>Makes bloom's chain, the flare's target and depth of field's targets for new targets.</summary>
     public void Resize(ImageView source, GBuffer targets)
     {
         _bloom.Resize(source, targets.Picture.Display);
+        Flare.Resize(targets.Picture.Display);
+        Flare.SetDepth(targets.Depth.View);
         _depthOfField.SetTargets(source, targets.Depth.View, targets.Extent);
     }
 
@@ -129,6 +138,7 @@ internal sealed class PostStage
         Grade.Dispose();
         Meter.Dispose();
         _depthOfField.Dispose();
+        Flare.Dispose();
         _bloom.Dispose();
     }
 }
