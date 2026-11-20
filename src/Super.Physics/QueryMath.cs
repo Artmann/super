@@ -31,17 +31,19 @@ internal static class QueryMath
 
     /// <summary>
     /// Where a shape's centre of mass is, turned, with its origin at <paramref name="position"/>: how Jolt places
-    /// shapes. Jolt's matrices act on column vectors, with the move in the last column, so this is the transpose of
-    /// System.Numerics' own.
+    /// shapes.
     /// </summary>
     public static Matrix4x4 CentreOfMass(Shape shape, Vector3 position, Quaternion rotation) =>
         Placed(position + Vector3.Transform(shape.CenterOfMass, rotation), rotation);
 
-    /// <summary>A turn and a move, as a Jolt matrix.</summary>
+    /// <summary>
+    /// A turn and a move, as a Jolt matrix. Jolt's matrices act on column vectors and are stored a column at a time,
+    /// which in memory is the same as System.Numerics' own, so it's passed as it is.
+    /// </summary>
     public static Matrix4x4 Placed(Vector3 position, Quaternion rotation)
     {
         var matrix = Matrix4x4.CreateFromQuaternion(rotation);
         matrix.Translation = position;
-        return Matrix4x4.Transpose(matrix);
+        return matrix;
     }
 }

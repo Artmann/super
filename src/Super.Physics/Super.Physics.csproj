@@ -2,7 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Super\Super.csproj" />
-    <PackageReference Include="JoltPhysicsSharp" Version="2.23.0" />
+    <PackageReference Include="JoltPhysicsSharp" Version="2.26.0" />
   </ItemGroup>
 
   <ItemGroup>
