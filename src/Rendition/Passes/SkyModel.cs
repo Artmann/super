@@ -139,7 +139,7 @@ internal static class SkyModel
     /// The light that casts the shadows, among those the frame takes, or else the first, leaving out the moon's: a light
     /// aimed at <paramref name="moon"/>. With only the moon's light the sky follows that, having nothing else.
     /// </summary>
-    private static int SunIndex(ReadOnlySpan<DirectionalLight> lights, Vector3 moon)
+    internal static int SunIndex(ReadOnlySpan<DirectionalLight> lights, Vector3 moon)
     {
         int count = Math.Min(lights.Length, FrameUniforms.MaxLights);
         int first = -1;
@@ -165,7 +165,7 @@ internal static class SkyModel
     }
 
     // The moon's light points where the moon is, give or take what normalising loses.
-    private static bool IsMoon(Vector3 direction, Vector3 moon) =>
+    internal static bool IsMoon(Vector3 direction, Vector3 moon) =>
         moon != Vector3.Zero && direction != Vector3.Zero
         && Vector3.Dot(Vector3.Normalize(direction), Vector3.Normalize(moon)) > 0.99999f;
 

@@ -79,6 +79,12 @@ public sealed class GraphicsPicture
     /// </summary>
     public bool ScreenEffects { get; set; } = true;
 
+    /// <summary>
+    /// The glints from the sun and the lights a game names, set with <see cref="ViewLights.LensFlare"/>. Off, its passes
+    /// don't run. It costs little, but <see cref="Graphics.Fastest"/> turns it off.
+    /// </summary>
+    public bool LensFlare { get; set; } = true;
+
     /// <summary>Takes every setting from <paramref name="other"/>.</summary>
     internal void CopyFrom(GraphicsPicture other)
     {
@@ -94,5 +100,6 @@ public sealed class GraphicsPicture
         SpeedBlur = other.SpeedBlur;
         Flashes = other.Flashes;
         ScreenEffects = other.ScreenEffects;
+        LensFlare = other.LensFlare;
     }
 }

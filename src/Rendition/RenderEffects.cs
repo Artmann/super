@@ -268,10 +268,16 @@ public enum RenderEffects : long
     /// </summary>
     ScreenEffects = 1L << 46,
 
+    /// <summary>
+    /// The glints from the sun and named lights across the picture, from <see cref="FrameView.Picture"/>'s
+    /// <see cref="PictureSettings.LensFlare"/>. Without it the flare's passes don't run.
+    /// </summary>
+    LensFlare = 1L << 47,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
         | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
         | ScreenBounce | AerialPerspective | Stars | OcclusionHistory | ColorLut | ChromaticAberration | SpeedBlur | Flashes
-        | ScreenEffects,
+        | ScreenEffects | LensFlare,
 }

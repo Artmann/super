@@ -46,16 +46,7 @@ internal sealed unsafe class ExposureMeter : IDisposable
         _state = new GpuBuffer(
             context, StateSize, BufferUsageFlags.StorageBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
 
-        SetLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit | ShaderStageFlags.FragmentBit),
-            new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-        ]);
-        _pool = context.CreateDescriptorPool(
-            1,
-            new DescriptorPoolSize(DescriptorType.StorageBuffer, 1),
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 1));
-        Set = context.AllocateSet(_pool, SetLayout);
+        (SetLayout, _pool, Set) = context.CreateStateSet(ShaderStageFlags.FragmentBit, new DescriptorBufferInfo(_state.Handle, 0, StateSize));
 
         _pipelineLayout = context.CreatePipelineLayout(
             [SetLayout],
@@ -63,10 +54,6 @@ internal sealed unsafe class ExposureMeter : IDisposable
 
         _histogram = PipelineFactory.CreateCompute(context, "exposure_histogram.comp", _pipelineLayout);
         _adapt = PipelineFactory.CreateCompute(context, "exposure_adapt.comp", _pipelineLayout);
-
-        var stateInfo = new DescriptorBufferInfo(_state.Handle, 0, StateSize);
-        var write = Descriptors.BufferWrite(Set, 0, &stateInfo);
-        api.UpdateDescriptorSets(context.Device, 1, &write, 0, null);
 
         // Empty bins and an exposure of 0 EV. The first metered frame snaps, so the 0 is never seen.
         var state = _state.Handle;

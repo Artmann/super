@@ -201,6 +201,9 @@ public struct PictureSettings
     /// <see cref="DebugView.Probes"/> works on any GPU.
     /// </summary>
     public DebugView DebugView;
+
+    /// <summary>The glints from the sun and named lights. The default is a subtle flare from the sun.</summary>
+    public LensFlareSettings LensFlare;
 }
 
 /// <summary>What a frame draws besides its draws, for <see cref="FrameView.Extras"/>.</summary>

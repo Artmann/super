@@ -107,7 +107,7 @@ public sealed class ScreenEffectsGpuTests(GpuFixture gpu, ITestOutputHelper outp
 
         // The sky is too smooth to show a shift of a pixel or two, so a wall stands at the left of the picture, where
         // its edge is far enough from the middle to fringe.
-        using var wall = new Wall(gpu);
+        using var wall = Wall();
         var plain = Render(default, draws: wall.Draws);
         var fringed = Render(new ScreenEffects { ChromaticAberration = 1f }, draws: wall.Draws);
 
@@ -198,7 +198,7 @@ public sealed class ScreenEffectsGpuTests(GpuFixture gpu, ITestOutputHelper outp
         };
 
         // The wall's edge shows fringes left on, which the smooth sky would hide.
-        using var wall = new Wall(gpu);
+        using var wall = Wall();
         var plain = Render(default, draws: wall.Draws);
         float group = MostBlockDifference(plain, Render(busy, RenderEffects.ScreenEffects, wall.Draws));
 
@@ -230,14 +230,7 @@ public sealed class ScreenEffectsGpuTests(GpuFixture gpu, ITestOutputHelper outp
         Assert.Equal(before, grade.Bakes);
     }
 
-    // The mean of a square a sixteenth of the picture across round a place given as parts of the picture.
-    private Vector3 At(byte[] pixels, float across, float down)
-    {
-        int radius = Math.Max(_wide / 32, 2);
-        int x = Math.Clamp((int)(across * _wide), radius, _wide - radius);
-        int y = Math.Clamp((int)(down * _wide), radius, _wide - radius);
-        return TestPixels.Mean(pixels, _wide, x, y, radius);
-    }
+    private Vector3 At(byte[] pixels, float across, float down) => TestPixels.Around(pixels, _wide, across, down);
 
     private Vector3 Middle(byte[] pixels) => At(pixels, 0.5f, 0.5f);
 
@@ -267,28 +260,12 @@ public sealed class ScreenEffectsGpuTests(GpuFixture gpu, ITestOutputHelper outp
     // A couple of frames first, then the one read back, with every effect but the screen effects off.
     private byte[] Render(in ScreenEffects screen, RenderEffects off = RenderEffects.None, DrawItem[]? draws = null)
     {
-        draws ??= [];
-        var view = new FrameView
+        var view = TestSky.View(Size, new Vector3(0f, 0.3f, -1f), Sun) with
         {
-            Width = Size,
-            Height = Size,
-            View = Matrix4x4.CreateLookAt(Vector3.Zero, new Vector3(0f, 0.3f, -1f), Vector3.UnitY),
-            Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 3f, 1f, 0.1f),
-            CameraPosition = Vector3.Zero,
-            Environment = new EnvironmentSettings { Intensity = 1f, ShowAsBackground = true, Sky = new AnalyticSky { Turbidity = 2.5f } },
-            Lights = [new DirectionalLight { Direction = Sun, Radiance = new Vector3(5f) }],
             Picture = new PictureSettings { Post = new PostSettings { Screen = screen } },
             Off = off | (RenderEffects.All & ~ScreenSwitches),
         };
-        for (int frame = 0; frame < 2; frame++)
-        {
-            gpu.Renderer.Render(view, draws);
-        }
-
-        var pixels = gpu.Renderer.Capture(view, draws, out int width, out int height);
-        Assert.Equal(width, height);
-        _wide = width;
-        return pixels;
+        return TestSky.Capture(gpu, view, draws ?? [], 2, out _wide);
     }
 
     // The most the mean of any 4 by 4 square of the channels differs between two pictures, in steps of 255.
@@ -326,31 +303,5 @@ public sealed class ScreenEffectsGpuTests(GpuFixture gpu, ITestOutputHelper outp
     }
 
     // A grey wall covering the left tenth of the picture, for a sharp edge where effects that move pixels show.
-    private sealed class Wall : IDisposable
-    {
-        private readonly GpuFixture _gpu;
-        private readonly MeshHandle _cube;
-
-        public Wall(GpuFixture gpu)
-        {
-            _gpu = gpu;
-            var (vertices, indices) = TestMeshes.Cube();
-            _cube = gpu.Renderer.Assets.CreateMesh(vertices, indices);
-            gpu.RenderOneFrame(); // Uploads the mesh.
-            Draws =
-            [
-                new DrawItem
-                {
-                    Mesh = _cube,
-                    IndexCount = (uint)indices.Length,
-                    Material = gpu.Matte,
-                    Transform = Matrix4x4.CreateScale(8f, 40f, 0.1f) * Matrix4x4.CreateTranslation(-6.3f, 0f, -5f),
-                },
-            ];
-        }
-
-        public DrawItem[] Draws { get; }
-
-        public void Dispose() => _gpu.Renderer.Assets.DestroyMesh(_cube);
-    }
+    private TestWall Wall() => new(gpu, Matrix4x4.CreateScale(8f, 40f, 0.1f) * Matrix4x4.CreateTranslation(-6.3f, 0f, -5f));
 }

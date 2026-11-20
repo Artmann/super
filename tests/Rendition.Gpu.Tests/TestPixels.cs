@@ -23,6 +23,15 @@ internal static class TestPixels
         return sum / count;
     }
 
+    // The mean of a square a sixteenth of a square frame size pixels across, round a place given as parts of the frame.
+    public static Vector3 Around(byte[] pixels, int size, float across, float down)
+    {
+        int radius = Math.Max(size / 32, 2);
+        int x = Math.Clamp((int)(across * size), radius, size - radius);
+        int y = Math.Clamp((int)(down * size), radius, size - radius);
+        return Mean(pixels, size, x, y, radius);
+    }
+
     public static float Brightness(Vector3 colour) => (colour.X + colour.Y + colour.Z) / 3f;
 
     public static string Show(Vector3 colour) => $"({colour.X:F0}, {colour.Y:F0}, {colour.Z:F0})";

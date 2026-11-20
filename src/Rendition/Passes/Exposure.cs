@@ -140,12 +140,16 @@ internal sealed class ExposureClock
     private bool _running;
     private float _lastTime;
 
-    /// <summary>The step for this frame, or null when the frame isn't metered.</summary>
+    /// <summary>The step <see cref="Next"/> last gave, which the frame being recorded meters with.</summary>
+    public ExposureStep? Step { get; private set; }
+
+    /// <summary>The step for this frame, or null when the frame isn't metered. It is kept as <see cref="Step"/> too.</summary>
     public ExposureStep? Next(bool metered, float time, float speed)
     {
         if (!metered)
         {
             _running = false;
+            Step = null;
             return null;
         }
 
@@ -153,6 +157,7 @@ internal sealed class ExposureClock
         float dt = snap ? 0f : time - _lastTime;
         _running = true;
         _lastTime = time;
-        return new ExposureStep(speed * dt, snap);
+        Step = new ExposureStep(speed * dt, snap);
+        return Step;
     }
 }
