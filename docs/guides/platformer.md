@@ -318,9 +318,11 @@ using System.Numerics;
 namespace SkylarkExample;
 
 /// <summary>The bird the player hops around as.</summary>
-/// <param name="Velocity">How fast it moves, kept from tick to tick so it can fall.</param>
-public record struct Hero(Vector3 Velocity);
+/// <param name="Home">Where it goes back to after a fall.</param>
+public record struct Hero(Vector3 Home);
 ```
+
+`Home` is where the bird starts. We'll use it in chapter 4, when it can fall off.
 
 Now spawn the bird. In `Palette.cs`, add two colours under `Grass`:
 
@@ -340,7 +342,8 @@ private static void Bird(Scene scene, Vector3 start)
         Transform.Facing(start, -Vector3.UnitZ),
         Collider.Capsule(height: 1.1f, radius: 0.4f),
         new Character(),
-        new Hero(Vector3.Zero));
+        new Jumper(JumpSpeed: 9.5f, Gravity: 24f),
+        new Hero(start));
 
     // A cone points up, so tip it forward for the beak. The bird faces +z.
     var straight = Quaternion.Identity;
@@ -358,6 +361,11 @@ The bird itself has no model at all. It's a capsule, a pill shape 1.1 metres tal
 `Character` component. A character is a body you move yourself: you say which way it wants
 to go, and physics slides it along the ground and stops it at walls. Its `Transform` is at
 its feet, so starting it at the island's top stands it on the island.
+
+A character has no gravity of its own. The `Jumper` next to it adds what a platformer's
+hero needs: it falls, and in chapter 4 it will jump. Its gravity is 24 metres a second
+each second, a good deal stronger than the real 9.8. Platformers nearly always do this,
+because real gravity makes a jump feel like floating.
 
 What you see are two more entities, a sphere and a cone, each with a `Parent`. A child's
 `Transform` is measured from its parent, so the body sits 0.55 metres above the feet and
@@ -397,25 +405,14 @@ namespace SkylarkExample;
 public sealed class Bird(World world, Physics physics, Actions<Control> actions) : ISystem
 {
     public const float Speed = 6f;
-    public const float Gravity = 24f;
 
     public void Update(GameTime time)
     {
-        float seconds = time.DeltaSeconds;
-
         foreach (var row in world.Query<Hero, Transform>())
         {
-            ref var hero = ref row.First;
             var stick = actions.Vector(Control.Move);
             var walk = new Vector3(stick.X, 0f, -stick.Y) * Speed;
-            var velocity = new Vector3(walk.X, hero.Velocity.Y - Gravity * seconds, walk.Z);
-
-            var move = physics.Characters.Move(row.Entity, velocity, seconds);
-            hero.Velocity = move.Velocity;
-            if (move.Grounded)
-            {
-                hero.Velocity = hero.Velocity with { Y = 0f };
-            }
+            physics.Characters.Walk(row.Entity, walk, jump: false, time.DeltaSeconds);
 
             if (walk.LengthSquared() > 0.01f)
             {
@@ -434,18 +431,15 @@ changing them changes the entity.
 `actions.Vector(Control.Move)` is the move stick, from -1 to 1 each way. Up on the stick
 is away from the camera, which for now means towards -z.
 
-Then comes the one line that does the work. `physics.Characters.Move` takes the speed you'd
-like and moves the character as far as it can go this tick. It gives back a `CharacterMove`
-that says what speed it really ended up with and whether it's standing on something.
+Then comes the one line that does the work. `physics.Characters.Walk` takes the speed you'd
+like over the ground and moves the character as far as it can go this tick, sliding along
+walls and climbing small steps. The bird's `Jumper` does the falling. The third argument
+is whether the jump button is down, and there's no such button yet, so it's `false`.
 
-Nothing falls unless you say so. A character has no gravity of its own, so each tick we
-take 24 metres a second off its upward speed, and when it lands we set that speed back to
-zero. That's stronger than real gravity, which is 9.8. Platformers nearly always do this,
-because real gravity makes a jump feel like floating.
-
-Notice `hero.Velocity with { Y = 0f }`. A component is a struct, and C# won't let you set
-one part of a struct that comes out of a property, so you make a changed copy with `with`
-and put it back.
+`Walk` is built on a plainer method, `physics.Characters.Move`, which moves a character at
+exactly the velocity you give it and adds nothing. Reach for that one when you want to
+write the falling yourself, for a swimmer or a ghost. See
+[Characters](../physics.md#characters).
 
 The last part turns the bird to face the way it walks.
 
@@ -500,10 +494,9 @@ using Super;
 namespace SkylarkExample;
 
 /// <summary>The camera, on an arm behind the bird, turned with the mouse or the right stick.</summary>
-public sealed class Chase(World world, Actions<Control> actions)
+public sealed class Chase(Actions<Control> actions)
 {
     private readonly BoomCamera _boom = new() { Length = 10f, Pitch = 0.45f, Pivot = new Vector3(0f, 1f, 0f) };
-    private Entity _camera;
 
     /// <summary>Spawns the camera into a scene, behind <paramref name="target"/>.</summary>
     public void Build(Scene scene, Vector3 target)
@@ -512,7 +505,9 @@ public sealed class Chase(World world, Actions<Control> actions)
         _boom.Pitch = 0.45f;
         _boom.Jump();
         _boom.Update(target, 0f);
-        _camera = scene.Spawn(_boom.Current);
+
+        // On the rig, the entity's camera follows the arm by itself from here on.
+        scene.Spawn(new OnRig(_boom));
     }
 
     /// <summary>Turns the move stick into a direction on the ground, so up on the stick is away from the camera.</summary>
@@ -526,7 +521,6 @@ public sealed class Chase(World world, Actions<Control> actions)
     {
         _boom.Turn(actions.Vector(Control.Look));
         _boom.Update(target, time.TickSeconds);
-        world.Get<Camera>(_camera) = _boom.Current;
     }
 }
 ```
@@ -534,10 +528,14 @@ public sealed class Chase(World world, Actions<Control> actions)
 The arm is 10 metres long and tipped up by 0.45 radians, about 25 degrees, and it's fixed
 1 metre above the bird's feet. `Yaw` is how far round the bird it has swung.
 
-A `BoomCamera` isn't an entity. It works out where the camera should be, and `Current` is
-the answer as a `Camera`. So `Build` spawns a camera entity and remembers it, and `Update`
-writes the newest answer into it each tick. `world.Get<Camera>(entity)` hands back the
-component itself, so you can assign straight to it.
+A `BoomCamera` isn't an entity. It works out where the camera should be, and it's one of
+several camera rigs that do. To see through one, spawn an entity with an `OnRig`. It gets
+a `Camera` without asking, and after every tick Super writes the rig's newest answer into
+it. All `Update` has to do is turn the arm and tell it where the bird is.
+
+The rig's answer is also there to read, as `_boom.Current`. If you'd like to change it
+before it's shown, to shake it say, leave `OnRig` out, spawn a `Camera` yourself and write
+to it each tick.
 
 The camera eases after the bird, which looks good while walking and wrong when the bird is
 suddenly somewhere else. `Jump` tells it to go straight there next time.
@@ -614,108 +612,36 @@ Add `Jump` to the `Control` enum, and bind it in `Load`:
 actions.Bind(Control.Jump, Key.Space, GamepadButton.South);
 ```
 
-A jump is only an upward speed. Gravity is already pulling it back down each tick, so it
-rises, slows, and falls on its own. In `Bird.cs`, add the speed next to the others:
+The bird's `Jumper` already knows how to jump. It only needs to hear about the button. In
+`Bird.cs`, change the `false` in the call to `Walk`:
 
 ```csharp
-public const float JumpSpeed = 9.5f;
+physics.Characters.Walk(row.Entity, walk, actions.Down(Control.Jump), time.DeltaSeconds);
 ```
 
-`Update` is getting long, so the jump gets a method of its own. Add it under `Update`:
+`actions.Down` is true for as long as the button is held. The jumper works out for itself
+when it was pressed and when it was let go.
 
-```csharp
-/// <summary>Starts a jump when the button is pressed, and cuts one short when it's let go.</summary>
-private Vector3 Jump(ref Hero hero, Vector3 velocity)
-{
-    if (actions.Pressed(Control.Jump) && hero.AirTime <= Forgiveness)
-    {
-        hero.AirTime = Forgiveness + 1f;
-        return velocity with { Y = JumpSpeed };
-    }
+A jump is only an upward speed. Gravity pulls it back down each tick, so it rises, slows,
+and falls on its own. We gave the jumper its two numbers when we spawned the bird:
+`new Jumper(JumpSpeed: 9.5f, Gravity: 24f)`. At 9.5 metres a second against a gravity of
+24, the bird rises about 2 metres. That number decides your whole level: a ledge 1.5
+metres up is easy, and one 3 metres up can't be reached.
 
-    if (actions.Released(Control.Jump) && velocity.Y > 0f)
-    {
-        // Letting go early makes a short hop.
-        return velocity with { Y = velocity.Y * 0.5f };
-    }
-
-    return velocity;
-}
-```
-
-and pass the velocity through it in `Update`:
-
-```csharp
-var velocity = Jump(ref hero, new Vector3(walk.X, hero.Velocity.Y - Gravity * seconds, walk.Z));
-```
-
-`ref Hero hero` hands the method the bird's real component, not a copy, so what it changes
-stays changed.
-
-At 9.5 metres a second against a gravity of 24, the bird rises about 2 metres. That number
-decides your whole level: a ledge 1.5 metres up is easy, and one 3 metres up can't be
-reached.
-
-There are two small kindnesses in there, and nearly every platformer you've enjoyed has
+A jumper has two small kindnesses built in, and nearly every platformer you've enjoyed has
 both.
 
 The first is forgiveness. Players press jump a moment after they've run off the edge, all
-the time, and a game that says "too late" feels broken. So we don't ask "is the bird on
-the ground?". We ask "was it on the ground in the last 0.12 seconds?". Setting `AirTime`
-past the limit when it jumps stops it jumping twice.
+the time, and a game that says "too late" feels broken. So the jumper doesn't ask "is the
+bird on the ground?". It asks "was it on the ground in the last 0.12 seconds?".
 
 The second is the short hop. Letting go of the button early halves the upward speed, so a
 tap is a small hop and a hold is a full jump.
 
-`AirTime` is a new fact about the bird, so it goes in the component. While we're there,
-let's also remember where to put it back after a fall. In `Components.cs`:
-
-```csharp
-/// <summary>The bird the player hops around as.</summary>
-/// <param name="Velocity">How fast it moves, kept from tick to tick so it can fall and jump.</param>
-/// <param name="AirTime">Seconds since it last stood on something.</param>
-/// <param name="Home">Where it goes back to after a fall.</param>
-public record struct Hero(Vector3 Velocity, float AirTime, Vector3 Home);
-```
-
-and where the bird is spawned in `Scenery.cs`:
-
-```csharp
-new Hero(Vector3.Zero, 0f, start));
-```
-
-Back in `Bird.cs`, add the limit:
-
-```csharp
-/// <summary>A jump still works this long after walking off an edge, so a late press isn't punished.</summary>
-public const float Forgiveness = 0.12f;
-```
-
-Landing gets a method too, which keeps the time up to date:
-
-```csharp
-/// <summary>Keeps count of how long the bird has been in the air, and stops it falling once it lands.</summary>
-private static void Land(ref Hero hero, bool grounded, float seconds)
-{
-    if (grounded)
-    {
-        hero.AirTime = 0f;
-        hero.Velocity = hero.Velocity with { Y = 0f };
-    }
-    else
-    {
-        hero.AirTime += seconds;
-    }
-}
-```
-
-In `Update`, it replaces the `if (move.Grounded)` block:
-
-```csharp
-var move = physics.Characters.Move(row.Entity, velocity, seconds);
-hero.Velocity = move.Velocity;
-Land(ref hero, move.Grounded, seconds);
-```
+Both are settings on the `Jumper`, `Forgiveness` and `ShortHop`, next to the two we set.
+What it keeps track of is there to read and change as well: `AirTime` is how long it has
+been off the ground, and `Rise` is how fast it's going up. Setting `Rise` to 15 when the
+bird lands on a spring is a bounce pad. See [Jumping](../physics.md#jumping).
 
 ### Falling off
 
@@ -753,8 +679,8 @@ and check it in the loop, before the camera update:
 ```csharp
 if (row.Second.Position.Y < floor)
 {
-    world.Teleport(row.Entity, row.Second with { Position = hero.Home });
-    hero.Velocity = Vector3.Zero;
+    world.Teleport(row.Entity, row.Second with { Position = row.First.Home });
+    world.Get<Jumper>(row.Entity).Rise = 0f;
     journey.Falls++;
     chase.Jump();
 }
@@ -763,6 +689,10 @@ if (row.Second.Position.Y < floor)
 `world.Teleport` is how you move something that physics owns. Writing a new position into
 a body's `Transform` would push whatever is in the way, as if it had flown there.
 `Teleport` says "it's simply here now".
+
+The bird was falling fast when we caught it, and a teleport doesn't change that, so we set
+its `Rise` back to zero. `world.Get<Jumper>(entity)` hands back the component itself, not
+a copy, so you can change one part of it in place.
 
 ### A script for screenshots
 
@@ -773,9 +703,19 @@ bits of play that you can run from the command line. Add this to `SkylarkGame`:
 public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
 {
     // Walks to the edge and hops to the next island: --script hop
-    ["hop"] = new InputScript().Hold(Key.W).Wait(22).Hold(Key.Space).Wait(20).Release(Key.Space).Release(Key.W),
+    ["hop"] = new InputScript()
+        .Hold(Control.Move, new Vector2(0f, 1f))
+        .Wait(22)
+        .Hold(Control.Jump)
+        .Wait(20)
+        .Release(Control.Jump)
+        .Release(Control.Move),
 };
 ```
+
+A script holds controls, not keys, so it keeps working when you change what's bound to
+them. Holding `Control.Move` at `(0, 1)` is the stick pushed all the way up. It needs
+`using System.Numerics;` at the top of the file.
 
 Then this plays 38 ticks of it and saves a picture, with no window:
 
@@ -849,9 +789,9 @@ Each gem hovers a metre off the ground. `Transform.At(position, 0.6f)` is a plac
 scale, with no turn. The ball collider is bigger than the gem you see, so the player
 doesn't have to be exact.
 
-The comment mentions `Require`. `Spawn` takes up to four components, and a gem would need
-a fifth, the `Trigger`. More to the point, a gem without a trigger is always a mistake. So
-say it once, in `SkylarkGame.Load`, before the scene is built:
+The comment mentions `Require`. We could list a `Trigger` in the spawn with the rest, but
+a gem without a trigger is always a mistake, and one day we'd forget. So say it once, in
+`SkylarkGame.Load`, before the scene is built:
 
 ```csharp
 // A gem is an area that notices who walks in, so every gem gets a Trigger without asking.
@@ -863,14 +803,7 @@ now on, anything spawned with a `Gem` gets a `Trigger` too.
 
 ### Collecting them
 
-Add a count to `Journey`:
-
-```csharp
-/// <summary>Gems found on this level.</summary>
-public int Gems { get; set; }
-```
-
-Then a system for the gems. Make `Gems.cs`:
+Now a system for the gems. Make `Gems.cs`:
 
 ```csharp
 using System.Numerics;
@@ -880,7 +813,7 @@ using Super.Physics;
 namespace SkylarkExample;
 
 /// <summary>Spins the gems and collects the ones the bird touches.</summary>
-public sealed class Gems(World world, Physics physics, Journey journey) : ISystem
+public sealed class Gems(World world, Physics physics) : ISystem
 {
     public void Update(GameTime time)
     {
@@ -902,14 +835,9 @@ public sealed class Gems(World world, Physics physics, Journey journey) : ISyste
     /// <summary>Takes the gems the bird walked into.</summary>
     private void Collect()
     {
-        // Everything that walked into an area this tick. Keep the pairs that are a gem and the bird.
-        foreach (var touch in physics.Triggers.Entered)
+        foreach (var touch in physics.Triggers.Entered<Gem, Hero>())
         {
-            if (world.Has<Gem>(touch.Trigger) && world.Has<Hero>(touch.Other))
-            {
-                world.Destroy(touch.Trigger);
-                journey.Gems++;
-            }
+            world.Destroy(touch.Trigger);
         }
     }
 }
@@ -919,9 +847,13 @@ public sealed class Gems(World world, Physics physics, Journey journey) : ISyste
 the sine puts them out of step with each other, which looks livelier than a row of gems
 moving as one.
 
-`physics.Triggers.Entered` lists every pair that met this tick: the area, and what walked
-into it. It lists every trigger in the game, so we keep only the pairs we care about with
-`world.Has`. Destroying the gem takes away its model and its area in one go.
+`physics.Triggers.Entered<Gem, Hero>()` lists every gem that the bird walked into this
+tick: `touch.Trigger` is the area, and `touch.Other` is what walked in. Without the two
+types, `physics.Triggers.Entered` is every pair that met, whatever they are. Destroying
+the gem takes away its model and its area in one go.
+
+We don't keep a count of the gems found. The world already knows how many are left:
+`world.Count<Gem>()`. We'll use that in chapter 7.
 
 Add `.AddSingleton<Gems>()` to `AddSkylark`, and run the system after the bird in
 `SkylarkGame`:
@@ -955,9 +887,6 @@ public struct Lift(TweenValue<Vector3> path)
 {
     /// <summary>Where it is along its way. A field, so a query can update the tween itself and not a copy.</summary>
     public TweenValue<Vector3> Path = path;
-
-    /// <summary>How fast it moved this tick, for whoever is standing on it.</summary>
-    public Vector3 Velocity;
 }
 ```
 
@@ -1020,24 +949,19 @@ and stops it gently, and `Yoyo` sends it back again, for ever.
 The system that moves them is short. Make `Lifts.cs`:
 
 ```csharp
-using System.Numerics;
 using Super;
 
 namespace SkylarkExample;
 
-/// <summary>Glides every lift along its path, and notes how fast each went.</summary>
+/// <summary>Glides every lift along its path.</summary>
 public sealed class Lifts(World world) : ISystem
 {
     public void Update(GameTime time)
     {
         foreach (var row in world.Query<Lift, Transform>())
         {
-            ref var lift = ref row.First;
-            lift.Path.Update(time);
-
-            var next = lift.Path.Value;
-            lift.Velocity = time.DeltaSeconds > 0f ? (next - row.Second.Position) / time.DeltaSeconds : Vector3.Zero;
-            row.Second.Position = next;
+            row.First.Path.Update(time);
+            row.Second.Position = row.First.Path.Value;
         }
     }
 }
@@ -1045,38 +969,15 @@ public sealed class Lifts(World world) : ISystem
 
 ### Riding it
 
-If you ran the game now and jumped on the lift, it would slide out from under the bird. A
-character only goes where you move it, and nothing has told it to move with the floor.
+A character only goes where you move it, so you might expect the lift to slide out from
+under the bird. It doesn't, because the bird's `Jumper` rides what it stands on: physics
+knows how fast the ground under a character is moving, and each tick the jumper adds that
+to the walk.
 
-`CharacterMove` says what the character is standing on, so we can fix that ourselves:
-remember the ground, and next tick add that ground's speed to the walk. That's why the
-lift keeps its `Velocity`. Add one more thing to remember to `Hero`:
+If you ever move a character with the plainer `Characters.Move`, that speed is yours to
+add. It comes back from each move as `GroundVelocity`.
 
-```csharp
-public record struct Hero(Vector3 Velocity, float AirTime, Vector3 Home, Entity? Ground = null);
-```
-
-In `Bird.cs`, add a method that finds the speed of the lift under the bird:
-
-```csharp
-/// <summary>How fast the lift under the bird is moving. A character isn't carried by what it stands on.</summary>
-private Vector3 Ride(Hero hero) =>
-    hero.Ground is { } ground && world.IsAlive(ground) && world.Has<Lift>(ground) ? world.Get<Lift>(ground).Velocity : Vector3.Zero;
-```
-
-and use it in `Update`, around `Characters.Move`:
-
-```csharp
-var ride = Ride(hero);
-
-var move = physics.Characters.Move(row.Entity, velocity + ride, seconds);
-hero.Velocity = move.Velocity - ride;
-hero.Ground = move.Ground;
-Land(ref hero, move.Grounded, seconds);
-```
-
-We take the lift's speed back off afterwards, so the bird's own speed stays its own. The
-lifts have to move before the bird does, so they go first:
+The lifts have to move before the bird does, so they go first:
 
 ```csharp
 private readonly Systems _systems = systems.Add<Lifts>().Add<Bird>().Add<Gems>();
@@ -1138,13 +1039,12 @@ And in `Scenery`, with a loop over `level.Crates` in `Build` like the others:
 private static void Crate(Scene scene, Vector3 spot)
 {
     var home = spot + new Vector3(0f, 0.5f, 0f);
-    var crate = scene.Spawn(Transform.At(home), new Model(ModelRef.Cube, Palette.Wood), Collider.Box(Vector3.One), Body.Dynamic(mass: 15f, friction: 0.8f));
-    scene.World.Add(crate, new Crate(home));
+    scene.Spawn(Transform.At(home), new Model(ModelRef.Cube, Palette.Wood), Collider.Box(Vector3.One), Body.Dynamic(mass: 15f, friction: 0.8f), new Crate(home));
 }
 ```
 
-Here's the fifth component again. This time it isn't something every crate could be given
-blindly, since each has its own home, so we spawn the first four and `Add` the last.
+That's five components, the most one `Spawn` takes. An entity that needs more gets the
+rest with `scene.World.Add(entity, component)`.
 
 There's no code for pushing. The character walks into the crate, and physics shoves it. A
 mass of 15 kilograms makes it move without flying off, and the friction stops it sliding
@@ -1203,7 +1103,8 @@ Add its component:
 
 ```csharp
 /// <summary>The beacon that ends a level, and the flame that lights once every gem is found.</summary>
-public record struct Goal(Entity Flame);
+/// <param name="Reached">The bird got to the lit beacon, so the game should move on.</param>
+public record struct Goal(Entity Flame, bool Reached = false);
 ```
 
 Give `Level` a `Vector3 Goal` at the end, and the first level a place for it on the far
@@ -1254,7 +1155,7 @@ goes for its particles and its light too. So lighting the beacon is one line: ta
 `Hidden` off.
 
 The last entity is the area round the beacon, a trigger like a gem's, with a `Goal` that
-remembers which flame is its own.
+remembers which flame is its own and whether the bird has reached it.
 
 ### Finishing a level
 
@@ -1264,14 +1165,14 @@ class for what's kept between runs:
 ```csharp
 namespace SkylarkExample;
 
-/// <summary>How the player is doing: which level they're on, the gems they've found there, and the whole run so far.</summary>
+/// <summary>
+/// How the whole run is going: which level the player is on and how long they've taken. What belongs to one level,
+/// such as the gems still to find, lives in the world, so it starts afresh whenever a level is built.
+/// </summary>
 public sealed class Journey
 {
     /// <summary>The level being played, counted from 0.</summary>
     public int Level { get; set; }
-
-    /// <summary>Gems found on this level.</summary>
-    public int Gems { get; set; }
 
     /// <summary>Seconds played since the run began.</summary>
     public float Seconds { get; set; }
@@ -1279,23 +1180,12 @@ public sealed class Journey
     /// <summary>How many times the bird fell off.</summary>
     public int Falls { get; set; }
 
-    /// <summary>The bird reached the lit beacon, so the game should move on.</summary>
-    public bool ReachedBeacon { get; set; }
-
     /// <summary>Back to the start of a run.</summary>
     public void Reset()
     {
         Level = 0;
         Seconds = 0f;
         Falls = 0;
-        StartLevel();
-    }
-
-    /// <summary>Clears what belongs to one level.</summary>
-    public void StartLevel()
-    {
-        Gems = 0;
-        ReachedBeacon = false;
     }
 }
 
@@ -1318,55 +1208,53 @@ public sealed class Levels(Journey journey)
 public Level Current => All[journey.Level];
 ```
 
-`Scenery` clears the level's count when it builds one. Ask for the journey there too, and
-add one line at the top of `Build`, after `var level`:
-
-```csharp
-public sealed class Scenery(Levels levels, Journey journey, Chase chase)
-```
-
-```csharp
-journey.StartLevel();
-```
+Notice what isn't in `Journey`: the gems found on this level, and whether the beacon has
+been reached. Those belong to one level, and a level is a scene. Facts kept on a scene's
+entities go when the scene does, so the next level starts clean and there's nothing to
+remember to reset. The gems are counted by looking at the world, and "reached" is on the
+`Goal`.
 
 `Gems` gets the beacon's rules. It asks for `Levels levels` too, and gains two properties
 and a third method, called from `Update` after `Collect`:
 
 ```csharp
+public sealed class Gems(World world, Physics physics, Levels levels) : ISystem
+```
+
+```csharp
 /// <summary>How many gems the level has.</summary>
 public int Total => levels.Current.Gems.Length;
 
-/// <summary>True once every gem is found and the beacon burns.</summary>
-public bool AllFound => journey.Gems >= Total;
+/// <summary>How many of them the bird has found: the ones no longer in the world.</summary>
+public int Found => Total - world.Count<Gem>();
 ```
 
 ```csharp
 /// <summary>Lights the beacon once every gem is found, and notices the bird reaching it.</summary>
 private void Beacon()
 {
-    foreach (var row in world.Query<Goal, Transform>())
+    if (world.Count<Gem>() > 0)
     {
-        var flame = row.First.Flame;
-        if (AllFound && world.Has<Hidden>(flame))
-        {
-            world.Remove<Hidden>(flame);
-        }
+        return;
+    }
 
-        if (!AllFound)
-        {
-            continue;
-        }
+    var flame = world.Only<Goal>().Flame;
+    if (world.Has<Hidden>(flame))
+    {
+        world.Remove<Hidden>(flame);
+    }
 
-        foreach (var visitor in physics.Triggers.Inside(row.Entity))
-        {
-            if (world.Has<Hero>(visitor))
-            {
-                journey.ReachedBeacon = true;
-            }
-        }
+    foreach (var _ in physics.Triggers.Inside<Goal, Hero>())
+    {
+        world.Only<Goal>().Reached = true;
     }
 }
 ```
+
+`world.Count<Gem>()` is how many gems are left. `world.Only<Goal>()` is the one `Goal` in
+the world, the component itself, so we can read its flame and set `Reached` on it. It
+throws if there are none or several, which is what you want: a level with two beacons
+would be a mistake worth hearing about.
 
 Gems used `Entered`, which fires once when something walks in. The beacon uses
 `Triggers.Inside`, which is everything in the area right now. That matters: the player
@@ -1406,7 +1294,7 @@ public static IReadOnlyList<Level> All { get; } = [FirstHops, TheClimb];
 ```
 
 Nothing else changes. The lift that goes up is the same lift with a different path, and
-riding it works because the bird adds the lift's whole velocity, up as well as along.
+riding it works because the jumper follows the ground's whole velocity, up as well as along.
 
 ### Naming the screens
 
@@ -1507,6 +1395,7 @@ game's state, and Super works out what changed. See [Interfaces](../interfaces.m
 Here's the whole of `SkylarkGame.cs` now:
 
 ```csharp
+using System.Numerics;
 using Super;
 using Super.Physics;
 using Super.Ui;
@@ -1524,15 +1413,23 @@ public sealed class SkylarkGame(Levels levels, Scenery scenery, Journey journey,
         Screen.Won => new Banner(
             $"You made it in {Clock.Show(journey.Seconds)}",
             $"Best {Clock.Show(saved.Get<Records>().BestSeconds)}. Press R to play again"),
-        _ => new Hud(levels.Current.Name, journey.Gems, gems.Total, journey.Seconds),
+        _ => new Hud(levels.Current.Name, gems.Found, gems.Total, journey.Seconds),
     };
 
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
     {
         // Starts the game, for screenshots: --script start
-        ["start"] = new InputScript().Press(Key.Space),
+        ["start"] = new InputScript().Press(Control.Start),
         // Starts, walks to the edge and hops to the next island: --script hop
-        ["hop"] = new InputScript().Press(Key.Space).Wait(2).Hold(Key.W).Wait(22).Hold(Key.Space).Wait(20).Release(Key.Space).Release(Key.W),
+        ["hop"] = new InputScript()
+            .Press(Control.Start)
+            .Wait(2)
+            .Hold(Control.Move, new Vector2(0f, 1f))
+            .Wait(22)
+            .Hold(Control.Jump)
+            .Wait(20)
+            .Release(Control.Jump)
+            .Release(Control.Move),
     };
 
     public void Load()
@@ -1573,17 +1470,16 @@ public sealed class SkylarkGame(Levels levels, Scenery scenery, Journey journey,
         journey.Seconds += time.DeltaSeconds;
         _systems.Update(time);
 
-        if (!journey.ReachedBeacon)
+        if (!world.Only<Goal>().Reached)
         {
             return;
         }
 
-        journey.ReachedBeacon = false;
         if (journey.Level + 1 < Levels.All.Count)
         {
-            // The next level is built behind a fade, and nothing moves until it's in.
+            // The same build, for the next level, behind a fade. Nothing moves until it's in.
             journey.Level++;
-            scenes.Go(scenery.Build, Transition.Fade(0.6f));
+            scenes.Rebuild(Transition.Fade(0.6f));
             return;
         }
 
@@ -1620,8 +1516,9 @@ middle of a run calls `Reenter`, which leaves and enters the same screen, so the
 runs. `OnExit` gives the mouse back whenever the game stops playing.
 
 When the bird reaches the lit beacon, `Play` moves on. If there's another level it raises
-the level number and goes to a scene built by the same `scenery.Build`, behind a fade of
-0.6 seconds. Everything from the old level goes with the old scene. Nothing had to keep a
+the level number and builds the scene again, behind a fade of 0.6 seconds. `Rebuild` runs
+the same `scenery.Build` as before, which now reads the next level. Everything from the old
+level goes with the old scene, the `Goal` and its `Reached` included. Nothing had to keep a
 list of what to clean up.
 
 While a fade is under way `scenes.IsChanging` is true, and `Update` leaves the systems
@@ -1632,7 +1529,9 @@ in the player's own folder, the one named by `Id` in `Program.cs`. `saved.Get<Re
 loads it the first time and hands back the same object after that, and `Save<Records>()`
 writes it.
 
-Both scripts press Space first now, to get past the title.
+Both scripts press `Control.Start` first now, to get past the title. Start and jump are
+both on Space, and that's safe: a jumper ignores a button that was already down the first
+time it walks, so the press that starts the game isn't also a jump.
 
 ![The bird on the far island next to a stone beacon with a bright orange flame in its bowl, the HUD reading First hops, Gems 5/5, and "The beacon is lit. Go to it!" along the bottom](../media/skylark-beacon.webp)
 
@@ -1705,7 +1604,7 @@ Add `.AddSingleton<Look>()` to `AddSkylark`. Ask for `Look look` in `SkylarkGame
 `look.Load();` as the first line of `Load`. Then ask for it in `Scenery`:
 
 ```csharp
-public sealed class Scenery(Look look, Levels levels, Journey journey, Chase chase)
+public sealed class Scenery(Look look, Levels levels, Chase chase)
 ```
 
 and replace every `ModelRef.Cube`, `ModelRef.Sphere`, `ModelRef.Cone` and
@@ -1806,10 +1705,11 @@ This is where the children pay off. The bird's movement code didn't change by a 
 ### A sparkle
 
 Last, a little reward: a burst of sparkles where a gem was. The beacon's fire is an
-`Emitter`, an entity that plays for as long as it's there. A burst that plays once and is
-gone is easier to draw than to spawn, and this is the one place Skylark uses `Draw`.
+`Emitter`, an entity that plays for as long as it's there. For an effect that plays once
+and is gone there's `Burst`: an entity with one plays its effect from the start, and is
+destroyed when the last particle fades.
 
-In `Gems.cs`, add `using Rendition;`, the effect, and a list of where and when:
+In `Gems.cs`, add `using Rendition;` and the effect:
 
 ```csharp
 /// <summary>The sparkle where a gem was: a quick ring of bright bits.</summary>
@@ -1821,51 +1721,26 @@ private static readonly ParticleEmitter Sparkle = new ParticleEmitter(count: 24,
     .Color(new Vector3(0.7f, 1f, 1f), new Vector3(0.3f, 0.8f, 1f))
     .Glow(3f)
     .Fade(0f, 0.3f);
-
-private readonly List<(Vector3 Position, long Tick)> _sparkles = [];
 ```
 
-`Collect` needs to know what tick it is, so give it the time: `Collect(GameTime time)`,
-called with `Collect(time);`. In it, note the place and the tick when a gem is collected,
-just before destroying it:
+Then spawn one in `Collect`, where the gem was, just before destroying it:
 
 ```csharp
-_sparkles.Add((world.Get<Transform>(touch.Trigger).Position, time.Tick));
-```
-
-forget old ones after that loop:
-
-```csharp
-_sparkles.RemoveAll(sparkle => time.Tick - sparkle.Tick > 30);
-```
-
-and add two methods:
-
-```csharp
-/// <summary>Forgets the sparkles, for a new level.</summary>
-public void Clear() => _sparkles.Clear();
-
-/// <summary>Draws the sparkles. A burst that plays once is drawn, not spawned.</summary>
-public void Draw(View view)
+foreach (var touch in physics.Triggers.Entered<Gem, Hero>())
 {
-    for (int index = 0; index < _sparkles.Count; index++)
-    {
-        var (position, tick) = _sparkles[index];
-        view.Effects.Particles(HashCode.Combine(position, tick), Sparkle, position, view.SecondsSince(tick));
-    }
+    // A Burst plays once and then clears itself away. It belongs to no scene, so it outlives a level change.
+    world.Spawn(Transform.At(world.Get<Transform>(touch.Trigger).Position), new Burst(Sparkle));
+    world.Destroy(touch.Trigger);
 }
 ```
 
-A particle effect is worked out from how old it is, so `Draw` only says "this effect, here,
-this many seconds in" each frame. `view.SecondsSince(tick)` is that age, and it's smooth
-even between ticks. The first argument is a key that tells one burst from another.
+That's all of it. There's no list of sparkles to keep and nothing to tidy up afterwards.
+We spawn it into the world and not into the scene, so a sparkle from the last gem isn't
+cut off if the level changes while it plays.
 
-In `SkylarkGame.cs`, draw them, and clear them wherever a level starts: add `gems.Clear();`
-after `journey.Level++;` in `Play` and after `journey.Reset();` in `NewRun`.
-
-```csharp
-public void Draw(View view) => gems.Draw(view);
-```
+Skylark never needed a `Draw` method: everything you see is an entity. `Draw` is still
+there for when you'd like to say exactly what's drawn each frame, such as an effect whose
+age you work out yourself. See [Drawing by hand](../views.md).
 
 Run it, and there's your cartoon. See
 [Toon shading and outlines](../rendering.md#toon-shading-and-outlines) for the look, and
@@ -1913,19 +1788,12 @@ public class SkylarkTests
         return run;
     }
 
-    private static Entity Bird(HeadlessRun<SkylarkGame> run) => Only<Hero>(run.World);
+    private static Entity Bird(HeadlessRun<SkylarkGame> run) => run.World.Single<Hero>();
 
-    /// <summary>The one entity that has a component.</summary>
-    private static Entity Only<T>(World world) where T : struct
-    {
-        var found = new List<Entity>();
-        foreach (var row in world.Query<T>())
-        {
-            found.Add(row.Entity);
-        }
+    // The game's own services, so the game needs no property only its tests read.
+    private static Journey Journey(HeadlessRun<SkylarkGame> run) => run.Service<Journey>();
 
-        return Assert.Single(found);
-    }
+    private static int Found(HeadlessRun<SkylarkGame> run) => run.Service<Gems>().Found;
 
     private static Vector3 Position(HeadlessRun<SkylarkGame> run, Entity entity) => run.World.Get<Transform>(entity).Position;
 }
@@ -1933,17 +1801,12 @@ public class SkylarkTests
 
 `run.Ticks(n)` plays that many ticks. `Start` jumps straight past the title and plays a
 third of a second, so the bird has settled on the ground. `run.World` is the game's world,
-so a test can find the bird and ask where it is.
+so a test can find the bird and ask where it is. `world.Single<Hero>()` is the one entity
+with a `Hero`, and like `Only` it throws if there are none or several.
 
-`run.Game` is your `SkylarkGame`, so a test can look at the game through its properties.
-Add two to `SkylarkGame.cs` so tests can see the journey and the best time:
-
-```csharp
-public Journey Journey => journey;
-
-/// <summary>The fastest finished run, kept between runs.</summary>
-public Records Records => saved.Get<Records>();
-```
+`run.Service<T>()` hands the test anything the game's classes can ask for in their
+constructors: here the `Journey` and the `Gems` system. The game doesn't need extra
+properties for its tests to peek through.
 
 ### Pressing buttons
 
@@ -2004,7 +1867,7 @@ public void A_lift_carries_the_bird_across()
 {
     using var run = Start();
     var bird = Bird(run);
-    var lift = Only<Lift>(run.World);
+    var lift = run.World.Single<Lift>();
 
     run.World.Teleport(bird, Transform.At(Position(run, lift) + new Vector3(0f, 0.2f, 0f)));
     run.Ticks(5);
@@ -2015,7 +1878,7 @@ public void A_lift_carries_the_bird_across()
     var riding = Position(run, bird);
     Assert.True(riding.X - startX > 3f, $"the bird moved {riding.X - startX} m");
     Assert.InRange(riding.X - Position(run, lift).X, -0.3f, 0.3f);
-    Assert.Equal(0, run.Game.Journey.Falls);
+    Assert.Equal(0, Journey(run).Falls);
 }
 ```
 
@@ -2031,7 +1894,8 @@ public void Walking_into_a_gem_collects_it()
     run.Input.Hold(Control.Move, Vector2.Normalize(new Vector2(-2.5f, 3.5f)));
     run.Ticks(26);
 
-    Assert.Equal(1, run.Game.Journey.Gems);
+    Assert.Equal(1, Found(run));
+    Assert.Equal(4, run.World.Count<Gem>());
     Assert.Contains(run.ShownText, shown => shown.Text == "Gems 1/5");
 }
 ```
@@ -2040,8 +1904,8 @@ public void Walking_into_a_gem_collects_it()
 screen the player sees without looking at a picture.
 
 A good habit: when you write a test, break the code it checks on purpose and watch the test
-fail. Take the `ride` out of `Bird.cs` and the lift test fails, with the bird left behind
-and a fall counted. A test that passes either way isn't checking anything.
+fail. Change `Speed` to 5 in `Bird.cs` and the walking test fails, with the bird 2.5 metres
+along where it expected about 3. A test that passes either way isn't checking anything.
 
 Run them all with:
 
@@ -2087,14 +1951,14 @@ levels into JSON and you can edit one while the game runs and see it reload.
 thud on landing and wind in the background would do a lot for very little code.
 
 [Animation](../animation.md) plays skinned models. Swap the bird's parts for an animated
-character and switch between idle, run and jump clips from `Hero`'s velocity and air time.
+character and switch between idle, run and jump clips from the `Jumper`'s `Rise` and `AirTime`.
 
 [Physics](../physics.md) has more than Skylark uses. Rays can tell you what's under the
 bird to draw a blob shadow or to keep the camera's arm out of walls, and joints can hang a
 platform from a rope.
 
 [Hot reload](../hot-reload.md) lets you change code while the game runs. Run it with
-`dotnet watch`, change `JumpSpeed` or `Gravity`, save, and feel the difference at once.
+`dotnet watch`, change the jumper's `JumpSpeed` or `Gravity`, save, and feel the difference at once.
 Tuning a jump is mostly this.
 
 [The world](../ecs.md) has more than Skylark uses, such as reacting when a component is

@@ -4,10 +4,9 @@ using Super;
 namespace SkylarkExample;
 
 /// <summary>The camera, on an arm behind the bird, turned with the mouse or the right stick.</summary>
-public sealed class Chase(World world, Actions<Control> actions)
+public sealed class Chase(Actions<Control> actions)
 {
     private readonly BoomCamera _boom = new() { Length = 10f, Pitch = 0.45f, Pivot = new Vector3(0f, 1f, 0f) };
-    private Entity _camera;
 
     /// <summary>Spawns the camera into a scene, behind <paramref name="target"/>.</summary>
     public void Build(Scene scene, Vector3 target)
@@ -16,7 +15,9 @@ public sealed class Chase(World world, Actions<Control> actions)
         _boom.Pitch = 0.45f;
         _boom.Jump();
         _boom.Update(target, 0f);
-        _camera = scene.Spawn(_boom.Current);
+
+        // On the rig, the entity's camera follows the arm by itself from here on.
+        scene.Spawn(new OnRig(_boom));
     }
 
     /// <summary>Turns the move stick into a direction on the ground, so up on the stick is away from the camera.</summary>
@@ -30,6 +31,5 @@ public sealed class Chase(World world, Actions<Control> actions)
     {
         _boom.Turn(actions.Vector(Control.Look));
         _boom.Update(target, time.TickSeconds);
-        world.Get<Camera>(_camera) = _boom.Current;
     }
 }

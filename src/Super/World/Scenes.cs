@@ -20,6 +20,9 @@ public sealed class Scenes(World world, Transitions transitions)
     private bool _waitingForCut;
     private bool _cutDue;
 
+    /// <summary>The world the scenes are built in, for the loop's own steps over it.</summary>
+    internal World World => world;
+
     /// <summary>The open scene, or none before the first <see cref="Go"/>.</summary>
     public Scene? Current { get; private set; }
 
@@ -63,8 +66,9 @@ public sealed class Scenes(World world, Transitions transitions)
     /// <summary>
     /// Builds the open scene again from the start, once this tick ends, for a restart or after a code change. After a
     /// <see cref="Go"/> that hasn't swapped yet it does nothing, as that scene is about to be built fresh anyway.
+    /// A transition covers it the way it covers a <see cref="Go"/>.
     /// </summary>
-    public void Rebuild()
+    public void Rebuild(Transition? transition = null)
     {
         if (_next is not null)
         {
@@ -76,7 +80,7 @@ public sealed class Scenes(World world, Transitions transitions)
             throw new InvalidOperationException("There's no scene to rebuild yet. Call Go first.");
         }
 
-        _next = Current.Build;
+        Go(Current.Build, transition);
     }
 
     /// <summary>Swaps in the scene asked for, at the end of a tick, after state changes, once a fade's cut is due.</summary>

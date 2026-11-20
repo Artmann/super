@@ -106,6 +106,27 @@ of the last tick, which is the one to pass to `input.Mouse.Ray`. Drawing by hand
 | `TopDownCamera` | Looking straight down, orthographic |
 | `IsometricCamera` | The true isometric angle, orthographic, turning by quarter turns |
 
+To skip the writing, spawn the camera entity with `OnRig`. The world then copies the
+rig's `Current` to the entity's `Camera` at the end of every tick, and all the game does
+is step the rig:
+
+```csharp
+readonly FollowCamera follow = new();
+
+public void Load()
+{
+    follow.Update(player.Position, 0f);                 // put it in place first
+    world.Spawn(new OnRig(follow));
+}
+
+public void Update(GameTime time) => follow.Update(player.Position, time.TickSeconds);
+```
+
+The tick after a `Jump()` the entity cuts, as with `world.Teleport`. An entity whose rig
+hasn't been updated yet shows a plain camera looking at the middle of the world, so
+update the rig once before spawning it, as above. Write `Current` yourself when you
+want to change it on the way, such as adding a shake.
+
 The first update puts a camera straight in place. If its target teleports, call
 `Jump()` so the camera doesn't slide across the map. It works the same when you set a
 rig's `Center`, `Size` or turn yourself, such as to show a building the player picked:

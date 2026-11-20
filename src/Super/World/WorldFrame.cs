@@ -30,6 +30,7 @@ internal static class WorldFrame
         WorldPlaced.Describe(view, world);
         Models(view, world);
         WorldEmitters.Describe(view, world);
+        WorldBursts.Describe(view, world);
     }
 
     /// <summary>

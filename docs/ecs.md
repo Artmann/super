@@ -100,6 +100,7 @@ made, and the first error is thrown after the last one.
 | `world.Children(entity)` | The entities whose `Parent` is this one, without their own children, in no particular order. It reads an index, so it's quick however many parented entities there are |
 | `world.Count<T>()` | How many entities have a `T` |
 | `world.Single<T>()` | The one entity that has a `T`, such as the player or the camera. It throws when there is none or more than one |
+| `world.Only<T>()` | The one `T` itself, by reference, so `world.Only<Score>().Points += 10` changes it in place. It throws like `Single` |
 | `world.TrySingle<T>(out entity)` | The same, giving false when there is none or more than one |
 
 `Count`, `Single` and `TrySingle` don't start a query and allocate nothing, so they're fine
@@ -217,10 +218,12 @@ var bell = world.Spawn(
 | `Sound` | Plays a looping sound from the entity for as long as it has this. See [Sounds from entities](#sounds-from-entities) |
 | `Ambience` | Plays an ambience for as long as the entity has this |
 | `Camera` | The frame is taken from the newest entity with one, blended between ticks and following its `Parent`. See [A camera entity](cameras.md#a-camera-entity) |
+| `OnRig` | The entity's `Camera` follows a camera helper such as `BoomCamera`, and cuts when the helper jumps. See [Camera helpers](cameras.md#camera-helpers) |
 | `Sun`, `PointLight`, `SpotLight` | Lights every frame. A point or spot light's position and direction count from the entity's `Transform` and `Parent`, and a sun's direction stays in the world. See [Lights](rendering.md#lights) |
 | `Sky`, `Shadows`, `AmbientOcclusion`, `ScreenBounce`, `LightProbes`, `BakedLighting`, `Underwater`, `Puddles`, `Wind`, `Finish`, `Outlines` | The frame's [sky](rendering.md#the-sky), [screen bounce](rendering.md#light-bounced-across-the-screen), [light probes](rendering.md#bounced-light), [baked lighting](rendering.md#baked-lighting), [water](rendering.md#water), [puddles](rendering.md#puddles), [wind](rendering.md#wind), [shadows](rendering.md#shadows), [ambient occlusion](rendering.md#ambient-occlusion), [finished look](rendering.md#the-look-of-the-picture) and [outlines](rendering.md#toon-shading-and-outlines), from the newest entity with one. A sun and its `Shadows` can share an entity |
 | `Decal`, `FogVolume`, `ReflectionCapture`, `BakedPiece` | A [decal](rendering.md#decals), [fog volume](rendering.md#fog-volumes), [reflection probe](rendering.md#reflections) or [baked piece](rendering.md#baked-lighting) placed where the entity's `Transform` and `Parent` put it, one for each entity. Hidden ones are left out |
 | `Emitter` | Plays a particle effect at the entity for as long as it has one, a burst every `Every` seconds. See [Particles that loop](views.md#particles-that-loop) |
+| `Burst` | Plays a particle effect once at the entity, then destroys the entity. See [Particles that play once](views.md#particles-that-play-once) |
 | `Ghost` | Draws the entity's model as a see-through ghost, such as a building's placement preview, as `View.Model` with a `Ghost` does |
 | `Hidden` | Leaves the entity and everything parented under it out of the frame and the audio: no models, lights or sounds, and its sounds and ambiences fade out. Remove it to show them again |
 
@@ -376,13 +379,27 @@ party, an inventory or the music there. `scenes.Current` is the open scene, or n
 the first `Go`, and `scenes.Rebuild()` builds it again from the start, for a restart. Right after a `Go` that hasn't swapped yet,
 `Rebuild` does nothing, since that scene is about to be built fresh anyway.
 
+What belongs to one level, such as its score or whether the door is open, can live on an
+entity the scene spawns. It then starts afresh on every `Go` and `Rebuild`, with no reset
+method to remember, and `world.Only<T>()` reads and changes it:
+
+```csharp
+public record struct Progress(int Gems, bool DoorOpen);
+
+scene.Spawn(new Progress());                 // in the build
+
+world.Only<Progress>().Gems++;               // anywhere
+```
+
 Give `Go` a [transition](transitions.md) to cover the swap, such as
 `scenes.Go(scene => Crypt(scene, room: 2), Transition.Fade(0.6f))`. A fade swaps at the
 end of the tick the screen is all colour, so the old scene keeps running while it goes out.
 Asking again before then only changes what gets built; the fade carries on. A dissolve, wipe
 or iris swaps at the end of the tick and shows the old picture going over the new.
 `scenes.IsChanging` is true from `Go` until its transition has finished, which is handy for
-ignoring input meanwhile.
+ignoring input meanwhile. `Rebuild` takes a transition the same way, so
+`scenes.Rebuild(Transition.Fade(0.6f))` builds the same scene again behind a fade, for a
+game whose one build reads which level to make.
 
 Scenes are for where in the world the game is; [states](states.md) are for where the game
 is, such as a menu or paused. A game can use either or both. A prefab needs nothing from

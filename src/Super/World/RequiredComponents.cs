@@ -26,6 +26,9 @@ internal sealed class RequiredComponents
 
         // A camera blends between ticks the same way, and one that lands starts afresh.
         Add<Camera, LastCamera>(default, replace: true);
+
+        // A rig needs a camera to write to.
+        Add<OnRig, Camera>(WorldRigs.Unplaced);
     }
 
     /// <summary>
