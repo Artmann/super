@@ -132,7 +132,7 @@ public sealed class Physics : ITickHook, IDisposable
             var jobs = _jolt.Jobs;
             int steps = Math.Max(1, (int)MathF.Ceiling((seconds / LongestStep) - 0.001f));
             PhysicsUpdateError error;
-            lock (JoltSystem.Scratch)
+            lock (JoltSystem.Shared)
             {
                 error = ragdolls.Update(seconds, steps, jobs);
             }

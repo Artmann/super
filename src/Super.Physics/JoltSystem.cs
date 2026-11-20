@@ -11,9 +11,11 @@ internal sealed class JoltSystem : IDisposable
     /// <summary>The most bodies one system holds.</summary>
     public const int MaxBodies = 65536;
 
-    // joltc gives every physics system one shared scratch allocator, which isn't safe to use from two threads at once.
-    // Stepping and walking characters use it, so games running side by side, such as in tests, take turns.
-    public static readonly Lock Scratch = new();
+    // joltc shares two things between every physics system, and neither is safe to use from two threads at once: one
+    // scratch allocator, which stepping and walking characters use, and one table of the systems there are, which
+    // making and disposing a system write and a step reads. So games running side by side, such as in tests, take
+    // turns at all four.
+    public static readonly Lock Shared = new();
 
     private static readonly Lock Starting = new();
     private static bool _started;
@@ -30,7 +32,7 @@ internal sealed class JoltSystem : IDisposable
         _broadPhase = new BroadPhaseLayerInterfaceMask(1);
         _broadPhase.ConfigureLayer(new BroadPhaseLayer(0), uint.MaxValue, 0);
         _objectVsBroadPhase = new ObjectVsBroadPhaseLayerFilterMask(_broadPhase);
-        System = new PhysicsSystem(new PhysicsSystemSettings
+        var settings = new PhysicsSystemSettings
         {
             MaxBodies = MaxBodies,
             MaxBodyPairs = MaxBodies,
@@ -38,7 +40,11 @@ internal sealed class JoltSystem : IDisposable
             ObjectLayerPairFilter = _pairs,
             BroadPhaseLayerInterface = _broadPhase,
             ObjectVsBroadPhaseLayerFilter = _objectVsBroadPhase,
-        });
+        };
+        lock (Shared)
+        {
+            System = new PhysicsSystem(settings);
+        }
     }
 
     public PhysicsSystem System { get; }
@@ -51,7 +57,11 @@ internal sealed class JoltSystem : IDisposable
 
     public void Dispose()
     {
-        System.Dispose();
+        lock (Shared)
+        {
+            System.Dispose();
+        }
+
         _jobs?.Dispose();
         _objectVsBroadPhase.Dispose();
         _broadPhase.Dispose();

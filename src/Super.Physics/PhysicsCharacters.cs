@@ -131,7 +131,7 @@ public sealed class PhysicsCharacters
         _filters.Alive.Skip = entity;
         try
         {
-            lock (JoltSystem.Scratch)
+            lock (JoltSystem.Shared)
             {
                 walker.Virtual.ExtendedUpdate(seconds, settings, in layer, _system, _filters.Alive, null!);
             }
