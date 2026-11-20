@@ -20,26 +20,23 @@ internal sealed class JoltSystem : IDisposable
     private static readonly Lock Starting = new();
     private static bool _started;
 
-    private readonly ObjectLayerPairFilterMask _pairs;
-    private readonly BroadPhaseLayerInterfaceMask _broadPhase;
-    private readonly ObjectVsBroadPhaseLayerFilterMask _objectVsBroadPhase;
     private JobSystem? _jobs;
 
     public JoltSystem()
     {
         Start();
-        _pairs = new ObjectLayerPairFilterMask();
-        _broadPhase = new BroadPhaseLayerInterfaceMask(1);
-        _broadPhase.ConfigureLayer(new BroadPhaseLayer(0), uint.MaxValue, 0);
-        _objectVsBroadPhase = new ObjectVsBroadPhaseLayerFilterMask(_broadPhase);
+
+        // The system owns its three layer filters from here on, and frees them when it's disposed.
+        var broadPhase = new BroadPhaseLayerInterfaceMask(1);
+        broadPhase.ConfigureLayer(new BroadPhaseLayer(0), uint.MaxValue, 0);
         var settings = new PhysicsSystemSettings
         {
             MaxBodies = MaxBodies,
             MaxBodyPairs = MaxBodies,
             MaxContactConstraints = MaxBodies,
-            ObjectLayerPairFilter = _pairs,
-            BroadPhaseLayerInterface = _broadPhase,
-            ObjectVsBroadPhaseLayerFilter = _objectVsBroadPhase,
+            ObjectLayerPairFilter = new ObjectLayerPairFilterMask(),
+            BroadPhaseLayerInterface = broadPhase,
+            ObjectVsBroadPhaseLayerFilter = new ObjectVsBroadPhaseLayerFilterMask(broadPhase),
         };
         lock (Shared)
         {
@@ -63,9 +60,6 @@ internal sealed class JoltSystem : IDisposable
         }
 
         _jobs?.Dispose();
-        _objectVsBroadPhase.Dispose();
-        _broadPhase.Dispose();
-        _pairs.Dispose();
     }
 
     private static void Start()

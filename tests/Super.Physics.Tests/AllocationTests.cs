@@ -76,4 +76,29 @@ public class AllocationTests
 
         Assert.Equal(0, allocated);
     }
+
+    /// <summary>
+    /// A Physics reserves about 28 MB outside the managed heap. Disposing one used to leave all of it behind, so 200
+    /// of them took 5.6 GB, and a test run that made enough ran a Windows machine out of memory.
+    /// </summary>
+    [Fact]
+    public void A_disposed_physics_gives_its_memory_back()
+    {
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
+        process.Refresh();
+        long before = process.PrivateMemorySize64;
+
+        for (int i = 0; i < 200; i++)
+        {
+            var world = new World();
+            using var physics = new Physics(world);
+            Place(world, Vector3.Zero, Collider.Ball(0.5f));
+            physics.Sync();
+        }
+
+        process.Refresh();
+        long grown = process.PrivateMemorySize64 - before;
+
+        Assert.InRange(grown, long.MinValue, 1024L * 1024 * 1024);
+    }
 }
