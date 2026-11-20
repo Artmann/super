@@ -1,4 +1,4 @@
 using Super;
 using Terrain;
 
-Game.StartWindowsGameLoop<TerrainGame>(new GameOptions { Title = "Terrain", Width = 1600, Height = 900 });
+Game.Run<TerrainGame>(new GameOptions { Title = "Terrain", Width = 1600, Height = 900 });

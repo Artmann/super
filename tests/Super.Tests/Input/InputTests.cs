@@ -225,7 +225,7 @@ public class InputTests
     {
         var input = Create();
         var listener = new CountingListener();
-        input.Listen(listener);
+        input.Listeners.Add(listener);
         input.Roll();
         input.Roll();
         Assert.Equal(2, listener.Rolls);

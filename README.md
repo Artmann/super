@@ -18,7 +18,7 @@ person at the mouse.
 using System.Numerics;
 using Super;
 
-Game.StartWindowsGameLoop<Spinner>(new GameOptions { Title = "Spinner" });
+Game.Run<Spinner>(new GameOptions { Title = "Spinner" });
 
 class Spinner(World world) : IGame
 {

@@ -48,6 +48,10 @@ public static class ParticleMotion
     public static ParticleEmitter Gravity(this ParticleEmitter emitter, Vector3 pull) =>
         emitter.Then(new GravityNode(ParticleChecks.Finite(pull, nameof(pull))));
 
+    /// <summary>A pull straight down, in metres per second, per second: 9.8 falls as things do on Earth, and a negative one rises.</summary>
+    public static ParticleEmitter Gravity(this ParticleEmitter emitter, float down) =>
+        emitter.Gravity(new Vector3(0f, -down, 0f));
+
     /// <summary>Air moving this fast in the world. It needs <see cref="Drag"/> to catch particles; the more drag, the sooner they move with it.</summary>
     public static ParticleEmitter Wind(this ParticleEmitter emitter, Vector3 velocity) =>
         emitter.Then(new WindNode(ParticleChecks.Finite(velocity, nameof(velocity))));

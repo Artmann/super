@@ -27,6 +27,110 @@ public class TriggerTests
         return area;
     }
 
+    private record struct Gem;
+
+    private record struct Lava;
+
+    private record struct Hero;
+
+    /// <summary>A gem area and a lava area side by side, with a hero and a plain rock in each.</summary>
+    private static (Entity Gem, Entity Lava, Entity[] Heroes, Entity[] Rocks) Field(World world)
+    {
+        var gem = Area(world, new Vector3(-10f, 0f, 0f), new Vector3(4f));
+        world.Add(gem, new Gem());
+        var lava = Area(world, new Vector3(10f, 0f, 0f), new Vector3(4f));
+        world.Add(lava, new Lava());
+        Entity[] heroes = [Place(world, new Vector3(-10f, 0f, 1f), Collider.Ball(0.5f)), Place(world, new Vector3(10f, 0f, 1f), Collider.Ball(0.5f))];
+        Entity[] rocks = [Place(world, new Vector3(-10f, 0f, -1f), Collider.Ball(0.5f)), Place(world, new Vector3(10f, 0f, -1f), Collider.Ball(0.5f))];
+        foreach (var hero in heroes)
+        {
+            world.Add(hero, new Hero());
+        }
+
+        return (gem, lava, heroes, rocks);
+    }
+
+    private static List<TriggerEvent> Listed<TTrigger, TOther>(TriggerPairs<TTrigger, TOther> pairs)
+        where TTrigger : struct
+        where TOther : struct
+    {
+        var listed = new List<TriggerEvent>();
+        foreach (var pair in pairs)
+        {
+            listed.Add(pair);
+        }
+
+        return listed;
+    }
+
+    [Fact]
+    public void Entered_by_component_keeps_only_the_pairs_with_both_components()
+    {
+        var (world, physics) = Make();
+        using var _ = physics;
+        var (gem, lava, heroes, rocks) = Field(world);
+
+        physics.Step(Tick);
+
+        Assert.Equal(4, physics.Triggers.Entered.Count);
+        Assert.Equal([new TriggerEvent(gem, heroes[0])], Listed(physics.Triggers.Entered<Gem, Hero>()));
+        Assert.Equal([new TriggerEvent(lava, heroes[1])], Listed(physics.Triggers.Entered<Lava, Hero>()));
+        Assert.Equal([new TriggerEvent(gem, heroes[0]), new TriggerEvent(gem, rocks[0])], Listed(physics.Triggers.Entered<Gem>()));
+        Assert.True(physics.Triggers.Entered<Gem, Hero>().Any());
+        Assert.False(physics.Triggers.Entered<Hero, Gem>().Any());
+    }
+
+    [Fact]
+    public void Inside_by_component_lists_who_is_still_in_after_entering()
+    {
+        var (world, physics) = Make();
+        using var _ = physics;
+        var (gem, _, heroes, _) = Field(world);
+
+        physics.Step(Tick);
+        physics.Step(Tick);
+
+        Assert.Empty(physics.Triggers.Entered);
+        Assert.Equal([new TriggerEvent(gem, heroes[0])], Listed(physics.Triggers.Inside<Gem, Hero>()));
+    }
+
+    [Fact]
+    public void Exited_by_component_lists_who_left_and_skips_the_destroyed_unless_anyone_is_asked_for()
+    {
+        var (world, physics) = Make();
+        using var _ = physics;
+        var (gem, lava, heroes, rocks) = Field(world);
+        physics.Step(Tick);
+
+        world.Get<Transform>(heroes[1]).Position = new Vector3(10f, 50f, 0f);
+        world.Destroy(heroes[0]);
+        physics.Step(Tick);
+
+        Assert.Equal([new TriggerEvent(lava, heroes[1])], Listed(physics.Triggers.Exited<Lava, Hero>()));
+        Assert.Empty(Listed(physics.Triggers.Exited<Gem, Hero>()));
+        Assert.Equal([new TriggerEvent(gem, heroes[0])], Listed(physics.Triggers.Exited<Gem>()));
+        Assert.Equal([new TriggerEvent(gem, rocks[0])], Listed(physics.Triggers.Inside<Gem, Anyone>()));
+    }
+
+    [Fact]
+    public void An_area_destroyed_while_walking_its_pairs_drops_out_of_the_rest()
+    {
+        var (world, physics) = Make();
+        using var _ = physics;
+        var (gem, _, _, _) = Field(world);
+        physics.Step(Tick);
+        int seen = 0;
+
+        foreach (var pair in physics.Triggers.Entered<Gem>())
+        {
+            seen++;
+            world.Destroy(pair.Trigger);
+        }
+
+        Assert.Equal(1, seen);
+        Assert.False(world.IsAlive(gem));
+    }
+
     [Fact]
     public void A_falling_ball_enters_once_and_leaves_once()
     {

@@ -38,6 +38,7 @@ in parallel, because Super keeps no global state, so this fits in a pull request
 | `HeadlessGame.Create<TGame>(seed, services)` | Starts a game at 30 ticks per second. The callback registers services after Super's own, so it can replace them |
 | `run.Ticks(count)` | Plays that many ticks, drawing after each one |
 | `run.Game` | Your game object, to read its state |
+| `run.Service<T>()` | A service the game was given, such as its `Physics` or `Actions<Control>`, so the game needs no property that only tests read |
 | `run.Time`, `run.Seed` | The game's clock and seed |
 | `run.Invariant(name, game => ...)` | A rule checked after every tick |
 | `run.Input` | Plays keys, mouse, gamepad and actions |
@@ -71,7 +72,7 @@ public static class ColonyServices
 }
 
 // Program.cs
-Game.StartWindowsGameLoop<MyColony>(new GameOptions { Title = "Colony" }, services => services.AddColony());
+Game.Run<MyColony>(new GameOptions { Title = "Colony" }, services => services.AddColony());
 
 // A test, with a fake added after the real one so it wins.
 using var run = HeadlessGame.Create<MyColony>(seed, services => services

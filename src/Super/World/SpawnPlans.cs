@@ -7,14 +7,14 @@ namespace Super;
 /// </summary>
 internal sealed class SpawnPlans(ArchetypeTable types)
 {
-    private readonly Dictionary<Key, SpawnPlan> _plans = [];
+    private readonly Dictionary<SpawnKey, SpawnPlan> _plans = [];
     private int _requiredVersion;
 
     /// <summary>
-    /// The plan for a spawn given these type IDs, in call order, with -1 for the unused ones. A scene's spawn puts its
-    /// <paramref name="sceneType"/> on first, and -1 means it belongs to no scene.
+    /// The plan for a spawn given the type IDs in <paramref name="key"/>, in call order. A scene's spawn puts its
+    /// scene type on first.
     /// </summary>
-    public SpawnPlan For(int sceneType, int first, int second, int third, int fourth)
+    public SpawnPlan For(in SpawnKey key)
     {
         // A requirement added since is part of every spawn of its type, so every plan is made again.
         if (_requiredVersion != types.Required.Version)
@@ -23,10 +23,9 @@ internal sealed class SpawnPlans(ArchetypeTable types)
             _requiredVersion = types.Required.Version;
         }
 
-        var key = new Key(sceneType, first, second, third, fourth);
         if (!_plans.TryGetValue(key, out var plan))
         {
-            plan = Make(key);
+            plan = Make(in key);
             _plans.Add(key, plan);
         }
 
@@ -35,7 +34,7 @@ internal sealed class SpawnPlans(ArchetypeTable types)
 
     // Walks the same steps that adding the components one at a time takes, so the archetypes are made in the same
     // order and the same values win: the given ones first, then what each new one requires, depth first.
-    private SpawnPlan Make(Key key)
+    private SpawnPlan Make(in SpawnKey key)
     {
         var archetype = types.Empty;
         var landed = new List<int>();
@@ -46,8 +45,8 @@ internal sealed class SpawnPlans(ArchetypeTable types)
             landed.Add(key.Scene);
         }
 
-        Span<int> given = [key.First, key.Second, key.Third, key.Fourth];
-        var fresh = new List<int>(4);
+        Span<int> given = [key.First, key.Second, key.Third, key.Fourth, key.Fifth];
+        var fresh = new List<int>(given.Length);
         foreach (int type in given)
         {
             if (type >= 0 && !archetype.Mask.Has(type))
@@ -91,8 +90,13 @@ internal sealed class SpawnPlans(ArchetypeTable types)
         }
     }
 
-    private readonly record struct Key(int Scene, int First, int Second, int Third, int Fourth);
 }
+
+/// <summary>
+/// What a spawn is given: the type IDs of its components, in call order, with -1 for the unused ones, and the type
+/// that marks its scene, or -1 when it belongs to none.
+/// </summary>
+internal readonly record struct SpawnKey(int Scene, int First, int Second = -1, int Third = -1, int Fourth = -1, int Fifth = -1);
 
 /// <summary>One kind of spawn, made in one move: see <see cref="SpawnPlans"/>.</summary>
 internal sealed class SpawnPlan(Archetype target, int[] landed, RequiredComponents.Requirement[] required)

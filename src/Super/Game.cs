@@ -8,7 +8,7 @@ public static class Game
     /// Opens a window and runs the game until it closes. Register your own classes in
     /// <paramref name="services"/>. GameTime and GameRandom are already there.
     /// </summary>
-    public static void StartWindowsGameLoop<TGame>(GameOptions? options = null, Action<IServiceCollection>? services = null)
+    public static void Run<TGame>(GameOptions? options = null, Action<IServiceCollection>? services = null)
         where TGame : class, IGame
     {
         options ??= new GameOptions();

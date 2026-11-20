@@ -5,13 +5,13 @@ using Courtyard;
 // cards.
 if (args.Contains("--lineup"))
 {
-    Game.StartWindowsGameLoop<LineupGame>(new GameOptions { Title = "Courtyard lineup" });
+    Game.Run<LineupGame>(new GameOptions { Title = "Courtyard lineup" });
 }
 else if (args.Contains("--leaves"))
 {
-    Game.StartWindowsGameLoop<LeavesGame>(new GameOptions { Title = "Courtyard leaves" });
+    Game.Run<LeavesGame>(new GameOptions { Title = "Courtyard leaves" });
 }
 else
 {
-    Game.StartWindowsGameLoop<CourtyardGame>(new GameOptions { Title = "Courtyard" });
+    Game.Run<CourtyardGame>(new GameOptions { Title = "Courtyard" });
 }

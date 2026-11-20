@@ -248,13 +248,12 @@ Last, replace everything in `Program.cs` with:
 using SkylarkExample;
 using Super;
 
-Game.StartWindowsGameLoop<SkylarkGame>(
+Game.Run<SkylarkGame>(
     new GameOptions { Title = "Skylark", Id = "skylark", Width = 1280, Height = 720 },
     services => services.AddSkylark());
 ```
 
-`StartWindowsGameLoop` opens a window and runs the game until you close it. Despite the
-name, it works on a Mac too. The `Id` names the folder the game keeps its saved files in,
+`Game.Run` opens a window and runs the game until you close it. The `Id` names the folder the game keeps its saved files in,
 which we'll use in chapter 7. Run it:
 
 ```
@@ -896,7 +895,7 @@ public sealed class Gems(World world, Physics physics, Journey journey) : ISyste
         foreach (var row in world.Query<Gem, Transform>())
         {
             row.Second.Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, turn * 2f);
-            row.Second.Position = row.Second.Position with { Y = row.First.Height + MathF.Sin(turn * 3f + row.Second.Position.X) * 0.12f };
+            row.Second.Position.Y = row.First.Height + MathF.Sin(turn * 3f + row.Second.Position.X) * 0.12f;
         }
     }
 

@@ -1,4 +1,4 @@
 using Rooms;
 using Super;
 
-Game.StartWindowsGameLoop<RoomsGame>(new GameOptions { Title = "Rooms", Width = 1280, Height = 720 });
+Game.Run<RoomsGame>(new GameOptions { Title = "Rooms", Width = 1280, Height = 720 });

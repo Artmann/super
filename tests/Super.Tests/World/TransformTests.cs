@@ -52,6 +52,18 @@ public class TransformTests
     }
 
     [Fact]
+    public void One_axis_of_an_entitys_transform_is_set_in_place()
+    {
+        var world = new World();
+        var crate = world.Spawn(Transform.At(new Vector3(1f, 2f, 3f)));
+
+        world.Get<Transform>(crate).Position.Y = 9f;
+        world.Get<Transform>(crate).Scale.X = 4f;
+
+        Assert.Equal(new Transform(new Vector3(1f, 9f, 3f), Quaternion.Identity, new Vector3(4f, 1f, 1f)), world.Get<Transform>(crate));
+    }
+
+    [Fact]
     public void Lerp_blends_position_rotation_and_scale()
     {
         var from = new Transform(Vector3.Zero, Quaternion.Identity, Vector3.One);
