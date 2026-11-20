@@ -1,0 +1,35 @@
+name: Cache cleanup
+
+# A cook cache saved on a pull request can only be read by that pull request, and each is over a gigabyte of
+# the repository's 10 GB. Left alone they push out main's caches, and then every run cooks from scratch. This
+# deletes a pull request's caches when it closes.
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  actions: write
+
+jobs:
+  delete:
+    name: Delete the pull request's caches
+    # A pull request from a fork gets a read-only token, which can't delete.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: refs/pull/${{ github.event.pull_request.number }}/merge
+        run: |
+          set -euo pipefail
+          ids=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref "$REF" --limit 100 --json id --jq '.[].id')
+          if [ -z "$ids" ]; then
+            echo "No caches for $REF."
+            exit 0
+          fi
+          for id in $ids; do
+            gh cache delete "$id" --repo "$GITHUB_REPOSITORY"
+            echo "Deleted cache $id."
+          done
