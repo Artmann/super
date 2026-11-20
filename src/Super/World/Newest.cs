@@ -1,3 +1,5 @@
+using Rendition;
+
 namespace Super;
 
 /// <summary>
@@ -16,6 +18,7 @@ internal sealed class Newest
         Track<Shadows>(types);
         Track<AmbientOcclusion>(types);
         Track<Finish>(types);
+        Track<ScreenEffects>(types);
         Track<Outlines>(types);
         Track<ScreenBounce>(types);
         Track<LightProbes>(types);

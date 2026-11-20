@@ -94,7 +94,17 @@ public sealed class Graphics
         },
         Atmosphere = { Fog = false, VolumetricFog = false, FogVolumes = false },
         Surfaces = { WearAndDirt = false, Decals = false, Puddles = false, Wind = false, HeightMaps = false, Subsurface = false },
-        Picture = { Bloom = false, AutoExposure = false, DepthOfField = false, Vignette = false, Grain = false, Sharpening = false },
+        Picture =
+        {
+            Bloom = false,
+            AutoExposure = false,
+            DepthOfField = false,
+            Vignette = false,
+            Grain = false,
+            Sharpening = false,
+            ChromaticAberration = false,
+            SpeedBlur = false,
+        },
         Drawing = { MeshDetail = 0.5f },
     };
 

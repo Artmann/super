@@ -114,6 +114,12 @@ public struct PostSettings
     public float FocalLength;
 
     /// <summary>
+    /// Effects a game drives from play: colour fringes, a speed blur, a flash, a fade, edge tints, a loss of colour and a
+    /// paper texture. They are off at zero and never bake the grade again, so they can change every frame.
+    /// </summary>
+    public ScreenEffects Screen;
+
+    /// <summary>
     /// The look <paramref name="t"/> of the way from <paramref name="from"/> to <paramref name="to"/>, for easing from
     /// one grade to another, such as day into dusk or a room into a cave. Numbers and colours move evenly; choices
     /// that can't be halfway, such as the tonemapper, <see cref="AutoExposure"/> or a lens that opens from none, change
@@ -158,6 +164,7 @@ public struct PostSettings
             FocusDistance = openLens ? Mix(from.FocusDistance, to.FocusDistance, t) : near.FocusDistance,
             Aperture = openLens ? Mix(from.Aperture, to.Aperture, t) : near.Aperture,
             FocalLength = Mix(ThinLens.FocalLength(from.FocalLength), ThinLens.FocalLength(to.FocalLength), t),
+            Screen = ScreenEffects.Lerp(from.Screen, to.Screen, t),
         };
     }
 }

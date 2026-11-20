@@ -1,5 +1,6 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
 #include "common.glsl"
 #include "sampling.glsl"
 
@@ -7,6 +8,9 @@ layout(location = 0) in vec2 inUv;
 
 layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
 layout(set = 1, binding = 1) uniform sampler2D heldTexture;
+
+// The renderer's textures, for the screen effects' paper.
+layout(set = 2, binding = 0) uniform sampler2D textures[];
 
 // Must match TransitionConstants in Passes/TransitionConstants.cs.
 layout(push_constant) uniform Transition {
@@ -89,6 +93,46 @@ float shown(vec2 aspect) {
     return revealed(distanceOut / length(corner), amount, softness);
 }
 
+// How much of an edge tint shows here at strength 1: none in the middle, rising to all of it at the edges. The distance
+// is a rounded square's, so the tint hugs all four edges rather than only the corners.
+float edgeMask(vec2 uv) {
+    vec2 out4 = pow(abs(uv - 0.5) * 2.0, vec2(4.0));
+    float reach = sqrt(sqrt(out4.x + out4.y));
+    return smoothstep(0.35, 1.1, reach) * 1.5;
+}
+
+// The screen effects a game drives from play, on the picture's linear colour: paper, then the loss of colour, the edge
+// tints, the flash and the fade. Each is skipped at zero.
+vec3 screenEffects(vec3 color) {
+    int paper = int(frame.screenCanvas.w);
+    if (paper >= 0) {
+        float tile = frame.screenCanvas.z > 0.0 ? frame.screenCanvas.z : float(textureSize(textures[paper], 0).x);
+        vec3 grain = texture(textures[paper], gl_FragCoord.xy / tile).rgb;
+        color *= mix(vec3(1.0), grain, frame.screenCanvas.y);
+    }
+
+    if (frame.screenCanvas.x > 0.0) {
+        color = mix(color, vec3(dot(color, vec3(0.2126, 0.7152, 0.0722))), frame.screenCanvas.x);
+    }
+
+    if (frame.edgeTint.a > 0.0 || frame.secondEdgeTint.a > 0.0) {
+        float edge = edgeMask(inUv);
+        color = mix(color, frame.edgeTint.rgb, clamp(edge * frame.edgeTint.a, 0.0, 1.0));
+        color = mix(color, frame.secondEdgeTint.rgb, clamp(edge * frame.secondEdgeTint.a, 0.0, 1.0));
+    }
+
+    // A flash lights the picture as a screen print does: it brightens towards the colour and never past white.
+    if (frame.screenFlash.a > 0.0) {
+        color = 1.0 - (1.0 - clamp(color, 0.0, 1.0)) * (1.0 - frame.screenFlash.rgb * frame.screenFlash.a);
+    }
+
+    if (frame.screenFade.a > 0.0) {
+        color = mix(color, frame.screenFade.rgb, frame.screenFade.a);
+    }
+
+    return color;
+}
+
 // The last touches: restores crispness, moves between pictures, darkens the corners and adds
 // fine noise. An 8-bit screen can't show a slow gradient smoothly, and the noise hides those steps.
 void main() {
@@ -110,6 +154,7 @@ void main() {
     vec2 fromCenter = inUv - 0.5;
     if (!debugView) {
         color *= 1.0 - frame.grade.w * smoothstep(0.1, 0.5, dot(fromCenter, fromCenter));
+        color = screenEffects(color);
     }
 
     // Noise belongs in the same steps as the screen, which aren't linear in brightness.

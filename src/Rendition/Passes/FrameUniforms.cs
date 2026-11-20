@@ -86,15 +86,8 @@ internal struct FrameUniforms
     public FrameAirBlock AirBlock;
     public FrameCountBlock CountBlock;
     public GpuLightArray Lights;
-
-    /// <summary>World to the light probes' own sun shadow map, which covers the largest cascade. See ProbeSunShadow.</summary>
-    public Matrix4x4 ProbeSunMatrix;
-
-    /// <summary>
-    /// World to the sun shadow map round the box of the reflection probe this frame captures, or zero when it captures
-    /// none or no sun casts a shadow. See ReflectionCapturePass.
-    /// </summary>
-    public Matrix4x4 ReflectionSunMatrix;
+    public FrameSunBlock SunBlock;
+    public FrameScreenBlock ScreenBlock;
 }
 
 /// <summary>One point or spot light as the shaders read it. Must match LocalLight in Shaders/light_data.glsl.</summary>
