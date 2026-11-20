@@ -71,7 +71,8 @@ internal sealed unsafe class LocalLightShadows
     /// Picks what each shadow tile of the atlas can see, one after another, and returns how many draws there are in
     /// all. A tile the atlas still holds as it would be drawn gets none.
     /// </summary>
-    public int Select(ReadOnlySpan<DrawItem> draws, float meshDetailScale) => Tiles.Select(_lights.Tiles, draws, meshDetailScale);
+    public int Select(ReadOnlySpan<DrawItem> draws, DrawBalls measured, float meshDetailScale) =>
+        Tiles.Select(_lights.Tiles, draws, measured, meshDetailScale);
 
     /// <summary>Draws the shadow tiles of the point and spot lights that need it into the atlas.</summary>
     public void RecordTiles(CommandBuffer cmd, DescriptorSet frameSet, InstanceBuffer instances) =>

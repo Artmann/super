@@ -3,15 +3,20 @@ using System.Numerics;
 namespace Rendition;
 
 /// <summary>
-/// Picks a frame's batch for <see cref="ProbeScheduler"/>: the best of the probes that aren't clean, kept to the
-/// budget in two small binary heaps, then the clean probes updated longest ago from the capture queue. It never looks
-/// at every probe, and once its heaps have grown it allocates nothing: it hands back the same list each call.
+/// Picks a frame's batch for <see cref="ProbeScheduler"/>: the best of the probes that aren't clean, each turned into
+/// one number and the lowest of them brought forward, then the clean probes updated longest ago from the capture
+/// queue. It never looks at every probe, only the ones that wait, and once its arrays have grown it allocates
+/// nothing: it hands back the same list each call.
 /// </summary>
 internal sealed class ProbeBatchPicker(ProbeStates states)
 {
-    // The best dirty probes of the fine groups, and the best of all the rest, each kept to the budget.
-    private ProbeCandidate[] _nearHeap = Array.Empty<ProbeCandidate>();
-    private ProbeCandidate[] _heap = Array.Empty<ProbeCandidate>();
+    // The dirty probes of the fine groups, and all the rest that wait, as the numbers of ProbeKeys, so choosing
+    // among them compares numbers.
+    private ulong[] _nearKeys = Array.Empty<ulong>();
+    private ulong[] _restKeys = Array.Empty<ulong>();
+
+    // The best of the rest as candidates, with room after them for the clean probes that fill what they leave.
+    private ProbeCandidate[] _rest = Array.Empty<ProbeCandidate>();
     private readonly List<ProbeId> _batch = [];
 
     /// <summary>
@@ -27,52 +32,71 @@ internal sealed class ProbeBatchPicker(ProbeStates states)
             return _batch;
         }
 
-        if (_heap.Length < budget)
+        if (_rest.Length < budget)
         {
-            _heap = new ProbeCandidate[budget];
-            _nearHeap = new ProbeCandidate[budget];
+            _rest = new ProbeCandidate[budget];
         }
 
-        int nearSize = 0;
-        int size = 0;
-        OfferUnsettled(budget, camera, forward, ref nearSize, ref size);
+        var (nearCount, restCount) = NumberUnsettled(camera, forward);
+        int nearSize = ProbeKeys.BringLowestForward(_nearKeys.AsSpan(0, nearCount), budget);
+        int size = ProbeKeys.BringLowestForward(_restKeys.AsSpan(0, restCount), budget);
+        for (int i = 0; i < size; i++)
+        {
+            _rest[i] = ProbeKeys.Candidate(_restKeys[i]);
+        }
 
         // Clean probes come after every other, so they only fill what the rest leaves of the budget.
         int room = Math.Min(budget - size, refreshes);
-        size += states.CaptureQueue.TakeOldest(_heap.AsSpan(size, Math.Max(room, 0)), frame, camera, forward);
+        size += states.CaptureQueue.TakeOldest(_rest.AsSpan(size, Math.Max(room, 0)), frame, camera, forward);
 
-        // The heaps are rebuilt every call, so they can be sorted in place. The order is total, so any sort gives the
-        // same result.
-        var near = _nearHeap.AsSpan(0, nearSize);
-        var rest = _heap.AsSpan(0, size);
+        // The numbers are made again every call, so they can be sorted in place. The order is total, so any sort
+        // gives the same result.
+        var near = _nearKeys.AsSpan(0, nearSize);
+        var rest = _rest.AsSpan(0, size);
         near.Sort();
         rest.Sort();
         FillBatch(near, rest, budget, refreshes);
         return _batch;
     }
 
-    // Offers every probe that isn't clean to the heaps: dirty probes of the fine groups to the near heap, the rest to
-    // the other.
-    private void OfferUnsettled(int budget, Vector3 camera, Vector3 forward, ref int nearSize, ref int size)
+    // Gives every probe that isn't clean its number for this frame: dirty probes of the fine groups among the near
+    // numbers, the rest among the others. Returns how many of each.
+    private (int Near, int Others) NumberUnsettled(Vector3 camera, Vector3 forward)
     {
-        foreach (var id in states.Unsettled())
+        var waiting = states.Waiting;
+        var ids = waiting.Ids;
+        var positions = waiting.Positions;
+        var tiers = waiting.Tiers;
+        if (_restKeys.Length < ids.Length)
         {
-            var candidate = states.CandidateFor(id, camera, forward);
+            _restKeys = new ulong[waiting.Room];
+            _nearKeys = new ulong[waiting.Room];
+        }
+
+        int near = 0;
+        int rest = 0;
+        for (int i = 0; i < ids.Length; i++)
+        {
+            var id = ids[i];
+            float rank = ProbeCandidate.Rank(positions[i], id.Cascade, camera, forward);
+            ulong key = ProbeKeys.Of(tiers[i], rank, id.Cascade, id.Slot);
             bool fine = id.Cascade <= 1 || id.Cascade == ProbeStates.GridGroup;
-            if (fine && candidate.Tier == ProbeStates.Dirty)
+            if (fine && tiers[i] == ProbeStates.Dirty)
             {
-                ProbeCandidate.Offer(_nearHeap, ref nearSize, budget, candidate);
+                _nearKeys[near++] = key;
             }
             else
             {
-                ProbeCandidate.Offer(_heap, ref size, budget, candidate);
+                _restKeys[rest++] = key;
             }
         }
+
+        return (near, rest);
     }
 
-    // Takes the best of the sorted heaps into the batch: the near dirty probes, then the rest, within the budget and
+    // Takes the best of the sorted probes into the batch: the near dirty probes, then the rest, within the budget and
     // with at most `refreshes` clean probes.
-    private void FillBatch(ReadOnlySpan<ProbeCandidate> near, ReadOnlySpan<ProbeCandidate> rest, int budget, int refreshes)
+    private void FillBatch(ReadOnlySpan<ulong> near, ReadOnlySpan<ProbeCandidate> rest, int budget, int refreshes)
     {
         // Never-captured probes sort first in the rest; up to a quarter of the budget is theirs whatever is dirty.
         int waiting = ProbeCandidate.Ahead(rest, ProbeStates.Dirty);
@@ -85,9 +109,9 @@ internal sealed class ProbeBatchPicker(ProbeStates states)
             restTaken = Math.Min(restTaken, ProbeCandidate.Ahead(rest, ProbeStates.Clean) + refreshes);
         }
 
-        foreach (var candidate in near[..nearTaken])
+        foreach (ulong key in near[..nearTaken])
         {
-            _batch.Add(new ProbeId(candidate.Group, candidate.Slot));
+            _batch.Add(ProbeKeys.Id(key));
         }
 
         foreach (var candidate in rest[..restTaken])

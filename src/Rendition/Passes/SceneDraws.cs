@@ -179,83 +179,23 @@ internal static unsafe class SceneDraws
     /// </summary>
     public static void Batch(ReadOnlySpan<DrawItem> draws, Span<int> order, bool keepOrder, List<DrawBatch> batches)
     {
-        batches.Clear();
         if (!keepOrder)
         {
-            // One number a draw, sorted as plain numbers, which is several times faster than comparing the looks
-            // field by field. The place in the list comes last in it, so draws that look the same stay in order.
-            UInt128[] keys = ArrayPool<UInt128>.Shared.Rent(order.Length);
-            for (int i = 0; i < order.Length; i++)
-            {
-                keys[i] = SortKey(draws[order[i]], i);
-            }
-
-            keys.AsSpan(0, order.Length).Sort(order);
-            ArrayPool<UInt128>.Shared.Return(keys);
+            DrawOrder.Group(draws, order, batches);
+            return;
         }
 
+        batches.Clear();
         int first = 0;
         for (int i = 1; i <= order.Length; i++)
         {
-            if (i == order.Length || !SameLook(draws[order[first]], draws[order[i]]))
+            if (i == order.Length || !DrawOrder.SameLook(draws[order[first]], draws[order[i]]))
             {
                 batches.Add(new DrawBatch(first, i - first));
                 first = i;
             }
         }
     }
-
-    private static bool SameLook(in DrawItem a, in DrawItem b) =>
-        a.Bones.Count == 0 && b.Bones.Count == 0
-        && a.Mesh == b.Mesh
-        && a.FirstIndex == b.FirstIndex
-        && a.IndexCount == b.IndexCount
-        && a.Material == b.Material
-        && a.Tint == b.Tint
-        && a.Ghost == b.Ghost
-        && (a.Dither != 0f) == (b.Dither != 0f);
-
-    /// <summary>
-    /// A number that sorts draws that look the same next to each other, in the order they came. The mesh is on top,
-    /// so one mesh's parts stay together and it's bound once, then the part, so a mesh's parts are drawn in the
-    /// order the mesh holds them, which is the order a model was made to be drawn in and costs the least overdraw.
-    /// Then the rest of the look mixed into 32 bits, then the draw's <paramref name="place"/> in the list. Two looks
-    /// can mix to the same bits, which only splits their batches where they interleave, since
-    /// <see cref="SameLook"/> still decides what shares a draw. Nothing here changes from run to run, so neither
-    /// does the order.
-    /// </summary>
-    private static UInt128 SortKey(in DrawItem draw, int place)
-    {
-        ulong look = Mix(draw.IndexCount, (uint)draw.Material.Index);
-        if (draw.Dither != 0f)
-        {
-            look = Mix(look, 1);
-        }
-
-        if (draw.Tint is { } tint)
-        {
-            look = Mix(look, Bits(tint.X));
-            look = Mix(look, Bits(tint.Y));
-            look = Mix(look, Bits(tint.Z) + 1);
-        }
-
-        if (draw.Ghost is { } ghost)
-        {
-            look = Mix(look, Bits(ghost.Color.X));
-            look = Mix(look, Bits(ghost.Color.Y));
-            look = Mix(look, Bits(ghost.Color.Z));
-            look = Mix(look, Bits(ghost.Opacity) + 1);
-        }
-
-        return new UInt128(
-            ((ulong)(uint)draw.Mesh.Index << 32) | draw.FirstIndex,
-            (look & 0xFFFFFFFF00000000ul) | (uint)place);
-    }
-
-    private static uint Bits(float value) => BitConverter.SingleToUInt32Bits(value);
-
-    // Folds one more value into a running hash, by a multiply that carries every bit towards the top.
-    private static ulong Mix(ulong hash, uint value) => (hash ^ value) * 0x9E3779B97F4A7C15ul;
 
     /// <summary>
     /// The push constants that draw one item, or every copy in its batch. <paramref name="windSway"/> is the
@@ -302,15 +242,15 @@ internal static unsafe class SceneDraws
         Batch(draws, order, keepOrder: options.Pass == ScenePass.Transparent, batches);
 
         // Each batch's copies go into the instance buffer once, however many times the batch is drawn.
-        int[] firsts = ArrayPool<int>.Shared.Rent(batches.Count);
-        for (int i = 0; i < batches.Count; i++)
-        {
-            firsts[i] = AddCopies(draws, order.Slice(batches[i].First, batches[i].Count), geometry.Instances);
-        }
+        // They go in drawing order, so a batch's copies start as far into them as the batch is into the order. A
+        // shadow's shaders read only where a copy stands, so that's all a shadow writes.
+        int firstCopy = options.Pass == ScenePass.Shadow
+            ? AddPlacings(draws, order, geometry.Instances)
+            : AddCopies(draws, order, geometry.Instances);
 
         var ready = new ReadyBatches
         {
-            Draws = draws, Order = order, Batches = batches, Firsts = firsts, Resources = resources, Details = geometry.Details,
+            Draws = draws, Order = order, Batches = batches, FirstCopy = firstCopy, Resources = resources, Details = geometry.Details,
             Cascade = options.Cascade, Still = options.Still, To = new Recorder(target, geometry.Meshes),
         };
 
@@ -328,7 +268,6 @@ internal static unsafe class SceneDraws
             ArrayPool<bool>.Shared.Return(ahead);
         }
 
-        ArrayPool<int>.Shared.Return(firsts);
         ArrayPool<int>.Shared.Return(pooled);
     }
 
@@ -353,7 +292,7 @@ internal static unsafe class SceneDraws
         public ReadOnlySpan<DrawItem> Draws;
         public ReadOnlySpan<int> Order;
         public List<DrawBatch> Batches;
-        public int[] Firsts;
+        public int FirstCopy;
         public ResourceTable Resources;
         public List<PartDetail> Details;
         public int Cascade;
@@ -367,7 +306,7 @@ internal static unsafe class SceneDraws
         {
             ref readonly var draw = ref First(batch);
             var constants = Still ? Constants(draw, Cascade) : Constants(draw, Cascade, Resources.Materials.SwayOf, Details);
-            To.Issue(pipeline, draw, Batches[batch].Count, Firsts[batch], constants);
+            To.Issue(pipeline, draw, Batches[batch].Count, FirstCopy + Batches[batch].First, constants);
         }
 
         /// <summary>
@@ -407,6 +346,18 @@ internal static unsafe class SceneDraws
         foreach (int index in copies)
         {
             instances.Add(draws[index], index);
+        }
+
+        return first;
+    }
+
+    // Writes only where each copy stands and how it swims, and returns where the first went.
+    private static int AddPlacings(ReadOnlySpan<DrawItem> draws, ReadOnlySpan<int> copies, InstanceBuffer instances)
+    {
+        int first = instances.Count;
+        foreach (int index in copies)
+        {
+            instances.AddPlacing(draws[index]);
         }
 
         return first;

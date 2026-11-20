@@ -154,7 +154,7 @@ public class CameraKindsTests
         var view = new DetailView(Parallel, new Vector3(0f, 0f, 100f), 0f, 36f, 1f);
         DrawItem[] draws = [new() { IndexCount = 3, Transform = Matrix4x4.CreateTranslation(position), Detail = new DetailHandle(1) }];
         List<PartDetail> details = [default, new PartDetail(Vector3.Zero, 1f, [])];
-        return DrawSelection.Select(view, draws, details, new DrawItem[1]);
+        return Picking.Select(view, draws, details, new DrawItem[1]);
     }
 
     [Theory]
@@ -178,7 +178,7 @@ public class CameraKindsTests
             new PartDetail(Vector3.Zero, 1f, [new DetailLevel(300, 100, 0.01f), new DetailLevel(400, 30, 0.05f)]),
         ];
         var selected = new DrawItem[1];
-        Assert.Equal(1, DrawSelection.Select(view, draws, details, selected));
+        Assert.Equal(1, Picking.Select(view, draws, details, selected));
         return selected[0];
     }
 

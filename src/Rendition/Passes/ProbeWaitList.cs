@@ -1,57 +1,111 @@
-using System.Runtime.InteropServices;
+using System.Numerics;
 
 namespace Rendition;
 
 /// <summary>
-/// The probes that aren't clean, each once, in the order they were listed, so a frame looks at them and not at every
-/// probe. A probe stays listed after it is captured until <see cref="DropCaptured"/>, which the next frame calls. It
-/// reads the probes' states in the arrays it is given, where <paramref name="clean"/> means clean.
+/// The probes that aren't clean, each once, with what a frame needs to choose among them, side by side: which probe,
+/// where it is and its tier. So a frame reads these arrays from end to end, and never every probe nor anything else
+/// about the ones it reads. A probe leaves the moment it is captured, by the last one taking its place, so the list
+/// has no order.
 /// </summary>
-internal sealed class ProbeWaitList(byte[]?[] state, byte clean)
+internal sealed class ProbeWaitList(int groups)
 {
-    private readonly List<ProbeId> _ids = [];
+    private ProbeId[] _ids = [];
+    private Vector3[] _positions = [];
+    private byte[] _tiers = [];
 
-    // Per group and slot, whether the probe is in _ids.
-    private readonly bool[]?[] _listed = new bool[]?[state.Length];
+    // Per group and slot, one more than the probe's place in the list, or 0 when it isn't listed.
+    private readonly int[]?[] _place = new int[]?[groups];
 
-    /// <summary>Lists a probe, unless it is listed already.</summary>
-    public void Enlist(int group, int slot)
+    public int Count { get; private set; }
+
+    /// <summary>How many probes the list holds without growing.</summary>
+    public int Room => _ids.Length;
+
+    public ReadOnlySpan<ProbeId> Ids => _ids.AsSpan(0, Count);
+
+    public ReadOnlySpan<Vector3> Positions => _positions.AsSpan(0, Count);
+
+    public ReadOnlySpan<byte> Tiers => _tiers.AsSpan(0, Count);
+
+    /// <summary>Lists a probe, or when it is listed already, changes its tier and where it is.</summary>
+    public void Enlist(int group, int slot, byte tier, Vector3 position)
     {
-        var listed = _listed[group]!;
-        if (!listed[slot])
+        int[] places = _place[group]!;
+        int at = places[slot] - 1;
+        if (at < 0)
         {
-            listed[slot] = true;
-            _ids.Add(new ProbeId(group, slot));
+            ReserveFor(Count + 1);
+            at = Count++;
+            places[slot] = at + 1;
+            _ids[at] = new ProbeId(group, slot);
+        }
+
+        _tiers[at] = tier;
+        _positions[at] = position;
+    }
+
+    /// <summary>Takes a probe off the list, if it is on it: it has been captured.</summary>
+    public void Delist(int group, int slot)
+    {
+        int[] places = _place[group]!;
+        int at = places[slot] - 1;
+        if (at < 0)
+        {
+            return;
+        }
+
+        places[slot] = 0;
+        int last = --Count;
+        if (at != last)
+        {
+            Move(last, at);
         }
     }
 
     /// <summary>Drops a group's probes, which are being replaced by <paramref name="count"/> new ones, none listed yet.</summary>
     public void DropGroup(int group, int count)
     {
-        _ids.RemoveAll(id => id.Cascade == group);
-        _listed[group] = new bool[count];
-    }
-
-    /// <summary>Makes room to list <paramref name="probes"/> probes without growing.</summary>
-    public void ReserveFor(int probes) => _ids.EnsureCapacity(probes);
-
-    /// <summary>Drops the probes that have been captured since they were listed, and returns the rest in order.</summary>
-    public ReadOnlySpan<ProbeId> DropCaptured()
-    {
         int kept = 0;
-        for (int i = 0; i < _ids.Count; i++)
+        for (int i = 0; i < Count; i++)
         {
-            var id = _ids[i];
-            if (state[id.Cascade]![id.Slot] == clean)
+            if (_ids[i].Cascade == group)
             {
-                _listed[id.Cascade]![id.Slot] = false;
                 continue;
             }
 
-            _ids[kept++] = id;
+            if (kept != i)
+            {
+                Move(i, kept);
+            }
+
+            kept++;
         }
 
-        _ids.RemoveRange(kept, _ids.Count - kept);
-        return CollectionsMarshal.AsSpan(_ids);
+        Count = kept;
+        _place[group] = new int[count];
+    }
+
+    /// <summary>Makes room to list <paramref name="probes"/> probes without growing.</summary>
+    public void ReserveFor(int probes)
+    {
+        if (_ids.Length >= probes)
+        {
+            return;
+        }
+
+        int room = Math.Max(probes, _ids.Length * 2);
+        Array.Resize(ref _ids, room);
+        Array.Resize(ref _positions, room);
+        Array.Resize(ref _tiers, room);
+    }
+
+    private void Move(int from, int to)
+    {
+        var id = _ids[from];
+        _ids[to] = id;
+        _positions[to] = _positions[from];
+        _tiers[to] = _tiers[from];
+        _place[id.Cascade]![id.Slot] = to + 1;
     }
 }

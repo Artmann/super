@@ -125,7 +125,7 @@ public sealed class MeshDetailTests
         DrawItem[] draws = [At(new Vector3(-1f, 0f, 0f)), At(new Vector3(500f, 0f, 0f)), At(new Vector3(0f, 0f, 50f)), At(new Vector3(1f, 0f, 0f))];
         var selected = new DrawItem[draws.Length];
 
-        int count = DrawSelection.Select(View(), draws, Details(1f), selected);
+        int count = Picking.Select(View(), draws, Details(1f), selected);
 
         Assert.Equal(2, count);
         Assert.Equal(-1f, selected[0].Transform.M41);
@@ -139,8 +139,22 @@ public sealed class MeshDetailTests
         DrawItem[] draws = [At(new Vector3(10.5f, 0f, 0f))];
         var selected = new DrawItem[1];
 
-        Assert.Equal(1, DrawSelection.Select(View(), draws, Details(1f), selected));
-        Assert.Equal(0, DrawSelection.Select(View(), draws, Details(0.1f), selected));
+        Assert.Equal(1, Picking.Select(View(), draws, Details(1f), selected));
+        Assert.Equal(0, Picking.Select(View(), draws, Details(0.1f), selected));
+    }
+
+    [Fact]
+    public void A_view_with_a_far_plane_leaves_out_what_is_past_the_end_of_its_depth()
+    {
+        // Depth here runs from 0, one unit from the eye, to 1. Half a unit from the eye is below 0, though inside the
+        // view's sides, and a ball of 0.1 doesn't reach back in.
+        var eye = new Vector3(0f, 0f, 10f);
+        var clip = Matrix4x4.CreateLookAt(eye, Vector3.Zero, Vector3.UnitY) * Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 2f, 1f, 1f, 100f);
+        DrawItem[] draws = [At(new Vector3(0f, 0f, 9.5f))];
+
+        Assert.Equal(0, Picking.Select(new DetailView(clip, eye, 500f, 0f, 1f, far: true), draws, Details(0.1f), new DrawItem[1]));
+        Assert.Equal(1, Picking.Select(new DetailView(clip, eye, 500f, 0f, 1f), draws, Details(0.1f), new DrawItem[1]));
+        Assert.Equal(1, Picking.Select(new DetailView(clip, eye, 500f, 0f, 1f, far: true), draws, Details(0.6f), new DrawItem[1]));
     }
 
     [Fact]
@@ -148,7 +162,7 @@ public sealed class MeshDetailTests
     {
         DrawItem[] draws = [At(new Vector3(10.5f, 0f, 0f)) with { Swim = new SwimMotion(1f, 1f, 0f) }];
 
-        Assert.Equal(1, DrawSelection.Select(View(), draws, Details(0.1f), new DrawItem[1]));
+        Assert.Equal(1, Picking.Select(View(), draws, Details(0.1f), new DrawItem[1]));
     }
 
     // At x = 10.5 a ball must reach about 0.354 (0.5 / √2) to touch the 90° view. A sway of 0.5 adds 0.52 at the tip.
@@ -157,7 +171,7 @@ public sealed class MeshDetailTests
     {
         DrawItem[] draws = [At(new Vector3(10.5f, 0f, 0f))];
 
-        Assert.Equal(1, DrawSelection.Select(View(), draws, Details(0.1f), new DrawItem[1], new WindReach(0.5f, _ => 1f)));
+        Assert.Equal(1, Picking.Select(View(), draws, Details(0.1f), new DrawItem[1], new WindReach(0.5f, _ => 1f)));
     }
 
     [Fact]
@@ -165,8 +179,8 @@ public sealed class MeshDetailTests
     {
         DrawItem[] draws = [At(new Vector3(10.5f, 0f, 0f))];
 
-        Assert.Equal(0, DrawSelection.Select(View(), draws, Details(0.1f), new DrawItem[1], new WindReach(0f, _ => 1f)));
-        Assert.Equal(0, DrawSelection.Select(View(), draws, Details(0.1f), new DrawItem[1], new WindReach(0.5f, _ => 0f)));
+        Assert.Equal(0, Picking.Select(View(), draws, Details(0.1f), new DrawItem[1], new WindReach(0f, _ => 1f)));
+        Assert.Equal(0, Picking.Select(View(), draws, Details(0.1f), new DrawItem[1], new WindReach(0.5f, _ => 0f)));
     }
 
     [Fact]
@@ -178,7 +192,7 @@ public sealed class MeshDetailTests
             Transform = Matrix4x4.CreateScale(0.01f) * Matrix4x4.CreateTranslation(10.5f, 0f, 0f),
         }];
 
-        Assert.Equal(1, DrawSelection.Select(View(), draws, Details(10f), new DrawItem[1], new WindReach(0.5f, _ => 1f)));
+        Assert.Equal(1, Picking.Select(View(), draws, Details(10f), new DrawItem[1], new WindReach(0.5f, _ => 1f)));
     }
 
     [Fact]
@@ -190,7 +204,7 @@ public sealed class MeshDetailTests
         var details = Details(0.1f, new DetailLevel(300, 60, 0.0195f));
         var selected = new DrawItem[1];
 
-        DrawSelection.Select(View(), draws, details, selected, new WindReach(0.5f, _ => 1f));
+        Picking.Select(View(), draws, details, selected, new WindReach(0.5f, _ => 1f));
 
         Assert.Equal(60u, selected[0].IndexCount);
     }
@@ -200,9 +214,11 @@ public sealed class MeshDetailTests
     {
         // 0.1 of part, plus 0.5 × 0.5 of lean and 0.02 of flutter.
         DrawItem[] draws = [At(new Vector3(1f, 2f, 3f))];
-        var bounds = new Vector4[1];
+        var measured = new DrawBalls();
 
-        DrawSelection.Bounds(draws, Details(0.1f), bounds, new WindReach(0.5f, _ => 0.5f));
+        measured.Measure(draws, Details(0.1f), new WindReach(0.5f, _ => 0.5f));
+        var bounds = measured.Casters;
+        Assert.Equal(1, bounds.Length);
 
         Assert.Equal(new Vector3(1f, 2f, 3f), new Vector3(bounds[0].X, bounds[0].Y, bounds[0].Z));
         Assert.Equal(0.37f, bounds[0].W, 1e-6f);
@@ -214,7 +230,7 @@ public sealed class MeshDetailTests
         DrawItem[] draws = [At(new Vector3(500f, 0f, 0f)) with { Detail = default }];
         var selected = new DrawItem[1];
 
-        Assert.Equal(1, DrawSelection.Select(View(), draws, Details(1f), selected));
+        Assert.Equal(1, Picking.Select(View(), draws, Details(1f), selected));
         Assert.Equal(300u, selected[0].IndexCount);
     }
 
@@ -226,7 +242,7 @@ public sealed class MeshDetailTests
 
         // 500 pixels at one unit away: 50 per unit from 10 away, 5 from 100, 1,000 from 0.5.
         DrawItem[] draws = [At(new Vector3(0f, 0f, -90f)), At(Vector3.Zero), At(new Vector3(0f, 0f, 9.5f))];
-        DrawSelection.Select(View(), draws, details, selected);
+        Picking.Select(View(), draws, details, selected);
 
         Assert.Equal((400u, 30u), (selected[0].FirstIndex, selected[0].IndexCount));
         Assert.Equal((300u, 100u), (selected[1].FirstIndex, selected[1].IndexCount));
@@ -240,7 +256,7 @@ public sealed class MeshDetailTests
         var selected = new DrawItem[draws.Length];
         var view = new DetailView(Camera, new Vector3(0f, 0f, 10f), 500f, 0f, 1f, cull: false);
 
-        int count = DrawSelection.Select(view, draws, Details(1f), selected);
+        int count = Picking.Select(view, draws, Details(1f), selected);
 
         Assert.Equal(3, count);
         Assert.Equal([-1f, 500f, 0f], selected.Select(draw => draw.Transform.M41));
@@ -254,7 +270,7 @@ public sealed class MeshDetailTests
         DrawItem[] draws = [At(Vector3.Zero) with { Transform = Matrix4x4.CreateScale(10f) }];
         var selected = new DrawItem[1];
 
-        DrawSelection.Select(View(), draws, details, selected);
+        Picking.Select(View(), draws, details, selected);
 
         Assert.Equal(300u, selected[0].IndexCount);
     }

@@ -35,9 +35,10 @@ internal sealed class LightShadowTiles(
 
     /// <summary>
     /// Picks what each tile can see, one tile after another, and returns how many draws there are in all. A tile the
-    /// atlas still holds as it would be drawn is left out, with no draws.
+    /// atlas still holds as it would be drawn is left out, with no draws. <paramref name="measured"/> is of
+    /// <paramref name="draws"/>.
     /// </summary>
-    public int Select(ReadOnlySpan<ShadowView> tiles, ReadOnlySpan<DrawItem> draws, float meshDetailScale)
+    public int Select(ReadOnlySpan<ShadowView> tiles, ReadOnlySpan<DrawItem> draws, DrawBalls measured, float meshDetailScale)
     {
         int total = 0;
         int drawn = 0;
@@ -52,7 +53,7 @@ internal sealed class LightShadowTiles(
             ref readonly var view = ref tiles[tile];
             var shadow = new DetailView(
                 view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, switches.DetailError(ShadowDetailError, meshDetailScale), far: true, cull: switches.Culls);
-            int count = DrawSelection.Select(shadow, draws, casters.Meshes.DetailSlots, _draws.AsSpan(total), switches.WindReach, fades: switches.FadeRules);
+            int count = DrawSelection.Select(shadow, draws, measured, _draws.AsSpan(total));
             bool redraw = _cache.NeedsDrawing(view, _draws.AsSpan(total, count), switches.WindReach, _shapeOf);
             _ranges[tile] = new ShadowPass.TileDraws(total, redraw ? count : 0, redraw);
             total += _ranges[tile].Count;

@@ -1,6 +1,7 @@
 using System.Numerics;
 using Rendition;
 using Rendition.Passes;
+using Super.Testing;
 
 namespace Super.Tests;
 
@@ -129,6 +130,41 @@ public sealed class DrawBatchTests
         Batch(draws, keepOrder: false, out int[] order);
 
         Assert.Equal([0u, 36u, 72u, 108u], order.Select(i => draws[i].FirstIndex));
+    }
+
+    [Theory, Seeds(10)]
+    public void A_crowded_view_has_one_draw_for_each_look_holding_every_copy_of_it_in_the_order_they_came(int seed)
+    {
+        var draws = DrawBatchBenchmarkTests.CrowdedView(seed);
+
+        var batches = Batch(draws, keepOrder: false, out int[] order);
+
+        var looks = new HashSet<(int Mesh, uint FirstIndex, uint IndexCount, int Material)>();
+        foreach (var batch in batches)
+        {
+            int[] copies = order.AsSpan(batch.First, batch.Count).ToArray();
+            var look = Assert.Single(copies.Select(LookOf).Distinct());
+            Assert.True(looks.Add(look), $"{look} is drawn by more than one draw.");
+            Assert.Equal(copies.Order(), copies);
+        }
+
+        Assert.Equal(draws.Select((_, i) => LookOf(i)).Distinct().Count(), batches.Count);
+        Assert.Equal(Enumerable.Range(0, draws.Length), order.Order());
+        Assert.Equal(draws.Length, batches.Sum(batch => batch.Count));
+
+        (int, uint, uint, int) LookOf(int i) => (draws[i].Mesh.Index, draws[i].FirstIndex, draws[i].IndexCount, draws[i].Material.Index);
+    }
+
+    [Fact]
+    public void A_crowd_of_one_skinned_model_is_as_many_draws_as_it_has_members()
+    {
+        var skinned = Part(0) with { Bones = new BoneRange(0, 20) };
+        DrawItem[] crowd = [.. Enumerable.Repeat(skinned, 500)];
+
+        var batches = Batch(crowd, keepOrder: false, out int[] order);
+
+        Assert.Equal(500, batches.Count);
+        Assert.Equal(Enumerable.Range(0, 500), order.Order());
     }
 
     [Fact]

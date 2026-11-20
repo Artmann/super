@@ -65,13 +65,10 @@ internal readonly struct ProbeCandidate(byte tier, long age, float distance, int
     public static float Rank(Vector3 position, int group, Vector3 camera, Vector3 forward)
     {
         var offset = position - camera;
-        float distance = offset.LengthSquared() * CascadeScale[group];
-        if (forward != Vector3.Zero && Vector3.Dot(offset, forward) > 0f)
-        {
-            distance *= FrontScale;
-        }
-
-        return distance;
+        // A zero forward is in front of nothing, so it needs no check of its own. Written without a branch: which
+        // side a probe is on is as good as a coin toss to the processor.
+        float side = Vector3.Dot(offset, forward) > 0f ? FrontScale : 1f;
+        return offset.LengthSquared() * CascadeScale[group] * side;
     }
 
     /// <summary>How many candidates at the front of a sorted span have a tier before <paramref name="tier"/>.</summary>
@@ -84,66 +81,5 @@ internal readonly struct ProbeCandidate(byte tier, long age, float distance, int
         }
 
         return count;
-    }
-
-    /// <summary>Keeps the best <paramref name="budget"/> candidates offered so far in a heap whose root is the worst of them.</summary>
-    public static void Offer(ProbeCandidate[] heap, ref int size, int budget, in ProbeCandidate candidate)
-    {
-        if (size < budget)
-        {
-            heap[size] = candidate;
-            SiftUp(heap, size);
-            size++;
-        }
-        else if (candidate.Before(heap[0]))
-        {
-            heap[0] = candidate;
-            SiftDown(heap, size);
-        }
-    }
-
-    // The heap's root is the worst probe kept so far, so a new probe is compared with the root only.
-    private static void SiftUp(ProbeCandidate[] heap, int index)
-    {
-        while (index > 0)
-        {
-            int parent = (index - 1) / 2;
-            if (!heap[parent].Before(heap[index]))
-            {
-                return;
-            }
-
-            (heap[parent], heap[index]) = (heap[index], heap[parent]);
-            index = parent;
-        }
-    }
-
-    private static void SiftDown(ProbeCandidate[] heap, int size)
-    {
-        int index = 0;
-        while (true)
-        {
-            int worst = index;
-            int left = index * 2 + 1;
-            int right = left + 1;
-
-            if (left < size && heap[worst].Before(heap[left]))
-            {
-                worst = left;
-            }
-
-            if (right < size && heap[worst].Before(heap[right]))
-            {
-                worst = right;
-            }
-
-            if (worst == index)
-            {
-                return;
-            }
-
-            (heap[worst], heap[index]) = (heap[index], heap[worst]);
-            index = worst;
-        }
     }
 }

@@ -40,7 +40,7 @@ internal sealed class ReflectionProbeOrder
         FarDepth = float.MinValue;
         for (int slot = 0; slot < slots.Length && Count < MaxProbes; slot++)
         {
-            if (slots[slot] is { } probe && frustum.CanSee((probe.BoxMin + probe.BoxMax) * 0.5f, (probe.BoxMax - probe.BoxMin).Length() * 0.5f))
+            if (slots[slot] is { } probe && frustum.CanSee(new Vector4((probe.BoxMin + probe.BoxMax) * 0.5f, (probe.BoxMax - probe.BoxMin).Length() * 0.5f)))
             {
                 Widen(probe, view);
                 Insert(slots, slot, probe);

@@ -84,8 +84,8 @@ internal readonly struct ProbeGridPlacement(Vector3 min, Int3 count, float spaci
 /// bounce has had <see cref="BounceRefreshes"/> refreshes; distance only breaks ties.
 ///
 /// <see cref="Next"/> never looks at every probe. <see cref="ProbeStates"/> keeps the probes that aren't clean in a
-/// list as they change state, and <see cref="ProbeBatchPicker"/> keeps the best <c>budget</c> of them in a small
-/// binary heap. Clean probes are found through a queue of captures in the order they were made, so the oldest are at
+/// list as they change state, and <see cref="ProbeBatchPicker"/> gives each one number and brings the lowest
+/// <c>budget</c> of them forward. Clean probes are found through a queue of captures in the order they were made, so the oldest are at
 /// its front and only about a budget of them are read. A settled scene so costs O(budget log budget) a frame however
 /// many probes there are. Once its buffers have grown, nothing on the per-frame path allocates: <see cref="Next"/>
 /// hands back the same list each call, and <see cref="Settled"/> reads counts kept as probes change state rather than

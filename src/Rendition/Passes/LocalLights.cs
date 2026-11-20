@@ -128,7 +128,7 @@ internal sealed class LocalLights
         for (int i = 0; i < lights.Length; i++)
         {
             ref readonly var light = ref lights[i];
-            if (light.Range <= 0f || !camera.Frustum.CanSee(light.Position, light.Range))
+            if (light.Range <= 0f || !camera.Frustum.CanSee(new Vector4(light.Position, light.Range)))
             {
                 continue;
             }
@@ -176,7 +176,7 @@ internal sealed class LocalLights
         for (int i = 0; i < lights.Length; i++)
         {
             ref readonly var light = ref lights[i];
-            if (light.Range > 0f && !frustum.CanSee(light.Position, light.Range))
+            if (light.Range > 0f && !frustum.CanSee(new Vector4(light.Position, light.Range)))
             {
                 gpuLights[all++] = ToGpu(light, -1f, shadows && light.CastsShadow, maskChannels);
             }

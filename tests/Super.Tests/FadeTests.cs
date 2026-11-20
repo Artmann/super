@@ -30,7 +30,7 @@ public sealed class FadeTests
     private static DrawItem[] Select(DrawItem draw, List<PartDetail> details, FadeRules rules)
     {
         var selected = new DrawItem[2];
-        int count = DrawSelection.Select(View(), [draw], details, selected, fades: rules);
+        int count = Picking.Select(View(), [draw], details, selected, fades: rules);
         return selected[..count];
     }
 
@@ -189,7 +189,7 @@ public sealed class FadeTests
         var selected = new DrawItem[4];
         var sources = new int[4];
 
-        int count = DrawSelection.Select(View(), draws, OneLevel(0.018f), selected, sources: sources, fades: new FadeRules(Eye, smooth: true));
+        int count = Picking.Select(View(), draws, OneLevel(0.018f), selected, sources: sources, fades: new FadeRules(Eye, smooth: true));
 
         Assert.Equal(2, count);
         Assert.Equal([1, 1], sources[..count]);
