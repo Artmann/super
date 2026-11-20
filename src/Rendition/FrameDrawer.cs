@@ -155,6 +155,9 @@ internal sealed class FrameDrawer
 
         _parts.FrameStages.PostStage.TakeLens(view, stores.Switches.Off, (int)targets.GBuffer.Extent.Width);
         _parts.FrameStages.PostStage.Grade.Take(PostGrade.Without(view.Picture.Post, stores.Switches.Off), stores.Ring.Index);
+        var fog = Fog.Pack(view.Weather.Fog, stores.Switches.Off, underwater: stores.Switches.Underwater(view));
+        _parts.FrameStages.PostStage.Flare.Take(
+            view, stores.Switches.Off, fog, (stores.Ring.Index, targets.GBuffer.Picture.HistoryReady, targets.GBuffer.Extent));
     }
 
     /// <summary>

@@ -329,6 +329,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.SpeedBlur), RenderEffects.SpeedBlur)]
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.Flashes), RenderEffects.Flashes)]
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.ScreenEffects), RenderEffects.ScreenEffects)]
+    [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.LensFlare), RenderEffects.LensFlare)]
     [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.Culling), RenderEffects.Culling)]
     [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.SimplerModels), RenderEffects.SimplerModels)]
     [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.DepthFirst), RenderEffects.DepthFirst)]
@@ -366,7 +367,8 @@ public class GraphicsTests
             | RenderEffects.AutoExposure | RenderEffects.DepthOfField | RenderEffects.Decals | RenderEffects.VolumetricFog
             | RenderEffects.Puddles | RenderEffects.Wind | RenderEffects.HeightMaps | RenderEffects.Vignette
             | RenderEffects.Grain | RenderEffects.Sharpening | RenderEffects.Subsurface | RenderEffects.FogVolumes
-            | RenderEffects.ScreenBounce | RenderEffects.OcclusionHistory | RenderEffects.ChromaticAberration | RenderEffects.SpeedBlur,
+            | RenderEffects.ScreenBounce | RenderEffects.OcclusionHistory | RenderEffects.ChromaticAberration | RenderEffects.SpeedBlur
+            | RenderEffects.LensFlare,
             GraphicsSwitches.Off(graphics));
         Assert.True(graphics.Surfaces.Materials);
         Assert.True(graphics.Baking.BakedLighting);
