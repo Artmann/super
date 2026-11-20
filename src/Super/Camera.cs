@@ -245,3 +245,5 @@ public sealed class FollowCamera : CameraRig
         ShowNext(new Camera(_target + Offset, _target, FieldOfView));
     }
 }
+
+// Probe for timing the quick job. Not for merging.
