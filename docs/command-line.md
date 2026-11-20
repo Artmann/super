@@ -15,6 +15,7 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--seed N` | Seeds [`GameRandom`](random.md). The same seed plays the same game |
 | `--ticks N` | Plays this many ticks first, as fast as the machine can. Needs `--screenshot`, `--record`, `--profile`, `--bake` or `--bake-check` |
 | `--screenshot file.png` | Saves the picture at that moment, then exits. It first waits for the light probes near the camera to settle, up to 2,048 frames. Without tracing (`--no-trace`, or a GPU that can't trace), a dense scene such as Courtyard can reach that cap first, and then the shot shows the probes still filling in and the console says so. See [Screenshots](#screenshots) |
+| `--neutral-lut` | Stamps a colour table that changes nothing, 1024 by 32 pixels, in the top left corner of the `--screenshot`, and turns the game's own colour table off for it. Grade the picture in a paint program and cut the strip back out as a `.lut.png`; see [a colour table](rendering.md#a-colour-table). Needs `--screenshot` and a picture at least 1024 pixels wide |
 | `--record file.mp4 --seconds S` | Saves that many seconds of video, then exits |
 | `--fps N` | Frames per second for `--record`, 60 by default |
 | `--size WxH` | The picture size in pixels, such as `1920x1080`, or `1080x1920` for a vertical video, on a Mac's Retina screen too. The game's window size by default |
@@ -177,7 +178,9 @@ internal sealed class MyColony(GameCapture capture) : IGame
 }
 ```
 
-- `Screenshot` saves the next frame as a PNG. Folders are created for you.
+- `Screenshot` saves the next frame as a PNG. Folders are created for you. `Screenshot(path, neutralLut: true)`
+  stamps the neutral colour table on it, as `--neutral-lut` does; turn `Graphics.Picture.ColorLut` off first so the
+  game's own table isn't in the picture.
 - While recording, each frame moves the game on by exactly one video frame. Instead of a
   stuttering video you get a game that may run slowly until `StopRecording`.
 - Recording includes the game's sound, written to a .wav beside the video and added to it at the end (see `--record` above). In live play the sound device is paused while recording, so the sound is in the video but not through the speakers.

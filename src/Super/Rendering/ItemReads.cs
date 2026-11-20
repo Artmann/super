@@ -14,12 +14,19 @@ internal static class ItemReads
     {
         string name => PrepareModel(name, files),
         ShaderItem shader => new PreparedShader(shader.Name, LoadShader(shader.Name)),
-        TextureItem texture => LoadTexture(texture),
-        TextureArrayItem array => Array.ConvertAll(array.Layers, LoadTexture),
-        SkyItem sky => LoadSky(sky),
         GameImage image => LoadImage(image),
         GeneratedMesh mesh => PrepareMesh(mesh),
         UnloadedItem unloaded => unloaded, // Let go before the window saw it.
+        _ => ReadPicture(item),
+    };
+
+    /// <summary>Reads a texture, a texture array, a sky's picture or a colour table.</summary>
+    private static object ReadPicture(object item) => item switch
+    {
+        TextureItem texture => LoadTexture(texture),
+        TextureArrayItem array => Array.ConvertAll(array.Layers, LoadTexture),
+        SkyItem sky => LoadSky(sky),
+        LutItem lut => LoadLut(lut),
         _ => throw new InvalidOperationException($"Content can't load a {item.GetType().Name}."),
     };
 
@@ -133,6 +140,13 @@ internal static class ItemReads
     {
         using var stream = item.Files.Open(item.Name);
         return SkyImageData.Read(stream, item.Name);
+    }
+
+    /// <summary>Reads an artist's colour table.</summary>
+    private static ColorLutData LoadLut(LutItem item)
+    {
+        using var stream = item.Files.Open(item.Name);
+        return ColorLutData.Read(stream, item.Name);
     }
 
     /// <summary>A generated mesh, with the pixels of the texture it owns made into one.</summary>

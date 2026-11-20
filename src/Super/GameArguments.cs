@@ -30,7 +30,8 @@ internal sealed record GameArguments(
     bool BakeCheck = false,
     Rendition.BakeQuality BakeQuality = Rendition.BakeQuality.Final,
     string? GraphicsProfile = null,
-    bool Stats = false)
+    bool Stats = false,
+    bool NeutralLut = false)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -61,6 +62,7 @@ internal sealed record GameArguments(
         ["--vsync"] = (parsed, _) => parsed with { Vsync = true },
         ["--stats"] = (parsed, _) => parsed with { Stats = true },
         ["--no-materials"] = (parsed, _) => parsed with { NoMaterials = true },
+        ["--neutral-lut"] = (parsed, _) => parsed with { NeutralLut = true },
         ["--no-trace"] = (parsed, _) => parsed with { NoTrace = true },
         ["--bake"] = (parsed, _) => parsed with { Bake = true },
         ["--bake-check"] = (parsed, _) => parsed with { BakeCheck = true },
@@ -139,6 +141,8 @@ internal sealed record GameArguments(
             throw new ArgumentException("--screenshot, --record and --profile can't run together.");
         }
 
+        CheckNeutralLut();
+
         // A run without a window decides for itself whether to wait for the display.
         if (Vsync && Captures)
         {
@@ -149,6 +153,19 @@ internal sealed record GameArguments(
         if (Stats && ProfilePath is not null)
         {
             throw new ArgumentException("--stats can't run with --profile, which measures the frames itself and writes what it found to its report.");
+        }
+    }
+
+    private void CheckNeutralLut()
+    {
+        if (NeutralLut && ScreenshotPath is null)
+        {
+            throw new ArgumentException("--neutral-lut needs --screenshot, since it stamps the neutral colour table on the picture saved.");
+        }
+
+        if (NeutralLut && Width < NeutralLutStrip.Width)
+        {
+            throw new ArgumentException($"--neutral-lut needs a picture at least {NeutralLutStrip.Width} pixels wide to hold the colour table, but --size asks for {Width}.");
         }
     }
 

@@ -141,8 +141,8 @@ public enum RenderEffects : long
 
     /// <summary>
     /// The view's grade: <see cref="PostSettings.Contrast"/>, <see cref="PostSettings.Saturation"/>,
-    /// <see cref="PostSettings.Lift"/>, <see cref="PostSettings.Gain"/> and the white balance. Without it they are all
-    /// neutral. The tonemapper and its look stay, as they're how the light fits on a screen.
+    /// <see cref="PostSettings.Lift"/>, <see cref="PostSettings.Gain"/>, the white balance, the hue shift, the channel
+    /// mixer, the tones and split toning. Without it they are all neutral. The tonemapper and its look stay, as they're how the light fits on a screen.
     /// </summary>
     ColorGrading = 1 << 26,
 
@@ -238,9 +238,15 @@ public enum RenderEffects : long
     /// </summary>
     OcclusionHistory = 1L << 41,
 
+    /// <summary>
+    /// The artist's colour table, <see cref="ColorGrade.Lut"/>. Without it the picture is graded as if it had none.
+    /// Only the CPU reads it: the table is part of the grade's bake, which runs only when the grade changes.
+    /// </summary>
+    ColorLut = 1L << 42,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
         | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
-        | ScreenBounce | AerialPerspective | Stars | OcclusionHistory,
+        | ScreenBounce | AerialPerspective | Stars | OcclusionHistory | ColorLut,
 }

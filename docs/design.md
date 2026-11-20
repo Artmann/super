@@ -1560,9 +1560,10 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
   shader has run, and after ghosts have returned with their glow. `transparent.frag` zeroes the
   material's emissive before the ghost's is set, and `probeRadiance` in `probe_light.glsl` leaves
   it out, so neither captures nor traced probes see glows. Bakes keep theirs.
-- `Vignette`, `Grain`, `Sharpening` and `ColorGrading` (bits 23 to 26) work on the CPU:
-  `PostGrade.Without` sets the matching `PostSettings` to neutral before `FrameUniformWriter` packs
-  them, and `finish.frag` already skips the sharpening work when its strength is 0.
+- `Vignette`, `Grain`, `Sharpening` and `ColorGrading` (bits 23 to 26), and `ColorLut` (bit 42), work
+  on the CPU: `PostGrade.Without` sets the matching `PostSettings` to neutral before
+  `FrameUniformWriter` packs them and `GradeLut.Take` keys the bake on them, and `finish.frag`
+  already skips the sharpening work when its strength is 0.
 - `Culling` (bit 27) makes `DetailView.CanSee` true for every ball, for the camera, the
   cascades and the light tiles alike. `SimplerModels` (bit 28) hands `DetailView` a `MaxError`
   of 0, which no simpler level meets, since every level's error is above 0.
@@ -3860,10 +3861,11 @@ to how a lens scatters light, and nothing pops as a surface crosses a threshold.
 `PostSettings.Bloom` adds to the share, which starts at 5%.
 
 Tonemapping uses AgX by default and Stephen Hill's fit of the ACES film transform when
-`PostSettings.Tonemapper` asks for `Aces`. `PostGrade.Curve` fills `frame.curve` (after
-`whiteBalance`): x is 1 for ACES, and y and z are the AgX look's power and saturation. The
-shader picks the curve with a branch that is the same for every pixel, so there is no
-second pipeline and no `RenderEffects` bit. AgX is Benjamin Wrensch's minimal form of
+`PostSettings.Tonemapper` asks for `Aces`, and Khronos PBR Neutral for `Neutral`.
+`PostGrade.Curve` fills `frame.curve` (after `colorMatrix`): x is 0 for AgX, 1 for ACES and 2
+for Neutral, y and z are the AgX look's power and saturation, and w is how much of the artist's
+table shows. The bake picks the curve with a branch that is the same for every cell, so there
+is no second pipeline and no `RenderEffects` bit. AgX is Benjamin Wrensch's minimal form of
 Blender 4's: an inset matrix pulls each colour a little towards white, log2 encodes it
 between 2^-12.47 and 2^4.03 (about 10 stops below middle grey and 6.5 above), and a
 sixth-order polynomial fits the contrast curve. The look then works on those display
@@ -3874,11 +3876,17 @@ away from that luma by the saturation. `AgxLook.Punchy`, the default, is Wrensch
 comes out at about 0.21 through ACES and the base look, so swapping those needs no exposure
 change; Punchy's power takes it to about 0.12, near 0.8 of a stop darker. The ACES fit works
 in ACES's own colour space, so very bright colours fade towards white instead of shifting
-hue, and `ACES_EXPOSURE` in `tonemap.frag` keeps the scene as bright as the lighting was
-balanced for.
+hue, and `ACES_EXPOSURE` in `tonemap.glsl` keeps the scene as bright as the lighting was
+balanced for. PBR Neutral is written from the Khronos specification and keeps its Apache 2.0
+notice: under a peak of 0.76 colours pass through with only a small offset in the darks, and
+above it the peak rolls off towards 1 while the colour eases towards white.
 
-White balance is a 3x3 matrix in `frame.whiteBalance` (a mat4, after `fog`), built on the
-CPU each frame by `PostGrade.WhiteBalance`. `Temperature` picks a black-body white from
+White balance is a 3x3 matrix built on the CPU each frame by `PostGrade.WhiteBalance`. It is
+multiplied with the channel mixer and the hue shift into one matrix, `frame.colorMatrix` (a
+mat4, after `fog`), by `PostGrade.ColorMatrix`, in that order. The mixer is the identity plus
+`ColorGrade`'s `RedFrom`, `GreenFrom` and `BlueFrom` as its columns, for System.Numerics' row vector on the
+left; the hue shift is Rodrigues' rotation about the
+grey axis, so grey stays grey and +120 degrees takes red to green. `Temperature` picks a black-body white from
 4000 K at -1 through 6500 K at 0 to 12000 K at 1, evenly in mireds, from Krystek's fit of
 the Planckian locus in CIE 1960 uv. `Tint` moves it up to 0.02 off the locus, square to it,
 positive towards green. The matrix adapts that white to the 6500 K one by Bradford cone
@@ -3890,6 +3898,46 @@ It is applied after exposure and before contrast, saturation and the curve. `vie
 refuses values outside -1 to 1; `WhiteBalance` itself clamps them and counts NaN as 0, so
 Rendition used alone never uploads a broken matrix. Probe captures never reach the tonemap,
 so neither setting is in the lighting hashes.
+
+### The grade's table
+
+Everything between exposure and the finish is the same for every pixel, so `grade_lut.comp`
+bakes it into a 64³ RGBA16F storage image, and `tonemap.frag` does one filtered read of it per
+pixel after it has applied the exposure and the bloom. The bake runs, in order, the colour
+matrix, contrast round middle grey, saturation, the curve, the gain and the lift, the tones and
+split toning, and the artist's table. Linear light is too wide for 64 cells, so each axis is
+log2 of the light plus 2^-10, from 2^-10, which is black, to 2^8 times white, past which the light
+is held; `grade_lut.glsl` holds the shaper both shaders use. AgX's own encoding spans about
+16.5 stops, so 18 stops in 63 steps leaves the curve's slope well sampled: the Hamlet, Courtyard,
+Forest and Gallery shots moved by at most 6 steps of 255 against the old per-pixel tonemap.
+
+`GradeLut.Take` packs what the bake reads into a `BakeKey`, from `PostGrade.Without`'s settings,
+with the artist table's image view and the pipeline's handle so a shader reload bakes again. It
+leaves out exposure, the vignette, grain, sharpening and bloom, which are worked out a pixel at a
+time. `Record` compares the key's bytes with the last bake's and returns when they match, so a
+frame with an unchanged grade records nothing; `Bakes` counts the bakes for the GPU tests.
+There is one table, not one per frame in flight. The bake waits on the GPU for nothing: a
+barrier from the fragment shader's reads to the compute shader's writes puts the last frame's
+tonemap before it on the same queue, and another puts it before this frame's.
+
+The tones and split toning work on display colour put through a 2.2 power, where the eye
+splits the picture into shadows, mid-tones and highlights: the shadows fade out between luma
+0.05 and 0.45 and the highlights fade in between 0.55 and 0.95, and the mid-tones are what is
+left. The tones scale each channel, so black stays black. Split toning adds its colour with its
+own luma taken out, so it moves the hue and not the brightness, and `SplitBalance` moves the
+turn from 0.5 to between 0.1 and 0.9. `frame.look.y` is 1 only when one of the five is set, so
+an ungraded picture skips them.
+
+An artist's table is a `CellVolume`, a 3D RGBA16F image of its own cells, which the bake reads
+with a linear sampler over sRGB-encoded colour, as grading tools make them. Only 0 to 1 goes
+through it: the part of the colour past either end is added back after, so a neutral table gives
+back what came in, which the GPU test checks within a step. Without a table, or at a blend of 0,
+`Without` drops it and the bake reads a 2-cell neutral one, so the descriptor is never empty.
+Each bake points its frame slot's set at the table it reads, which is free to change since that
+slot's last frame is done. `ColorLuts` keeps the tables and the neutral one, and they live until
+the renderer is disposed, and `Renderer.CreateColorLut` waits for the upload,
+so a Super game makes them while content loads. Super cooks `.cube` files and `.lut.png` strips
+with `LutCooker` into `ColorLutData`'s own little format, `RLUT` and a version before the halves.
 
 Auto exposure meters the frame on the GPU and never reads it back. Before the tonemap,
 `exposure_histogram.comp` reads the image the tonemap and bloom read (resolved, or HDR
@@ -5420,6 +5468,11 @@ change does too.
 
 ## Known simplifications to revisit
 
+- The grade's table is 64 cells a side, so a grade that bends sharply between cells, such as
+  a hard posterise in an artist's table, is softened. An artist's table sees only colours from
+  0 to 1, and the vignette, grain and sharpening come after it. Tables can't be freed before
+  the renderer is, and there is one table, so two views with different grades in a frame would
+  bake twice. The tones and split toning use a 2.2 power for display colour, not the sRGB curve.
 - Only cooked models' textures are block-compressed. Textures loaded on their own, graph
   textures cooked by themselves and generated shapes' textures stay RGBA8.
 - The table holds at most 1024 textures (955 on MoltenVK), 1024 materials and 256 texture arrays.

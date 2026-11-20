@@ -176,6 +176,7 @@ public sealed class ViewEffects
 
         RefuseOutsideOne(settings.Temperature, "temperature");
         RefuseOutsideOne(settings.Tint, "tint");
+        CheckGrade(settings);
         ThinLens.Check(
             settings.FocusDistance, settings.Aperture, ThinLens.FocalLength(settings.FocalLength), nameof(settings));
         Post = settings;
@@ -188,6 +189,31 @@ public sealed class ViewEffects
                     nameof(settings),
                     string.Create(CultureInfo.InvariantCulture, $"The white balance {name} must be from -1 to 1, with 0 for no change, but it is {value}."));
             }
+        }
+    }
+
+    // The hue shift, the split toning's balance and the colour table's blend.
+    private static void CheckGrade(in PostSettings settings)
+    {
+        if (!float.IsFinite(settings.Grade.HueShift))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                string.Create(CultureInfo.InvariantCulture, $"The hue shift must be a number of degrees, but it is {settings.Grade.HueShift}."));
+        }
+
+        if (!(settings.Grade.SplitBalance is >= -1f and <= 1f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                string.Create(CultureInfo.InvariantCulture, $"The split toning balance must be from -1 to 1, with 0 for the middle, but it is {settings.Grade.SplitBalance}."));
+        }
+
+        if (!(settings.Grade.LutBlend is >= 0f and <= 1f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                string.Create(CultureInfo.InvariantCulture, $"The colour table's blend must be from 0, none, to 1, all of it, but it is {settings.Grade.LutBlend}."));
         }
     }
 

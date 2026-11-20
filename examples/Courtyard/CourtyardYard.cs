@@ -109,7 +109,9 @@ public static class CourtyardYard
     /// <summary>
     /// The camera meters the courtyard and sets the brightness itself, then adds a little over a stop: AgX's Punchy
     /// look, the default, deepens the mid-tones, and the sunlit wall should read bright. A touch more contrast and
-    /// saturation for an afternoon sun, a warm white balance, a light vignette and a little bloom round the lamp. The
+    /// saturation for an afternoon sun, a warm white balance, a light vignette and a little bloom round the lamp. Split
+    /// toning leans the shade towards teal, a highlights tint warms the sunlit bricks towards amber, the old film look of
+    /// a late afternoon, and the mid-tones take a little warmth so the cool shade doesn't chill the flagstones. The
     /// lens is a 35 mm, focused on the window, 11 m off, and stopped down to f/8, so the flagstones at our feet soften a
     /// little and the window and the wall stay crisp.
     /// </summary>
@@ -126,6 +128,12 @@ public static class CourtyardYard
             Vignette = 0.3f,
             Sharpen = 0.15f,
             Bloom = 0.05f,
+            Grade = new ColorGrade
+            {
+                SplitShadows = new Vector3(0f, 0.03f, 0.06f),
+                Highlights = new Vector3(0.04f, 0.015f, 0f),
+                Midtones = new Vector3(0.02f, 0.01f, 0f),
+            },
             FocalLength = 35f,
         });
 }

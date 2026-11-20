@@ -18,8 +18,9 @@ internal static class PostGrade
 
     /// <summary>
     /// <paramref name="post"/> with what <paramref name="off"/> leaves out set back to neutral: the vignette, the grain,
-    /// the sharpening, and with <see cref="RenderEffects.ColorGrading"/> the contrast, saturation, lift, gain and white
-    /// balance. The exposure, the bloom, the tonemapper and the lens are left alone.
+    /// the sharpening, with <see cref="RenderEffects.ColorGrading"/> the contrast, saturation, lift, gain, white
+    /// balance, hue shift, channel mixer, tones and split toning, and with <see cref="RenderEffects.ColorLut"/> the
+    /// artist's table. The exposure, the bloom, the tonemapper and the lens are left alone.
     /// </summary>
     public static PostSettings Without(PostSettings post, RenderEffects off)
     {
@@ -46,9 +47,87 @@ internal static class PostGrade
             post.Gain = Vector3.Zero;
             post.Temperature = 0f;
             post.Tint = 0f;
+            // The artist's table has its own switch.
+            post.Grade = new ColorGrade { Lut = post.Grade.Lut, LutBlend = post.Grade.LutBlend };
+        }
+
+        // A table that doesn't show is no table, so the bake never reads one it would mix in none of.
+        if ((off & RenderEffects.ColorLut) != 0 || post.Grade.Lut is null || !(post.Grade.LutBlend > 0f))
+        {
+            post.Grade.Lut = null;
+            post.Grade.LutBlend = 0f;
         }
 
         return post;
+    }
+
+    /// <summary>
+    /// What the grade's table is baked from, besides <see cref="FrameGradeBlock"/>'s contrast, saturation, lift and
+    /// gain: the colour matrix, the curve, the five tones and how much of the artist's table shows.
+    /// </summary>
+    public static FrameToneBlock Tone(in PostSettings post) => new()
+    {
+        ColorMatrix = ColorMatrix(post),
+        Curve = Curve(post),
+        Look = new Vector4(
+            Math.Clamp(post.Grade.SplitBalance, -1f, 1f),
+            post.Grade.Shadows == Vector3.Zero && post.Grade.Midtones == Vector3.Zero && post.Grade.Highlights == Vector3.Zero
+                && post.Grade.SplitShadows == Vector3.Zero && post.Grade.SplitHighlights == Vector3.Zero ? 0f : 1f,
+            0f, 0f),
+        SplitShadows = new Vector4(post.Grade.SplitShadows, 0f),
+        SplitHighlights = new Vector4(post.Grade.SplitHighlights, 0f),
+        Shadows = new Vector4(post.Grade.Shadows, 0f),
+        Midtones = new Vector4(post.Grade.Midtones, 0f),
+        Highlights = new Vector4(post.Grade.Highlights, 0f),
+    };
+
+    /// <summary>
+    /// The white balance, then the channel mixer, then the hue shift, as one matrix on linear colour, laid out as
+    /// <see cref="WhiteBalance"/> is. With all three at zero it is the identity.
+    /// </summary>
+    public static Matrix4x4 ColorMatrix(in PostSettings post) =>
+        WhiteBalance(post.Temperature, post.Tint) * Mixer(post) * HueRotation(post.Grade.HueShift);
+
+    /// <summary>
+    /// The channel mixer, for a row vector on the left: red comes out as itself plus
+    /// <see cref="ColorGrade.RedFrom"/>'s share of each channel, and so on.
+    /// </summary>
+    public static Matrix4x4 Mixer(in PostSettings post)
+    {
+        var (red, green, blue) = (post.Grade.RedFrom, post.Grade.GreenFrom, post.Grade.BlueFrom);
+        return new Matrix4x4(
+            1f + red.X, green.X, blue.X, 0f,
+            red.Y, 1f + green.Y, blue.Y, 0f,
+            red.Z, green.Z, 1f + blue.Z, 0f,
+            0f, 0f, 0f, 1f);
+    }
+
+    /// <summary>
+    /// A turn of <paramref name="degrees"/> about the grey axis, for a row vector on the left, so grey stays grey and
+    /// a positive turn moves red towards yellow. Not a number counts as 0.
+    /// </summary>
+    public static Matrix4x4 HueRotation(float degrees)
+    {
+        if (!float.IsFinite(degrees) || degrees == 0f)
+        {
+            return Matrix4x4.Identity;
+        }
+
+        // Rodrigues' rotation about (1, 1, 1) / sqrt(3).
+        double angle = degrees * Math.PI / 180.0;
+        double cos = Math.Cos(angle);
+        double across = (1.0 - cos) / 3.0;
+        double turn = Math.Sin(angle) / Math.Sqrt(3.0);
+        float diagonal = (float)(cos + across);
+        float ahead = (float)(across + turn);
+        float behind = (float)(across - turn);
+
+        // Column-vector form: red's column gains green and loses blue. Stored transposed for the row vector.
+        return new Matrix4x4(
+            diagonal, ahead, behind, 0f,
+            behind, diagonal, ahead, 0f,
+            ahead, behind, diagonal, 0f,
+            0f, 0f, 0f, 1f);
     }
 
     /// <summary>The lift, with the bloom's strength in w, and the gain as a multiplier for each channel.</summary>
@@ -60,16 +139,23 @@ internal static class PostGrade
     }
 
     /// <summary>
-    /// Which curve the tone-mapping pass uses, as <c>frame.curve</c>: x is 1 for ACES and 0 for AgX;
-    /// y and z are the AgX look's power and saturation, applied to the curve's display values.
-    /// Blender's Punchy look is a power of 1.35 and a saturation of 1.4; the base look is 1 and 1.
+    /// Which curve the grade's bake uses, as <c>frame.curve</c>: x is 0 for AgX, 1 for ACES and 2 for Khronos PBR
+    /// Neutral; y and z are the AgX look's power and saturation, applied to the curve's display values; w is how much
+    /// of the artist's table shows, 0 to 1. Blender's Punchy look is a power of 1.35 and a saturation of 1.4; the base
+    /// look is 1 and 1.
     /// </summary>
     public static Vector4 Curve(in PostSettings post)
     {
-        float aces = post.Tonemapper == Tonemapper.Aces ? 1f : 0f;
+        float curve = post.Tonemapper switch
+        {
+            Tonemapper.Aces => 1f,
+            Tonemapper.Neutral => 2f,
+            _ => 0f,
+        };
+        float blend = post.Grade.Lut is null ? 0f : Math.Clamp(post.Grade.LutBlend, 0f, 1f);
         return post.AgxLook == AgxLook.Base
-            ? new Vector4(aces, 1f, 1f, 0f)
-            : new Vector4(aces, 1.35f, 1.4f, 0f);
+            ? new Vector4(curve, 1f, 1f, blend)
+            : new Vector4(curve, 1.35f, 1.4f, blend);
     }
 
     /// <summary>

@@ -36,8 +36,14 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 skySun;             // xyz: towards the clear sky's sun; w: its turbidity, 0 for the environment's bands
     vec4 sunDisc;            // rgb: how bright the sun's disc is, 0 for none; a: the cosine of its angular radius
     vec4 fog;                // x: density at the fog's height, 0 for none; y: that height; z: falloff per metre; w: sun scatter
-    mat4 whiteBalance;       // Linear colour to white-balanced colour, used as mat3 by the tone mapping.
-    vec4 curve;              // x: 1 for ACES, 0 for AgX; y, z: the AgX look's power and saturation
+    mat4 colorMatrix;        // The white balance, channel mixer and hue shift on linear colour, used as mat3 by the grade's bake.
+    vec4 curve;              // x: 0 for AgX, 1 for ACES, 2 for PBR Neutral; y, z: the AgX look's power and saturation; w: how much of the artist's table shows
+    vec4 look;               // x: split toning's balance, -1 to 1; y: 1 when any of the five tones below is set
+    vec4 splitShadows;       // rgb: split toning's colour for the shade
+    vec4 splitHighlights;    // rgb: split toning's colour for the light
+    vec4 toneShadows;        // rgb: each channel's extra brightness in the shadows
+    vec4 toneMidtones;       // rgb: each channel's extra brightness in the mid-tones
+    vec4 toneHighlights;     // rgb: each channel's extra brightness in the highlights
     vec4 volumetric;         // x: how far the volumetric fog reaches, 0 for none; y: where its first slice ends; z: anisotropy; w: 1 when last frame's volume can be used
     vec4 volumetricGrid;     // x: the volumetric fog's slices in depth; y: scene pixels across a cell
     vec4 puddles;            // x: puddleLevel, the water's height in metres; y: puddleBand, the damp band above it; z: 1 when there is water

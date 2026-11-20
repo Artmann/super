@@ -28,12 +28,16 @@ internal sealed class PostStage
         Meter = new ExposureMeter(context, kit.NearestSampler);
         _depthOfField = new DepthOfFieldPass(context, kit.NearestSampler, kit.LinearSampler, kit.FrameSetLayout);
         _depthOfField.SetTargets(source, targets.Depth.View, targets.Extent);
+        Grade = new GradeLut(context, kit);
         _tonemap = new FullscreenPass(context, "tonemap.frag", GBuffer.LdrFormat,
-            [kit.FrameSetLayout, kit.TwoTextureLayout, Meter.SetLayout]);
+            [kit.FrameSetLayout, kit.TwoTextureLayout, Meter.SetLayout, kit.OneTextureLayout]);
     }
 
     /// <summary>What meters the frame's brightness for auto exposure, which FSR and tonemapping read.</summary>
     public ExposureMeter Meter { get; }
+
+    /// <summary>The grade baked into a table, which tonemapping reads, and the artists' colour tables.</summary>
+    public GradeLut Grade { get; }
 
     /// <summary>Takes the lens the view asks for, or none when depth of field is left out or the lens is a pinhole.</summary>
     public void TakeLens(in FrameView view, RenderEffects off, int sceneWidth) =>
@@ -81,7 +85,8 @@ internal sealed class PostStage
             Meter.Record(cmd, exposureStep);
         }
 
-        ReadOnlySpan<DescriptorSet> tonemapSets = [frameSet, _tonemapSet, Meter.Set];
+        Grade.Record(cmd, frameSet);
+        ReadOnlySpan<DescriptorSet> tonemapSets = [frameSet, _tonemapSet, Meter.Set, Grade.ReadSet];
         api.BeginColorTarget(cmd, targets.Picture.Ldr.Image);
         _tonemap.Record(cmd, targets.Picture.Ldr.View, extent, tonemapSets);
         api.EndColorTarget(cmd, targets.Picture.Ldr.Image);
@@ -117,6 +122,7 @@ internal sealed class PostStage
     public void Dispose()
     {
         _tonemap.Dispose();
+        Grade.Dispose();
         Meter.Dispose();
         _depthOfField.Dispose();
         _bloom.Dispose();

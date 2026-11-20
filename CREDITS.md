@@ -23,6 +23,11 @@ where to save it.
   top of Metal. Its `libMoltenVK.dylib`, from the `Silk.NET.MoltenVK.Native` package, is
   copied next to every game built for a Mac. It is Copyright The Brenwill Workshop Ltd. and
   licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+- [Khronos PBR Neutral](https://github.com/KhronosGroup/ToneMapping), the
+  `Tonemapper.Neutral` curve in `src/Rendition/Shaders/tonemap.glsl`, is written from the
+  Khronos Group's specification and sample code. It is Copyright 2024 The Khronos Group Inc.
+  and licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0),
+  and the shader keeps that notice.
 
 ## Fonts
 

@@ -27,6 +27,9 @@ internal sealed record TextureArrayItem(TextureItem[] Layers);
 /// <summary>A photographed sky the game named, read from its cooked file.</summary>
 internal sealed record SkyItem(string Name, IContentFiles Files);
 
+/// <summary>An artist's colour table the game named, read from its cooked file.</summary>
+internal sealed record LutItem(string Name, IContentFiles Files);
+
 /// <summary>Stands where an unloaded item was, so its data can be collected while its index stays taken.</summary>
 internal sealed record UnloadedItem
 {
@@ -167,6 +170,24 @@ public sealed class Content
         }
 
         return sky;
+    }
+
+    /// <summary>
+    /// Names an artist's colour table by its name, such as <c>grades/dusk.cube</c> or <c>grades/dusk.lut.png</c>, for
+    /// <see cref="ColorGrade.Lut"/>. It loads with the other content, and naming it again gives the same one. A name
+    /// that isn't cooked stops here with a <see cref="ContentException"/> naming it. See "A colour table" in
+    /// docs/rendering.md.
+    /// </summary>
+    public ColorLut Lut(string name)
+    {
+        if (!Store.TryNamed(name, out ColorLut lut))
+        {
+            ContentNames.Require(Store.Files, name, ContentKind.Data);
+            lut = new ColorLut(Store.Add(new LutItem(name, Store.Files)).Index);
+            Store.Remember(name, lut);
+        }
+
+        return lut;
     }
 
     /// <summary>

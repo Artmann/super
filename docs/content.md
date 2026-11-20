@@ -242,11 +242,12 @@ Every file is an asset, chosen by its extension:
 | `.wav` `.ogg` `.mp3` | sound | The file itself, once it decodes |
 | `.glb` `.gltf` `.fbx` `.obj` | model | `.rmodel`, through `Super.Cook.Models` |
 | `.hdr` | data | A photographed sky: a half-float cube 256 pixels a face with every mip, without its sun, whose direction and brightness it keeps; see [a photographed sky](rendering.md#a-photographed-sky) |
+| `.cube` `.lut.png` | data | A [colour table](rendering.md#a-colour-table) of half floats, from a grading tool's 3D `.cube` file or a strip of N squares of N pixels, such as 1024 by 32, cut from a `--neutral-lut` screenshot. Load it with `content.Lut` |
 | `.lightbake` | baked lighting | The same file with its pages block-compressed: BC6H irradiance, BC7 direction and mask; see [cooking a bake](#cooking-a-bake) |
 | `.material.cs` | material | A [material graph](materials.md), compiled and run into `#color`, `#normal`, `#surface` and `#height` textures and a `#material` data part |
 
 The longest matching extension wins, so `bricks.material.cs` is a material graph, not
-code. A graph cooks at 1024 pixels unless a rule sets its `size`; see
+code, and `dusk.lut.png` is a colour table, not a texture. A graph cooks at 1024 pixels unless a rule sets its `size`; see
 [Material graphs](materials.md#size).
 
 A file with no cooker fails the cook unless a rule turns cooking off for it. Files and

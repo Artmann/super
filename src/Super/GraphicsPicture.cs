@@ -41,11 +41,18 @@ public sealed class GraphicsPicture
     public bool Sharpening { get; set; } = true;
 
     /// <summary>
-    /// The colour grade set in <see cref="PostSettings"/>: contrast, saturation, lift, gain and white balance. Off, they're
-    /// all neutral. The exposure, the bloom and the tonemapper with its look stay, as the picture needs them. It costs
-    /// almost nothing, so <see cref="Graphics.Fastest"/> leaves it on.
+    /// The colour grade set in <see cref="PostSettings"/>: contrast, saturation, lift, gain, white balance, the channel
+    /// mixer, the hue shift, the shadow, midtone and highlight tints and split toning. Off, they're all neutral. The
+    /// exposure, the bloom and the tonemapper with its look stay, as the picture needs them. It costs almost nothing, so
+    /// <see cref="Graphics.Fastest"/> leaves it on.
     /// </summary>
     public bool ColorGrading { get; set; } = true;
+
+    /// <summary>
+    /// The artist's colour table set with <see cref="ColorGrade.Lut"/>. Off, the picture is as if the view named none.
+    /// It is baked into the grade's own table, so it costs nothing a frame and <see cref="Graphics.Fastest"/> leaves it on.
+    /// </summary>
+    public bool ColorLut { get; set; } = true;
 
     /// <summary>Takes every setting from <paramref name="other"/>.</summary>
     internal void CopyFrom(GraphicsPicture other)
@@ -57,5 +64,6 @@ public sealed class GraphicsPicture
         Grain = other.Grain;
         Sharpening = other.Sharpening;
         ColorGrading = other.ColorGrading;
+        ColorLut = other.ColorLut;
     }
 }

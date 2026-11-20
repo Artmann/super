@@ -22,7 +22,7 @@ What it does for every game, with no setup:
 - Cut-out leaves, grass and cobwebs that [keep their shape in the distance](#models), since the cook keeps their alpha coverage in every mip
 - Soft, lit [particles](views.md#particles) for dust and smoke
 - Culling and simpler versions of distant models, for the camera and for shadows
-- [AgX](#tone-mapping) or ACES filmic tonemapping, white balance, colour grading, sharpening, vignette, grain and dithering
+- [AgX](#tone-mapping), ACES or PBR Neutral tonemapping, white balance, colour grading with split toning, tones, a channel mixer and a hue shift, [artists' colour tables](#a-colour-table), sharpening, vignette, grain and dithering
 
 And when a scene asks for it:
 
@@ -64,7 +64,7 @@ Game.Run<MyGame>(new GameOptions
 
 `Graphics.Fastest()` turns every effect that costs GPU time off, except point and spot lights and particles, and sets `Drawing.MeshDetail` to 0.5, a start to turn back on only what
 the game needs. It keeps what costs nothing or saves time: the materials, the baked lighting, `Specular`,
-`EnvironmentLight`, `Emissive`, `ColorGrading`, `Culling`, `SimplerModels`, `DepthFirst` and `Fades`, whose small cost buys a picture without pops. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
+`EnvironmentLight`, `Emissive`, `ColorGrading`, `ColorLut`, `Culling`, `SimplerModels`, `DepthFirst` and `Fades`, whose small cost buys a picture without pops. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
 | Setting | Off, or set |
@@ -119,7 +119,8 @@ next frame follows, so it can back an options menu.
 | `Picture.Vignette` | The corners are as bright as the middle, whatever `PostSettings.Vignette` asks for |
 | `Picture.Grain` | No film grain, whatever `PostSettings.Grain` asks for |
 | `Picture.Sharpening` | No sharpening, whatever `PostSettings.Sharpen` asks for, and the finish pass skips that work |
-| `Picture.ColorGrading` | `PostSettings`' contrast, saturation, lift, gain, temperature and tint are all neutral. The exposure, the bloom and the tonemapper with its look stay |
+| `Picture.ColorGrading` | `PostSettings`' contrast, saturation, lift, gain, temperature, tint, hue shift, channel mixer, tones and split toning are all neutral. The exposure, the bloom, the tonemapper with its look and the colour table stay |
+| `Picture.ColorLut` | No [colour table](#a-colour-table), whatever `PostSettings.Grade.Lut` asks for. It costs nothing either way, since the table is baked into the grade |
 | `Drawing.Culling` | Every model is drawn into the picture, each of the sun's cascades and each light's shadow tile, seen or not. It only costs time: it's there to check that culling hides nothing it shouldn't |
 | `Drawing.SimplerModels` | Every model is drawn at full detail at any distance, whatever `MeshDetail` says, in the picture and the shadows. It only costs time: it's there to see what the simpler versions change |
 | `Drawing.DepthFirst` | Large solid surfaces are no longer drawn twice, depth first and then shaded, so a surface drawn before the one that hides it is shaded for nothing. It only costs time: it's there to measure what drawing depth first saves. The picture is the same, but where two surfaces lie in the very same plane, where the other of the two may show |
@@ -1171,19 +1172,67 @@ each channel that much brighter, by its share, so it shows most in the highlight
 
 | Setting | What it does |
 | --- | --- |
-| `Tonemapper` | The curve that fits the scene's light into what a screen shows. `Tonemapper.Agx`, the default, or `Tonemapper.Aces` for the older, punchier look. See [tone mapping](#tone-mapping) |
+| `Tonemapper` | The curve that fits the scene's light into what a screen shows. `Tonemapper.Agx`, the default, `Tonemapper.Aces` for the older, punchier look, or `Tonemapper.Neutral` to keep base colours true. See [tone mapping](#tone-mapping) |
 | `AgxLook` | The look on top of AgX. `AgxLook.Punchy`, the default, deepens the mid-tones and strengthens colour; `AgxLook.Base` is the plain, softer curve. ACES ignores it |
 | `Temperature` | White balance, from -1 to 1. Above 0 warms the picture, as if the camera were balanced for light bluer than daylight: 1 balances for 12000 K. Below 0 cools it, down to 4000 K at -1. 0.1 is a gentle afternoon warmth |
 | `Tint` | White balance the other way, from -1 to 1. Above 0 pulls the picture towards magenta, below 0 towards green |
+| `Grade` | The finer colour grade, a `ColorGrade` with the settings in the next table |
 | `FocusDistance` | Where the lens is focused, in metres from the camera. See [focus](#focus) |
 | `Aperture` | The lens's f-number, such as 2.8 or 8. Smaller opens the lens wider and blurs more. 0, the default, is no depth of field |
 | `FocalLength` | The lens's focal length in millimetres, for the blur only. 0, the default, means 35. It doesn't change the field of view, which the camera sets |
 
-A view refuses a `Temperature` or `Tint` outside -1 to 1, or one that isn't a number.
+The finer grade goes in `Grade`, so a look that only wants contrast and a vignette never sees it:
+
+```csharp
+world.Spawn(new Finish(new PostSettings
+{
+    Contrast = 0.2f,
+    Grade = new ColorGrade
+    {
+        HueShift = 5f,
+        SplitShadows = new Vector3(0f, 0.04f, 0.08f),   // teal shade
+        Highlights = new Vector3(0.06f, 0.03f, 0f),     // warm highlights
+    },
+}));
+```
+
+| `ColorGrade` setting | What it does |
+| --- | --- |
+| `HueShift` | Turns every colour round the colour wheel by this many degrees, with grey left grey. 20 moves reds towards orange and greens towards teal |
+| `RedFrom`, `GreenFrom`, `BlueFrom` | The channel mixer: how much of the red, green and blue light is added to each channel on top of its own. `RedFrom = (0, 0.1, 0)` mixes a tenth of the green into the red |
+| `Shadows`, `Midtones`, `Highlights` | Extra brightness in each of red, green and blue in that part of the picture only, such as `Shadows = (0, 0, 0.1)` for blue shade. Black stays black |
+| `SplitShadows`, `SplitHighlights` | Split toning: the darker half of the picture leans towards one colour and the brighter half towards the other, with the brightness kept. (0, 0.04, 0.08) and (0.08, 0.04, 0) give teal shade and an orange glow |
+| `SplitBalance` | Where split toning turns from shade to light, from -1 to 1. Towards 1 more of the picture counts as shade |
+| `Lut`, `LutBlend` | An artist's [colour table](#a-colour-table) and how much of it shows, from 0 to 1 |
+
+A view refuses a `Temperature` or `Tint` outside -1 to 1, a `SplitBalance` outside -1 to 1, a `LutBlend` outside 0 to 1, or a `HueShift` that isn't a number.
 Rendition used on its own holds them at the nearest end instead, and counts a value that
 isn't a number as 0. White balance works on the light, after exposure and before contrast and the
 curve, the way a camera's does, so white surfaces in the sun take the warmth and the
-highlights still fade to white.
+highlights still fade to white. The channel mixer and the hue shift work there too, in that
+order after the white balance. The tones and split toning come after the curve, on the
+colours the screen shows, so they split the picture where the eye does.
+
+The Courtyard leans its shade towards teal with `SplitShadows = (0, 0.03, 0.06)` and warms its
+sunlit bricks with `Highlights = (0.04, 0.015, 0)` and `Midtones = (0.02, 0.01, 0)`:
+
+![The Courtyard's wall and flagstones before the grade, and with split toning and tones: the shaded wall and stones turn a little teal and the sunlit bricks a little warmer](media/courtyard-grade.webp)
+
+Everything from the white balance to the colour table is the same for every pixel, so it is
+baked into one table of 64 cells a side whenever a setting changes, and each pixel reads it
+once. A grade costs the same however many of these settings it uses, and changing one costs a
+bake of its quarter of a million cells on the frame that changes it. Exposure and auto exposure
+are worked out a pixel at a time, so they never bake.
+
+`PostSettings.Lerp(from, to, t)` gives the look part of the way from one to the other, for
+easing between grades, such as day into dusk or a room into a cave. Numbers and colours move
+evenly. Choices that can't be halfway, such as the tonemapper, auto exposure or a lens that
+opens from none, change at the halfway point, and two different colour tables cross through
+none: the first fades out over the first half and the second in over the second.
+
+```csharp
+var settings = PostSettings.Lerp(day, dusk, view.SecondsSince(sunsetTick) / 30f);
+```
 
 ### Tone mapping
 
@@ -1191,7 +1240,8 @@ The scene's light runs far brighter than a screen can show, so a curve squeezes 
 AgX, the default, is the curve Blender 4 uses. It moves bright, strongly coloured light
 gradually towards white, so a sunlit brick wall keeps the difference between its bricks.
 ACES, the older look, is punchier in the mid-tones but takes saturated highlights to one
-flat colour.
+flat colour. Khronos PBR Neutral keeps colours up to near white as they are, so a product's or a
+material's base colour shows true, and rolls only the brightest light off towards white.
 
 On its own AgX reads soft and pale, so it comes with Blender's Punchy look by default,
 which deepens the mid-tones and strengthens colour. Punchy also puts middle grey about
@@ -1203,9 +1253,10 @@ ACES puts it and leaves the most room in the highlights.
 ```csharp
 world.Spawn(new Finish(new PostSettings { Tonemapper = Tonemapper.Aces }));   // the older look
 world.Spawn(new Finish(new PostSettings { AgxLook = AgxLook.Base }));         // AgX without the Punchy look
+world.Spawn(new Finish(new PostSettings { Tonemapper = Tonemapper.Neutral }));  // base colours kept true
 ```
 
-Both curves and both looks cost about the same, so `Graphics.Fastest()` leaves the choice alone.
+Every curve and look is baked into the grade's table, so they cost the same and `Graphics.Fastest()` leaves the choice alone.
 
 ![The Courtyard's sunlit wall at about the same brightness through ACES on the left, which runs the sunlit bricks hotter and more orange, and AgX with the Punchy look on the right, which keeps them a deeper red](media/agx.webp)
 
@@ -1215,6 +1266,41 @@ all, so they get no bright halos. While anti-aliasing is on, textures are also r
 sharper than their size on screen asks for. One frame alone would shimmer, but anti-aliasing
 blends the frames and they settle. Reflection probes are captured without it, since nothing
 blends their frames.
+
+### A colour table
+
+A colour table, or LUT, is a look made in a grading tool or a paint program: a cube that says
+what each colour on screen turns into. It is laid over the picture after the curve and the
+tones, on the sRGB colours the screen shows, so it grades the picture as the tool saw it.
+`Grade.LutBlend` says how much of it shows, from 0, none, to 1, the table's own colours.
+
+```csharp
+ColorLut dusk = content.Lut("looks/dusk.cube");   // or "looks/dusk.lut.png"
+world.Spawn(new Finish(new PostSettings { Grade = new ColorGrade { Lut = dusk, LutBlend = 0.8f } }));
+```
+
+A table comes from one of two files in the content folder:
+
+- A `.cube` file, as DaVinci Resolve, Photoshop and most grading tools export. Only 3D tables
+  over 0 to 1 are read, from 2 to 128 cells a side.
+- A `.lut.png` strip, made from the game's own picture. Take a screenshot with
+  `--neutral-lut`, which stamps a table that changes nothing in its top left corner, 1024 by 32
+  pixels, grade the whole picture in a paint program, then cut the strip back out at 1024 by 32
+  and save it as `.lut.png`. Whatever the grade did to the picture it did to the strip, so the
+  table gives the game the same look.
+
+```
+dotnet run -c Release --project Hamlet -- --seed 1 --ticks 120 --size 1280x720 --screenshot grade-me.png --neutral-lut
+```
+
+The table is baked into the grade's table, so it costs nothing a frame, and changing it or
+its blend costs one bake. `--neutral-lut` turns the game's own colour table off for the shot, so
+the strip starts from the picture without it. Colours past white, before the screen clips
+them, pass by the table unchanged. The vignette, the grain and the sharpening come after it.
+
+`Graphics.Picture.ColorLut` turns the table off. With Rendition alone, upload one with
+`renderer.CreateColorLut(data)`, from `ColorLutData.Read` of a cooked table or
+`ColorLutData.From(size, colour => ...)`, and pass the handle in `PostSettings.Grade.Lut`.
 
 ### Auto exposure
 

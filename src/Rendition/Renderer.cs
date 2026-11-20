@@ -112,6 +112,12 @@ public sealed class Renderer : IDisposable
     /// </summary>
     public SkyImageHandle CreateSkyImage(SkyImageData data) => FrameParts.SceneLighting.EnvironmentSky.Create(data);
 
+    /// <summary>
+    /// Uploads an artist's colour table, cooked from a .cube file or a PNG strip, for <see cref="ColorGrade.Lut"/>. It
+    /// waits for the upload and stays until the renderer is disposed. See "A colour table" in docs/rendering.md.
+    /// </summary>
+    public ColorLut CreateColorLut(ColorLutData data) => FrameParts.FrameStages.PostStage.Grade.Luts.Create(data);
+
     public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws) => FrameDrawer.Render(view, draws);
 
     public byte[] Capture(in FrameView view, ReadOnlySpan<DrawItem> draws, out int width, out int height) =>

@@ -82,11 +82,11 @@ public class PostGradeTests
 
         // After shadowRadii come shadowFade, shadowDepthScales, clusters, screen, occlusion and the
         // light probes' two, the four probe cascade origins and the cascade counts, the clear sky's sun
-        // and its disc, the fog, the white balance mat4, the curve, the volumetric fog's vec4, the
+        // and its disc, the fog, the colour matrix mat4, the curve, the look, split toning's two and the shadow, midtone
+        // and highlight tints, the volumetric fog's vec4, the
         // puddles' vec4, the wind's vec4, the baked probes' four, the bake's fade, the two flat environment colours and the
         // outlines' two, then eight ints, the last the local light count, then the effects left out, the mip bias, the
-        // probe light count and the previous time, so the lights start on a 16 byte boundary: 416 + 112 + 8 * 4 + 4 * 4 =
-        // 576 past shadowRadii.
+        // probe light count and the previous time, so the lights start on a 16 byte boundary, 768 past shadowRadii.
         int radii = FrameOffset("ShadowRadii");
         Assert.Equal(radii + 16, FrameOffset("ShadowFade"));
         Assert.Equal(radii + 32, FrameOffset("ShadowDepthScales"));
@@ -100,32 +100,38 @@ public class PostGradeTests
         Assert.Equal(radii + 208, FrameOffset("SkySun"));
         Assert.Equal(radii + 224, FrameOffset("SunDisc"));
         Assert.Equal(radii + 240, FrameOffset("Fog"));
-        Assert.Equal(radii + 256, FrameOffset("WhiteBalance"));
+        Assert.Equal(radii + 256, FrameOffset("ColorMatrix"));
         Assert.Equal(radii + 320, FrameOffset("Curve"));
-        Assert.Equal(radii + 336, FrameOffset("Volumetric"));
-        Assert.Equal(radii + 352, FrameOffset("VolumetricGrid"));
-        Assert.Equal(radii + 368, FrameOffset("Puddles"));
-        Assert.Equal(radii + 384, FrameOffset("Wind"));
-        Assert.Equal(radii + 400, FrameOffset("BakedProbeMin"));
-        Assert.Equal(radii + 416, FrameOffset("BakedProbeCounts"));
-        Assert.Equal(radii + 432, FrameOffset("BakedSpaceMin"));
-        Assert.Equal(radii + 448, FrameOffset("BakedSpaceMax"));
-        Assert.Equal(radii + 464, FrameOffset("BakedFade"));
-        Assert.Equal(radii + 480, FrameOffset("FlatIrradiance"));
-        Assert.Equal(radii + 496, FrameOffset("FlatReflection"));
-        Assert.Equal(radii + 512, FrameOffset("Outline"));
-        Assert.Equal(radii + 528, FrameOffset("OutlineFade"));
-        Assert.Equal(radii + 544, FrameOffset("AirExtinction"));
-        Assert.Equal(radii + 560, FrameOffset("AirSun"));
-        Assert.Equal(radii + 576, FrameOffset("Moon"));
-        Assert.Equal(radii + 592, FrameOffset("MoonRadiance"));
-        Assert.Equal(radii + 608, FrameOffset("Stars"));
-        Assert.Equal(radii + 624, FrameOffset("LightCount"));
-        Assert.Equal(radii + 652, FrameOffset("LocalLightCount"));
-        Assert.Equal(radii + 656, FrameOffset("Off"));
-        Assert.Equal(radii + 664, FrameOffset("ProbeLightCount"));
-        Assert.Equal(radii + 668, FrameOffset("PreviousTime"));
-        Assert.Equal(radii + 672, FrameOffset("Lights"));
+        Assert.Equal(radii + 336, FrameOffset("Look"));
+        Assert.Equal(radii + 352, FrameOffset("SplitShadows"));
+        Assert.Equal(radii + 368, FrameOffset("SplitHighlights"));
+        Assert.Equal(radii + 384, FrameOffset("Shadows"));
+        Assert.Equal(radii + 400, FrameOffset("Midtones"));
+        Assert.Equal(radii + 416, FrameOffset("Highlights"));
+        Assert.Equal(radii + 432, FrameOffset("Volumetric"));
+        Assert.Equal(radii + 448, FrameOffset("VolumetricGrid"));
+        Assert.Equal(radii + 464, FrameOffset("Puddles"));
+        Assert.Equal(radii + 480, FrameOffset("Wind"));
+        Assert.Equal(radii + 496, FrameOffset("BakedProbeMin"));
+        Assert.Equal(radii + 512, FrameOffset("BakedProbeCounts"));
+        Assert.Equal(radii + 528, FrameOffset("BakedSpaceMin"));
+        Assert.Equal(radii + 544, FrameOffset("BakedSpaceMax"));
+        Assert.Equal(radii + 560, FrameOffset("BakedFade"));
+        Assert.Equal(radii + 576, FrameOffset("FlatIrradiance"));
+        Assert.Equal(radii + 592, FrameOffset("FlatReflection"));
+        Assert.Equal(radii + 608, FrameOffset("Outline"));
+        Assert.Equal(radii + 624, FrameOffset("OutlineFade"));
+        Assert.Equal(radii + 640, FrameOffset("AirExtinction"));
+        Assert.Equal(radii + 656, FrameOffset("AirSun"));
+        Assert.Equal(radii + 672, FrameOffset("Moon"));
+        Assert.Equal(radii + 688, FrameOffset("MoonRadiance"));
+        Assert.Equal(radii + 704, FrameOffset("Stars"));
+        Assert.Equal(radii + 720, FrameOffset("LightCount"));
+        Assert.Equal(radii + 748, FrameOffset("LocalLightCount"));
+        Assert.Equal(radii + 752, FrameOffset("Off"));
+        Assert.Equal(radii + 760, FrameOffset("ProbeLightCount"));
+        Assert.Equal(radii + 764, FrameOffset("PreviousTime"));
+        Assert.Equal(radii + 768, FrameOffset("Lights"));
     }
 
     [Fact]
@@ -355,7 +361,7 @@ public class PostGradeTests
         throw new ArgumentException($"The frame block has no field {field}.", nameof(field));
     }
 
-    private static void AssertNear(Matrix4x4 expected, Matrix4x4 actual)
+    internal static void AssertNear(Matrix4x4 expected, Matrix4x4 actual)
     {
         for (int row = 0; row < 4; row++)
         {
