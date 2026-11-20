@@ -440,9 +440,7 @@ Give an entity a `Transform` and an `Animated`, and the world draws the rig's
 model in the animator's pose. There's nothing to update and nothing more to draw:
 
 ```csharp
-var fox = world.Create();
-world.Add(fox, Transform.At(position));
-world.Add(fox, new Animated(controller.Start(FoxState.Idle)));
+var fox = world.Spawn(Transform.At(position), new Animated(controller.Start(FoxState.Idle)));
 ```
 
 Systems only change what it's doing, such as

@@ -109,7 +109,6 @@ public sealed class ForestGame(
     private SoundRef _hammering;
     private SoundRef _accept;
     private Entity _builder;
-    private Entity? _camera;
 
     public Builder Builder { get; } = new();
 
@@ -147,9 +146,7 @@ public sealed class ForestGame(
             audio.Music(music);
 
             // The ambience belongs to the forest, so leaving it would stop the rain and wind.
-            var ambience = world.Create();
-            world.Add(ambience, new Ambience(forest));
-            world.Add(ambience, new ScopedTo<Place>(Place.Forest));
+            world.Spawn(new Ambience(forest), new ScopedTo<Place>(Place.Forest));
 
             BuildForest();
         });
@@ -191,10 +188,6 @@ public sealed class ForestGame(
 
         Camera.Turn(new Vector2(OrbitSpeed * tick.TickSeconds, 0f));
         Camera.Update(new Vector3(0f, 1f, 0f));
-        if (_camera is { } camera)
-        {
-            world.Get<Camera>(camera) = Camera.Current;
-        }
     }
 
     /// <summary>1 to 4 step their channel's volume through full, half and off.</summary>
@@ -227,7 +220,7 @@ public sealed class ForestGame(
     {
         // Just after sunrise. The sun is low behind the trees across the clearing from where the camera starts, so
         // their trunks and crowns cut its light into shafts through the morning mist as it comes towards the camera.
-        var sky = world.Spawn(
+        world.Spawn(
             new Sun(new Vector3(0.39f, 0.3f, -0.92f), new Vector3(3f, 2.5f, 1.9f)),
             new Sky(new SkySettings
             {
@@ -237,10 +230,10 @@ public sealed class ForestGame(
                 Fog = new FogSettings(Density: 0.02f, Height: 0f, Falloff: 0.3f, SunScatter: 0.6f),
             }),
             // The first map covers the clearing and the second the trees round it, which cast the shafts.
-            new Shadows(14f, 3));
-        world.Add(sky, new ScopedTo<Place>(Place.Forest));
+            new Shadows(14f, 3),
+            new ScopedTo<Place>(Place.Forest));
         Camera.Update(new Vector3(0f, 1f, 0f));
-        _camera = world.Spawn(Camera.Current, new ScopedTo<Place>(Place.Forest));
+        world.Spawn(new OnRig(Camera), new ScopedTo<Place>(Place.Forest));
 
         Scoped(Slab(new Vector3(0f, -0.25f, 0f), new Vector3(80f, 0.5f, 80f)), new Vector3(0.25f, 0.4f, 0.2f));
         Scoped(Slab(new Vector3(0f, 0.02f, 0f), new Vector3(5f, 0.05f, 5f)), new Vector3(0.45f, 0.38f, 0.3f));
@@ -265,12 +258,6 @@ public sealed class ForestGame(
 
     private static Transform Slab(Vector3 position, Vector3 size) => new(position, Quaternion.Identity, size);
 
-    private Entity Scoped(Transform transform, Vector3 color)
-    {
-        var entity = world.Create();
-        world.Add(entity, transform);
-        world.Add(entity, new Model(ModelRef.Cube, color));
-        world.Add(entity, new ScopedTo<Place>(Place.Forest));
-        return entity;
-    }
+    private Entity Scoped(Transform transform, Vector3 color) =>
+        world.Spawn(transform, new Model(ModelRef.Cube, color), new ScopedTo<Place>(Place.Forest));
 }

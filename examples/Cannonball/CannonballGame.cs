@@ -56,8 +56,6 @@ public sealed class CannonballGame(World world, Content content, Physics physics
     private readonly RagdollOverlay _overlay = new(physics);
     private AnimationController<Stance, Move> _controller = null!;
     private RagdollBody _body = null!;
-    private Entity _camera;
-    private bool _cut;
     private bool _showBodies;
 
     public Stage Stage => _flight.Stage;
@@ -121,7 +119,7 @@ public sealed class CannonballGame(World world, Content content, Physics physics
             new Shadows(20f, 3));
         _field.Cannon();
         _field.Build();
-        _camera = world.Spawn(Camera.Current);
+        world.Spawn(new OnRig(Camera));
         Load(fresh: false);
     }
 
@@ -139,17 +137,6 @@ public sealed class CannonballGame(World world, Content content, Physics physics
         }
 
         Camera.Update(Hips, seconds);
-
-        // A new shot cuts straight to the cannon instead of sweeping back across the field.
-        if (_cut)
-        {
-            world.Teleport(_camera, Camera.Current);
-            _cut = false;
-        }
-        else
-        {
-            world.Get<Camera>(_camera) = Camera.Current;
-        }
     }
 
     // Only the ragdoll's bodies are drawn here, when D shows them: they're a look inside the physics, not part of the world.
@@ -173,12 +160,13 @@ public sealed class CannonballGame(World world, Content content, Physics physics
         // Feet down the barrel and head out of the muzzle, so the body lies along the way he'll fly.
         float length = CannonballField.BarrelLength - 1f;
         var placed = Transform.Facing(CannonballField.Breech + (CannonballField.Aim * length), Vector3.Normalize(Vector3.Cross(Vector3.UnitX, CannonballField.Aim)), CannonballField.Aim, Vector3.One);
-        var stuntman = world.Create();
-        world.Add(stuntman, placed);
-        world.Add(stuntman, new Animated(_controller.Start(Stance.Idle)));
-        world.Add(stuntman, new Ragdoll(_body) { Mode = RagdollMode.Off, BlendSeconds = 0.5f });
+        var stuntman = world.Spawn(
+            placed,
+            new Animated(_controller.Start(Stance.Idle)),
+            new Ragdoll(_body) { Mode = RagdollMode.Off, BlendSeconds = 0.5f });
         _flight.Load(stuntman);
+
+        // A new shot cuts straight to the cannon instead of sweeping back across the field.
         Camera.Jump();
-        _cut = true;
     }
 }

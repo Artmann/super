@@ -19,19 +19,7 @@ public sealed class Enemies(World world, Scenes scenes, Field field, Player play
     private readonly RandomStream _offsets = random.Stream("enemies");
 
     /// <summary>How many enemies are on the road.</summary>
-    public int Count
-    {
-        get
-        {
-            int count = 0;
-            foreach (var _ in world.Query<Enemy>())
-            {
-                count++;
-            }
-
-            return count;
-        }
-    }
+    public int Count => world.Count<Enemy>();
 
     public static EnemyStats Stats(EnemyKind kind) => kind switch
     {

@@ -4,24 +4,12 @@ using Super.Ui;
 
 namespace OutpostExample;
 
-public sealed class OutpostGame(Scenery scenery, Field field, Player player, Enemies enemies, Towers towers, Shots shots, Waves waves, Scenes scenes, Systems systems, States<Screen> screen, Actions<Control> actions, Input input, Look look) : IGame
+public sealed class OutpostGame(Scenery scenery, Field field, Player player, Enemies enemies, Towers towers, Waves waves, Scenes scenes, Systems systems, States<Screen> screen, Actions<Control> actions, Input input, Look look) : IGame
 {
     // Each tick the waves send enemies out, the enemies walk, the towers shoot and the shots fly, in that order.
     private readonly Systems _systems = systems.Add<Waves>().Add<Enemies>().Add<Towers>().Add<Shots>();
 
     public Camera Camera => scenery.Camera;
-
-    public Player Player => player;
-
-    public Enemies Enemies => enemies;
-
-    public Towers Towers => towers;
-
-    public Shots Shots => shots;
-
-    public Waves Waves => waves;
-
-    public Look Look => look;
 
     public UiView? Ui => screen.Current switch
     {
@@ -34,9 +22,9 @@ public sealed class OutpostGame(Scenery scenery, Field field, Player player, Ene
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
     {
         // Starts the game, for screenshots: --script start
-        ["start"] = new InputScript().Press(Key.Space),
+        ["start"] = new InputScript().Press(Control.Start),
         // Starts, then builds a tower on the middle tile and one by the first bend: --script towers
-        ["towers"] = new InputScript().Press(Key.Space).Wait(1).Click(new Vector2(640, 360)).Wait(1).Click(new Vector2(411, 261)).Wait(5),
+        ["towers"] = new InputScript().Press(Control.Start).Wait(1).Click(new Vector2(640, 360)).Wait(1).Click(new Vector2(411, 261)).Wait(5),
     };
 
     public void Load()

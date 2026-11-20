@@ -43,13 +43,14 @@ public sealed class FoxTests
 
         run.Ticks(30);
 
-        Assert.NotEmpty(run.Game.Puffs);
-        foreach (var puff in run.Game.Puffs)
+        Assert.NotEqual(0, run.World.Count<Burst>());
+        foreach (var puff in run.World.Query<Burst, Transform>())
         {
-            Assert.Equal(0f, puff.At.Y);
+            var at = puff.Second.Position;
+            Assert.Equal(0f, at.Y);
 
             // The path is a circle four metres out from the middle, and the fox is about a metre long.
-            float fromPath = MathF.Abs(new Vector2(puff.At.X, puff.At.Z).Length() - 4f);
+            float fromPath = MathF.Abs(new Vector2(at.X, at.Z).Length() - 4f);
             Assert.True(fromPath < 0.5f, $"A puff landed {fromPath} metres off the fox's path.");
         }
     }
