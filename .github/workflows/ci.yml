@@ -15,6 +15,99 @@ permissions:
   contents: read
 
 jobs:
+  # A first answer for a pull request, while build-and-test is still going: the fast tests of the test projects
+  # closest to what changed, picked by select-tests.ps1. It adds to build-and-test and replaces none of it, so a
+  # green quick job doesn't mean the pull request is good to merge. It runs on the Mac, which is ready soonest.
+  quick:
+    name: quick (selected fast tests)
+    if: github.event_name == 'pull_request'
+    runs-on: macos-15
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The changed files come from the API, so the checkout doesn't need the history to compare against.
+      - name: Select tests
+        id: select
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $files = gh api "repos/$env:GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)'
+          $projects = @($files | ./.github/scripts/select-tests.ps1)
+          "projects=$($projects -join ' ')" >> $env:GITHUB_OUTPUT
+          $cooks = [bool]($projects | Where-Object { $_ -notmatch '^tests/(Super|Rendition)\.' })
+          "cooks=$($cooks.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if ($projects.Count -eq 0) {
+            Write-Output "Nothing this pull request changed has tests to pick. build-and-test runs them all."
+          }
+          else {
+            Write-Output "Selected: $($projects -join ', ')"
+          }
+
+      - name: Find .NET 10 SDK
+        id: dotnet
+        if: steps.select.outputs.projects != ''
+        shell: pwsh
+        run: |
+          $sdks = if (Get-Command dotnet -ErrorAction SilentlyContinue) { @(dotnet --list-sdks) } else { @() }
+          $found = [bool]($sdks -match '^10\.')
+          "found=$($found.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-dotnet@v4
+        if: steps.select.outputs.projects != '' && steps.dotnet.outputs.found != 'true'
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install glslc
+        if: steps.select.outputs.projects != ''
+        run: brew install shaderc
+
+      # An example's tests build the example, which cooks its content, so they start from the cook cache as
+      # build-and-test does. The quick job never saves it.
+      - name: Cook cache key
+        id: cook-key
+        if: steps.select.outputs.cooks == 'true'
+        shell: pwsh
+        run: |
+          "SUPER_CACHE=$(Join-Path $env:RUNNER_TEMP super-cache)" >> $env:GITHUB_ENV
+          "month=$(Get-Date -Format yyyy-MM)" >> $env:GITHUB_OUTPUT
+          "sdk=$(dotnet --version)" >> $env:GITHUB_OUTPUT
+
+      - name: Restore cook cache
+        if: steps.cook-key.outcome == 'success'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.SUPER_CACHE }}
+          key: super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-${{ steps.cook-key.outputs.sdk }}-${{ hashFiles('Directory.Build.props', 'src/**', 'tools/**', 'examples/*/content/**', 'assets/**') }}
+          restore-keys: |
+            super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-${{ steps.cook-key.outputs.sdk }}-
+            super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-
+
+      # Every selected project runs even when an earlier one fails, and the step fails if any of them did.
+      - name: Test
+        if: steps.select.outputs.projects != ''
+        shell: pwsh
+        env:
+          PROJECTS: ${{ steps.select.outputs.projects }}
+        run: |
+          $failed = @()
+          foreach ($project in $env:PROJECTS.Split(' ')) {
+            Write-Output "::group::$project"
+            dotnet test $project -c Release --filter "Speed!=Slow&Needs!=GPU&Needs!=Assets" --blame-hang-timeout 5m --blame-hang-dump-type none
+            if ($LASTEXITCODE -ne 0) { $failed += $project }
+            Write-Output "::endgroup::"
+          }
+          if ($failed.Count -gt 0) {
+            Write-Output "::error::Failed: $($failed -join ', ')"
+            exit 1
+          }
+
   build-and-test:
     # Super runs on Windows and on Apple silicon Macs. The tests need no GPU, so the Mac runner's lack of one doesn't
     # matter.
