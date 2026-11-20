@@ -111,10 +111,14 @@ jobs:
   build-and-test:
     # Super runs on Windows and on Apple silicon Macs. The tests need no GPU, so the Mac runner's lack of one doesn't
     # matter.
+    # The tests keep every core of a runner busy for about two minutes, so each system runs them in two parts on two
+    # runners: the engine's test projects, and the examples'. test-part.ps1 puts every project in tests/ in exactly
+    # one part. Both parts build the whole solution, and the engine part also runs Roe and checks the package.
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-15]
+        part: [engine, examples]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
 
@@ -235,9 +239,10 @@ jobs:
             Write-Output "The cook added nothing to the cache, so it isn't saved."
           }
 
-      # Saved right after the build, so a failing test doesn't throw the cook away.
+      # Saved right after the build, so a failing test doesn't throw the cook away. Both parts cook the same content,
+      # so one of them saves it.
       - name: Save cook cache
-        if: steps.cook-new.outputs.changed == 'true'
+        if: steps.cook-new.outputs.changed == 'true' && matrix.part == 'examples'
         uses: actions/cache/save@v4
         with:
           path: ${{ env.SUPER_CACHE }}
@@ -247,7 +252,7 @@ jobs:
       # Duplicates are printed but don't fail it, since they can't be baselined yet. It runs on Windows only, since it
       # counts some types' members differently on a Mac, and the baseline is Windows'.
       - name: Roe
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.part == 'engine'
         shell: pwsh
         run: |
           dotnet tool restore
@@ -258,15 +263,20 @@ jobs:
           dotnet roe dupes | Select-Object -Last 1
           exit 0
 
-      # The whole step takes about 2 minutes, and the slowest test about 12 seconds. A test that hangs, as one in
-      # Super.Physics.Tests once did on the Mac for 17 minutes, is stopped after 5, and the run fails naming it.
+      - name: Choose this part's test projects
+        shell: pwsh
+        run: ./.github/scripts/test-part.ps1 -Part ${{ matrix.part }} -Out test-part.slnf
+
+      # The slowest test takes about 12 seconds. A test that hangs, as one in Super.Physics.Tests once did on the Mac
+      # for 17 minutes, is stopped after 5, and the run fails naming it.
       - name: Test
-        run: dotnet test Super.slnx -c Release --no-build --filter "Needs!=GPU&Needs!=Assets" --blame-hang-timeout 5m --blame-hang-dump-type none --logger trx --results-directory TestResults
+        run: dotnet test test-part.slnf -c Release --no-build --filter "Needs!=GPU&Needs!=Assets" --blame-hang-timeout 5m --blame-hang-dump-type none --logger trx --results-directory TestResults
 
       # Packs Super as a release does, then builds a small game against the package and runs its tests, so a
       # change that breaks the package fails here and not at the next release. On a Mac too, which checks that the
       # package brings MoltenVK and the cook tool's Mac libraries.
       - name: Check the package
+        if: matrix.part == 'engine'
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
@@ -278,6 +288,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ runner.os }}
+          name: test-results-${{ runner.os }}-${{ matrix.part }}
           path: TestResults/*.trx
           if-no-files-found: ignore
