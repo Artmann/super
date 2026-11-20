@@ -63,6 +63,131 @@ public class SpawnTests
     }
 
     [Fact]
+    public void Spawn_takes_more_than_five_components()
+    {
+        var entity = _world.Spawn(new Name("crate"), new Position(1f), new Velocity(2f), new Health(3), new Armor(4), Transform.At(Vector3.One), new Static());
+
+        Assert.Equal("crate", _world.Get<Name>(entity).Text);
+        Assert.Equal(1f, _world.Get<Position>(entity).X);
+        Assert.Equal(2f, _world.Get<Velocity>(entity).X);
+        Assert.Equal(3, _world.Get<Health>(entity).Value);
+        Assert.Equal(4, _world.Get<Armor>(entity).Value);
+        Assert.Equal(Transform.At(Vector3.One), _world.Get<Transform>(entity));
+        Assert.True(_world.Has<Static>(entity));
+    }
+
+    [Fact]
+    public void Spawn_takes_a_list_of_components()
+    {
+        var parts = new List<object> { new Position(1f), new Health(3) };
+
+        var entity = _world.Spawn([.. parts]);
+
+        Assert.Equal(1f, _world.Get<Position>(entity).X);
+        Assert.Equal(3, _world.Get<Health>(entity).Value);
+        Assert.False(_world.Has<Velocity>(entity));
+    }
+
+    [Fact]
+    public void Listed_spawns_of_different_components_stay_apart()
+    {
+        object[] armored = [new Name("a"), new Position(1f), new Velocity(2f), new Health(3), new Armor(4), new Static()];
+        object[] placed = [new Name("b"), new Position(1f), new Velocity(2f), new Health(3), new Armor(4), Transform.Identity];
+
+        var first = _world.Spawn(armored);
+        var second = _world.Spawn(placed);
+        var third = _world.Spawn(armored);
+
+        Assert.True(_world.Has<Static>(first));
+        Assert.False(_world.Has<Transform>(first));
+        Assert.True(_world.Has<Transform>(second));
+        Assert.False(_world.Has<Static>(second));
+        Assert.True(_world.Has<Static>(third));
+        Assert.Equal("a", _world.Get<Name>(third).Text);
+    }
+
+    [Fact]
+    public void A_listed_spawn_brings_required_components_and_keeps_the_given_ones()
+    {
+        var placed = Transform.At(new Vector3(4f, 0f, 0f));
+
+        var bare = _world.Spawn(new Name("a"), new Position(1f), new Velocity(2f), new Health(3), new Armor(4), new Model(default));
+        var given = _world.Spawn(new Name("b"), new Position(1f), new Velocity(2f), new Health(3), new Model(default), placed);
+
+        Assert.Equal(Transform.Identity, _world.Get<Transform>(bare));
+        Assert.Equal(placed, _world.Get<Transform>(given));
+    }
+
+    [Fact]
+    public void A_listed_spawn_keeps_the_last_of_a_type_given_twice()
+    {
+        var entity = _world.Spawn(new Health(1), new Position(1f), new Velocity(2f), new Armor(4), new Name("a"), new Health(2));
+
+        Assert.Equal(2, _world.Get<Health>(entity).Value);
+    }
+
+    [Fact]
+    public void A_listed_spawn_inside_a_query_lands_when_the_query_ends()
+    {
+        _world.Spawn(new Position(1f));
+        var spawned = default(Entity);
+
+        foreach (var row in _world.Query<Position>())
+        {
+            spawned = _world.Spawn(new Name("late"), new Position(5f), new Velocity(2f), new Health(3), new Armor(4), new Static());
+            Assert.True(_world.IsAlive(spawned));
+        }
+
+        Assert.Equal("late", _world.Get<Name>(spawned).Text);
+        Assert.Equal(5f, _world.Get<Position>(spawned).X);
+        Assert.True(_world.Has<Static>(spawned));
+    }
+
+    [Fact]
+    public void A_listed_spawn_runs_the_added_handlers()
+    {
+        var seen = new List<int>();
+        _world.OnAdded<Health>(entity => seen.Add(_world.Get<Health>(entity).Value));
+
+        _world.Spawn(new Name("a"), new Position(1f), new Velocity(2f), new Health(7), new Armor(4), new Static());
+
+        Assert.Equal([7], seen);
+    }
+
+    [Fact]
+    public void A_listed_spawn_refuses_a_class()
+    {
+        var error = Assert.Throws<ArgumentException>(() => _world.Spawn(new Position(1f), "crate"));
+
+        Assert.Equal("A component must be a struct, and String is a class.", error.Message);
+    }
+
+    [Fact]
+    public void A_listed_spawn_refuses_null()
+    {
+        var error = Assert.Throws<ArgumentException>(() => _world.Spawn(new Position(1f), null!));
+
+        Assert.Equal("Spawn was given null where a component should be.", error.Message);
+    }
+
+    [Fact]
+    public void A_scene_owns_what_it_spawns_from_a_list()
+    {
+        var scenes = new Scenes(_world, new Transitions(new GameTime(60)));
+        var kept = _world.Spawn(new Name("kept"), new Position(1f), new Velocity(2f), new Health(3), new Armor(4), new Static());
+        var owned = default(Entity);
+        scenes.Go(scene => owned = scene.Spawn(new Name("owned"), new Position(1f), new Velocity(2f), new Health(3), new Armor(4), new Static()));
+        scenes.Apply();
+        Assert.Equal("owned", _world.Get<Name>(owned).Text);
+
+        scenes.Go(_ => { });
+        scenes.Apply();
+
+        Assert.False(_world.IsAlive(owned));
+        Assert.True(_world.IsAlive(kept));
+    }
+
+    [Fact]
     public void A_type_given_twice_keeps_the_last()
     {
         var entity = _world.Spawn(new Health(1), new Health(2));
