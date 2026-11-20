@@ -68,6 +68,7 @@ internal sealed class FrameMaker
                 Post = WithRendererItems(view.Effects.Post, content),
                 Transition = view.Effects.Transition,
                 LensFlare = view.Lights.LensFlareSettings,
+                Paint = view.Effects.Look.Paint,
             },
             Lights = Lights(view.Lights.Suns),
             Bones = _draws.Bones,
