@@ -54,6 +54,7 @@ public sealed class CannonballGame(World world, Content content, Physics physics
     private readonly CannonballField _field = new(world);
     private readonly StuntFlight _flight = new(world, physics, random.Stream("shots"));
     private readonly RagdollOverlay _overlay = new(physics);
+    private readonly CrashEffects _effects = new(world, physics);
     private AnimationController<Stance, Move> _controller = null!;
     private RagdollBody _body = null!;
     private bool _showBodies;
@@ -120,6 +121,7 @@ public sealed class CannonballGame(World world, Content content, Physics physics
         _field.Cannon();
         _field.Build();
         world.Spawn(new OnRig(Camera));
+        _effects.Load();
         Load(fresh: false);
     }
 
@@ -136,6 +138,7 @@ public sealed class CannonballGame(World world, Content content, Physics physics
             Load(fresh: true);
         }
 
+        _effects.Update(_flight, seconds);
         Camera.Update(Hips, seconds);
     }
 

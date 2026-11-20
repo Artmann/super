@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using Rendition;
 
 namespace Super;
 
@@ -127,6 +128,12 @@ internal static class WorldLights
         if (Newest<Finish>(world) is { } finish)
         {
             view.Effects.Finish(finish.Settings);
+        }
+
+        // Laid over the finish's own screen effects, so a hit's flash keeps a level's paper.
+        if (Newest<ScreenEffects>(world) is { } screen)
+        {
+            view.Effects.Screen(screen);
         }
 
         if (Newest<Outlines>(world) is { } outlines)

@@ -263,3 +263,43 @@ internal struct FrameCountBlock
     /// </summary>
     public float PreviousTime;
 }
+
+/// <summary>The two extra sun shadow maps' matrices, for the light probes and the reflection probe being captured.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct FrameSunBlock
+{
+    /// <summary>World to the light probes' own sun shadow map, which covers the largest cascade. See ProbeSunShadow.</summary>
+    public Matrix4x4 ProbeSunMatrix;
+
+    /// <summary>
+    /// World to the sun shadow map round the box of the reflection probe this frame captures, or zero when it captures
+    /// none or no sun casts a shadow. See ReflectionCapturePass.
+    /// </summary>
+    public Matrix4x4 ReflectionSunMatrix;
+}
+
+/// <summary>
+/// The screen effects a game drives from play, from <see cref="ScreenEffects"/>. See <see cref="PostGrade.Screen"/>,
+/// Shaders/tonemap.frag for the lens and Shaders/finish.frag for the rest.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct FrameScreenBlock
+{
+    /// <summary>x: the colour fringes, 0 to 1; y: the speed blur, 0 to 1; zw: where the blur streaks from, as a fraction of the screen.</summary>
+    public Vector4 ScreenLens;
+
+    /// <summary>rgb: the flash's display colour; a: how much of it lights the picture.</summary>
+    public Vector4 ScreenFlash;
+
+    /// <summary>rgb: the fade's display colour; a: how far the picture fades into it.</summary>
+    public Vector4 ScreenFade;
+
+    /// <summary>rgb: the first edge tint's display colour; a: its strength.</summary>
+    public Vector4 EdgeTint;
+
+    /// <summary>rgb: the second edge tint's display colour; a: its strength.</summary>
+    public Vector4 SecondEdgeTint;
+
+    /// <summary>x: how much colour the picture loses; y: how much the paper shows; z: a tile's width in pixels, 0 for the texture's own; w: the paper's texture slot, -1 for none.</summary>
+    public Vector4 ScreenCanvas;
+}

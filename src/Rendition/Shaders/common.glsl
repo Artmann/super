@@ -77,6 +77,12 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     Light lights[8];
     mat4 probeSunMatrix;         // World to the light probes' own sun shadow map, over the largest cascade.
     mat4 reflectionSunMatrix;    // World to the sun shadow map round this frame's reflection probe capture, or zero.
+    vec4 screenLens;         // x: colour fringes, 0 to 1; y: speed blur, 0 to 1; zw: where the blur streaks from, in uv
+    vec4 screenFlash;        // rgb: the flash's display colour; a: how much of it lights the picture
+    vec4 screenFade;         // rgb: the fade's display colour; a: how far the picture fades into it
+    vec4 edgeTint;           // rgb: the first edge tint's display colour; a: its strength
+    vec4 secondEdgeTint;     // rgb: the second edge tint's display colour; a: its strength
+    vec4 screenCanvas;       // x: colour lost; y: how much paper shows; z: a tile's width in pixels, 0 for the texture's; w: its texture slot, -1 for none
 } frame;
 
 // Bits of frame.off. Must match RenderEffects in Types.cs.

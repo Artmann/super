@@ -1564,6 +1564,10 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
   on the CPU: `PostGrade.Without` sets the matching `PostSettings` to neutral before
   `FrameUniformWriter` packs them and `GradeLut.Take` keys the bake on them, and `finish.frag`
   already skips the sharpening work when its strength is 0.
+- `ChromaticAberration`, `SpeedBlur`, `Flashes` and `ScreenEffects` (bits 43 to 46) work on the CPU
+  too: `PostGrade.Without` zeroes the matching amounts of `PostSettings.Screen`, and `ScreenEffects`
+  keeps only the fade. The shaders skip each effect at 0, so none needs a shader flag. See
+  [Screen effects](#screen-effects).
 - `Culling` (bit 27) makes `DetailView.CanSee` true for every ball, for the camera, the
   cascades and the light tiles alike. `SimplerModels` (bit 28) hands `DetailView` a `MaxError`
   of 0, which no simpler level meets, since every level's error is above 0.
@@ -2029,7 +2033,7 @@ for the GPU. `FrameReflectionCapture.Plan` takes it before the uniforms are writ
 `ReflectionCapturePass.Plan` keep the draws within 100 m (`ReflectionCapturePass.Reach`) that
 `ProbeCapturePass.Captures` allows, and plan a sun shadow map of its own: a 1024² `ProbeSunShadow`
 centred on the probe's box, reaching twice its half-diagonal, whose matrix goes to
-`FrameUniforms.ReflectionSunMatrix`. `FrameReflectionCapture.Record` runs after the light probes'
+`FrameUniforms.SunBlock.ReflectionSunMatrix`. `FrameReflectionCapture.Record` runs after the light probes'
 update, inside the frame's command buffer. It draws the map, then the scene round the probe
 into the six faces of a 128² capture cube at once, as the light probes' capture does:
 `probe_capture.vert` with multiview, the shared `ProbeCapturePass.BeginFaces` and `DrawKept`,
@@ -3941,6 +3945,52 @@ new table whose view reuses the old handle still bakes. `RendererLuts.Create` wa
 so a Super game makes them while content loads. Super cooks `.cube` files and `.lut.png` strips
 with `LutCooker` into `ColorLutData`'s own little format, `RLUT` and a version before the halves.
 
+### Screen effects
+
+`ScreenEffects` lives in `PostSettings.Screen` rather than in a pass or a setting of its own, and
+Super adds a component of the same type on top. Kept in the finish, the effects blend with every
+other part of a look through `PostSettings.Lerp`, a level can carry a paper texture as part of its
+look, and Rendition used alone needs nothing new. A game's hit flash and hurt edge change every
+frame and come from game code that doesn't own the level's look, so the component (or
+`view.Effects.Screen`) is laid over the finish's own with `ScreenEffects.Over`: each effect that
+isn't zero there wins, the rest keep the finish's. `Newest` tracks the component, so the entity
+added or changed last wins, as with the other single-entity settings. A pass of its own would
+have needed a target and a copy; these all fit into the two passes the picture already takes.
+
+None of it reaches `GradeLut.Take`'s `BakeKey`, so changing the effects never bakes the table
+again, which the GPU test counts with `GradeLut.Bakes`. `FrameUniformWriter` packs them with
+`PostGrade.Screen` into `FrameScreenBlock`, six vec4s at the end of the frame block (`screenLens`,
+`screenFlash`, `screenFade`, `edgeTint`, `secondEdgeTint` and `screenCanvas` in `common.glsl`),
+with every amount clamped to 0 to 1 and a white flash for a zero colour. Field names across the
+`Frame*` blocks are unique, since the std140 offset test finds them by name.
+
+The fringes and the speed blur are in `tonemap.frag`, on the scene's light before exposure and the
+grade's table, so a lamp's streak keeps its brightness. `scene()` takes 16 taps from the pixel
+towards the blur's centre, a quarter of the way at 1, starting at frame noise so the steps come
+out as fine grain that anti-aliasing doesn't see (it runs before) but the finish's dither hides.
+Each tap goes through `fringed()`, which reads red and blue displaced by the distance from the
+middle cubed and green in place, so both together cost up to 48 reads a pixel. To read between
+pixels the HDR and bloom targets are now bound with the linear sampler; at a pixel's centre that
+reads the same as the nearest one did. `glowing()` reads them with `textureLod` at level 0, since
+the noisy tap positions would make implicit derivatives pick a blurred level. At 0 both skip
+their loops, and the Crypt at 1080p measured the tonemap and the finish at 0.06 and 0.05 ms with
+and without the change. With the blur on, Cannonball's flight at 1080p measured the tonemap at
+1.1 to 2.2 ms against 0.04 to 0.3 ms with `Picture.SpeedBlur` off, but that was with another
+program busy on the GPU, and 4 taps measured no less than 16, so the cost while it shows still
+needs measuring on an idle GPU.
+
+The rest is `screenEffects()` in `finish.frag`, after the vignette and before the dither and grain,
+on linear colour: the paper, the loss of colour (Rec. 709 luma), the two edge tints, the flash as
+a screen blend (`1 - (1 - c)(1 - flash)`, so it never passes white) and the fade as a mix. The
+edge mask is a rounded square, `smoothstep(0.35, 1.1, r) * 1.5` of the fourth-power distance,
+clamped after the strength, so strength 1 covers the edges and a half strength still reaches
+three quarters at the corners. The paper comes from the bindless table: the finish pass takes
+`ResourceTable`'s layout as set 2 and reads `textures[slot]` at `gl_FragCoord / tile`, so it stays
+put on screen. `screenCanvas.w` is the slot or -1, and `FrameUniformWriter` sends -1 when the
+texture is gone, so a destroyed paper never reads a freed slot. Super names the paper by its
+content index (`TextureRef` turns into a `TextureHandle`), and `FrameMaker.WithRendererItems`
+swaps in the renderer's handle, as it does for the colour table.
+
 Auto exposure meters the frame on the GPU and never reads it back. Before the tonemap,
 `exposure_histogram.comp` reads the image the tonemap and bloom read (resolved, or HDR
 without anti-aliasing), so it sees the lit frame before bloom. It puts each pixel's
@@ -5373,8 +5423,8 @@ to sample and `Depth` read-only, as the passes it replaces would.
 The colours reach the screen unchanged. The view turns off anti-aliasing (and so FSR), bloom,
 depth of field and auto exposure, and sets bit 30 of `frame.off` (`OFF_DEBUG_VIEW`, not a
 `RenderEffects` bit), under which `tonemap.frag` writes the clamped linear colour with no
-exposure, grade or curve, and `finish.frag` skips sharpening, the vignette and grain, keeping
-only the dither. Asking for it where the device can't trace throws an `InvalidOperationException`
+exposure, grade, curve or screen effects, and `finish.frag` skips sharpening, the vignette, the
+screen effects and grain, keeping only the dither. Asking for it where the device can't trace throws an `InvalidOperationException`
 that names `NoTraceReason`. Puddles and surface shaders aren't geometry, so the view doesn't show
 them. Super sets it from `--debug-view trace` through `SceneRenderer.DebugView`. Before anything
 plays, `Game` asks `GameArguments.DebugViewError` whether the view can be shown; where `CanTrace`

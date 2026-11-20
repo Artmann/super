@@ -17,6 +17,7 @@ internal sealed unsafe class FinishStage
     private readonly GpuTimer _timer;
     private readonly FullscreenPass _finishPass;
     private readonly DescriptorSet _finishSet;
+    private readonly ResourceTable _resources;
     private readonly OverlayPass _overlayPass;
     private readonly DescriptorSet _overlaySet;
     private GpuTexture? _overlayAtlas;
@@ -29,7 +30,9 @@ internal sealed unsafe class FinishStage
         _timer = timer;
         _finishSet = kit.NewSet(kit.TwoTextureLayout);
         _overlaySet = kit.NewSet(kit.OneTextureLayout);
-        _finishPass = new FullscreenPass(context, "finish.frag", window.Format, [kit.FrameSetLayout, kit.TwoTextureLayout], TransitionConstants.Size);
+        _resources = window.Resources;
+        _finishPass = new FullscreenPass(
+            context, "finish.frag", window.Format, [kit.FrameSetLayout, kit.TwoTextureLayout, window.Resources.Layout], TransitionConstants.Size);
         _overlayPass = new OverlayPass(context, window.Format, kit.OneTextureLayout, window.Resources, FrameRing.Count);
     }
 
@@ -82,7 +85,8 @@ internal sealed unsafe class FinishStage
 
         // From here on the picture is the window's size, which the scene may not be.
         var size = swapchain.Extent;
-        ReadOnlySpan<DescriptorSet> finishSets = [frameSet, _finishSet];
+        // The resources' textures are there for the screen effects' paper.
+        ReadOnlySpan<DescriptorSet> finishSets = [frameSet, _finishSet, _resources.Set];
         var transition = picture.Transition;
         transition.Style.Z = extent.Width != size.Width || extent.Height != size.Height ? 1f : 0f;
         _finishPass.Record(cmd, swapchain.Views[imageIndex], size, finishSets,

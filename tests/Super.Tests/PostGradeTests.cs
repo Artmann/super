@@ -337,7 +337,7 @@ public class PostGradeTests
     }
 
     // Where a field of the frame block sits: one of FrameUniforms' own, or one inside the block of fields it groups.
-    private static int FrameOffset(string field)
+    internal static int FrameOffset(string field)
     {
         foreach (var member in typeof(FrameUniforms).GetFields())
         {

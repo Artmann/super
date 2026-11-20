@@ -14,10 +14,8 @@ namespace Super;
 public sealed class ViewEffects
 {
     private readonly List<Particle> _particles = [];
-    private readonly List<DecalRequest> _decals = [];
-    private readonly HashSet<int> _decalKeys = [];
-    private readonly List<FogVolumeDraw> _fogVolumes = [];
-    private readonly HashSet<int> _fogVolumeKeys = [];
+    private readonly KeyedDraws<DecalRequest> _decals = new(DecalBatch.MaxDecals, "decal", "decals");
+    private readonly KeyedDraws<FogVolumeDraw> _fogVolumes = new(FogVolumeBatch.MaxVolumes, "fog volume", "fog volumes");
 
     internal ViewEffects()
     {
@@ -27,12 +25,16 @@ public sealed class ViewEffects
     public ReadOnlySpan<Particle> DrawnParticles => CollectionsMarshal.AsSpan(_particles);
 
     /// <summary>The decals placed so far this frame, in the order they are drawn.</summary>
-    public ReadOnlySpan<DecalRequest> DrawnDecals => CollectionsMarshal.AsSpan(_decals);
+    public ReadOnlySpan<DecalRequest> DrawnDecals => _decals.Items;
 
     /// <summary>The fog volumes placed so far this frame, in the order they were placed.</summary>
-    public ReadOnlySpan<FogVolumeDraw> DrawnFogVolumes => CollectionsMarshal.AsSpan(_fogVolumes);
+    public ReadOnlySpan<FogVolumeDraw> DrawnFogVolumes => _fogVolumes.Items;
 
-    internal PostSettings Post { get; private set; }
+    /// <summary>The finish, with the screen effects set with <see cref="Screen"/> laid over its own.</summary>
+    internal PostSettings Post => _finish with { Screen = ScreenEffects.Over(_screen, _finish.Screen) };
+
+    private PostSettings _finish;
+    private ScreenEffects _screen;
     internal OutlineSettings OutlineSettings { get; private set; } = new();
 
     /// <summary>How the screen moves between pictures this frame. Set by <see cref="Transitions"/>.</summary>
@@ -110,18 +112,7 @@ public sealed class ViewEffects
     public void Decal(int key, Matrix4x4 box, Surface material, DecalBlend? blend = default)
     {
         ArgumentNullException.ThrowIfNull(material);
-        if (_decals.Count == DecalBatch.MaxDecals)
-        {
-            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
-                $"At most {DecalBatch.MaxDecals} decals fit in a frame."));
-        }
-
-        if (_decalKeys.Contains(key))
-        {
-            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
-                $"Decal {key} was already placed this frame. Give each decal its own key."), nameof(key));
-        }
-
+        _decals.Check(key);
         var weights = blend ?? new DecalBlend();
         DecalBatch.Check(box, weights);
         if (material.Shader is not null)
@@ -131,8 +122,7 @@ public sealed class ViewEffects
         }
 
         SurfaceCheck?.Invoke(material);
-        _decalKeys.Add(key);
-        _decals.Add(new DecalRequest(key, box, material, weights));
+        _decals.Add(key, new DecalRequest(key, box, material, weights));
     }
 
     /// <summary>
@@ -144,21 +134,9 @@ public sealed class ViewEffects
     /// </summary>
     public void FogVolume(int key, FogShape shape, Matrix4x4 transform, in FogVolumeSettings settings)
     {
-        if (_fogVolumes.Count == FogVolumeBatch.MaxVolumes)
-        {
-            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
-                $"At most {FogVolumeBatch.MaxVolumes} fog volumes fit in a frame."));
-        }
-
-        if (_fogVolumeKeys.Contains(key))
-        {
-            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
-                $"Fog volume {key} was already placed this frame. Give each fog volume its own key."), nameof(key));
-        }
-
+        _fogVolumes.Check(key);
         FogVolumeBatch.Check(shape, transform, settings);
-        _fogVolumeKeys.Add(key);
-        _fogVolumes.Add(new FogVolumeDraw(shape, transform, settings));
+        _fogVolumes.Add(key, new FogVolumeDraw(shape, transform, settings));
     }
 
     /// <summary>Sets the look of the finished picture.</summary>
@@ -176,10 +154,11 @@ public sealed class ViewEffects
 
         RefuseOutsideOne(settings.Temperature, "temperature");
         RefuseOutsideOne(settings.Tint, "tint");
-        CheckGrade(settings);
+        FinishChecks.Grade(settings);
         ThinLens.Check(
             settings.FocusDistance, settings.Aperture, ThinLens.FocalLength(settings.FocalLength), nameof(settings));
-        Post = settings;
+        FinishChecks.Screen(settings.Screen, nameof(settings));
+        _finish = settings;
 
         static void RefuseOutsideOne(float value, string name)
         {
@@ -192,29 +171,16 @@ public sealed class ViewEffects
         }
     }
 
-    // The hue shift, the split toning's balance and the colour table's blend.
-    private static void CheckGrade(in PostSettings settings)
+    /// <summary>
+    /// Sets screen effects driven from play, such as a red edge while the player is hurt or a flash on a hit. Each
+    /// effect set here, anything not zero, wins over the same effect in <see cref="Finish"/>, and the rest stay as the
+    /// finish has them, so a hit's flash keeps a level's paper. A <see cref="ScreenEffects"/> component on an entity
+    /// does the same. Every amount runs from 0 to 1. See docs/rendering.md.
+    /// </summary>
+    public void Screen(in ScreenEffects effects)
     {
-        if (!float.IsFinite(settings.Grade.HueShift))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(settings),
-                string.Create(CultureInfo.InvariantCulture, $"The hue shift must be a number of degrees, but it is {settings.Grade.HueShift}."));
-        }
-
-        if (!(settings.Grade.SplitBalance is >= -1f and <= 1f))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(settings),
-                string.Create(CultureInfo.InvariantCulture, $"The split toning balance must be from -1 to 1, with 0 for the middle, but it is {settings.Grade.SplitBalance}."));
-        }
-
-        if (!(settings.Grade.LutBlend is >= 0f and <= 1f))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(settings),
-                string.Create(CultureInfo.InvariantCulture, $"The colour table's blend must be from 0, none, to 1, all of it, but it is {settings.Grade.LutBlend}."));
-        }
+        FinishChecks.Screen(effects, nameof(effects));
+        _screen = effects;
     }
 
     /// <summary>
@@ -246,10 +212,9 @@ public sealed class ViewEffects
     {
         _particles.Clear();
         _decals.Clear();
-        _decalKeys.Clear();
         _fogVolumes.Clear();
-        _fogVolumeKeys.Clear();
-        Post = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
+        _finish = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
+        _screen = default;
         OutlineSettings = new OutlineSettings();
         Transition = new ScreenTransition { Hold = Transition.Hold };
     }
