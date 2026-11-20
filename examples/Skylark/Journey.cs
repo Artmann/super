@@ -1,13 +1,13 @@
 namespace SkylarkExample;
 
-/// <summary>How the player is doing: which level they're on, the gems they've found there, and the whole run so far.</summary>
+/// <summary>
+/// How the whole run is going: which level the player is on and how long they've taken. What belongs to one level,
+/// such as the gems still to find, lives in the world, so it starts afresh whenever a level is built.
+/// </summary>
 public sealed class Journey
 {
     /// <summary>The level being played, counted from 0.</summary>
     public int Level { get; set; }
-
-    /// <summary>Gems found on this level.</summary>
-    public int Gems { get; set; }
 
     /// <summary>Seconds played since the run began.</summary>
     public float Seconds { get; set; }
@@ -15,23 +15,12 @@ public sealed class Journey
     /// <summary>How many times the bird fell off.</summary>
     public int Falls { get; set; }
 
-    /// <summary>The bird reached the lit beacon, so the game should move on.</summary>
-    public bool ReachedBeacon { get; set; }
-
     /// <summary>Back to the start of a run.</summary>
     public void Reset()
     {
         Level = 0;
         Seconds = 0f;
         Falls = 0;
-        StartLevel();
-    }
-
-    /// <summary>Clears what belongs to one level.</summary>
-    public void StartLevel()
-    {
-        Gems = 0;
-        ReachedBeacon = false;
     }
 }
 

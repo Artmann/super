@@ -46,13 +46,33 @@ public sealed class PhysicsCharacters
         character.LinearVelocity = velocity;
         if (seconds > 0f)
         {
-            Walk(entity, walker, seconds);
+            Advance(entity, walker, seconds);
         }
 
         var position = character.Position;
         transform.Position = position;
         walker.Position = position;
         return Result(character, position);
+    }
+
+    /// <summary>
+    /// Walks a <see cref="Character"/> that has a <see cref="Jumper"/>: <see cref="Move"/> with the falling, the
+    /// jumping and the riding done for it. Pass the speed to walk at over the ground, whose Y is ignored, and whether
+    /// the jump button is down, as in <c>actions.Down(Control.Jump)</c>. Call it once a tick. After a teleport, set
+    /// the jumper's <see cref="Jumper.Rise"/> to 0 so it doesn't keep falling at the speed it had.
+    /// </summary>
+    public CharacterMove Walk(Entity entity, Vector3 velocity, bool jump, float seconds)
+    {
+        if (!_world.IsAlive(entity) || !_world.Has<Jumper>(entity))
+        {
+            throw new InvalidOperationException($"Entity {entity.Id} can't Walk: it needs a Jumper. Use Move for a Character without one.");
+        }
+
+        var jumper = _world.Get<Jumper>(entity);
+        var move = Move(entity, jumper.Start(velocity, jump, seconds), seconds);
+        jumper.Finish(move, seconds);
+        _world.Get<Jumper>(entity) = jumper;
+        return move;
     }
 
     /// <summary>Lets go of the characters whose entity, or whose Character, is gone.</summary>
@@ -99,7 +119,7 @@ public sealed class PhysicsCharacters
     }
 
     /// <summary>Lets Jolt walk the character for <paramref name="seconds"/>, past everything but itself.</summary>
-    private void Walk(Entity entity, Walker walker, float seconds)
+    private void Advance(Entity entity, Walker walker, float seconds)
     {
         var step = walker.Settings.StepHeight;
         var settings = new ExtendedUpdateSettings

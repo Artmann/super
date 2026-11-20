@@ -90,6 +90,9 @@ internal sealed class LoopTick
 
         // After state changes, so a Go asked for in OnEnter lands this tick too.
         _scenes.Apply();
+
+        // After the scene change, so a camera built with a scene is on its rig for the first frame.
+        WorldRigs.Show(_scenes.World);
         _content.Data.RequireReferences();
         _time.Tick++;
     }
@@ -146,6 +149,9 @@ internal sealed class LoopTick
 
         // After Update, so what the game set this tick plays, and Crossed sees each moment once.
         _content.Animators.Advance(_time.DeltaSeconds);
+
+        // After Update, so a burst spawned this tick starts on it and one that has played is gone before Draw.
+        WorldBursts.Advance(_scenes.World, _time.Tick, _time.TickSeconds);
 
         // Once everything has moved, so a camera following something sees where it is now.
         _director.AfterUpdate();

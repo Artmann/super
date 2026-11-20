@@ -48,6 +48,31 @@ public class SceneTransitionTests
     }
 
     [Fact]
+    public void A_rebuild_with_a_fade_builds_the_same_scene_again_at_the_cut()
+    {
+        using var run = Start((game, tick) =>
+        {
+            if (tick == 2)
+            {
+                game.Scenes.Go(game.Build("crypt"));
+            }
+
+            if (tick == 10)
+            {
+                game.Scenes.Rebuild(Transition.Fade(1f));
+            }
+        });
+
+        run.Ticks(25);
+        Assert.Equal([("crypt", 2L)], run.Game.Builds);
+        Assert.True(run.Game.Scenes.IsChanging);
+
+        // Half a second after tick 10 is tick 25, as for a Go.
+        run.Ticks(1);
+        Assert.Equal([("crypt", 2L), ("crypt", 25L)], run.Game.Builds);
+    }
+
+    [Fact]
     public void A_wipe_swaps_at_once_and_holds_the_old_picture()
     {
         using var run = Start((game, tick) =>

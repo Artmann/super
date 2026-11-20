@@ -6,7 +6,7 @@ using Super.Physics;
 namespace SkylarkExample;
 
 /// <summary>Spins the gems, collects the ones the bird touches, and lights the beacon when none are left.</summary>
-public sealed class Gems(World world, Physics physics, Journey journey, Levels levels) : ISystem
+public sealed class Gems(World world, Physics physics, Levels levels) : ISystem
 {
     /// <summary>The sparkle where a gem was: a quick ring of bright bits.</summary>
     private static readonly ParticleEmitter Sparkle = new ParticleEmitter(count: 24, lifetime: 0.5f)
@@ -18,32 +18,17 @@ public sealed class Gems(World world, Physics physics, Journey journey, Levels l
         .Glow(3f)
         .Fade(0f, 0.3f);
 
-    private readonly List<(Vector3 Position, long Tick)> _sparkles = [];
-
     /// <summary>How many gems the level has.</summary>
     public int Total => levels.Current.Gems.Length;
 
-    /// <summary>True once every gem is found and the beacon burns.</summary>
-    public bool AllFound => journey.Gems >= Total;
+    /// <summary>How many of them the bird has found: the ones no longer in the world.</summary>
+    public int Found => Total - world.Count<Gem>();
 
     public void Update(GameTime time)
     {
         Spin(time);
-        Collect(time);
+        Collect();
         Beacon();
-    }
-
-    /// <summary>Forgets the sparkles, for a new level.</summary>
-    public void Clear() => _sparkles.Clear();
-
-    /// <summary>Draws the sparkles. A burst that plays once is drawn, not spawned.</summary>
-    public void Draw(View view)
-    {
-        for (int index = 0; index < _sparkles.Count; index++)
-        {
-            var (position, tick) = _sparkles[index];
-            view.Effects.Particles(HashCode.Combine(position, tick), Sparkle, position, view.SecondsSince(tick));
-        }
     }
 
     /// <summary>Turns each gem and bobs it up and down.</summary>
@@ -58,45 +43,33 @@ public sealed class Gems(World world, Physics physics, Journey journey, Levels l
     }
 
     /// <summary>Takes the gems the bird walked into, leaving a sparkle where each was.</summary>
-    private void Collect(GameTime time)
+    private void Collect()
     {
-        // Everything that walked into an area this tick. Keep the pairs that are a gem and the bird.
-        foreach (var touch in physics.Triggers.Entered)
+        foreach (var touch in physics.Triggers.Entered<Gem, Hero>())
         {
-            if (world.Has<Gem>(touch.Trigger) && world.Has<Hero>(touch.Other))
-            {
-                _sparkles.Add((world.Get<Transform>(touch.Trigger).Position, time.Tick));
-                world.Destroy(touch.Trigger);
-                journey.Gems++;
-            }
+            // A Burst plays once and then clears itself away. It belongs to no scene, so it outlives a level change.
+            world.Spawn(Transform.At(world.Get<Transform>(touch.Trigger).Position), new Burst(Sparkle));
+            world.Destroy(touch.Trigger);
         }
-
-        _sparkles.RemoveAll(sparkle => time.Tick - sparkle.Tick > 30);
     }
 
     /// <summary>Lights the beacon once every gem is found, and notices the bird reaching it.</summary>
     private void Beacon()
     {
-        foreach (var row in world.Query<Goal, Transform>())
+        if (world.Count<Gem>() > 0)
         {
-            var flame = row.First.Flame;
-            if (AllFound && world.Has<Hidden>(flame))
-            {
-                world.Remove<Hidden>(flame);
-            }
+            return;
+        }
 
-            if (!AllFound)
-            {
-                continue;
-            }
+        var flame = world.Only<Goal>().Flame;
+        if (world.Has<Hidden>(flame))
+        {
+            world.Remove<Hidden>(flame);
+        }
 
-            foreach (var visitor in physics.Triggers.Inside(row.Entity))
-            {
-                if (world.Has<Hero>(visitor))
-                {
-                    journey.ReachedBeacon = true;
-                }
-            }
+        foreach (var _ in physics.Triggers.Inside<Goal, Hero>())
+        {
+            world.Only<Goal>().Reached = true;
         }
     }
 }

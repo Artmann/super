@@ -162,6 +162,44 @@ It works for any kinematic collider moved through its Transform, and for dynamic
 It's zero from the tick the character leaves the ground, so keep the last one yourself if
 a jump off a moving platform should keep its speed.
 
+### Jumping
+
+When a plain fall and a good jump are all you want, give the character a `Jumper` and
+call `Walk` in place of `Move`. It does the falling, the jumping and the riding above
+for you:
+
+```csharp
+world.Add(player, new Jumper(JumpSpeed: 9.5f, Gravity: 24f));
+
+public void Update(GameTime time)
+{
+    var stick = actions.Vector(Control.Move) * 6f;
+    var walk = new Vector3(stick.X, 0f, -stick.Y);
+    var move = physics.Characters.Walk(player, walk, actions.Down(Control.Jump), time.DeltaSeconds);
+}
+```
+
+Pass whether the jump button is down, not whether it was just pressed: `Walk` tells a
+press from a hold itself, so holding the button doesn't jump again on landing. Letting
+go on the way up makes a lower hop, and a jump still works a moment after walking off an
+edge, which players expect without knowing it. A button that's already down the first
+time a jumper walks doesn't count, so the press that started the game isn't also a jump.
+The walking speed's Y is ignored.
+
+| `Jumper` setting | Default | What it does |
+| --- | --- | --- |
+| `JumpSpeed` | 9.5 | How fast a jump leaves the ground, in metres per second |
+| `Gravity` | 24 | How fast it speeds up falling, in metres per second each second |
+| `Forgiveness` | 0.12 | A jump still works this many seconds after walking off an edge |
+| `ShortHop` | 0.5 | How much of its rise is kept when the button is let go on the way up. 1 turns the short hop off |
+
+A jump rises its speed squared over twice the gravity, about 1.9 metres with the
+defaults, and the character climbs its `StepHeight` on top, so it reaches ledges a bit
+higher than that. The jumper's `Rise` is how fast it's going up, and `AirTime` is the seconds since it stood
+on something. Set `Rise` for a bounce pad, and set it to 0 after a teleport, or it keeps
+falling at the speed it had. `Move` is still there underneath for anything else, such as
+a double jump or a glide.
+
 A character can't have a `Parent` or a dynamic `Body`. Setting its Transform teleports it.
 Its collider is also a kinematic body, so rays and triggers find it and falling crates
 land on it.

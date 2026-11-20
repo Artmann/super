@@ -15,7 +15,8 @@ dotnet test tests/Skylark.Tests -c Release
 
 Space starts the game and jumps, WASD or the arrows walk, the mouse turns the camera, and R
 starts again. A gamepad works too. `--script hop` starts a game, walks to the edge and hops
-to the next island, for screenshots; `--script start` only starts it.
+to the next island, for screenshots; `--script gem` walks into the first gem, and
+`--script start` only starts it.
 
 | File | What's in it |
 | --- | --- |
@@ -24,12 +25,12 @@ to the next island, for screenshots; `--script start` only starts it.
 | `Scenery.cs` | Building a level into a scene: light, islands, lifts, gems, crates, trees, the beacon and the bird |
 | `Palette.cs` | The colours everything is painted with |
 | `Look.cs` | The cartoon shapes everything is drawn with: toon shaded, with an ink outline |
-| `Bird.cs` | Walking, jumping, riding lifts and going home after a fall |
+| `Bird.cs` | Walking the bird with its `Jumper`, and going home after a fall |
 | `Chase.cs` | The camera on an arm behind the bird |
 | `Lifts.cs` | Lifts gliding there and back |
 | `Gems.cs` | Collecting gems, their sparkles, and lighting and reaching the beacon |
 | `Crates.cs` | Putting a crate that fell off back where it started |
-| `Journey.cs` | The level, gems, time and falls of a run, and the saved best time |
+| `Journey.cs` | The level, time and falls of a run, and the saved best time |
 | `Hud.cs` | The HUD and the banner for the title and the end of a run |
 | `Components.cs` | The hero, lift, gem, goal and crate components each entity carries |
 | `Controls.cs` | The controls and the screens |

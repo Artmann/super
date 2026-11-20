@@ -44,6 +44,12 @@ public abstract class CameraRig
     /// <summary>Whether a camera has been shown since the start or the last <see cref="Jump"/>.</summary>
     protected bool IsPlaced { get; private set; }
 
+    /// <summary>The same as <see cref="IsPlaced"/>, for the world, which shows a rig only once it has a camera.</summary>
+    internal bool Placed => IsPlaced;
+
+    /// <summary>Whether the last update put the camera straight in place, so an entity on this rig cuts to it.</summary>
+    internal bool Cut { get; private set; }
+
     /// <summary>
     /// Puts the camera straight in place on the next update, with no blend or trailing, for
     /// when the target teleports or you set where it looks and want it there now.
@@ -60,6 +66,7 @@ public abstract class CameraRig
     protected void ShowNext(Camera next)
     {
         next = next with { WideAs = WideAs };
+        Cut = !IsPlaced;
         Previous = IsPlaced ? Current : next;
         Current = next;
         IsPlaced = true;
