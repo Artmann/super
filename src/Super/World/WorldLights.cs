@@ -72,6 +72,7 @@ internal static class WorldLights
     {
         LightSettings(view, world);
         SurroundingSettings(view, world);
+        EffectSettings(view, world);
     }
 
     private static void LightSettings(View view, World world)
@@ -129,7 +130,10 @@ internal static class WorldLights
         {
             view.Surroundings.Wind(wind.Direction, wind.Strength, wind.Gustiness);
         }
+    }
 
+    private static void EffectSettings(View view, World world)
+    {
         if (Newest<Finish>(world) is { } finish)
         {
             view.Effects.Finish(finish.Settings);
@@ -139,6 +143,11 @@ internal static class WorldLights
         if (Newest<ScreenEffects>(world) is { } screen)
         {
             view.Effects.Screen(screen);
+        }
+
+        if (Newest<PaintSettings>(world) is { } paint)
+        {
+            view.Effects.Paint(paint);
         }
 
         if (Newest<Outlines>(world) is { } outlines)

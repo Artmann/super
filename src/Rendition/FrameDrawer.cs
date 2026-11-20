@@ -158,6 +158,7 @@ internal sealed class FrameDrawer
         var fog = Fog.Pack(view.Weather.Fog, stores.Switches.Off, underwater: stores.Switches.Underwater(view));
         _parts.FrameStages.PostStage.Flare.Take(
             view, stores.Switches.Off, fog, (stores.Ring.Index, targets.GBuffer.Picture.HistoryReady, targets.GBuffer.Extent));
+        _parts.FrameStages.PostStage.Paint.Take(view, stores.Switches.Off, (int)targets.GBuffer.Picture.Display.Height);
     }
 
     /// <summary>

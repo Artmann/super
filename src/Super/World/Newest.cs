@@ -20,6 +20,7 @@ internal sealed class Newest
         Track<Finish>(types);
         Track<ScreenEffects>(types);
         Track<LensFlareSettings>(types);
+        Track<PaintSettings>(types);
         Track<Outlines>(types);
         Track<ScreenBounce>(types);
         Track<LightProbes>(types);

@@ -43,6 +43,7 @@ internal static class GraphicsSwitches
         (graphics => graphics.Picture.Flashes, RenderEffects.Flashes),
         (graphics => graphics.Picture.ScreenEffects, RenderEffects.ScreenEffects),
         (graphics => graphics.Picture.LensFlare, RenderEffects.LensFlare),
+        (graphics => graphics.Picture.Paint, RenderEffects.Paint),
         (graphics => graphics.Drawing.Culling, RenderEffects.Culling),
         (graphics => graphics.Drawing.SimplerModels, RenderEffects.SimplerModels),
         (graphics => graphics.Drawing.DepthFirst, RenderEffects.DepthFirst),

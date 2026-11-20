@@ -274,10 +274,16 @@ public enum RenderEffects : long
     /// </summary>
     LensFlare = 1L << 47,
 
+    /// <summary>
+    /// The oil-paint look from <see cref="FrameView.Picture"/>'s <see cref="PictureSettings.Paint"/>. Without it the
+    /// paint's passes don't run.
+    /// </summary>
+    Paint = 1L << 48,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
         | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
         | ScreenBounce | AerialPerspective | Stars | OcclusionHistory | ColorLut | ChromaticAberration | SpeedBlur | Flashes
-        | ScreenEffects | LensFlare,
+        | ScreenEffects | LensFlare | Paint,
 }

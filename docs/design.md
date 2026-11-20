@@ -1571,6 +1571,8 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
 - `LensFlare` (bit 47) skips the flare in `LensFlarePass.Take`, as an intensity of 0 or no light
   on screen does: neither the visibility nor the draw is recorded, and the flare's target is
   cleared once so the tonemap adds nothing. See [Lens flare](#lens-flare).
+- `Paint` (bit 48) makes `PaintConstants.For` return null, as an amount of 0 or a debug view does,
+  so `PaintPass.Record` records nothing. See [Paint](#paint).
 - `Culling` (bit 27) makes `DetailView.CanSee` true for every ball, for the camera, the
   cascades and the light tiles alike. `SimplerModels` (bit 28) hands `DetailView` a `MaxError`
   of 0, which no simpler level meets, since every level's error is above 0.
@@ -4033,6 +4035,63 @@ The API lives on `ViewLights` (`LensFlare` and `FlareLight`) through `ViewLensFl
 the named lights to the settings' own in one array, because `ViewEffects` is at Roe's member
 limit. `WorldLights` reads the newest `LensFlareSettings` component.
 
+### Paint
+
+The oil-paint look (`Passes/PaintPass.cs`) is an anisotropic Kuwahara filter with polynomial sector
+weights, written from Kyprianidis, Kang and Döllner (2009) and Kyprianidis, Semmo, Kang and Döllner
+(2010). It runs in `PostStage` after bloom, which reads the picture unpainted, and before the
+exposure meter and the tonemap, in HDR on the picture the tonemap reads: the resolved image under
+anti-aliasing, or the HDR target without it. It paints that picture in place, in two steps.
+
+`paint_filter.comp` paints a half-size picture in `GBuffer.HdrFormat`, made the first time a frame
+paints, so a game that never paints never holds it. Each 16 x 16 group first asks whether any of
+its pixels will be painted, taking the farthest of the four scene pixels each covers, since paint
+only grows with distance. A group with none writes the picture as it is, unfiltered, and skips the
+tile, since the composite won't show it there. Otherwise it loads
+the half-size picture round it into shared memory once, with an apron of 11 pixels on every side
+(`REACH`, which must match `PaintConstants.MaxReach`). Each half-size pixel is the mean of the four
+it covers, read with one linear tap. Colours are exposed with this frame's exposure, squashed into
+0 to 1 by dividing by one plus the largest channel, which keeps the hue, so the sun doesn't drown
+every sector's variance, and stored as halves.
+A group whose steepest gradient is below `FLAT`, such as clear sky, writes the picture as it is.
+
+The group then works out the structure tensor from Sobel gradients summed over the colour
+channels, smooths it over 5 x 5, and from its eigenvalues gives each pixel an ellipse along the
+edge it sits on: the radius times one plus the anisotropy along it, capped at the apron, and divided
+by the same across it, so a clear edge gets a stroke up to twice as long and half as wide. The ellipse is
+cut into eight overlapping sectors with the polynomial weights of the 2010 paper. Each tap, on a
+grid over the unit disc, adds to the sectors it falls in. A sector's mean colour is weighed by
+`1 / (1 + (hardness * variance)^4)`, so a flat sector counts far more than one across an edge, and
+the pixel is the weighed mean of the eight, unsquashed and divided back by the exposure.
+`Hardness` is 200 at sharpness 0 and 30 times that at 1.
+
+`paint_composite.frag` lays the half-size result over the full-size picture with premultiplied
+blending, as much as `paintMask` in `paint.glsl` gives each pixel: the amount, or the amount times
+a smoothstep from near to far along the view, with depth 0, the sky, counting as far. Below
+`PAINT_CUT` (0.02) it discards, so the pixel stays bit for bit as it was. Bloom reads the picture
+before the paint, so the glow keeps its shape; the meter reads it after.
+
+`PaintConstants.For` turns `PaintSettings` into the push constants on the CPU, with nothing
+allocated. The brush is given in pixels of a picture 1080 tall and scaled by the display height,
+not the render size, then halved for the half-size picture and capped at the 11 pixels the tile
+holds, so the largest brush is smaller than asked for past about 1485 pixels tall, and strokes
+along an edge stop stretching sooner. It clamps what
+Super would refuse, since Rendition used alone doesn't check: the amount to 1 and near to just
+short of far. The filter and composite sets are written once with `Descriptors.ImageWrite`, again
+when the source changes, and the half-size target is dropped on a resize. `GpuTimer` reports the
+two steps as "Paint", between "Bloom" and "Tonemap".
+
+At 1080p on an RTX 4060 Ti, with the whole of Terrain painted, paint took 12 to 16% of the GPU
+frame. Those runs shared the GPU with another program, so every pass was several times slower than
+it is alone, and the absolute time, 4 to 7 ms, overstates it; alone it should be near 1 ms. Most of
+it goes to loading the tile and working out the tensor, not to the taps: halving the taps barely
+moved it, which is still to be explained. A frame that paints nothing costs nothing.
+
+In Super, `ViewEffects.Paint` checks the settings with `PaintChecks` and keeps them in `ViewLook`,
+which holds the finish, the screen effects and the paint together, because `ViewEffects` is at
+Roe's member limit. `WorldLights` reads the newest `PaintSettings` component, and `FrameMaker`
+copies `ViewLook.Paint` into `FrameView.Picture.Paint`.
+
 Auto exposure meters the frame on the GPU and never reads it back. Before the tonemap,
 `exposure_histogram.comp` reads the image the tonemap and bloom read (resolved, or HDR
 without anti-aliasing), so it sees the lit frame before bloom. It puts each pixel's
@@ -4344,7 +4403,7 @@ as Cannonball's Mixamo stuntman, carry `[Trait("Needs", "Assets")]`. CI has no `
 can't trace, rather than passing without checking anything. `GpuFixture.Matte` is a plain opaque
 material for tests to draw or trace with, and `RenderOneFrame` renders one frame, empty or of the draws given,
 which also runs every queued upload; `CaptureOneFrame` does the same through `Capture` and returns the pixels. A test can make a fixture of its own, such as one whose device can't
-trace; GLFW is only terminated when the last fixture goes, since that closes every window.
+trace, or one with a larger window, as `PaintGpuTests` does so its brush spans enough pixels to tell strokes from a blur; GLFW is only terminated when the last fixture goes, since that closes every window.
 
 ## Bake ids
 

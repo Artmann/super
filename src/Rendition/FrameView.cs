@@ -204,6 +204,9 @@ public struct PictureSettings
 
     /// <summary>The glints from the sun and named lights. The default is a subtle flare from the sun.</summary>
     public LensFlareSettings LensFlare;
+
+    /// <summary>The oil-paint look, over the whole picture or its far part. The default paints nothing.</summary>
+    public PaintSettings Paint;
 }
 
 /// <summary>What a frame draws besides its draws, for <see cref="FrameView.Extras"/>.</summary>
