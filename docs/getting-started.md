@@ -254,9 +254,11 @@ Everything is wired up at startup, and nothing is looked up while the game runs.
 keeps no global state, so several games can run side by side in one process, which is
 what lets [tests](testing.md) run in parallel.
 
-## Packages
+## What's in the package
 
-| Package | What it gives you | Depends on |
+The one `Super` package holds these assemblies, each with a namespace of the same name:
+
+| Assembly | What it gives you | Depends on |
 | --- | --- | --- |
 | `Super` | Window, game loop, input, game states, the [world](ecs.md), views, cameras, interfaces, content | `Rendition`, `Super.Random` |
 | `Super.Random` | Seeded random numbers. Usable alone | Nothing else here |
@@ -271,3 +273,4 @@ what lets [tests](testing.md) run in parallel.
 - [Input](input.md) to make it playable.
 - [Change code while the game runs](hot-reload.md) to try changes without restarting.
 - [Build a tower defense](guides/tower-defense.md) to put it all together in a small, complete game.
+- [Build a 3D platformer](guides/platformer.md) for physics, a character you steer and a camera that follows.

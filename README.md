@@ -181,6 +181,7 @@ marked as planned. The examples are the best place to see it running:
 | [Cannonball](examples/Cannonball) | Ragdolls: a stuntman fired from a cannon tumbles through crates and balls, then gets up where they land; D shows the ragdoll's bodies |
 | [Forest](examples/Forest) | Sound: a looping ambience and music, a hammering builder whose sound pans as the camera circles, and channel volumes |
 | [Outpost](examples/Outpost) | A small tower defense made from built-in shapes, built step by step in [the guide](docs/guides/tower-defense.md) |
+| [Skylark](examples/Skylark) | A small 3D platformer with physics, lifts and a follow camera, built step by step in [the guide](docs/guides/platformer.md) |
 
 ## License
 
