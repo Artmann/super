@@ -191,8 +191,12 @@ public sealed class BakeCacheTests : IDisposable
         Assert.Null(cache.Read("locked.lightbake"));
     }
 
+    /// <summary>
+    /// The write and the read each get a thread of their own. On the thread pool, a CI machine busy with the other
+    /// tests once took more than 10 seconds to start the read, which looked like a read waiting for the write.
+    /// </summary>
     [Fact]
-    public async Task Reading_finishes_while_a_write_is_stuck_before_its_move()
+    public void Reading_finishes_while_a_write_is_stuck_before_its_move()
     {
         var cache = new BakeCache(_folder, _time, capacity: 100);
         Directory.CreateDirectory(_folder);
@@ -204,22 +208,37 @@ public sealed class BakeCacheTests : IDisposable
             reached.Set();
             Assert.True(release.Wait(TimeSpan.FromSeconds(30)), "The test never let the write go.");
         };
-        var write = Task.Run(() => cache.Write("new.lightbake", [1, 2, 3]));
+        Exception? writeFailed = null;
+        var write = new Thread(() =>
+        {
+            try
+            {
+                cache.Write("new.lightbake", [1, 2, 3]);
+            }
+            catch (Exception e)
+            {
+                writeFailed = e;
+            }
+        });
+        write.Start();
         try
         {
             Assert.True(reached.Wait(TimeSpan.FromSeconds(30)), "The write never reached its move.");
 
-            var read = Task.Run(() => cache.Read("old.lightbake"));
+            byte[]? old = null;
+            var read = new Thread(() => old = cache.Read("old.lightbake"));
+            read.Start();
 
-            Assert.Same(read, await Task.WhenAny(read, Task.Delay(TimeSpan.FromSeconds(10))));
-            Assert.Equal([9, 9], await read);
+            Assert.True(read.Join(TimeSpan.FromSeconds(10)), "The read waited for the write.");
+            Assert.Equal([9, 9], old);
         }
         finally
         {
             release.Set();
-            await write;
+            write.Join();
         }
 
+        Assert.Null(writeFailed);
         Assert.Equal([1, 2, 3], cache.Read("new.lightbake"));
     }
 
