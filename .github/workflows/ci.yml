@@ -84,6 +84,10 @@ jobs:
       # in the key starts it afresh once a month, so entries nothing uses any more don't pile up.
       # The cook keeps what it made in SUPER_CACHE, on the same drive as the checkout so cooked content
       # can be hard links to it. The build and the tests both read it.
+      # global.json keeps the SDK on .NET 10 whatever else the runner image has. Images still differ in its
+      # patch while a new one rolls out, and another compiler gives the cook libraries other bytes, so nothing
+      # cooked by one is a hit for the other. A run therefore looks first for a cache its own SDK made, and
+      # only then for the newest one.
       - name: Cook cache key
         id: cook-key
         shell: pwsh
@@ -99,6 +103,7 @@ jobs:
           path: ${{ env.SUPER_CACHE }}
           key: super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-${{ steps.cook-key.outputs.sdk }}-${{ hashFiles('Directory.Build.props', 'src/**', 'tools/**', 'examples/*/content/**', 'assets/**') }}
           restore-keys: |
+            super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-${{ steps.cook-key.outputs.sdk }}-
             super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-
 
       # The cache is about 2 GB, and saving it takes about 25 seconds and room in the repository's 10 GB of
