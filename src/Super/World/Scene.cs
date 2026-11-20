@@ -58,4 +58,10 @@ public sealed class Scene
         where T4 : struct
         where T5 : struct =>
         new WorldSpawn.Spawning(World, Id).Fill(in first, in second, in third, in fourth, in fifth);
+
+    /// <summary>
+    /// Makes an entity that belongs to the scene from any number of components, like
+    /// <see cref="WorldSpawn.Spawn(World, ReadOnlySpan{object})"/>.
+    /// </summary>
+    public Entity Spawn(params ReadOnlySpan<object> components) => new WorldSpawn.Spawning(World, Id).Fill(components);
 }

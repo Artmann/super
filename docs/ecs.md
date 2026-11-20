@@ -88,7 +88,7 @@ made, and the first error is thrown after the last one.
 
 | Call | What it does |
 | --- | --- |
-| `world.Spawn(a, b, ...)` | Makes an entity with up to five components. Add more with `Add` |
+| `world.Spawn(a, b, ...)` | Makes an entity with any number of components. See [Spawning with many components](#spawning-with-many-components) |
 | `world.Create()` | Makes an entity with no components |
 | `world.Add(entity, component)` | Adds a component, or replaces one of the same type |
 | `world.Remove<T>(entity)` | Removes a component |
@@ -102,6 +102,8 @@ made, and the first error is thrown after the last one.
 | `world.Single<T>()` | The one entity that has a `T`, such as the player or the camera. It throws when there is none or more than one |
 | `world.Only<T>()` | The one `T` itself, by reference, so `world.Only<Score>().Points += 10` changes it in place. It throws like `Single` |
 | `world.TrySingle<T>(out entity)` | The same, giving false when there is none or more than one |
+| `world.IsAlive(entity)` | Whether it still exists. A destroyed entity's ID isn't confused with a new one |
+| `world.Count` | How many entities there are |
 
 `Count`, `Single` and `TrySingle` don't start a query and allocate nothing, so they're fine
 every tick, and inside a query's loop:
@@ -115,8 +117,6 @@ if (world.Count<Gem>() == 0)
     Win();
 }
 ```
-| `world.IsAlive(entity)` | Whether it still exists. A destroyed entity's ID isn't confused with a new one |
-| `world.Count` | How many entities there are |
 
 ```csharp
 var sheep = world.Spawn(new Position(Vector3.Zero), new Velocity(Vector3.UnitX));
@@ -133,6 +133,34 @@ once the world has seen that mix of components. On a desktop, spawning a `Transf
 `Model` takes about 40 nanoseconds, and destroying it about 25. Giving all the components
 in one `Spawn` is about five times faster than `Create` followed by an `Add` for each,
 which moves the entity once per component.
+
+### Spawning with many components
+
+`Spawn` takes as many components as you write. Up to five, each keeps its own type and
+nothing is allocated. From the sixth on, the same call still works and still lands the
+entity in one move, but each component is boxed on the way in, which allocates a little:
+
+```csharp
+var knight = world.Spawn(
+    Transform.At(spot), new Model(Knight), new Health(100), new Armor(5),
+    new Team(Red), new Speed(3f), new Loot(Gold));
+```
+
+That's fine for building a level, and for anything that spawns now and then. For what
+spawns by the hundred every tick, keep to five and let [required components](#required-components)
+bring the rest. The same overload takes an array or a list, for components gathered at run time:
+
+```csharp
+var parts = new List<object> { Transform.At(spot), new Model(Knight) };
+if (mounted)
+{
+    parts.Add(new Mount(Horse));
+}
+
+world.Spawn([.. parts]);
+```
+
+Every component must be a struct. Anything else, or `null`, throws.
 
 Destroying an entity finds its children at once, however many parented entities the
 world holds. To move a child to another parent, `Add` it a new `Parent`. Writing one

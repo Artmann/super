@@ -1043,8 +1043,8 @@ private static void Crate(Scene scene, Vector3 spot)
 }
 ```
 
-That's five components, the most one `Spawn` takes. An entity that needs more gets the
-rest with `scene.World.Add(entity, component)`.
+That's five components in one `Spawn`. It takes as many as you write, so an entity that
+needs a sixth just gets one more argument.
 
 There's no code for pushing. The character walks into the crate, and physics shoves it. A
 mass of 15 kilograms makes it move without flying off, and the friction stops it sliding
