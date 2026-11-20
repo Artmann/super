@@ -71,7 +71,26 @@ public class WorldFindTests
 
         var error = Assert.Throws<InvalidOperationException>(() => _world.Single<Coin>());
 
-        Assert.Equal("2 entities have a Coin, and Single needs exactly one.", error.Message);
+        Assert.Equal("2 entities have a Coin, where exactly one was expected.", error.Message);
+    }
+
+    [Fact]
+    public void Only_changes_the_one_component_in_place()
+    {
+        _world.Spawn(new Coin(1));
+        var player = _world.Spawn(new Player(3), new Shiny());
+
+        _world.Only<Player>().Lives -= 2;
+
+        Assert.Equal(1, _world.Get<Player>(player).Lives);
+    }
+
+    [Fact]
+    public void Only_says_when_there_is_none()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => _world.Only<Player>());
+
+        Assert.Equal("No entity has a Player.", error.Message);
     }
 
     [Fact]

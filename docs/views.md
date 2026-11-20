@@ -433,6 +433,22 @@ always looks the same, and the bursts from before the game began count too, so a
 is already burning on the first frame. The burst follows the entity's `Transform` and
 `Parent`, and `Hidden` stops it. `Every` must be more than zero seconds.
 
+### Particles that play once
+
+A sparkle where a coin was, or dust where something landed, plays once and is over. Spawn
+a `Burst` and forget it:
+
+```csharp
+world.Spawn(Transform.At(coin), new Burst(Sparkle));
+```
+
+It starts on the tick it's spawned in, and when the effect's `Duration` is up the entity
+is destroyed, so there's no list of bursts to keep and nothing to draw yourself. It
+follows the entity's `Transform` and `Parent`, and `Hidden` hides it. The whole entity
+goes, so for a burst on something that stays, such as sparks on an enemy that was hit,
+spawn the burst as its child with a `Parent`. Spawn it through the
+[scene](ecs.md#scenes) and it's also cleared with the scene.
+
 ### How they look
 
 Particles are lit by the sun, the sky and point and spot lights, shaded by the sun's

@@ -43,8 +43,16 @@ public static class WorldFind
         throw new InvalidOperationException(
             count == 0
                 ? $"No entity has a {typeof(T).Name}."
-                : $"{count} entities have a {typeof(T).Name}, and Single needs exactly one.");
+                : $"{count} entities have a {typeof(T).Name}, where exactly one was expected.");
     }
+
+    /// <summary>
+    /// The one <typeparamref name="T"/> in the world, to read or change in place, as in
+    /// <c>world.Only&lt;Score&gt;().Points += 10</c>. Throws when there is none or more than one. Put a level's
+    /// own state on an entity its scene spawns and it starts afresh whenever the scene is built.
+    /// </summary>
+    public static ref T Only<T>(this World world)
+        where T : struct => ref world.Get<T>(world.Single<T>());
 
     /// <summary>
     /// Finds the one entity that has a <typeparamref name="T"/>. False when there is none, and when there is more

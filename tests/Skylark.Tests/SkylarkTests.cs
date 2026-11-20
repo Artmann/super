@@ -1,6 +1,7 @@
 using System.Numerics;
 using SkylarkExample;
 using Super;
+using Super.Physics;
 using Super.Testing;
 
 namespace Skylark.Tests;
@@ -15,7 +16,7 @@ public class SkylarkTests
         run.Ticks(1);
         if (level > 0)
         {
-            run.Game.Journey.Level = level;
+            Journey(run).Level = level;
             run.Scenes.Rebuild();
         }
 
@@ -23,36 +24,21 @@ public class SkylarkTests
         return run;
     }
 
-    private static Entity Bird(HeadlessRun<SkylarkGame> run) => Only<Hero>(run.World);
+    private static Entity Bird(HeadlessRun<SkylarkGame> run) => run.World.Single<Hero>();
 
-    private static Entity Only<T>(World world) where T : struct
-    {
-        var found = new List<Entity>();
-        foreach (var row in world.Query<T>())
-        {
-            found.Add(row.Entity);
-        }
+    // The game's own services, so the game needs no property only its tests read.
+    private static Journey Journey(HeadlessRun<SkylarkGame> run) => run.Service<Journey>();
 
-        return Assert.Single(found);
-    }
+    private static int Found(HeadlessRun<SkylarkGame> run) => run.Service<Gems>().Found;
 
-    private static int Count<T>(World world) where T : struct
-    {
-        int count = 0;
-        foreach (var _ in world.Query<T>())
-        {
-            count++;
-        }
-
-        return count;
-    }
+    private static Records Records(HeadlessRun<SkylarkGame> run) => run.Service<UserData>().Get<Records>();
 
     private static Vector3 Position(HeadlessRun<SkylarkGame> run, Entity entity) => run.World.Get<Transform>(entity).Position;
 
     /// <summary>Puts the bird on each gem in turn, then waits for the areas to notice.</summary>
     private static void CollectEveryGem(HeadlessRun<SkylarkGame> run)
     {
-        foreach (var spot in Levels.All[run.Game.Journey.Level].Gems)
+        foreach (var spot in Levels.All[Journey(run).Level].Gems)
         {
             run.World.Teleport(Bird(run), Transform.At(spot + new Vector3(0f, 0.5f, 0f)));
             run.Ticks(3);
@@ -76,8 +62,8 @@ public class SkylarkTests
 
         var bird = Bird(run);
         Assert.InRange(Position(run, bird).Y, -0.05f, 0.05f);
-        Assert.Equal(0f, run.World.Get<Hero>(bird).AirTime);
-        Assert.Equal(0, run.Game.Journey.Falls);
+        Assert.Equal(0f, run.World.Get<Jumper>(bird).AirTime);
+        Assert.Equal(0, Journey(run).Falls);
     }
 
     [Fact]
@@ -138,7 +124,7 @@ public class SkylarkTests
         var bird = Bird(run);
 
         run.Input.Hold(Control.Move, new Vector2(0f, -1f));
-        for (int tick = 0; tick < 120 && run.Game.Journey.Falls == 0; tick++)
+        for (int tick = 0; tick < 120 && Journey(run).Falls == 0; tick++)
         {
             run.Ticks(1);
         }
@@ -146,7 +132,7 @@ public class SkylarkTests
         run.Input.Release(Control.Move);
         run.Ticks(20);
 
-        Assert.Equal(1, run.Game.Journey.Falls);
+        Assert.Equal(1, Journey(run).Falls);
         Assert.True(Vector3.Distance(Position(run, bird), Levels.All[0].Start) < 0.1f, $"the bird is at {Position(run, bird)}");
     }
 
@@ -154,14 +140,14 @@ public class SkylarkTests
     public void Walking_into_a_gem_collects_it()
     {
         using var run = Start();
-        Assert.Equal(5, Count<Gem>(run.World));
+        Assert.Equal(5, run.World.Count<Gem>());
 
         // The first gem is left of the path and ahead: 2.5 m left and 3.5 m forward of the start.
         run.Input.Hold(Control.Move, Vector2.Normalize(new Vector2(-2.5f, 3.5f)));
         run.Ticks(26);
 
-        Assert.Equal(1, run.Game.Journey.Gems);
-        Assert.Equal(4, Count<Gem>(run.World));
+        Assert.Equal(1, Found(run));
+        Assert.Equal(4, run.World.Count<Gem>());
         Assert.Contains(run.ShownText, shown => shown.Text == "Gems 1/5");
     }
 
@@ -169,23 +155,22 @@ public class SkylarkTests
     public void The_beacon_does_nothing_until_every_gem_is_found()
     {
         using var run = Start();
-        var goal = Only<Goal>(run.World);
-        var flame = run.World.Get<Goal>(goal).Flame;
+        var flame = run.World.Only<Goal>().Flame;
         var atBeacon = Transform.At(Levels.All[0].Goal + new Vector3(1f, 0f, 0f));
 
         run.World.Teleport(Bird(run), atBeacon);
         run.Ticks(40);
         Assert.True(run.World.Has<Hidden>(flame));
-        Assert.Equal(0, run.Game.Journey.Level);
+        Assert.Equal(0, Journey(run).Level);
 
         CollectEveryGem(run);
         Assert.False(run.World.Has<Hidden>(flame));
-        Assert.Equal(0, run.Game.Journey.Level);
+        Assert.Equal(0, Journey(run).Level);
 
         run.World.Teleport(Bird(run), atBeacon);
         run.Ticks(40);
-        Assert.Equal(1, run.Game.Journey.Level);
-        Assert.Equal(0, run.Game.Journey.Gems);
+        Assert.Equal(1, Journey(run).Level);
+        Assert.Equal(0, Found(run));
         Assert.Contains(run.ShownText, shown => shown.Text == "The climb");
         Assert.True(Vector3.Distance(Position(run, Bird(run)), Levels.All[1].Start) < 0.1f);
     }
@@ -195,7 +180,7 @@ public class SkylarkTests
     {
         using var run = Start();
         var bird = Bird(run);
-        var lift = Only<Lift>(run.World);
+        var lift = run.World.Single<Lift>();
         var top = new Vector3(0f, 0.2f, 0f);
 
         run.World.Teleport(bird, Transform.At(Position(run, lift) + top));
@@ -207,14 +192,14 @@ public class SkylarkTests
         var riding = Position(run, bird);
         Assert.True(riding.X - startX > 3f, $"the bird moved {riding.X - startX} m");
         Assert.InRange(riding.X - Position(run, lift).X, -0.3f, 0.3f);
-        Assert.Equal(0, run.Game.Journey.Falls);
+        Assert.Equal(0, Journey(run).Falls);
     }
 
     [Fact]
     public void Walking_into_a_crate_pushes_it()
     {
         using var run = Start();
-        var crate = Only<Crate>(run.World);
+        var crate = run.World.Single<Crate>();
         var before = Position(run, crate);
 
         // Stand a metre and a half behind the crate and walk into it.
@@ -238,7 +223,7 @@ public class SkylarkTests
         run.Input.Hold(Control.Jump);
         run.Ticks(40);
         Assert.InRange(Position(run, bird).Y, -0.05f, 0.05f);
-        Assert.Equal(0, run.Game.Journey.Gems);
+        Assert.Equal(0, Found(run));
 
         // Now with the crate against the rock, and the bird standing on it. The bird steps aside first,
         // so the crate isn't dropped on top of it.
@@ -246,7 +231,7 @@ public class SkylarkTests
         run.Input.Release(Control.Move);
         run.World.Teleport(bird, Transform.At(Levels.All[0].Start));
         run.Ticks(2);
-        run.World.Teleport(Only<Crate>(run.World), Transform.At(besideRock + new Vector3(0f, 0.5f, 0f)));
+        run.World.Teleport(run.World.Single<Crate>(), Transform.At(besideRock + new Vector3(0f, 0.5f, 0f)));
         run.World.Teleport(bird, Transform.Facing(besideRock + new Vector3(0f, 1.05f, 0f), -Vector3.UnitZ));
         run.Ticks(10);
         run.Input.Hold(Control.Move, new Vector2(0f, 1f));
@@ -256,14 +241,14 @@ public class SkylarkTests
         run.Ticks(20);
 
         Assert.InRange(Position(run, bird).Y, 2.85f, 2.95f);
-        Assert.Equal(1, run.Game.Journey.Gems);
+        Assert.Equal(1, Found(run));
     }
 
     [Fact]
     public void A_crate_that_falls_off_goes_home()
     {
         using var run = Start();
-        var crate = Only<Crate>(run.World);
+        var crate = run.World.Single<Crate>();
         var home = run.World.Get<Crate>(crate).Home;
 
         run.World.Teleport(crate, Transform.At(new Vector3(40f, 0f, 40f)));
@@ -279,9 +264,9 @@ public class SkylarkTests
         run.Ticks(50);
         FinishLastLevel(run);
 
-        float seconds = run.Game.Journey.Seconds;
+        float seconds = Journey(run).Seconds;
         Assert.InRange(seconds, 2f, 4f);
-        Assert.Equal(seconds, run.Game.Records.BestSeconds);
+        Assert.Equal(seconds, Records(run).BestSeconds);
         Assert.Contains(run.ShownText, shown => shown.Text == "You made it in 0:02");
     }
 
@@ -289,10 +274,10 @@ public class SkylarkTests
     public void A_slower_run_keeps_the_old_best()
     {
         using var run = Start(level: Levels.All.Count - 1);
-        run.Game.Records.BestSeconds = 0.1f;
+        Records(run).BestSeconds = 0.1f;
         FinishLastLevel(run);
 
-        Assert.Equal(0.1f, run.Game.Records.BestSeconds);
+        Assert.Equal(0.1f, Records(run).BestSeconds);
     }
 
     [Fact]
@@ -300,14 +285,14 @@ public class SkylarkTests
     {
         using var run = Start(level: 1);
         CollectEveryGem(run);
-        Assert.Equal(4, run.Game.Journey.Gems);
+        Assert.Equal(4, Found(run));
 
         run.Input.Press(Control.Restart);
         run.Ticks(3);
 
-        Assert.Equal(0, run.Game.Journey.Level);
-        Assert.Equal(0, run.Game.Journey.Gems);
-        Assert.Equal(5, Count<Gem>(run.World));
-        Assert.InRange(run.Game.Journey.Seconds, 0f, 0.2f);
+        Assert.Equal(0, Journey(run).Level);
+        Assert.Equal(0, Found(run));
+        Assert.Equal(5, run.World.Count<Gem>());
+        Assert.InRange(Journey(run).Seconds, 0f, 0.2f);
     }
 }

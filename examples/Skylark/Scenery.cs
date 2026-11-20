@@ -6,7 +6,7 @@ using Super.Physics;
 namespace SkylarkExample;
 
 /// <summary>Builds the level the journey is on into a scene: the light, the islands and everything on them.</summary>
-public sealed class Scenery(Look look, Levels levels, Journey journey, Chase chase)
+public sealed class Scenery(Look look, Levels levels, Chase chase)
 {
     /// <summary>The beacon's fire: small flames that rise and fade.</summary>
     private static readonly ParticleEmitter Fire = new ParticleEmitter(count: 60, lifetime: 0.6f)
@@ -23,7 +23,6 @@ public sealed class Scenery(Look look, Levels levels, Journey journey, Chase cha
     public void Build(Scene scene)
     {
         var level = levels.Current;
-        journey.StartLevel();
         Light(scene);
 
         foreach (var island in level.Islands)
@@ -115,8 +114,7 @@ public sealed class Scenery(Look look, Levels levels, Journey journey, Chase cha
     private void Crate(Scene scene, Vector3 spot)
     {
         var home = spot + new Vector3(0f, 0.5f, 0f);
-        var crate = scene.Spawn(Transform.At(home), new Model(look.Cube, Palette.Wood), Collider.Box(Vector3.One), Body.Dynamic(mass: 15f, friction: 0.8f));
-        scene.World.Add(crate, new Crate(home));
+        scene.Spawn(Transform.At(home), new Model(look.Cube, Palette.Wood), Collider.Box(Vector3.One), Body.Dynamic(mass: 15f, friction: 0.8f), new Crate(home));
     }
 
     /// <summary>A trunk with a cone of leaves on top.</summary>
@@ -140,10 +138,15 @@ public sealed class Scenery(Look look, Levels levels, Journey journey, Chase cha
         scene.Spawn(Transform.At(foot + new Vector3(0, 1f, 0)), Collider.Box(new Vector3(2.4f, 2f, 2.4f)), new Trigger(), new Goal(flame));
     }
 
-    /// <summary>The bird: a capsule that walks, with its body, beak, eyes and tail riding along as children.</summary>
+    /// <summary>The bird: a capsule that walks and jumps, with its body, beak, eyes and tail riding along as children.</summary>
     private void Bird(Scene scene, Vector3 start)
     {
-        var bird = scene.Spawn(Transform.Facing(start, -Vector3.UnitZ), Collider.Capsule(height: 1.1f, radius: 0.4f), new Character(), new Hero(Vector3.Zero, 0f, start));
+        var bird = scene.Spawn(
+            Transform.Facing(start, -Vector3.UnitZ),
+            Collider.Capsule(height: 1.1f, radius: 0.4f),
+            new Character(),
+            new Jumper(JumpSpeed: 9.5f, Gravity: 24f),
+            new Hero(start));
 
         // A cone points up, so tip it forward for the beak and back for the tail. The bird faces +z.
         var straight = Quaternion.Identity;
