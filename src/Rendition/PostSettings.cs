@@ -1,4 +1,6 @@
 using System.Numerics;
+using Rendition.Passes;
+using static Rendition.SettingsMix;
 
 namespace Rendition;
 
@@ -86,6 +88,12 @@ public struct PostSettings
     public float Tint;
 
     /// <summary>
+    /// The finer colour grade: a hue shift, a channel mixer, tints for the shadows, mid-tones and highlights, split
+    /// toning and an artist's colour table. Zero leaves the picture as the settings above make it.
+    /// </summary>
+    public ColorGrade Grade;
+
+    /// <summary>
     /// Where the camera is focused, in metres in front of it, for depth of field. Only things at this
     /// distance are sharp once <see cref="Aperture"/> opens the lens. It must be further than
     /// <see cref="FocalLength"/>. See docs/rendering.md.
@@ -104,6 +112,54 @@ public struct PostSettings
     /// field of view, which the camera sets.
     /// </summary>
     public float FocalLength;
+
+    /// <summary>
+    /// The look <paramref name="t"/> of the way from <paramref name="from"/> to <paramref name="to"/>, for easing from
+    /// one grade to another, such as day into dusk or a room into a cave. Numbers and colours move evenly; choices
+    /// that can't be halfway, such as the tonemapper, <see cref="AutoExposure"/> or a lens that opens from none, change
+    /// at the halfway point. Two different <see cref="ColorGrade.Lut"/>s cross through none: the first fades out over
+    /// the first half and the second fades in over the second. <paramref name="t"/> is held from 0, all
+    /// <paramref name="from"/>, to 1, all <paramref name="to"/>.
+    /// </summary>
+    public static PostSettings Lerp(in PostSettings from, in PostSettings to, float t)
+    {
+        // The ends are the settings themselves, so a 0 that stands for a default stays 0.
+        if (!(t > 0f))
+        {
+            return from;
+        }
+
+        if (t >= 1f)
+        {
+            return to;
+        }
+
+        var near = t < 0.5f ? from : to;
+        bool openLens = from.Aperture > 0f && to.Aperture > 0f;
+        return new PostSettings
+        {
+            Exposure = Mix(from.Exposure, to.Exposure, t),
+            AutoExposure = near.AutoExposure,
+            AdaptationSpeed = Mix(Or(from.AdaptationSpeed, 2f), Or(to.AdaptationSpeed, 2f), t),
+            Contrast = Mix(from.Contrast, to.Contrast, t),
+            Saturation = Mix(from.Saturation, to.Saturation, t),
+            Vignette = Mix(from.Vignette, to.Vignette, t),
+            Sharpen = Mix(from.Sharpen, to.Sharpen, t),
+            Grain = Mix(from.Grain, to.Grain, t),
+            Bloom = Mix(from.Bloom, to.Bloom, t),
+            Lift = Vector3.Lerp(from.Lift, to.Lift, t),
+            Gain = Vector3.Lerp(from.Gain, to.Gain, t),
+            Tonemapper = near.Tonemapper,
+            AgxLook = near.AgxLook,
+            Temperature = Mix(from.Temperature, to.Temperature, t),
+            Tint = Mix(from.Tint, to.Tint, t),
+            Grade = ColorGrade.Lerp(from.Grade, to.Grade, t),
+            // A lens can't be part open: an f-number halfway from none would be the widest lens of all.
+            FocusDistance = openLens ? Mix(from.FocusDistance, to.FocusDistance, t) : near.FocusDistance,
+            Aperture = openLens ? Mix(from.Aperture, to.Aperture, t) : near.Aperture,
+            FocalLength = Mix(ThinLens.FocalLength(from.FocalLength), ThinLens.FocalLength(to.FocalLength), t),
+        };
+    }
 }
 
 /// <summary>The curve that turns the scene's light into the colours a screen can show.</summary>
@@ -117,7 +173,19 @@ public enum Tonemapper
 
     /// <summary>A fit of the ACES film curve: punchier mid-tones, but saturated highlights go flat.</summary>
     Aces,
+
+    /// <summary>
+    /// Khronos PBR Neutral: colours up to near white come out as they are, so a product's or a material's base colour
+    /// shows true, and only the brightest light is rolled off towards white.
+    /// </summary>
+    Neutral,
 }
+
+/// <summary>
+/// An artist's colour lookup table, for <see cref="ColorGrade.Lut"/>. A Super game gets one from <c>Content.Lut</c>;
+/// with Rendition alone, from <see cref="Renderer.CreateColorLut"/>.
+/// </summary>
+public readonly record struct ColorLut(int Index);
 
 /// <summary>A look on top of the <see cref="Tonemapper.Agx"/> curve, as Blender offers. ACES ignores it.</summary>
 public enum AgxLook

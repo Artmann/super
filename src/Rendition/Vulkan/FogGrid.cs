@@ -10,16 +10,16 @@ namespace Rendition.Vulkan;
 internal sealed class FogGrid : IDisposable
 {
     private readonly VulkanContext _context;
-    private readonly FogCells _empty;
-    private FogCells[]? _injected;
-    private FogCells? _integrated;
+    private readonly CellVolume _empty;
+    private CellVolume[]? _injected;
+    private CellVolume? _integrated;
 
     public FogGrid(VulkanContext context)
     {
         _context = context;
 
         // Nothing in front, and everything behind gets through.
-        _empty = new FogCells(context, (1, 1, 1), new ClearColorValue(0f, 0f, 0f, 1f));
+        _empty = new CellVolume(context, (1, 1, 1), new ClearColorValue(0f, 0f, 0f, 1f));
     }
 
     /// <summary>The cells across, down and deep of the volumes made last; meaningless without <see cref="HasTargets"/>.</summary>
@@ -32,7 +32,7 @@ internal sealed class FogGrid : IDisposable
     public ImageView Result => (_integrated ?? _empty).View;
 
     /// <summary>The two volumes the inject pass lights in turn; null until they're made.</summary>
-    public FogCells[]? Injected => _injected;
+    public CellVolume[]? Injected => _injected;
 
     /// <summary>Makes the volumes at a size, replacing any there were.</summary>
     public void Make((int X, int Y, int Z) size)
@@ -40,8 +40,8 @@ internal sealed class FogGrid : IDisposable
         Release();
         Size = size;
         var black = new ClearColorValue(0f, 0f, 0f, 0f);
-        _injected = [new FogCells(_context, size, black), new FogCells(_context, size, black)];
-        _integrated = new FogCells(_context, size, new ClearColorValue(0f, 0f, 0f, 1f));
+        _injected = [new CellVolume(_context, size, black), new CellVolume(_context, size, black)];
+        _integrated = new CellVolume(_context, size, new ClearColorValue(0f, 0f, 0f, 1f));
     }
 
     /// <summary>Frees the volumes, leaving the stand-in texel.</summary>

@@ -20,11 +20,18 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
         ModelData model => new ModelOnGpu(renderer.Assets.CreateModel(model), null, null, model.Skeleton?.Count ?? 0),
         PreparedModel model => UploadModel(model),
         PreparedShader shader => new ShaderOnGpu(renderer.Assets.CreateSurfaceShader(shader.Spirv, shader.Name + ".frag")),
+        PreparedMesh(var mesh, var owned) => UploadMesh(mesh, owned, content),
+        UnloadedItem => ItemLetGo.Instance,
+        _ => UploadImage(prepared),
+    };
+
+    /// <summary>Uploads a texture, a texture array, a sky's picture or a colour table.</summary>
+    private ItemOnGpu UploadImage(object prepared) => prepared switch
+    {
         TextureData texture => new TextureOnGpu(renderer.Assets.CreateTexture(texture)),
         TextureData[] layers => new TextureArrayOnGpu(renderer.Assets.CreateTextureArray(layers)),
         SkyImageData sky => new SkyOnGpu(renderer.CreateSkyImage(sky)),
-        PreparedMesh(var mesh, var owned) => UploadMesh(mesh, owned, content),
-        UnloadedItem => ItemLetGo.Instance,
+        ColorLutData lut => new LutOnGpu(renderer.CreateColorLut(lut)),
         _ => throw new InvalidOperationException($"Content can't upload a {prepared.GetType().Name}."),
     };
 

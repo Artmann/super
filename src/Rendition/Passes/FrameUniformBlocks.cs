@@ -112,15 +112,42 @@ internal struct FrameSkyBlock
     public Vector4 Fog;
 }
 
-/// <summary>What the tone-mapping pass applies.</summary>
+/// <summary>
+/// What the grade's table is baked from, besides the contrast, saturation, lift and gain in
+/// <see cref="FrameGradeBlock"/>. See <see cref="PostGrade.Tone"/> and Shaders/grade_lut.comp.
+/// </summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct FrameToneBlock
 {
-    /// <summary>The white balance on linear colour, which the tone-mapping pass applies before its curve. See <see cref="PostGrade.WhiteBalance"/>.</summary>
-    public Matrix4x4 WhiteBalance;
+    /// <summary>
+    /// The white balance, channel mixer and hue shift on linear colour, applied before the curve. See
+    /// <see cref="PostGrade.ColorMatrix"/>.
+    /// </summary>
+    public Matrix4x4 ColorMatrix;
 
-    /// <summary>x: 1 for the ACES curve, 0 for AgX; y, z: the AgX look's power and saturation. See <see cref="PostGrade.Curve"/>.</summary>
+    /// <summary>
+    /// x: 0 for AgX, 1 for ACES, 2 for Khronos PBR Neutral; y, z: the AgX look's power and saturation; w: how much of
+    /// the artist's table shows. See <see cref="PostGrade.Curve"/>.
+    /// </summary>
     public Vector4 Curve;
+
+    /// <summary>x: split toning's balance, from -1 to 1; y: 1 when any of the tones below is set, 0 to skip them.</summary>
+    public Vector4 Look;
+
+    /// <summary>rgb: split toning's colour for the shade.</summary>
+    public Vector4 SplitShadows;
+
+    /// <summary>rgb: split toning's colour for the light.</summary>
+    public Vector4 SplitHighlights;
+
+    /// <summary>rgb: each channel's extra brightness in the shadows.</summary>
+    public Vector4 Shadows;
+
+    /// <summary>rgb: each channel's extra brightness in the mid-tones.</summary>
+    public Vector4 Midtones;
+
+    /// <summary>rgb: each channel's extra brightness in the highlights.</summary>
+    public Vector4 Highlights;
 }
 
 /// <summary>The volumetric fog, the puddles and the wind.</summary>

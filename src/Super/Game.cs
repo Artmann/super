@@ -148,7 +148,7 @@ public static class Game
 
         if (arguments.ScreenshotPath is { } path)
         {
-            int problems = window.Screenshot(host, arguments.Ticks ?? 0, path);
+            int problems = window.Screenshot(host, arguments.Ticks ?? 0, path, arguments.NeutralLut);
             Console.WriteLine($"{path}: {problems} validation messages");
             Environment.ExitCode = problems == 0 ? 0 : 1;
             return true;
@@ -284,6 +284,12 @@ public static class Game
         if (arguments.NoMaterials)
         {
             graphics.Surfaces.Materials = false;
+        }
+
+        // The strip is graded into a new table, so the one in use would be counted twice.
+        if (arguments.NeutralLut)
+        {
+            graphics.Picture.ColorLut = false;
         }
 
         if (arguments.RenderScale is { } renderScale)

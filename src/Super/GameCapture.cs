@@ -10,7 +10,7 @@ public sealed class GameCapture : IDisposable
 {
     private const string VideoExtension = ".mp4";
 
-    private readonly List<string> _screenshots = [];
+    private readonly List<(string Path, bool NeutralLut)> _screenshots = [];
     private string? _videoPath;
     private readonly Audio? _audio;
     private VideoFile? _video;
@@ -36,11 +36,17 @@ public sealed class GameCapture : IDisposable
 
     internal bool WantsFrame => IsRecording || _screenshots.Count > 0;
 
-    /// <summary>Saves the next frame as a PNG.</summary>
-    public void Screenshot(string path)
+    /// <summary>
+    /// Saves the next frame as a PNG. With <paramref name="neutralLut"/>, a strip of every colour a colour table holds,
+    /// 1024 by 32 pixels, is stamped in its top left
+    /// corner: grade the picture in an image editor, crop the strip out and save it as a <c>.lut.png</c> for
+    /// <c>Content.Lut</c>. Turn <see cref="GraphicsPicture.ColorLut"/> off for that frame, or the table in use is
+    /// graded twice; <c>--neutral-lut</c> does.
+    /// </summary>
+    public void Screenshot(string path, bool neutralLut = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        _screenshots.Add(path);
+        _screenshots.Add((path, neutralLut));
     }
 
     /// <summary>Saves every frame to an mp4 until <see cref="StopRecording"/>. This needs ffmpeg.</summary>
@@ -88,10 +94,10 @@ public sealed class GameCapture : IDisposable
     /// <summary>Takes a finished frame of RGBA pixels.</summary>
     internal void Accept(byte[] pixels, int width, int height)
     {
-        foreach (string path in _screenshots)
+        foreach (var (path, neutralLut) in _screenshots)
         {
             CreateFolderFor(path);
-            PngFile.Write(path, pixels, width, height);
+            PngFile.Write(path, neutralLut ? NeutralLutStrip.Stamped(pixels, width, height) : pixels, width, height);
         }
 
         _screenshots.Clear();

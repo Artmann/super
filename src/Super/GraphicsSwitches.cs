@@ -37,6 +37,7 @@ internal static class GraphicsSwitches
         (graphics => graphics.Picture.Grain, RenderEffects.Grain),
         (graphics => graphics.Picture.Sharpening, RenderEffects.Sharpening),
         (graphics => graphics.Picture.ColorGrading, RenderEffects.ColorGrading),
+        (graphics => graphics.Picture.ColorLut, RenderEffects.ColorLut),
         (graphics => graphics.Drawing.Culling, RenderEffects.Culling),
         (graphics => graphics.Drawing.SimplerModels, RenderEffects.SimplerModels),
         (graphics => graphics.Drawing.DepthFirst, RenderEffects.DepthFirst),

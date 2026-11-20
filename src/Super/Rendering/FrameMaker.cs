@@ -20,6 +20,7 @@ internal sealed class FrameMaker
     /// <summary>Kept, since asking for a new one each frame would be garbage.</summary>
     private readonly Func<SkyImage, SkyImageHandle> _skyOf;
 
+    private readonly UploadedItems _items;
     private SkyBands _bakedBands = ViewSky.Studio;
     private Content? _content;
 
@@ -29,6 +30,7 @@ internal sealed class FrameMaker
         _renderer = renderer;
         _draws = draws;
         _decals = decals;
+        _items = items;
         _skyOf = photographed => items.Require<SkyOnGpu>(photographed.Index, _content!).Handle;
         SetEnvironment(ViewSky.Studio);
     }
@@ -63,7 +65,7 @@ internal sealed class FrameMaker
             Picture = new PictureSettings
             {
                 DebugView = debugView,
-                Post = view.Effects.Post,
+                Post = WithRendererLut(view.Effects.Post, content),
                 Transition = view.Effects.Transition,
             },
             Lights = Lights(view.Lights.Suns),
@@ -83,6 +85,18 @@ internal sealed class FrameMaker
         };
         _content = content;
         return WithSky(frame, view, off);
+    }
+
+    /// <summary>The grade with its colour table, which the game names by its content index, as the renderer numbers it.</summary>
+    private PostSettings WithRendererLut(in PostSettings post, Content content)
+    {
+        var graded = post;
+        if (post.Grade.Lut is { } named)
+        {
+            graded.Grade.Lut = _items.Require<LutOnGpu>(named.Index, content).Handle;
+        }
+
+        return graded;
     }
 
     /// <summary>Which sun casts the shadows: the one marked to, or else the first.</summary>

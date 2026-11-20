@@ -324,6 +324,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.Grain), RenderEffects.Grain)]
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.Sharpening), RenderEffects.Sharpening)]
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.ColorGrading), RenderEffects.ColorGrading)]
+    [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.ColorLut), RenderEffects.ColorLut)]
     [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.Culling), RenderEffects.Culling)]
     [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.SimplerModels), RenderEffects.SimplerModels)]
     [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.DepthFirst), RenderEffects.DepthFirst)]
@@ -371,6 +372,7 @@ public class GraphicsTests
         Assert.True(graphics.Lighting.EnvironmentLight);
         Assert.True(graphics.Lighting.Emissive);
         Assert.True(graphics.Picture.ColorGrading);
+        Assert.True(graphics.Picture.ColorLut);
         Assert.True(graphics.Drawing.Culling);
         Assert.True(graphics.Drawing.SimplerModels);
         Assert.True(graphics.Drawing.DepthFirst);

@@ -19,6 +19,9 @@ internal sealed record TextureArrayOnGpu(TextureArrayHandle Handle) : ItemOnGpu;
 
 internal sealed record SkyOnGpu(SkyImageHandle Handle) : ItemOnGpu;
 
+/// <summary>An artist's colour table, as the renderer numbers it rather than the content.</summary>
+internal sealed record LutOnGpu(ColorLut Handle) : ItemOnGpu;
+
 /// <summary>Stands where an item used to be, so using it again fails clearly.</summary>
 internal sealed record ItemLetGo : ItemOnGpu
 {

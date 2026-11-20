@@ -34,7 +34,7 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
     public Rendition.DebugView CommandLineDebugView { get; set; }
 
     /// <summary>Plays the given number of ticks and saves the picture. Returns the validation message count.</summary>
-    public int Screenshot(GameLoop host, long ticks, string path)
+    public int Screenshot(GameLoop host, long ticks, string path, bool neutralLut = false)
     {
         // Nobody sees any frame of this run, and the count of frames, not the time, decides what the shot shows.
         _takingShot = true;
@@ -49,7 +49,7 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
         Settle(host, time, scene.Renderer.Reflections.Count);
         MeasureForStats(host, time);
 
-        host.Capture.Screenshot(path);
+        host.Capture.Screenshot(path, neutralLut);
         Show(host, time);
         return scene.Renderer.ValidationErrors;
     }

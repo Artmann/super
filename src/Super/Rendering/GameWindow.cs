@@ -86,7 +86,8 @@ internal sealed class GameWindow : IDisposable
     public void Run(GameLoop host) => new WindowPlay(_window, _scene, _frames, _cursor, _hidden).Run(host);
 
     /// <summary>Plays the given number of ticks and saves the picture. Returns the validation message count.</summary>
-    public int Screenshot(GameLoop host, long ticks, string path) => _frames.Screenshot(host, ticks, path);
+    public int Screenshot(GameLoop host, long ticks, string path, bool neutralLut = false) =>
+        _frames.Screenshot(host, ticks, path, neutralLut);
 
     /// <summary>
     /// Plays the given number of ticks, then saves a video of <paramref name="frames"/> frames at
