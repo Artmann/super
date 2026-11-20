@@ -193,4 +193,32 @@ public class PhysicsTests
 
         Assert.Equal(run.Game.Target, run.Game.Hit);
     }
+
+    /// <summary>
+    /// joltc lists every physics system in one table that it doesn't lock. Two tests making a Physics at the same
+    /// moment used to corrupt it and crash the test host, about once in 60 runs on a Mac.
+    /// </summary>
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Many_threads_can_make_and_dispose_a_physics_at_once()
+    {
+        int made = 0;
+
+        Parallel.For(0, 8, new ParallelOptions { MaxDegreeOfParallelism = 8 }, _ =>
+        {
+            for (int i = 0; i < 150; i++)
+            {
+                var (world, physics) = Make();
+                using var __ = physics;
+                Place(world, new Vector3(0f, 1f, 0f), Collider.Ball(0.5f));
+                physics.Sync();
+                if (physics.Queries.Raycast(Forward) is not null)
+                {
+                    Interlocked.Increment(ref made);
+                }
+            }
+        });
+
+        Assert.Equal(8 * 150, made);
+    }
 }

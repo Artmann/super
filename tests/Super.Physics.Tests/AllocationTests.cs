@@ -3,7 +3,7 @@ using System.Numerics;
 namespace Super.Physics.Tests;
 
 /// <summary>
-/// Every Physics shares one lock around Jolt's scratch allocator. When another test steps its own Physics at the same
+/// Every Physics shares one lock around what joltc shares between them. When another test steps its own Physics at the same
 /// moment, the measured thread waits on that lock, and the first wait allocates the lock's wait event. So nothing else
 /// may run beside the allocation tests.
 /// </summary>
