@@ -1247,7 +1247,7 @@ is below `f`, and one below 0 keeps those at or above `1 + f` (`fadeKeeps()` in
 keep complementary pixels and never both draw, or both miss, the same one. A distance fade
 `k` scales both, `+t·k` and `-(1 - t)·k`.
 
-`DrawSelection.Select` works the shares out for every view with the same `FadeRules`, measured
+Every view uses the same shares, worked out with the frame's `FadeRules` and measured
 from the camera, so a shadow fades with what casts it. A draw's keep comes from
 `DrawItem.Fade`, or else its material's (`MaterialTable.FadeOf`), at the middle of its bounds.
 A keep of 0 drops the draw before anything else is paid for it. With bounds, the coarsest
@@ -1259,7 +1259,7 @@ limit. The renderer's draw lists grow to twice the draws for this.
 A dithered copy needs a pipeline that can discard, so `SceneDraws.HasHoles` counts any copy
 with a share as having holes. That puts it on the cut-out pipeline (`CUT_OUTS`), keeps it out
 of the depth-first pass, and splits it from solid copies of the same mesh in `SameLook` and
-the sort key. The G-buffer's threshold is interleaved gradient noise that moves each frame
+the number its look is mixed into. The G-buffer's threshold is interleaved gradient noise that moves each frame
 (`frameNoise()` in `surface.glsl`), which TAA averages into a smooth blend. Shadow maps aren't
 anti-aliased the same way, so `shadow.frag` uses the 4x4 ordered pattern it already uses for
 glass, which the soft shadow filter blurs. Glass doesn't dither: `transparent.frag` scales
@@ -1297,7 +1297,7 @@ writes it negated into the clearcoat channel (`foliageChannel`, never above `-1/
 still reads as foliage). The lighting pass reads the size of a negative channel back as the
 translucency.
 
-Copies are drawn instanced. `SceneDraws.Batch` sorts a pass's opaque and shadow draws
+Copies are drawn instanced. `SceneDraws.Batch` groups a pass's opaque and shadow draws
 by mesh, part, material, tint and ghost, and each run of draws that match is one
 `vkCmdDrawIndexed`. Skinned draws never match. The order is safe because the depth test
 decides what shows. Glass is sorted by `TransparentPlan` and drawn one at a time. Each copy's model
@@ -1308,15 +1308,35 @@ made every fish its own draw, and the Reef's 6,240 fish cost 16 ms of CPU a fram
 now cost 6. The buffer grows before a frame is recorded, sized from the selected draws. The
 push constants hold only what copies share.
 
-The sort is of one number a draw (`SceneDraws.SortKey`, a `UInt128`), not of the looks field by
-field, which took a third of the Reef's frame. From the top it holds the mesh, the part's first
-index, 32 bits mixed from the index count, material, tint and ghost, and the draw's place in
-the list. So a mesh is bound once, its parts are drawn in the order the mesh holds them, and
-copies that look the same stay in the order they came. The part's order matters: with the
+The draws themselves aren't sorted (`DrawOrder.Group`). Each draw's look is mixed into one
+64-bit number, which finds the look in a small open-addressed table that lives for the call,
+where the draw is compared with the look's first draw (`SameLook`) and counted. Only the
+looks are sorted, by mesh, the part's first index, the mixed number and where the look first
+came, and there are few of them: the Reef's 7,490 draws are 64 looks. Each draw then goes
+straight to its place in its look's run, in the order it came. So a mesh is bound once and
+its parts are drawn in the order the mesh holds them. The part's order matters: with the
 parts in mixed-up order the Courtyard's G-buffer took 3.6 ms where it takes 2.8, from
-overdraw. Two looks that mix to the same 32 bits only split their batches where they
-interleave, since `SameLook` still decides what shares a draw. Coplanar surfaces can trade places in a depth tie, which moved 0.03% of the
-pixels in Archer by at most 3 of 255.
+overdraw. A skinned draw mixes its place in, so a crowd of one skinned model doesn't pile up
+on one slot. Sorting every draw field by field took a third of the Reef's frame, sorting one
+`UInt128` key a draw took 0.43 ms for those 7,490 draws, and grouping takes 0.09 ms.
+Coplanar surfaces can trade places in a depth tie, which moved 0.03% of the pixels in Archer
+by at most 3 of 255.
+
+A shadow pass writes only each copy's `GpuInstance` (`InstanceBuffer.AddPlacing`), since
+`shadow.vert` reads neither where a copy stood last frame (binding 9) nor its lightmap
+(binding 10). Those slots keep whatever an earlier frame wrote, which nothing reads.
+
+A frame has many views: the camera, the sun's cascades and every light's shadow tiles. What
+a view needs of a draw before it looks at the draw itself doesn't depend on the view, so
+`DrawBalls` measures it once a frame into arrays that stand side by side: the ball round the
+draw, its radius without the wind's sway, how much its transform stretches it, and how much
+of it the frame's fades keep. `DrawSelection.Select` walks the balls, so a view reads 16
+bytes for a draw it can't see and never touches the draw's 176. `DetailView.CanSee` holds
+its six planes as four `Vector256<float>` rows and tests a ball against all of them at once.
+Picking for 24 tile views over 7,490 draws took 3.25 ms when every view measured every draw
+again, and takes 1.57 ms. Hamlet's CPU was busy 3.5 ms a frame and is busy 3.0 ms, the
+Reef's 5.9 ms and 5.4 ms. A draw a view keeps is still copied whole, which is what is left
+of the cost.
 
 The G-buffer pass draws depth first where that pays (`DepthFirst` in `SceneDraws.cs`). The
 pass was bound by its pixels: the Courtyard is one model of 830,000 triangles with nothing
@@ -1381,7 +1401,7 @@ centred on the target instead. The light's depth range reaches past the ball tow
 sun at least as far as a ball round the target would, so a tall caster just out of view
 still shadows the ground in front of the camera. It also reaches far enough to take in
 every draw whose ball overlaps the column the map sees towards the sun
-(`ShadowCascades.CasterReach`, over the balls `DrawSelection.Bounds` works out each frame), so
+(`ShadowCascades.CasterReach`, over the balls `DrawBalls` measures each frame), so
 a tree out of frame still dapples a wall in it. A caster can stretch the reach to no more
 than six radii (`ShadowPass.MaxReach`). A longer reach spreads depth thinner, and
 `FrameUniforms.ShadowBlock.ShadowDepthScales` carries the ratio so the shaders scale their bias to match.
@@ -2344,8 +2364,17 @@ probes ÷ `refreshBudget` once settled and past the bounce window below. Ties en
 always give the same batches. `Frame` counts the
 calls to `Next`, and ages are in frames, never seconds. `Next` doesn't scan every probe. The probes
 that aren't clean are kept in a list, added to as `Scrolled`, `LightChanged` and `EverythingChanged`
-change them and dropped from once they are captured, and `Next` keeps the best `budget` of them in a
-binary heap. Clean probes are found through a queue of captures in the order `Updated` made them, so
+change them and dropped from once they are captured. `ProbeWaitList` holds what choosing needs side
+by side, in three arrays: which probe, where it is, and its tier. A per-cascade array of places says
+where each slot is listed, so a captured probe leaves at once by the last one taking its place.
+`Next` reads those arrays from end to end and turns each probe into one 64-bit number (`ProbeKeys`):
+from the top its tier, the bits of its scaled distance, its cascade and its slot, so the lower number
+is the better probe and the number is also the probe's id. `BringLowestForward` then splits the
+numbers around one of them and goes on with the side the budget ends in, which brings the best
+`budget` to the front in a few passes, and only those are sorted. A binary heap of candidates did
+this before, and cost a sift for nearly every probe when they came farthest first, as a scrolled
+cascade lists them: choosing 1,024 of 65,536 waiting probes took 0.90 ms, and takes 0.43 ms now.
+Hamlet's CPU was busy 4.3 ms a frame and is busy 3.5 ms. Clean probes are found through a queue of captures in the order `Updated` made them, so
 the oldest are at its front: `Next` reads whole frames of captures from the front until it has
 enough to fill what is left of the budget, sorts those, and takes the best. A capture whose probe
 has been captured again since, or is no longer clean, is skipped, and the queue is packed down when
@@ -2362,7 +2391,8 @@ its CPU was busy 15.6 ms a frame, and with the cells only it is busy 3.0 ms. A g
 positions were never set falls back to checking each of its probes.
 
 Once warm, the probe path allocates nothing on the CPU, whether or not the camera crosses a cell.
-`Next` sorts its heap in place by `IComparable` (a sort given a comparer would make a delegate) and
+`Next` sorts the probes it chose in place, the numbers as numbers and the clean candidates by
+`IComparable` (a sort given a comparer would make a delegate), and
 refills one list it hands back each call. `Move` hands back one cached `ScrollResult` when no
 cascade moved, and on a crossing refills arrays and per-cascade slot lists the cascades own, which
 `NewSlots` hands back. The renderer copies the batch into a list of its own and cuts it there. On
@@ -3626,9 +3656,9 @@ match.
 A vertex can move no further than `strength * share` at a gust's peak plus the 0.02 m of
 flutter, so culling grows a swaying draw's ball by that much, in world metres after its scale
 (`WindReach`, which the renderer makes each frame from `Wind.Strength`, 0 with the switch off,
-and `MaterialTable.SwayOf`). `DrawSelection.Select` adds it only to the test for being seen,
-not to the distance that picks a simpler version, and `DrawSelection.Bounds`, which the
-shadow casters' balls come from, and the glass bounds in `TransparentPass` add it too.
+and `MaterialTable.SwayOf`). `DrawBalls` adds it to the ball a view tests for being seen, and to
+the shadow casters' balls, which are the same ones, but not to the radius that picks a simpler
+version. The glass bounds in `TransparentPass` add it too.
 
 The detail colour divides by 128/255, so mid grey is neutral and the detail can lighten as
 well as darken. The detail normal is laid over the surface's normal with reoriented normal

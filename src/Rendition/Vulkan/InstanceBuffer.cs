@@ -146,6 +146,28 @@ internal sealed unsafe class InstanceBuffer : IDisposable
     /// </summary>
     public int Add(in DrawItem draw, int index)
     {
+        int at = AddPlacing(draw);
+        ((PreviousInstance*)_previous.Mapped)[at] = History is { } history ? history.Previous(draw) : PreviousInstance.None(draw);
+        var lightmap = GpuLightmapRect.None;
+        int chunk = Chunks is { } chunks ? chunks[index] : -1;
+        var rects = chunk >= 0 ? ChunkLightmaps?[chunk] : Lightmaps;
+        if (draw.BakeId != 0 && rects is not null && rects.TryGetValue(draw.BakeId, out var rect))
+        {
+            lightmap = rect;
+            lightmap.Chunk = chunk;
+        }
+
+        ((GpuLightmapRect*)_lightmaps.Mapped)[at] = lightmap;
+        return at;
+    }
+
+    /// <summary>
+    /// Writes only the next copy's matrix and swim, and returns its index, for a pass whose shaders read nothing
+    /// else of a copy, as a shadow's don't. Where it stood last frame and its lightmap are left as they were, which
+    /// is whatever an earlier frame wrote there.
+    /// </summary>
+    public int AddPlacing(in DrawItem draw)
+    {
         if (Count >= Capacity)
         {
             throw new InvalidOperationException($"This frame draws more than the {Capacity} copies it made room for.");
@@ -156,17 +178,6 @@ internal sealed unsafe class InstanceBuffer : IDisposable
             Model = draw.Transform,
             Swim = new Vector4(draw.Swim.Amplitude, draw.Swim.BodyLength, draw.Swim.Phase, draw.Dither),
         };
-        ((PreviousInstance*)_previous.Mapped)[Count] = History is { } history ? history.Previous(draw) : PreviousInstance.None(draw);
-        var lightmap = GpuLightmapRect.None;
-        int chunk = Chunks is { } chunks ? chunks[index] : -1;
-        var rects = chunk >= 0 ? ChunkLightmaps?[chunk] : Lightmaps;
-        if (draw.BakeId != 0 && rects is not null && rects.TryGetValue(draw.BakeId, out var rect))
-        {
-            lightmap = rect;
-            lightmap.Chunk = chunk;
-        }
-
-        ((GpuLightmapRect*)_lightmaps.Mapped)[Count] = lightmap;
         return Count++;
     }
 

@@ -16,8 +16,8 @@ internal sealed class FrameDrawPicker(FrameParts parts, FrameBakes bakes, Render
     // Which draw each camera draw came from. Only filled on frames that relight a chunk.
     private int[] _cameraSources = [];
 
-    // The world-space ball round each draw this frame, for fitting sun shadows to what casts them.
-    private Vector4[] _casterBounds = [];
+    // What every view needs of each draw this frame, measured once by Casters before any view picks.
+    private readonly DrawBalls _balls = new();
 
     // The camera's view as Select made it, which decides whose depth the G-buffer pass draws first.
     private DetailView _cameraView;
@@ -31,20 +31,21 @@ internal sealed class FrameDrawPicker(FrameParts parts, FrameBakes bakes, Render
     /// <summary>The camera's first <paramref name="count"/> picked draws.</summary>
     public ReadOnlySpan<DrawItem> CameraDraws(int count) => _cameraDraws.AsSpan(0, count);
 
-    /// <summary>The world-space ball round each draw that casts a shadow, for fitting the sun's shadows to them.</summary>
+    /// <summary>
+    /// Measures the frame's draws, which <see cref="Select"/> and <see cref="SelectTiles"/> then go by, and returns the
+    /// world-space ball round each draw that casts a shadow, for fitting the sun's shadows to them.
+    /// </summary>
     public ReadOnlySpan<Vector4> Casters(ReadOnlySpan<DrawItem> draws)
     {
-        if (_casterBounds.Length < draws.Length)
-        {
-            _casterBounds = new Vector4[draws.Length * 2];
-        }
-
         var stores = parts.SceneStores;
-        int casters = DrawSelection.Bounds(draws, stores.Meshes.DetailSlots, _casterBounds, stores.Switches.WindReach);
-        return _casterBounds.AsSpan(0, casters);
+        _balls.Measure(draws, stores.Meshes.DetailSlots, stores.Switches.WindReach, stores.Switches.FadeRules);
+        return _balls.Casters;
     }
 
-    /// <summary>Leaves out what each pass can't see, and swaps in simpler models where nobody will notice.</summary>
+    /// <summary>
+    /// Leaves out what each pass can't see, and swaps in simpler models where nobody will notice. After
+    /// <see cref="Casters"/>, with the same draws.
+    /// </summary>
     public (int Camera, int Shadows) Select(
         in FrameView view, in Matrix4x4 viewProjection, ReadOnlySpan<DrawItem> draws, bool castsShadow)
     {
@@ -61,7 +62,7 @@ internal sealed class FrameDrawPicker(FrameParts parts, FrameBakes bakes, Render
             switches.DetailError(CameraDetailError, settings.MeshDetailScale), cull: switches.Culls);
         _cameraView = camera;
         int cameraCount = SelectCamera(camera, draws);
-        int shadowCount = sunShadows.Select(view, draws, castsShadow, settings.MeshDetailScale);
+        int shadowCount = sunShadows.Select(view, draws, castsShadow ? _balls : null, settings.MeshDetailScale);
         if (settings.MeasureGpu)
         {
             stats.DrawnTriangles = (DrawSelection.Triangles(_cameraDraws.AsSpan(0, cameraCount)), sunShadows.Triangles());
@@ -78,7 +79,7 @@ internal sealed class FrameDrawPicker(FrameParts parts, FrameBakes bakes, Render
     public int SelectTiles(ReadOnlySpan<DrawItem> draws)
     {
         var (shadows, settings) = (parts.SceneLighting.LocalLightShadows, parts.SceneStores.Settings);
-        int count = shadows.Select(draws, settings.MeshDetailScale);
+        int count = shadows.Select(draws, _balls, settings.MeshDetailScale);
         if (settings.MeasureGpu)
         {
             stats.DrawnTriangles = (stats.DrawnTriangles.Camera, stats.DrawnTriangles.Shadows + DrawSelection.Triangles(shadows.Tiles.Drawn));
@@ -93,10 +94,9 @@ internal sealed class FrameDrawPicker(FrameParts parts, FrameBakes bakes, Render
     /// </summary>
     private int SelectCamera(in DetailView camera, ReadOnlySpan<DrawItem> draws)
     {
-        var (detailSlots, switches) = (parts.SceneStores.Meshes.DetailSlots, parts.SceneStores.Switches);
         if (!bakes.Relight.Active)
         {
-            return DrawSelection.Select(camera, draws, detailSlots, _cameraDraws, switches.WindReach, fades: switches.FadeRules);
+            return DrawSelection.Select(camera, draws, _balls, _cameraDraws);
         }
 
         if (_cameraSources.Length < _cameraDraws.Length)
@@ -105,7 +105,7 @@ internal sealed class FrameDrawPicker(FrameParts parts, FrameBakes bakes, Render
             CameraChunks = new int[_cameraDraws.Length];
         }
 
-        int cameraCount = DrawSelection.Select(camera, draws, detailSlots, _cameraDraws, switches.WindReach, _cameraSources, switches.FadeRules);
+        int cameraCount = DrawSelection.Select(camera, draws, _balls, _cameraDraws, _cameraSources);
         for (int i = 0; i < cameraCount; i++)
         {
             CameraChunks[i] = bakes.Relight.DrawChunks[_cameraSources[i]];

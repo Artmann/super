@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.Intrinsics;
 using Rendition.Passes;
 
 namespace Rendition;
@@ -6,14 +7,14 @@ namespace Rendition;
 /// <summary>Where a list of draws will be seen from, which decides what can be left out or simplified.</summary>
 internal readonly struct DetailView
 {
-    private const int PlaneCount = 6;
+    private const int Places = 8;
 
-    private readonly Plane _left;
-    private readonly Plane _right;
-    private readonly Plane _top;
-    private readonly Plane _bottom;
-    private readonly Plane _near;
-    private readonly Plane _far;
+    // The six planes side by side, each of x, y, z and distance in a row of its own, so one ball is tried against
+    // all of them at once. The last two of the eight places hold planes that see everything.
+    private readonly Vector256<float> _xs;
+    private readonly Vector256<float> _ys;
+    private readonly Vector256<float> _zs;
+    private readonly Vector256<float> _distances;
     private readonly bool _cull;
 
     /// <summary>
@@ -30,12 +31,25 @@ internal readonly struct DetailView
         var y = new Vector4(clip.M12, clip.M22, clip.M32, clip.M42);
         var z = new Vector4(clip.M13, clip.M23, clip.M33, clip.M43);
         var w = new Vector4(clip.M14, clip.M24, clip.M34, clip.M44);
-        _left = Normalized(w + x);
-        _right = Normalized(w - x);
-        _top = Normalized(w + y);
-        _bottom = Normalized(w - y);
-        _near = Normalized(w - z);
-        _far = far ? Normalized(z) : new Plane(0f, 0f, 0f, 1f);
+        var everything = new Plane(0f, 0f, 0f, 1f);
+        ReadOnlySpan<Plane> planes =
+        [
+            Normalized(w + x), Normalized(w - x), Normalized(w + y), Normalized(w - y), Normalized(w - z),
+            far ? Normalized(z) : everything, everything, everything,
+        ];
+        Span<float> rows = stackalloc float[4 * Places];
+        for (int i = 0; i < Places; i++)
+        {
+            rows[i] = planes[i].Normal.X;
+            rows[Places + i] = planes[i].Normal.Y;
+            rows[2 * Places + i] = planes[i].Normal.Z;
+            rows[3 * Places + i] = planes[i].D;
+        }
+
+        _xs = Vector256.Create<float>(rows[..Places]);
+        _ys = Vector256.Create<float>(rows.Slice(Places, Places));
+        _zs = Vector256.Create<float>(rows.Slice(2 * Places, Places));
+        _distances = Vector256.Create<float>(rows.Slice(3 * Places, Places));
         Eye = eye;
         PixelsAtOneUnit = pixelsAtOneUnit;
         PixelsPerUnit = pixelsPerUnit;
@@ -53,23 +67,18 @@ internal readonly struct DetailView
     /// <summary>How many pixels a simpler model may stray by. 0 keeps every model at full detail.</summary>
     public float MaxError { get; }
 
-    public bool CanSee(Vector3 center, float radius)
+    /// <summary>Whether any of a ball, its middle in x, y and z and its radius in w, is in view.</summary>
+    public bool CanSee(Vector4 ball)
     {
         if (!_cull)
         {
             return true;
         }
 
-        ReadOnlySpan<Plane> planes = [_left, _right, _top, _bottom, _near, _far];
-        for (int i = 0; i < PlaneCount; i++)
-        {
-            if (Plane.DotCoordinate(planes[i], center) < -radius)
-            {
-                return false;
-            }
-        }
-
-        return true;
+        // How far the ball's middle is in front of each plane. It is out of view when it is more than its radius
+        // behind any of them.
+        var ahead = _xs * ball.X + _ys * ball.Y + _zs * ball.Z + _distances;
+        return !Vector256.LessThanAny(ahead, Vector256.Create(-ball.W));
     }
 
     private static Plane Normalized(Vector4 plane) => Plane.Normalize(new Plane(plane));
@@ -142,51 +151,43 @@ internal static class DrawSelection
     public const float CrossFade = 0.25f;
 
     /// <summary>
-    /// Writes the draws to keep into <paramref name="selected"/> and returns how many there are. A draw that sways in
-    /// <paramref name="wind"/> is kept while its sway could still bring it into view. When <paramref name="sources"/> is
-    /// given, each kept draw's index in <paramref name="draws"/> is written into it at the same place. With
-    /// <paramref name="fades"/>, draws fade out with distance, and a draw near swapping to a finer version is written
-    /// twice, once for each version, so <paramref name="selected"/> needs room for twice as many draws.
+    /// Writes the draws to keep into <paramref name="selected"/> and returns how many there are, going by what
+    /// <paramref name="measured"/> holds of each, which must be of <paramref name="draws"/>. A draw that sways in the
+    /// wind is kept while its sway could still bring it into view. When <paramref name="sources"/> is given, each kept
+    /// draw's index in <paramref name="draws"/> is written into it at the same place. Draws fade out with distance,
+    /// and a draw near swapping to a finer version is written twice, once for each version, so
+    /// <paramref name="selected"/> needs room for twice as many draws.
     /// </summary>
     public static int Select(
-        in DetailView view, ReadOnlySpan<DrawItem> draws, List<PartDetail> details, Span<DrawItem> selected, WindReach wind = default,
-        Span<int> sources = default, FadeRules? fades = null)
+        in DetailView view, ReadOnlySpan<DrawItem> draws, DrawBalls measured, Span<DrawItem> selected, Span<int> sources = default)
     {
         var writer = new SelectionWriter(selected, sources);
-        for (int index = 0; index < draws.Length; index++)
+        var balls = measured.Balls;
+        var keeps = measured.Keeps;
+        var radii = measured.Radii;
+        var scales = measured.Scales;
+
+        // A draw out of view is left after reading its ball alone, and most draws are out of most views.
+        for (int index = 0; index < balls.Length; index++)
         {
+            var ball = balls[index];
+            float keep = keeps[index];
+            if (!view.CanSee(ball) || keep <= 0f)
+            {
+                continue;
+            }
+
             ref readonly var draw = ref draws[index];
             if (draw.Detail.Index == 0)
             {
-                float whole = fades?.Keep(draw, draw.Transform.Translation) ?? 1f;
-                if (whole > 0f)
-                {
-                    writer.Add(index, draw, Dither(whole), null);
-                }
-
+                writer.Add(index, draw, Dither(keep), null);
                 continue;
             }
 
-            var detail = details[draw.Detail.Index];
-            float scale = Scale(draw.Transform);
-            var (center, radius) = Bounds(draw, detail, scale);
-
-            // The sway is in world metres, so it's added after the scale. Only the test for being seen counts it, so
-            // the wind doesn't change which simpler version is picked.
-            if (!view.CanSee(center, radius + wind.Pad(draw.Material)))
-            {
-                continue;
-            }
-
-            float keep = fades?.Keep(draw, center) ?? 1f;
-            if (keep <= 0f)
-            {
-                continue;
-            }
-
-            float distance = MathF.Max(Vector3.Distance(view.Eye, center) - radius, NearestDistance);
-            float pixels = scale * (view.PixelsPerUnit + view.PixelsAtOneUnit / distance);
-            WriteLevels(ref writer, new LevelChoice(detail.Levels, pixels, view.MaxError, fades is { Smooth: true }), index, draw, keep);
+            var center = new Vector3(ball.X, ball.Y, ball.Z);
+            float distance = MathF.Max(Vector3.Distance(view.Eye, center) - radii[index], NearestDistance);
+            float pixels = scales[index] * (view.PixelsPerUnit + view.PixelsAtOneUnit / distance);
+            WriteLevels(ref writer, new LevelChoice(measured.LevelsOf(draw), pixels, view.MaxError, measured.Smooth), index, draw, keep);
         }
 
         return writer.Count;
@@ -275,28 +276,6 @@ internal static class DrawSelection
     private static float Dither(float keep) => keep >= 1f ? 0f : keep;
 
     /// <summary>
-    /// Writes the world-space ball, x, y and z with the radius in w, round each draw that has
-    /// bounds into <paramref name="bounds"/>, and returns how many there are. A ball holds all the draw's sway in
-    /// <paramref name="wind"/>.
-    /// </summary>
-    public static int Bounds(ReadOnlySpan<DrawItem> draws, List<PartDetail> details, Span<Vector4> bounds, WindReach wind = default)
-    {
-        int count = 0;
-        foreach (ref readonly var draw in draws)
-        {
-            if (draw.Detail.Index == 0)
-            {
-                continue;
-            }
-
-            var (center, radius) = Bounds(draw, details[draw.Detail.Index], Scale(draw.Transform));
-            bounds[count++] = new Vector4(center, radius + wind.Pad(draw.Material));
-        }
-
-        return count;
-    }
-
-    /// <summary>
     /// The world-space ball round one draw, or false when the draw has no bounds, as a draw made
     /// without a part's details doesn't.
     /// </summary>
@@ -309,7 +288,9 @@ internal static class DrawSelection
             return false;
         }
 
-        (center, radius) = Bounds(draw, details[draw.Detail.Index], Scale(draw.Transform));
+        var detail = details[draw.Detail.Index];
+        center = Vector3.Transform(detail.Center, draw.Transform);
+        radius = (detail.Radius + MathF.Abs(draw.Swim.Amplitude)) * DrawBalls.Scale(draw.Transform);
         return true;
     }
 
@@ -345,14 +326,4 @@ internal static class DrawSelection
         float pixels = radius * (view.PixelsPerUnit + view.PixelsAtOneUnit / distance);
         return MathF.PI * pixels * pixels;
     }
-
-    private static (Vector3 Center, float Radius) Bounds(in DrawItem draw, PartDetail detail, float scale) =>
-        (Vector3.Transform(detail.Center, draw.Transform), (detail.Radius + MathF.Abs(draw.Swim.Amplitude)) * scale);
-
-    /// <summary>How much a transform stretches its longest axis.</summary>
-    private static float Scale(in Matrix4x4 transform) => MathF.Sqrt(MathF.Max(
-        new Vector3(transform.M11, transform.M12, transform.M13).LengthSquared(),
-        MathF.Max(
-            new Vector3(transform.M21, transform.M22, transform.M23).LengthSquared(),
-            new Vector3(transform.M31, transform.M32, transform.M33).LengthSquared())));
 }

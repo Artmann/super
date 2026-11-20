@@ -78,10 +78,11 @@ internal sealed unsafe class SunShadows
     }
 
     /// <summary>
-    /// Picks each cascade's draws when a sun casts a shadow, and returns how many there are in all. A draw near swapping
-    /// to a finer version is drawn twice, cross-fading, so every cascade has room for two of each.
+    /// Picks each cascade's draws, going by what <paramref name="measured"/> holds of them, and returns how many there
+    /// are in all. Null, for no sun casting a shadow, picks none. A draw near swapping to a finer version is drawn
+    /// twice, cross-fading, so every cascade has room for two of each.
     /// </summary>
-    public int Select(in FrameView view, ReadOnlySpan<DrawItem> draws, bool castsShadow, float meshDetailScale)
+    public int Select(in FrameView view, ReadOnlySpan<DrawItem> draws, DrawBalls? measured, float meshDetailScale)
     {
         if (_draws[0] is null || _draws[0].Length < draws.Length * 2)
         {
@@ -92,7 +93,7 @@ internal sealed unsafe class SunShadows
         }
 
         Array.Clear(_counts);
-        if (!castsShadow)
+        if (measured is null)
         {
             return 0;
         }
@@ -103,7 +104,7 @@ internal sealed unsafe class SunShadows
             float texelsPerUnit = _pass.Resolution / (2f * ShadowCascades.CascadeRadius(view.Shadows, cascade));
             var shadow = new DetailView(
                 _matrices[cascade], view.CameraPosition, 0f, texelsPerUnit, _switches.DetailError(ShadowDetailError, meshDetailScale), cull: _switches.Culls);
-            _counts[cascade] = DrawSelection.Select(shadow, draws, _meshes.DetailSlots, _draws[cascade], _switches.WindReach, fades: _switches.FadeRules);
+            _counts[cascade] = DrawSelection.Select(shadow, draws, measured, _draws[cascade]);
             shadowCount += _counts[cascade];
         }
 

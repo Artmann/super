@@ -28,16 +28,18 @@ internal sealed class ProbeStates
     // Per group, how many probes are not clean (never captured or dirty), so FineSettled needn't scan.
     private readonly int[] _pending = new int[Groups];
 
-    private readonly ProbeWaitList _waiting;
+    private readonly ProbeWaitList _waiting = new(Groups);
 
     // Clean probes refreshed since the last frame that had a never-captured or dirty probe in any group.
     private long _refreshesSinceChange;
 
     public ProbeStates()
     {
-        _waiting = new ProbeWaitList(_state, Clean);
         CaptureQueue = new ProbeCaptureQueue(_state, _updated, _position, Clean);
     }
+
+    /// <summary>The probes that aren't clean, for a frame to choose among.</summary>
+    public ProbeWaitList Waiting => _waiting;
 
     /// <summary>Every capture in the order they were made, so the oldest clean probes are at the front.</summary>
     public ProbeCaptureQueue CaptureQueue { get; }
@@ -72,7 +74,7 @@ internal sealed class ProbeStates
 
         for (int slot = 0; slot < count; slot++)
         {
-            _waiting.Enlist(group, slot);
+            _waiting.Enlist(group, slot, NeverCaptured, Vector3.Zero);
         }
     }
 
@@ -86,7 +88,7 @@ internal sealed class ProbeStates
         }
 
         state[slot] = NeverCaptured;
-        _waiting.Enlist(group, slot);
+        _waiting.Enlist(group, slot, NeverCaptured, position);
         _updated[group]![slot] = 0;
         _position[group]![slot] = position;
     }
@@ -98,7 +100,7 @@ internal sealed class ProbeStates
         if (state[slot] == Clean && Vector3.DistanceSquared(_position[group]![slot], center) <= range * range)
         {
             state[slot] = Dirty;
-            _waiting.Enlist(group, slot);
+            _waiting.Enlist(group, slot, Dirty, _position[group]![slot]);
             _pending[group]++;
         }
     }
@@ -119,7 +121,7 @@ internal sealed class ProbeStates
                 if (state[slot] == Clean)
                 {
                     state[slot] = Dirty;
-                    _waiting.Enlist(group, slot);
+                    _waiting.Enlist(group, slot, Dirty, _position[group]![slot]);
                     _pending[group]++;
                 }
             }
@@ -134,6 +136,7 @@ internal sealed class ProbeStates
         if (state[id.Slot] != Clean)
         {
             _pending[id.Cascade]--;
+            _waiting.Delist(id.Cascade, id.Slot);
         }
         else
         {
@@ -169,13 +172,6 @@ internal sealed class ProbeStates
         return true;
     }
 
-    /// <summary>A probe that isn't clean as a candidate for this frame's batch, ranked by its distance from the camera.</summary>
-    public ProbeCandidate CandidateFor(ProbeId id, Vector3 camera, Vector3 forward)
-    {
-        float rank = ProbeCandidate.Rank(_position[id.Cascade]![id.Slot], id.Cascade, camera, forward);
-        return new ProbeCandidate(_state[id.Cascade]![id.Slot], 0, rank, id.Cascade, id.Slot);
-    }
-
     /// <summary>
     /// Whether every probe has had <paramref name="refreshesPerProbe"/> refreshes since the last never-captured or dirty
     /// probe. A frame with such a probe starts the count again.
@@ -196,8 +192,4 @@ internal sealed class ProbeStates
         }
 
         return _refreshesSinceChange >= refreshesPerProbe * probes;
-    }
-
-    /// <summary>The probes that aren't clean, after dropping the ones captured since they were listed.</summary>
-    public ReadOnlySpan<ProbeId> Unsettled() => _waiting.DropCaptured();
-}
+    }}
