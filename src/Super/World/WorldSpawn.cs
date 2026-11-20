@@ -79,6 +79,14 @@ public static class WorldSpawn
     }
 
     /// <summary>
+    /// Makes an entity with any number of components, for when five aren't enough: write them all as arguments, or
+    /// pass an array or a collection such as <c>[.. parts]</c>. It lands in one move like the others, but each
+    /// component is boxed on the way, so keep the overloads up to five for what spawns often. Each must be a struct.
+    /// </summary>
+    public static Entity Spawn(this World world, params ReadOnlySpan<object> components) =>
+        new Spawning(world, NoScene).Fill(components);
+
+    /// <summary>
     /// Gives every entity that gets a <typeparamref name="TComponent"/> a copy of <paramref name="value"/>, unless
     /// it has a <typeparamref name="TNeeded"/> already. Entities that have one now are left as they are.
     /// </summary>
@@ -179,6 +187,30 @@ public static class WorldSpawn
             return Finish(entity, plan, row);
         }
 
+        // Each component is looked up twice, for its type and then to write it, which keeps this free of arrays.
+        public Entity Fill(ReadOnlySpan<object> components)
+        {
+            int count = components.Length + 1;
+            Span<int> key = count <= 64 ? stackalloc int[count] : new int[count];
+            key[0] = SceneType;
+            for (int i = 0; i < components.Length; i++)
+            {
+                key[i + 1] = BoxedComponent.Of(components[i]).TypeId(world);
+            }
+
+            var plan = world.Archetypes.Plans.For(key);
+            var entity = Start(plan, out int row);
+            foreach (object component in components)
+            {
+                BoxedComponent.Of(component).Give(this, plan, row, component);
+            }
+
+            return Finish(entity, plan, row);
+        }
+
+        public int TypeId<T>()
+            where T : struct => world.TypeId<T>();
+
         private int SceneType => scene == NoScene ? -1 : world.TypeId<SceneMember>();
 
         private SpawnPlan Plan(in SpawnKey key) => world.Archetypes.Plans.For(in key);
@@ -207,7 +239,7 @@ public static class WorldSpawn
         }
 
         // Given in call order, so a type given twice keeps the later value, as two adds would.
-        private void Give<T>(SpawnPlan plan, int row, int type, in T component)
+        public void Give<T>(SpawnPlan plan, int row, int type, in T component)
             where T : struct
         {
             if (row == Queued)
