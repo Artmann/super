@@ -176,9 +176,9 @@ and the layers fade out.
 ```csharp
 forest.OnEnter(Screen.Forest, () =>
 {
-    var entity = world.Create();
-    world.Add(entity, new Ambience(content.Sounds.Ambience("ambience/forest.ambience.json"), Volume: 0.7f));
-    world.Add(entity, new ScopedTo<Screen>(Screen.Forest));
+    world.Spawn(
+        new Ambience(content.Sounds.Ambience("ambience/forest.ambience.json"), Volume: 0.7f),
+        new ScopedTo<Screen>(Screen.Forest));
 });
 ```
 

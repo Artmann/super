@@ -325,9 +325,9 @@ Put a `Sound` on an entity and it plays; take it away, or destroy the entity, an
 fades out. There is nothing to call and no handle to keep:
 
 ```csharp
-var engine = world.Create();
-world.Add(engine, Transform.At(new Vector3(4f, 0f, 2f)));
-world.Add(engine, new Sound(content.Sounds.Sound("sounds/engine.ogg"), Volume: 0.8f));
+var engine = world.Spawn(
+    Transform.At(new Vector3(4f, 0f, 2f)),
+    new Sound(content.Sounds.Sound("sounds/engine.ogg"), Volume: 0.8f));
 ```
 
 With a `Transform` the sound sits where the entity is drawn (blended between
@@ -341,9 +341,9 @@ on the same entity it plays for as long as its game state does:
 ```csharp
 screen.OnEnter(Screen.Forest, () =>
 {
-    var forest = world.Create();
-    world.Add(forest, new Ambience(content.Sounds.Ambience("ambience/forest.ambience.json")));
-    world.Add(forest, new ScopedTo<Screen>(Screen.Forest));
+    world.Spawn(
+        new Ambience(content.Sounds.Ambience("ambience/forest.ambience.json")),
+        new ScopedTo<Screen>(Screen.Forest));
 });
 ```
 
@@ -359,10 +359,10 @@ everything untagged carries through to the next state.
 ```csharp
 screen.OnEnter(Screen.House, () =>
 {
-    var door = world.Create();
-    world.Add(door, Transform.At(new Vector3(0f, 0f, 4f)));
-    world.Add(door, new Model(_doorModel));
-    world.Add(door, new ScopedTo<Screen>(Screen.House));
+    world.Spawn(
+        Transform.At(new Vector3(0f, 0f, 4f)),
+        new Model(_doorModel),
+        new ScopedTo<Screen>(Screen.House));
 
     // The player isn't tagged, so they walk in with their inventory intact.
     world.Add(_player, Transform.At(new Vector3(0f, 0f, 3f)));

@@ -94,11 +94,11 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
     {
         ["building"] = new InputScript()
-            .Press(Key.Space).Wait(40)
-            .Hold(Key.S).Wait(30).Release(Key.S).Wait(5)
-            .Press(Key.E).Hold(Key.D).Wait(8).Release(Key.D)
-            .Press(Key.E).Hold(Key.D).Wait(8).Release(Key.D)
-            .Press(Key.E).Wait(6),
+            .Press(Control.Start).Wait(40)
+            .Hold(Control.Move, -Vector2.UnitY).Wait(30).Release(Control.Move).Wait(5)
+            .Press(Control.Build).Hold(Control.Move, Vector2.UnitX).Wait(8).Release(Control.Move)
+            .Press(Control.Build).Hold(Control.Move, Vector2.UnitX).Wait(8).Release(Control.Move)
+            .Press(Control.Build).Wait(6),
     };
 
     public UiView? Ui

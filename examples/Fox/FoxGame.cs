@@ -40,7 +40,6 @@ public sealed class FoxGame(World world, Content content, Actions<Control> actio
     private const float PathRadius = 4f;
     private const float StopSpeed = 0.05f;
     private const float DustSeconds = 1f;
-    private const int DustKey = 1000;
 
     /// <summary>A small puff of dry earth where a paw lands, settling as it drifts out.</summary>
     public static readonly ParticleEffect StepDust = new ParticleEffect().Add(new ParticleEmitter(count: 8, lifetime: DustSeconds)
@@ -54,7 +53,6 @@ public sealed class FoxGame(World world, Content content, Actions<Control> actio
         .Fade(0.1f, 0.6f)
         .Size(0.06f, 0.26f));
 
-    private readonly List<Puff> _puffs = [];
     private Animator _animator = null!;
     private float _angle;
     private Entity _fox;
@@ -70,9 +68,6 @@ public sealed class FoxGame(World world, Content content, Actions<Control> actio
 
     /// <summary>How many paws have landed so far.</summary>
     public int Steps => _steps;
-
-    /// <summary>The dust still settling: where each paw landed, on the ground, and the tick it did.</summary>
-    public IReadOnlyList<Puff> Puffs => _puffs;
 
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
     {
@@ -101,7 +96,7 @@ public sealed class FoxGame(World world, Content content, Actions<Control> actio
     public void Update(GameTime time)
     {
         float dt = time.TickSeconds;
-        KickUpDust(time);
+        KickUpDust();
 
         TargetSpeed = Math.Clamp(TargetSpeed + actions.Value(Control.Pace) * Acceleration * dt, 0f, RunSpeed);
         Speed = Speed < TargetSpeed
@@ -122,17 +117,18 @@ public sealed class FoxGame(World world, Content content, Actions<Control> actio
 
     /// <summary>
     /// Puts dust where each paw landed on the last tick. The events come from the tick after
-    /// the last Update, so the fox still stands where that Update left it.
+    /// the last Update, so the fox still stands where that Update left it. Each puff is a burst:
+    /// it plays once and then takes its entity away.
     /// </summary>
-    private void KickUpDust(GameTime time)
+    private void KickUpDust()
     {
-        _puffs.RemoveAll(puff => (time.Tick - puff.Tick) * time.TickSeconds > DustSeconds);
         foreach (var step in _animator.Events)
         {
             if (step is { Name: "step", Kind: AnimationEventKind.Moment, Joint: { } paw })
             {
                 var landed = (paw * FoxTransform(_angle)).Translation;
-                _puffs.Add(new Puff(new Vector3(landed.X, 0f, landed.Z), time.Tick, _steps++));
+                world.Spawn(Transform.At(new Vector3(landed.X, 0f, landed.Z)), new Burst(StepDust));
+                _steps++;
             }
         }
     }
@@ -152,16 +148,4 @@ public sealed class FoxGame(World world, Content content, Actions<Control> actio
         var side = Vector3.Normalize(position) * 2.6f;
         return new Camera(position + side + new Vector3(0f, 1.1f, 0f) - heading * 0.8f, position + new Vector3(0f, 0.35f, 0f), MathF.PI / 5f);
     }
-
-    // Only the dust is drawn here: each puff plays once, from the tick its paw landed.
-    public void Draw(View view)
-    {
-        foreach (var puff in _puffs)
-        {
-            view.Effects.Particles(DustKey + puff.Number, StepDust, puff.At, view.SecondsSince(puff.Tick));
-        }
-    }
-
-    /// <summary>Dust from one paw landing: where, the tick it landed, and how many landed before it, which names its particles.</summary>
-    public readonly record struct Puff(Vector3 At, long Tick, int Number);
 }

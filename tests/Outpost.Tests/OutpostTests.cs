@@ -23,36 +23,18 @@ public class OutpostTests
     /// <summary>Holds the waves back, so a test has the road to itself.</summary>
     private static Enemies QuietRoad(HeadlessRun<OutpostGame> run)
     {
-        run.Game.Waves.FirstDelay = float.MaxValue;
-        run.Game.Waves.Reset();
-        return run.Game.Enemies;
+        run.Service<Waves>().FirstDelay = float.MaxValue;
+        run.Service<Waves>().Reset();
+        return run.Service<Enemies>();
     }
-
-    private static List<T> All<T>(World world) where T : struct
-    {
-        var found = new List<T>();
-        foreach (var row in world.Query<T>())
-        {
-            found.Add(row.First);
-        }
-
-        return found;
-    }
-
-    private static int Count<T>(World world) where T : struct => All<T>(world).Count;
 
     /// <summary>Takes every enemy off the road, as if the towers had got them all.</summary>
     private static void Clear(World world)
     {
-        var enemies = new List<Entity>();
+        // Destroying inside a query is fine: the world waits until the loop ends.
         foreach (var row in world.Query<Enemy>())
         {
-            enemies.Add(row.Entity);
-        }
-
-        foreach (var enemy in enemies)
-        {
-            world.Destroy(enemy);
+            world.Destroy(row.Entity);
         }
     }
 
@@ -132,7 +114,7 @@ public class OutpostTests
         // The road is about 46 metres and a walker does 2 metres a second, so 25 seconds is plenty.
         run.Ticks(30 * 25);
 
-        Assert.Equal(9, run.Game.Player.Lives);
+        Assert.Equal(9, run.Service<Player>().Lives);
         Assert.Equal(0, enemies.Count);
     }
 
@@ -159,11 +141,11 @@ public class OutpostTests
         var walker = enemies.Spawn(EnemyKind.Walker);
         enemies.Hit(walker, 1);
         enemies.Hit(walker, 1);
-        Assert.Equal(100, run.Game.Player.Gold);
+        Assert.Equal(100, run.Service<Player>().Gold);
         enemies.Hit(walker, 1);
 
-        Assert.Equal(110, run.Game.Player.Gold);
-        Assert.Equal(1, run.Game.Player.Killed);
+        Assert.Equal(110, run.Service<Player>().Gold);
+        Assert.Equal(1, run.Service<Player>().Killed);
         Assert.Equal(0, enemies.Count);
     }
 
@@ -177,16 +159,16 @@ public class OutpostTests
         run.Input.Click(MouseButton.Left, at: run.ScreenSize / 2);
         run.Ticks(1);
 
-        var tower = Assert.Single(All<Tower>(run.World));
+        var tower = run.World.Only<Tower>();
         Assert.Equal((7, 4), (tower.X, tower.Z));
-        Assert.Equal(50, run.Game.Player.Gold);
+        Assert.Equal(50, run.Service<Player>().Gold);
     }
 
     [Fact]
     public void Building_needs_grass_and_gold()
     {
         using var run = Start();
-        var towers = run.Game.Towers;
+        var towers = run.Service<Towers>();
 
         Assert.False(towers.TryBuild(4, 3));
         Assert.True(towers.TryBuild(7, 4));
@@ -195,8 +177,8 @@ public class OutpostTests
         Assert.True(towers.TryBuild(3, 2));
         Assert.False(towers.TryBuild(8, 4));
 
-        Assert.Equal(0, run.Game.Player.Gold);
-        Assert.Equal(2, Count<Tower>(run.World));
+        Assert.Equal(0, run.Service<Player>().Gold);
+        Assert.Equal(2, run.World.Count<Tower>());
     }
 
     [Fact]
@@ -205,7 +187,7 @@ public class OutpostTests
         using var run = Start();
         var enemies = QuietRoad(run);
 
-        run.Game.Towers.TryBuild(3, 2);
+        run.Service<Towers>().TryBuild(3, 2);
         for (int i = 0; i < 3; i++)
         {
             enemies.Spawn(EnemyKind.Walker);
@@ -214,8 +196,8 @@ public class OutpostTests
 
         run.Ticks(30 * 30);
 
-        Assert.Equal(3, run.Game.Player.Killed);
-        Assert.Equal(10, run.Game.Player.Lives);
+        Assert.Equal(3, run.Service<Player>().Killed);
+        Assert.Equal(10, run.Service<Player>().Lives);
     }
 
     [Fact]
@@ -228,8 +210,8 @@ public class OutpostTests
         enemies.Hit(walker, 3);
         enemies.Hit(walker, 1);
 
-        Assert.Equal(110, run.Game.Player.Gold);
-        Assert.Equal(1, run.Game.Player.Killed);
+        Assert.Equal(110, run.Service<Player>().Gold);
+        Assert.Equal(1, run.Service<Player>().Killed);
     }
 
     [Fact]
@@ -243,12 +225,12 @@ public class OutpostTests
         enemies.Hit(walker, 1);
         // The near shot lands in a few ticks. The far one would take most of a second.
         var at = run.World.Get<Transform>(walker).Position;
-        run.Game.Shots.Fire(at + new Vector3(1, 0, 0), walker);
-        run.Game.Shots.Fire(at + new Vector3(10, 0, 0), walker);
+        run.Service<Shots>().Fire(at + new Vector3(1, 0, 0), walker);
+        run.Service<Shots>().Fire(at + new Vector3(10, 0, 0), walker);
         run.Ticks(5);
 
-        Assert.Equal(1, run.Game.Player.Killed);
-        Assert.Equal(0, Count<Shot>(run.World));
+        Assert.Equal(1, run.Service<Player>().Killed);
+        Assert.Equal(0, run.World.Count<Shot>());
     }
 
     [Fact]
@@ -261,12 +243,12 @@ public class OutpostTests
         enemies.Hit(runner, 1);
         // Both land on the next tick, while the runner is still in the world until the shots are done.
         var at = run.World.Get<Transform>(runner).Position;
-        run.Game.Shots.Fire(at, runner);
-        run.Game.Shots.Fire(at, runner);
+        run.Service<Shots>().Fire(at, runner);
+        run.Service<Shots>().Fire(at, runner);
         run.Ticks(1);
 
-        Assert.Equal(1, run.Game.Player.Killed);
-        Assert.Equal(106, run.Game.Player.Gold);
+        Assert.Equal(1, run.Service<Player>().Killed);
+        Assert.Equal(106, run.Service<Player>().Gold);
         Assert.False(run.World.IsAlive(runner));
     }
 
@@ -277,11 +259,11 @@ public class OutpostTests
         var enemies = QuietRoad(run);
 
         // The middle tile is about 15 metres from where the road starts.
-        run.Game.Towers.TryBuild(7, 4);
+        run.Service<Towers>().TryBuild(7, 4);
         enemies.Spawn(EnemyKind.Walker);
         run.Ticks(1);
 
-        Assert.Equal(0, Count<Shot>(run.World));
+        Assert.Equal(0, run.World.Count<Shot>());
     }
 
     [Fact]
@@ -291,7 +273,7 @@ public class OutpostTests
 
         run.Ticks(1);
 
-        Assert.Equal(15 * 9, run.Drawn.Count(draw => draw.Model == run.Game.Look.Tile));
+        Assert.Equal(15 * 9, run.Drawn.Count(draw => draw.Model == run.Service<Look>().Tile));
     }
 
     [Fact]
@@ -318,7 +300,7 @@ public class OutpostTests
         // 3 seconds before the first walker, and about 23 seconds for it to walk the road.
         run.Ticks(30 * 40);
 
-        Assert.True(run.Game.Player.Lives < 10, $"Lives are still {run.Game.Player.Lives}.");
+        Assert.True(run.Service<Player>().Lives < 10, $"Lives are still {run.Service<Player>().Lives}.");
     }
 
     [Fact]
@@ -350,8 +332,8 @@ public class OutpostTests
         run.Input.Click(MouseButton.Left, at: middle);
         run.Ticks(1);
 
-        Assert.Equal(0, Count<Tower>(run.World));
-        Assert.Equal(100, run.Game.Player.Gold);
+        Assert.Equal(0, run.World.Count<Tower>());
+        Assert.Equal(100, run.Service<Player>().Gold);
     }
 
     [Fact]
@@ -364,7 +346,7 @@ public class OutpostTests
         Assert.Contains(run.ShownText, text => text.Text == "Outpost");
 
         run.Ticks(30 * 10);
-        Assert.Equal(0, run.Game.Enemies.Count);
+        Assert.Equal(0, run.Service<Enemies>().Count);
     }
 
     [Fact]
@@ -378,7 +360,7 @@ public class OutpostTests
         run.Ticks(1);
 
         Assert.Equal(Screen.Playing, run.States<Screen>().Current);
-        Assert.Equal(0, Count<Tower>(run.World));
+        Assert.Equal(0, run.World.Count<Tower>());
     }
 
     [Fact]
@@ -386,7 +368,7 @@ public class OutpostTests
     {
         using var run = Start();
 
-        run.Game.Player.Lives = 1;
+        run.Service<Player>().Lives = 1;
         run.Ticks(30 * 40);
 
         Assert.Equal(Screen.Lost, run.States<Screen>().Current);
@@ -397,13 +379,14 @@ public class OutpostTests
     public void Restarting_mid_wave_starts_clean()
     {
         using var run = Start();
-        var game = run.Game;
-        Assert.True(game.Towers.TryBuild(3, 2));
+        var player = run.Service<Player>();
+        var enemies = run.Service<Enemies>();
+        Assert.True(run.Service<Towers>().TryBuild(3, 2));
         run.Ticks(30 * 20);
-        Assert.NotEqual(0, game.Enemies.Count);
-        Assert.NotEqual(0, Count<Shot>(run.World));
+        Assert.NotEqual(0, enemies.Count);
+        Assert.NotEqual(0, run.World.Count<Shot>());
 
-        game.Player.Lives = 0;
+        player.Lives = 0;
         run.Ticks(1);
         Assert.Equal(Screen.Lost, run.States<Screen>().Current);
 
@@ -411,19 +394,19 @@ public class OutpostTests
         run.Ticks(1);
 
         Assert.Equal(Screen.Playing, run.States<Screen>().Current);
-        Assert.Equal(100, game.Player.Gold);
-        Assert.Equal(10, game.Player.Lives);
-        Assert.Equal(0, Count<Tower>(run.World));
-        Assert.Equal(0, game.Enemies.Count);
-        Assert.Equal(0, Count<Shot>(run.World));
-        Assert.Equal(1, game.Waves.Number);
+        Assert.Equal(100, player.Gold);
+        Assert.Equal(10, player.Lives);
+        Assert.Equal(0, run.World.Count<Tower>());
+        Assert.Equal(0, enemies.Count);
+        Assert.Equal(0, run.World.Count<Shot>());
+        Assert.Equal(1, run.Service<Waves>().Number);
     }
 
     [Fact]
     public void Winning_needs_every_enemy_gone()
     {
         using var run = Start();
-        var waves = run.Game.Waves;
+        var waves = run.Service<Waves>();
         waves.Gap = 1f / 30f;
         waves.Pause = 1f / 30f;
 
@@ -433,7 +416,7 @@ public class OutpostTests
         }
 
         Assert.True(waves.AllSpawned);
-        Assert.NotEqual(0, run.Game.Enemies.Count);
+        Assert.NotEqual(0, run.Service<Enemies>().Count);
         run.Ticks(1);
         Assert.Equal(Screen.Playing, run.States<Screen>().Current);
 
@@ -448,7 +431,7 @@ public class OutpostTests
     public void Winning_needs_the_last_wave_fully_spawned()
     {
         using var run = Start();
-        var waves = run.Game.Waves;
+        var waves = run.Service<Waves>();
         waves.Gap = 1f / 30f;
         waves.Pause = 1f / 30f;
 
@@ -471,7 +454,7 @@ public class OutpostTests
     public void Gold_never_goes_negative(int seed)
     {
         using var run = Start(seed);
-        run.Invariant("gold never goes below zero", game => game.Player.Gold >= 0);
+        run.Invariant("gold never goes below zero", _ => run.Service<Player>().Gold >= 0);
 
         // Click somewhere new on the field every second, far more often than the player can pay.
         for (int second = 0; second < 120; second++)
@@ -481,6 +464,6 @@ public class OutpostTests
             run.Ticks(30);
         }
 
-        Assert.NotEqual(0, Count<Tower>(run.World));
+        Assert.NotEqual(0, run.World.Count<Tower>());
     }
 }

@@ -412,19 +412,7 @@ public sealed class Enemies(World world, Scenes scenes, Field field, Player play
     private readonly RandomStream _offsets = random.Stream("enemies");
 
     /// <summary>How many enemies are on the road.</summary>
-    public int Count
-    {
-        get
-        {
-            int count = 0;
-            foreach (var _ in world.Query<Enemy>())
-            {
-                count++;
-            }
-
-            return count;
-        }
-    }
+    public int Count => world.Count<Enemy>();
 
     public static EnemyStats Stats(EnemyKind kind) => kind switch
     {
@@ -533,26 +521,22 @@ moment, everything moved by it slows down too.
 might shoot the same enemy in the same tick, and the second shot shouldn't pay out its
 reward again.
 
-`Count` counts enemies the same way, with a query. We'll need it to know when the last
-wave is beaten.
+`Count` asks the world how many entities have an `Enemy`, with `world.Count<Enemy>()`.
+We'll need it to know when the last wave is beaten.
 
 ### Watching them walk
 
 `Enemies` is a system: a class with an `Update` that runs each tick, marked with
 `ISystem`. Ask for `Systems` in the game and list the systems once, in the order they run.
-Hand the game its `Player` and `Enemies` too, and give it three walkers to start with, so
-there's something to watch. We'll replace those with proper waves in chapter 6.
+Hand the game its `Enemies` too, and give it three walkers to start with, so there's
+something to watch. We'll replace those with proper waves in chapter 6.
 
 ```csharp
-public sealed class OutpostGame(Field field, Player player, Enemies enemies, Scenes scenes, Systems systems) : IGame
+public sealed class OutpostGame(Field field, Enemies enemies, Scenes scenes, Systems systems) : IGame
 {
     private readonly Systems _systems = systems.Add<Enemies>();
 
     // ...the colours and camera from before...
-
-    public Player Player => player;
-
-    public Enemies Enemies => enemies;
 
     public void Load()
     {
@@ -572,8 +556,8 @@ public sealed class OutpostGame(Field field, Player player, Enemies enemies, Sce
 ```
 
 `Systems.Add` hands back the same `Enemies` that Super made for the game, so `enemies` and
-the system are one object. The `Player` and `Enemies` properties aren't needed by the game
-itself, but the tests in chapter 9 will use them to look inside.
+the system are one object. The game doesn't ask for the `Player` yet, because nothing in
+it reads the gold or the lives until the HUD in chapter 6.
 
 The walkers can't spawn in `Load`, because `Go` builds the scene at the end of the first
 tick, and `scenes.Current` is only there once it's built. Half a second in is plenty.
@@ -700,7 +684,7 @@ The game needs three more things in its constructor: the towers, the player's
 there's nothing to register.
 
 ```csharp
-public sealed class OutpostGame(Field field, Player player, Enemies enemies, Towers towers, Scenes scenes, Systems systems, Actions<Control> actions, Input input) : IGame
+public sealed class OutpostGame(Field field, Enemies enemies, Towers towers, Scenes scenes, Systems systems, Actions<Control> actions, Input input) : IGame
 ```
 
 Bind the left mouse button at the top of `Load`:
@@ -922,9 +906,6 @@ That's the order they run in each tick. Enemies move first, then towers aim at w
 enemies are now, then shots fly. Nothing runs in an order you have to look up: if you want
 something to happen before something else, you put it first in the list.
 
-The game itself doesn't use the shots, but the tests in chapter 9 will look at them, so
-add `Shots shots` to the game's constructor too.
-
 The middle tile is too far from the road to reach anything, so let's add a second tower
 to the script, next to the road's first bend:
 
@@ -1107,7 +1088,8 @@ a `Spacer` that pushes everything after it down, and the hint at the bottom. The
 three lines of text on a see-through dark background. `.Id("hud")` gives it a name so a
 test can find it.
 
-Then give the game its `Ui`. It needs `using Super.Ui;` at the top:
+Then give the game its `Ui`. It needs `using Super.Ui;` at the top, and the gold and lives
+come from the player, so add `Player player` to the game's constructor:
 
 ```csharp
 public UiView? Ui => new Hud(player.Gold, player.Lives, waves.Number, Waves.Count);
@@ -1156,7 +1138,7 @@ Ask for `States<Screen>` in the game's constructor. Like `Actions<Control>`, Sup
 it for you, so there's nothing to register:
 
 ```csharp
-public sealed class OutpostGame(Field field, Player player, Enemies enemies, Towers towers, Shots shots, Waves waves, Scenes scenes, Systems systems, States<Screen> screen, Actions<Control> actions, Input input) : IGame
+public sealed class OutpostGame(Field field, Player player, Enemies enemies, Towers towers, Waves waves, Scenes scenes, Systems systems, States<Screen> screen, Actions<Control> actions, Input input) : IGame
 ```
 
 The game starts in the enum's first value, so it opens on `Title`.
@@ -1301,16 +1283,18 @@ enemies that got through.
 
 ### Scripts that start the game
 
-The `towers` script now has to get past the title first, so it presses Space before it
-clicks. And a `start` script that only starts the game is handy for screenshots:
+The `towers` script now has to get past the title first, so it presses Start before it
+clicks. A script can press one of your controls instead of a key, so it keeps working if
+you bind Start to something else. And a `start` script that only starts the game is handy
+for screenshots:
 
 ```csharp
 public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
 {
     // Starts the game, for screenshots: --script start
-    ["start"] = new InputScript().Press(Key.Space),
+    ["start"] = new InputScript().Press(Control.Start),
     // Starts, then builds a tower on the middle tile and one by the first bend: --script towers
-    ["towers"] = new InputScript().Press(Key.Space).Wait(1).Click(new Vector2(640, 360)).Wait(1).Click(new Vector2(411, 261)).Wait(5),
+    ["towers"] = new InputScript().Press(Control.Start).Wait(1).Click(new Vector2(640, 360)).Wait(1).Click(new Vector2(411, 261)).Wait(5),
 };
 ```
 
@@ -1639,35 +1623,17 @@ public class OutpostTests
         run.Ticks(1);
         return run;
     }
-
-    /// <summary>How many entities in the world have a component.</summary>
-    private static int Count<T>(World world) where T : struct
-    {
-        int count = 0;
-        foreach (var _ in world.Query<T>())
-        {
-            count++;
-        }
-
-        return count;
-    }
 }
 ```
 
 `run.Ticks(n)` plays that many ticks. At 30 ticks a second, `run.Ticks(30 * 40)` is forty
-seconds of play. `run.Game` is your `OutpostGame`, so a test can look at the game through
-its properties. You gave it `Player` and `Enemies` in chapter 3. Add the towers and waves
-next to them in `OutpostGame.cs`, so tests can see those too:
+seconds of play. `run.Service<T>()` hands the test anything the game's classes can ask for
+in their constructors, such as `run.Service<Player>()` or `run.Service<Towers>()`. It's
+the same object the game has, so the game needs no properties that only tests read.
 
-```csharp
-public Towers Towers => towers;
-
-public Waves Waves => waves;
-```
-
-`Count` asks the world how many entities have a component, such as how many shots are in
-the air. The `using Shot` line is there because Super has a `Shot` of its own, for cutscene
-shots, and this says which one the tests mean.
+`run.World` is the game's world, and `run.World.Count<Shot>()` is how many entities have a
+component, such as how many shots are in the air. The `using Shot` line is there because
+Super has a `Shot` of its own, for cutscene shots, and this says which one the tests mean.
 
 `Start` jumps straight past the title, because most tests don't care about it.
 
@@ -1680,7 +1646,7 @@ public void Losing_every_life_ends_the_game()
 {
     using var run = Start();
 
-    run.Game.Player.Lives = 1;
+    run.Service<Player>().Lives = 1;
     run.Ticks(30 * 40);
 
     Assert.Equal(Screen.Lost, run.States<Screen>().Current);
@@ -1704,13 +1670,14 @@ game is left:
 public void Restarting_mid_wave_starts_clean()
 {
     using var run = Start();
-    var game = run.Game;
-    Assert.True(game.Towers.TryBuild(3, 2));
+    var player = run.Service<Player>();
+    var enemies = run.Service<Enemies>();
+    Assert.True(run.Service<Towers>().TryBuild(3, 2));
     run.Ticks(30 * 20);
-    Assert.NotEqual(0, game.Enemies.Count);
-    Assert.NotEqual(0, Count<Shot>(run.World));
+    Assert.NotEqual(0, enemies.Count);
+    Assert.NotEqual(0, run.World.Count<Shot>());
 
-    game.Player.Lives = 0;
+    player.Lives = 0;
     run.Ticks(1);
     Assert.Equal(Screen.Lost, run.States<Screen>().Current);
 
@@ -1718,12 +1685,12 @@ public void Restarting_mid_wave_starts_clean()
     run.Ticks(1);
 
     Assert.Equal(Screen.Playing, run.States<Screen>().Current);
-    Assert.Equal(100, game.Player.Gold);
-    Assert.Equal(10, game.Player.Lives);
-    Assert.Equal(0, Count<Tower>(run.World));
-    Assert.Equal(0, game.Enemies.Count);
-    Assert.Equal(0, Count<Shot>(run.World));
-    Assert.Equal(1, game.Waves.Number);
+    Assert.Equal(100, player.Gold);
+    Assert.Equal(10, player.Lives);
+    Assert.Equal(0, run.World.Count<Tower>());
+    Assert.Equal(0, enemies.Count);
+    Assert.Equal(0, run.World.Count<Shot>());
+    Assert.Equal(1, run.Service<Waves>().Number);
 }
 ```
 
@@ -1741,7 +1708,7 @@ find out when it went wrong, not just that it did:
 public void Gold_never_goes_negative(int seed)
 {
     using var run = Start(seed);
-    run.Invariant("gold never goes below zero", game => game.Player.Gold >= 0);
+    run.Invariant("gold never goes below zero", _ => run.Service<Player>().Gold >= 0);
 
     // Click somewhere new on the field every second, far more often than the player can pay.
     for (int second = 0; second < 120; second++)
@@ -1751,7 +1718,7 @@ public void Gold_never_goes_negative(int seed)
         run.Ticks(30);
     }
 
-    Assert.NotEqual(0, Count<Tower>(run.World));
+    Assert.NotEqual(0, run.World.Count<Tower>());
 }
 ```
 

@@ -157,9 +157,7 @@ public sealed class CannonballField(World world)
 
     private Entity Prop(Transform transform, Vector3 color, ModelRef? model = null)
     {
-        var entity = world.Create();
-        world.Add(entity, transform);
-        world.Add(entity, new Model(model ?? ModelRef.Cube, color));
+        var entity = world.Spawn(transform, new Model(model ?? ModelRef.Cube, color));
         _props.Add(entity);
         return entity;
     }

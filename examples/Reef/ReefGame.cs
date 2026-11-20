@@ -116,12 +116,12 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
                 position.Y = Math.Clamp(position.Y, Seabed.Height(position.X, position.Z) + 1f, settings.SurfaceHeight - 1f);
                 var velocity = stream.Direction3D() * details.MinSpeed;
 
-                var entity = world.Create();
-                world.Add(entity, Transform.Facing(position, velocity, details.Length));
-                world.Add(entity, new Velocity(velocity));
-                world.Add(entity, new Fish(kind, firstSchool + school));
-                world.Add(entity, new Model(_fishModels[kind]));
-                world.Add(entity, new Swim(SwimAmplitude, 1f, stream.Angle()));
+                world.Spawn(
+                    Transform.Facing(position, velocity, details.Length),
+                    new Velocity(velocity),
+                    new Fish(kind, firstSchool + school),
+                    new Model(_fishModels[kind]),
+                    new Swim(SwimAmplitude, 1f, stream.Angle()));
             }
 
             firstSchool += details.Schools;
@@ -238,8 +238,6 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
             new Vector3(spot.X, Seabed.Height(spot.X, spot.Y) - sink, spot.Y),
             Quaternion.CreateFromAxisAngle(Vector3.UnitY, yaw),
             scale);
-        var entity = world.Create();
-        world.Add(entity, transform);
-        world.Add(entity, new Model(model, tint));
+        world.Spawn(transform, new Model(model, tint));
     }
 }
