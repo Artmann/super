@@ -65,7 +65,7 @@ internal sealed class FrameMaker
             Picture = new PictureSettings
             {
                 DebugView = debugView,
-                Post = WithRendererLut(view.Effects.Post, content),
+                Post = WithRendererItems(view.Effects.Post, content),
                 Transition = view.Effects.Transition,
             },
             Lights = Lights(view.Lights.Suns),
@@ -87,13 +87,21 @@ internal sealed class FrameMaker
         return WithSky(frame, view, off);
     }
 
-    /// <summary>The grade with its colour table, which the game names by its content index, as the renderer numbers it.</summary>
-    private PostSettings WithRendererLut(in PostSettings post, Content content)
+    /// <summary>
+    /// The finish with its colour table and its paper, which the game names by their content index, as the renderer
+    /// numbers them.
+    /// </summary>
+    private PostSettings WithRendererItems(in PostSettings post, Content content)
     {
         var graded = post;
         if (post.Grade.Lut is { } named)
         {
             graded.Grade.Lut = _items.Require<LutOnGpu>(named.Index, content).Handle;
+        }
+
+        if (post.Screen.Canvas is { } paper)
+        {
+            graded.Screen.Canvas = _items.Require<TextureOnGpu>(paper.Index, content).Handle;
         }
 
         return graded;

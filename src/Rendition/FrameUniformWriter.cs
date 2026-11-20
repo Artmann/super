@@ -72,8 +72,8 @@ internal sealed unsafe class FrameUniformWriter(FrameParts parts, FrameBakes bak
         // Probe updates and reflection probe captures light their faces with every point and spot light of the frame,
         // and see the sun's shadow through maps of their own, each zero when there is none this frame.
         uniforms->CountBlock.ProbeLightCount = lights.LocalLightShadows.ProbeLightCount;
-        uniforms->ProbeSunMatrix = lights.LightProbes.SunMatrix;
-        uniforms->ReflectionSunMatrix = lights.FrameReflectionCapture.SunMatrix;
+        uniforms->SunBlock.ProbeSunMatrix = lights.LightProbes.SunMatrix;
+        uniforms->SunBlock.ReflectionSunMatrix = lights.FrameReflectionCapture.SunMatrix;
         LastSlot = stores.Ring.Index;
         return castsShadow;
     }
@@ -101,6 +101,9 @@ internal sealed unsafe class FrameUniformWriter(FrameParts parts, FrameBakes bak
         uniforms->GradeBlock.Finish = new Vector4(post.Sharpen, post.Grain, shift.X, shift.Y);
         (uniforms->GradeBlock.Lift, uniforms->GradeBlock.Gain) = PostGrade.Tint(post);
         uniforms->ToneBlock = PostGrade.Tone(post);
+        // A paper whose texture is gone, or never was, reads as none rather than a slot the table no longer fills.
+        int canvas = post.Screen.Canvas is { } paper && parts.SceneStores.Resources.Textures.IsLive(paper.Index) ? paper.Index : -1;
+        uniforms->ScreenBlock = PostGrade.Screen(post.Screen, canvas);
         (uniforms->GradeBlock.HazeOrigin, uniforms->GradeBlock.HazeColor) = Haze.Pack(view.CameraPosition, view.Background.FadeOrigin, view.Background.FadeColor);
         uniforms->Occlusion = Occlusion.Pack(view.ScreenSpace.Occlusion, view.ScreenSpace.Bounce, off, historyValid);
         (uniforms->OutlineBlock.Outline, uniforms->OutlineBlock.OutlineFade) = Outlines.Pack(view.ScreenSpace.Outlines, parts.FrameTargets.GBuffer.Extent.Width / (float)Math.Max(view.Width, 1));

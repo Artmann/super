@@ -4,7 +4,8 @@ A human cannonball, to show [ragdolls](../../docs/physics.md#ragdolls). A stuntm
 from a cannon, flailing as they fly, and goes limp at the first hard hit. They tumble
 through a wall of crates, pyramids, balls and hay bales, and once they lie still they get
 up from where they fell, with a get-up clip picked by whether they lie face up or down.
-They rally the crowd, and then the cannon fires again.
+They rally the crowd, and then the cannon fires again. The screen blurs while they fly and
+flashes red at the hit.
 
 ![The cannon firing, the crash through the wall, the stuntman lying still, and rallying the crowd](../../docs/media/cannonball-round.webp)
 
@@ -36,3 +37,6 @@ doesn't have them, leaves them out.
 - `physics.Ragdolls.IsFaceUp` to pick a get-up clip, played in the same Update as switching to
   `Off`, so the clip is laid over where the body lies.
 - `physics.Ragdolls.Shapes` to draw the bodies.
+- A `ScreenEffects` component, in `CrashEffects`, driven every tick: a
+  [speed blur](../../docs/rendering.md#screen-effects) that grows with how fast they fly, and on
+  the hit a white flash, a red edge and colour fringes, each eased back to 0.

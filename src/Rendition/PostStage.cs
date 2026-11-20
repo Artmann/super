@@ -93,12 +93,16 @@ internal sealed class PostStage
         _timer.Mark(cmd);
     }
 
-    /// <summary>Points tonemapping and the meter at <paramref name="source"/>, the anti-aliased image or the lit one, and at bloom.</summary>
+    /// <summary>
+    /// Points tonemapping and the meter at <paramref name="source"/>, the anti-aliased image or the lit one, and at bloom.
+    /// The source is the picture's own size, so reading it smoothly changes nothing at a pixel's centre, and lets the
+    /// colour fringes and the speed blur read between pixels.
+    /// </summary>
     public void WriteSets(ImageView source, GBuffer targets)
     {
         ImageSets.Write(_context, _tonemapSet,
         [
-            new(_kit.NearestSampler, source, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.LinearSampler, source, ImageLayout.ShaderReadOnlyOptimal),
             new(_kit.LinearSampler, _bloom.Result, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         Meter.SetSource(source, targets.Picture.Display);

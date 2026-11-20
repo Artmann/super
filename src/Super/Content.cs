@@ -7,7 +7,14 @@ namespace Super;
 public readonly record struct ShaderRef(int Index);
 
 /// <summary>Names a texture. <see cref="Content.Texture(string)"/> hands these out.</summary>
-public readonly record struct TextureRef(int Index);
+public readonly record struct TextureRef(int Index)
+{
+    /// <summary>
+    /// The texture where a Rendition setting asks for one, such as <see cref="ScreenEffects.Canvas"/>. It still names the
+    /// content's texture; the engine swaps in the renderer's own when it draws the frame.
+    /// </summary>
+    public static implicit operator TextureHandle(TextureRef texture) => new(texture.Index);
+}
 
 /// <summary>Names a stack of same-sized textures. <see cref="Content.TextureArray"/> hands these out.</summary>
 public readonly record struct TextureArrayRef(int Index);

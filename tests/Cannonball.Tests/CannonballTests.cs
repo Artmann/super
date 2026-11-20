@@ -97,6 +97,36 @@ public sealed class CannonballTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public void The_screen_blurs_in_flight_and_flashes_red_on_the_hit_until_it_fades()
+    {
+        using var run = Start();
+        run.Frame(0f);
+        Assert.Equal(0f, run.Screen.SpeedBlur);
+
+        RunUntil(run, Stage.Flying);
+        run.Ticks(TicksPerSecond / 3);
+        run.Frame(0f);
+        Assert.True(run.Screen.SpeedBlur > 0.1f, $"the blur in flight is only {run.Screen.SpeedBlur}");
+        Assert.Equal(0f, run.Screen.Flash);
+        Assert.Equal(0f, run.Screen.EdgeTint.Strength);
+
+        RunUntil(run, Stage.Tumbling);
+        run.Frame(0f);
+        Assert.Equal(0f, run.Screen.SpeedBlur);
+        Assert.True(run.Screen.Flash > 0.1f, $"the hit's flash is only {run.Screen.Flash}");
+        Assert.True(run.Screen.ChromaticAberration > 0.1f, $"the hit's fringes are only {run.Screen.ChromaticAberration}");
+        var tint = run.Screen.EdgeTint;
+        Assert.True(tint.Strength > 0.1f && tint.Color.X > 5f * tint.Color.Y, $"the hit's edge is {tint}, not red");
+
+        run.Ticks(TicksPerSecond * 2);
+        run.Frame(0f);
+        Assert.Equal(0f, run.Screen.Flash);
+        Assert.Equal(0f, run.Screen.EdgeTint.Strength);
+        Assert.Equal(0f, run.Screen.ChromaticAberration);
+    }
+
+    [Fact]
     public void R_loads_him_back_into_the_cannon()
     {
         using var run = Start();

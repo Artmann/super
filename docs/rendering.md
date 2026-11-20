@@ -121,6 +121,10 @@ next frame follows, so it can back an options menu.
 | `Picture.Sharpening` | No sharpening, whatever `PostSettings.Sharpen` asks for, and the finish pass skips that work |
 | `Picture.ColorGrading` | `PostSettings`' contrast, saturation, lift, gain, temperature, tint, hue shift, channel mixer, tones and split toning are all neutral. The exposure, the bloom, the tonemapper with its look and the colour table stay |
 | `Picture.ColorLut` | No [colour table](#a-colour-table), whatever `PostSettings.Grade.Lut` asks for. It costs nothing either way, since the table is baked into the grade |
+| `Picture.ChromaticAberration` | No colour fringes, whatever `ScreenEffects.ChromaticAberration` asks for. The picture is read once a pixel instead of three times while they'd show. `Graphics.Fastest()` turns it off. See [screen effects](#screen-effects) |
+| `Picture.SpeedBlur` | No blur at speed, whatever `ScreenEffects.SpeedBlur` asks for. The picture is read once a pixel instead of 16 times while it'd show. `Graphics.Fastest()` turns it off |
+| `Picture.Flashes` | No flashes, whatever `ScreenEffects.Flash` asks for, for a player who is sensitive to flashing light. The fade stays. It costs nothing |
+| `Picture.ScreenEffects` | None of the [screen effects](#screen-effects) a game sets, but the fade: no fringes, blur, flash, edge tints, loss of colour or paper. The fade stays, since a game uses it to say something, such as that the player fell |
 | `Drawing.Culling` | Every model is drawn into the picture, each of the sun's cascades and each light's shadow tile, seen or not. It only costs time: it's there to check that culling hides nothing it shouldn't |
 | `Drawing.SimplerModels` | Every model is drawn at full detail at any distance, whatever `MeshDetail` says, in the picture and the shadows. It only costs time: it's there to see what the simpler versions change |
 | `Drawing.DepthFirst` | Large solid surfaces are no longer drawn twice, depth first and then shaded, so a surface drawn before the one that hides it is shaded for nothing. It only costs time: it's there to measure what drawing depth first saves. The picture is the same, but where two surfaces lie in the very same plane, where the other of the two may show |
@@ -1305,6 +1309,69 @@ them, pass by the table unchanged. The vignette, the grain and the sharpening co
 A table stays until it is let go: `content.Unload(lut)` in a game, or `renderer.Luts.Destroy(lut)`
 with Rendition alone. Its image is freed once the frames that read it are done, the next table
 made takes its slot, and a picture that still names it afterwards throws.
+
+### Screen effects
+
+Screen effects are the finish a game drives from play: a red edge while the player is hurt, a
+white flash on a hit, a blur at speed, a fade to black on a fall. Put a `ScreenEffects`
+component on any entity and change it every frame:
+
+```csharp
+var hurt = world.Spawn(new ScreenEffects());
+
+// In a system, each frame:
+ref var screen = ref world.Get<ScreenEffects>(hurt);
+screen.Flash = MathF.Max(0f, screen.Flash - 4f * dt);              // a hit's flash, gone in a quarter second
+screen.EdgeTint = new EdgeTint(new Vector3(0.8f, 0f, 0f), 1f - health);
+screen.SpeedBlur = Math.Clamp((speed - 10f) / 30f, 0f, 0.5f);
+```
+
+| `ScreenEffects` setting | What it does |
+| --- | --- |
+| `ChromaticAberration` | Red and blue fringes that grow towards the edges, as through a cheap lens, from 0 to 1, about 16 pixels at the corners of a 1080p picture at 1. 0.2 is a hint; a short burst near 1 sells a heavy hit |
+| `SpeedBlur` | A blur streaking out from `SpeedBlurCenter`, from 0 to 1, where the corners smear a quarter of the way to it. 0.2 is a fast run, 0.6 a dive |
+| `SpeedBlurCenter` | Where the blur streaks out from, as a fraction of the screen, (0, 0) at the top left. Null, the default, is the middle. Put it where the camera is heading |
+| `Flash`, `FlashColor` | Lights the picture with the colour, from 0 to 1, as a burst of light does: it brightens and never covers, so the picture shows through. The colour zero is white |
+| `Fade`, `FadeColor` | Covers the picture with the colour, from 0 to 1. The colour zero is black |
+| `EdgeTint`, `SecondEdgeTint` | A colour creeping in from the edges and corners, with a strength from 0 to 1. The second goes over the first, so a green heal can show over a red hurt. At 1 the edges are all the colour |
+| `Desaturate` | How much colour the picture loses, from 0 to 1, grey. It comes after the grade, so it's on top of `PostSettings.Saturation` and a grade's colour table |
+| `Canvas`, `CanvasStrength`, `CanvasTileSize` | A texture laid over the picture, such as paper or canvas, multiplied, so white leaves it as it is. The strength runs from 0 to 1, and the tile size is how many pixels of the window one tile covers; 0 is the texture's own size. The paper stays put on the screen while the world moves under it |
+
+Every amount is off at 0 and costs nothing there, and changing them never bakes the
+[grade's table](#a-colour-table) again, so set them every frame with no cost but the effects
+themselves. The colours are linear light, like a sun's. Amounts outside 0 to 1, a negative tile
+size, and colours or a centre that aren't numbers are refused with a message saying which.
+
+The finish can hold screen effects of its own, in `PostSettings.Screen`, for a look that
+belongs to the level, such as a paper texture. The component, or `view.Effects.Screen(effects)`
+when drawing by hand, lays over it: each effect set there, anything not zero, wins, and the
+rest keep the finish's. So a hit's flash keeps the level's paper. When more than one entity
+has the component, the one added or changed last wins. `PostSettings.Lerp` blends the screen
+effects with the rest of the finish, so a blend between two looks fades a red edge in red rather
+than through black, and two different canvases cross through none at the halfway point.
+
+The fringes and the speed blur are worked out on the scene's light, before the grade, so a
+bright lamp streaks bright. The flash, the fade, the tints, the loss of colour and the paper come
+last, on the colours the screen shows, after the vignette and before the grain. A
+[debug view](#ray-tracing) shows none of them.
+
+The fringes read the picture three times a pixel and the blur 16 times, so those two cost GPU
+time while they show, more the larger the window; the rest is a few sums a pixel. At 0 they're
+skipped and the pass costs what it did without them.
+
+Four [graphics switches](#graphics-settings) turn them off. `Picture.ChromaticAberration` and
+`Picture.SpeedBlur` turn off the two that cost time, and `Graphics.Fastest()` turns both off.
+`Picture.Flashes` is for a player who is sensitive to flashing light. `Picture.ScreenEffects`
+turns off all of them but the fade, since a game uses the fade to say something, such as that the
+player fell.
+
+With Rendition alone, set `PostSettings.Screen`, and give `Canvas` a texture handle from
+`renderer.Assets.CreateTexture`. A Super game gives it a texture from `content.Texture("paper.png")`.
+
+The [Cannonball](../examples/Cannonball) example blurs the screen with the stuntman's speed and
+flashes it red on the hit. Each effect on its own, and Cannonball's:
+
+![Each screen effect at work, labelled](media/screen-effects.webp)
 
 ### Auto exposure
 

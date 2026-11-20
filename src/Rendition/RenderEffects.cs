@@ -244,9 +244,34 @@ public enum RenderEffects : long
     /// </summary>
     ColorLut = 1L << 42,
 
+    /// <summary>
+    /// The colour fringes towards the screen's edges, from <see cref="Rendition.ScreenEffects.ChromaticAberration"/>. Without them
+    /// the tonemap pass reads each pixel once instead of three times.
+    /// </summary>
+    ChromaticAberration = 1L << 43,
+
+    /// <summary>
+    /// The blur streaking out from a point, from <see cref="Rendition.ScreenEffects.SpeedBlur"/>. Without it the tonemap pass reads
+    /// each pixel once instead of sixteen times while the blur is on.
+    /// </summary>
+    SpeedBlur = 1L << 44,
+
+    /// <summary>
+    /// The flashes of colour from <see cref="Rendition.ScreenEffects.Flash"/>, for players who are sensitive to flashing light.
+    /// The fade, <see cref="Rendition.ScreenEffects.Fade"/>, stays, as it doesn't flash.
+    /// </summary>
+    Flashes = 1L << 45,
+
+    /// <summary>
+    /// All of <see cref="Rendition.ScreenEffects"/> but the fade: the fringes, the speed blur, the flash, the edge tints, the loss
+    /// of colour and the paper texture. The fade stays, as a game uses it to say something, such as that the player fell.
+    /// </summary>
+    ScreenEffects = 1L << 46,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
         | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
-        | ScreenBounce | AerialPerspective | Stars | OcclusionHistory | ColorLut,
+        | ScreenBounce | AerialPerspective | Stars | OcclusionHistory | ColorLut | ChromaticAberration | SpeedBlur | Flashes
+        | ScreenEffects,
 }

@@ -93,6 +93,12 @@ public sealed class HeadlessRun<TGame> : IDisposable
     public Rendition.ScreenTransition Transition => _host.View.Effects.Transition;
 
     /// <summary>
+    /// The screen effects the last frame showed: the finish's own with a <see cref="Rendition.ScreenEffects"/> component's
+    /// laid over them. Call <see cref="Frame"/> first.
+    /// </summary>
+    public Rendition.ScreenEffects Screen => _host.View.Effects.Post.Screen;
+
+    /// <summary>
     /// What the mixer is playing now: each voice's clip, channel, gain, pan and how far in it is. A sound started
     /// in an Update shows up once that tick's Draw has handed it over, so after the tick.
     /// </summary>

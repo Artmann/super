@@ -58,7 +58,63 @@ internal static class PostGrade
             post.Grade.LutBlend = 0f;
         }
 
+        post.Screen = ScreenWithout(post.Screen, off);
         return post;
+    }
+
+    /// <summary>
+    /// <paramref name="screen"/> with what <paramref name="off"/> leaves out set back to none: everything but the fade
+    /// with <see cref="RenderEffects.ScreenEffects"/>, and each of the fringes, the speed blur and the flash with its own.
+    /// </summary>
+    private static ScreenEffects ScreenWithout(ScreenEffects screen, RenderEffects off)
+    {
+        if ((off & RenderEffects.ScreenEffects) != 0)
+        {
+            return new ScreenEffects { Fade = screen.Fade, FadeColor = screen.FadeColor };
+        }
+
+        if ((off & RenderEffects.ChromaticAberration) != 0)
+        {
+            screen.ChromaticAberration = 0f;
+        }
+
+        if ((off & RenderEffects.SpeedBlur) != 0)
+        {
+            screen.SpeedBlur = 0f;
+        }
+
+        if ((off & RenderEffects.Flashes) != 0)
+        {
+            screen.Flash = 0f;
+        }
+
+        return screen;
+    }
+
+    /// <summary>
+    /// What the finish passes read of the screen effects. The fringes and the speed blur are worked out in the tonemap
+    /// pass, on the scene's light; the rest in the finish pass, on the colours the screen shows. Each amount is held
+    /// from 0 to 1, so a stray value can't turn the picture inside out. <paramref name="canvasSlot"/> is the
+    /// renderer's slot for <see cref="ScreenEffects.Canvas"/>, -1 for none.
+    /// </summary>
+    public static FrameScreenBlock Screen(in ScreenEffects screen, int canvasSlot)
+    {
+        var center = screen.SpeedBlurCenter ?? new Vector2(0.5f);
+        float canvas = canvasSlot < 0 ? 0f : Math.Clamp(screen.CanvasStrength, 0f, 1f);
+        var flashColor = screen.FlashColor == Vector3.Zero ? Vector3.One : screen.FlashColor;
+        return new FrameScreenBlock
+        {
+            ScreenLens = new Vector4(Math.Clamp(screen.ChromaticAberration, 0f, 1f), Math.Clamp(screen.SpeedBlur, 0f, 1f), center.X, center.Y),
+            ScreenFlash = new Vector4(Vector3.Clamp(flashColor, Vector3.Zero, Vector3.One), Math.Clamp(screen.Flash, 0f, 1f)),
+            ScreenFade = new Vector4(Vector3.Clamp(screen.FadeColor, Vector3.Zero, Vector3.One), Math.Clamp(screen.Fade, 0f, 1f)),
+            EdgeTint = Edge(screen.EdgeTint),
+            SecondEdgeTint = Edge(screen.SecondEdgeTint),
+            ScreenCanvas = new Vector4(
+                Math.Clamp(screen.Desaturate, 0f, 1f), canvas, Math.Max(screen.CanvasTileSize, 0f), canvas > 0f ? canvasSlot : -1),
+        };
+
+        static Vector4 Edge(EdgeTint tint) =>
+            new(Vector3.Clamp(tint.Color, Vector3.Zero, Vector3.One), Math.Clamp(tint.Strength, 0f, 1f));
     }
 
     /// <summary>
