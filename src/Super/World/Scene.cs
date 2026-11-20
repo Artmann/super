@@ -49,4 +49,13 @@ public sealed class Scene
         where T3 : struct
         where T4 : struct =>
         new WorldSpawn.Spawning(World, Id).Fill(in first, in second, in third, in fourth);
+
+    /// <summary>Makes an entity that belongs to the scene, like <see cref="WorldSpawn.Spawn{T1, T2, T3, T4, T5}"/>.</summary>
+    public Entity Spawn<T1, T2, T3, T4, T5>(in T1 first, in T2 second, in T3 third, in T4 fourth, in T5 fifth)
+        where T1 : struct
+        where T2 : struct
+        where T3 : struct
+        where T4 : struct
+        where T5 : struct =>
+        new WorldSpawn.Spawning(World, Id).Fill(in first, in second, in third, in fourth, in fifth);
 }

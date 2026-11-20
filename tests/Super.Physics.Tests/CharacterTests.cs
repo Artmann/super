@@ -52,6 +52,64 @@ public class CharacterTests
     }
 
     [Fact]
+    public void A_character_on_a_moving_platform_is_told_how_fast_it_moves()
+    {
+        var (world, physics) = Make();
+        using var _ = physics;
+        var lift = Place(world, new Vector3(0f, -0.5f, 0f), Collider.Box(new Vector3(6f, 1f, 6f)));
+        var walker = Walker(world, new Vector3(0f, 0.1f, 0f));
+        CharacterMove move = default;
+
+        // The lift slides 0.05 m a tick, which is 3 m/s at 60 ticks a second.
+        void Ride(int ticks)
+        {
+            for (int i = 0; i < ticks; i++)
+            {
+                world.Get<Transform>(lift).Position += new Vector3(0.05f, 0f, 0f);
+                physics.Step(Tick);
+                move = physics.Characters.Move(walker, new Vector3(0f, -1f, 0f) + move.GroundVelocity, Tick);
+            }
+        }
+
+        // Long enough to land and pick up the lift's speed.
+        Ride(20);
+        float from = world.Get<Transform>(walker).Position.X;
+        Ride(30);
+
+        Assert.Equal(lift, move.Ground);
+        Assert.Equal(3f, move.GroundVelocity.X, 0.05f);
+        Assert.Equal(0f, move.GroundVelocity.Z, 0.05f);
+
+        // Adding it to each move carried the walker along: 30 ticks of 0.05 m is 1.5 m.
+        Assert.Equal(1.5f, world.Get<Transform>(walker).Position.X - from, 0.05f);
+
+        // Jumping off leaves the lift's speed behind: the game keeps it, if it wants it kept.
+        physics.Step(Tick);
+        var jumped = physics.Characters.Move(walker, new Vector3(0f, 6f, 0f), Tick);
+
+        Assert.Equal(Footing.InAir, jumped.Footing);
+        Assert.Equal(Vector3.Zero, jumped.GroundVelocity);
+    }
+
+    [Fact]
+    public void A_character_in_the_air_or_on_still_ground_has_no_ground_velocity()
+    {
+        var (world, physics) = Make();
+        using var _ = physics;
+        Floor(world);
+        var walker = Walker(world, new Vector3(0f, 3f, 0f));
+        physics.Step(Tick);
+
+        var inAir = physics.Characters.Move(walker, Vector3.Zero, Tick);
+        var landed = Walk(physics, walker, Vector3.Zero, 90);
+
+        Assert.Equal(Footing.InAir, inAir.Footing);
+        Assert.Equal(Vector3.Zero, inAir.GroundVelocity);
+        Assert.True(landed.Grounded);
+        Assert.Equal(Vector3.Zero, landed.GroundVelocity);
+    }
+
+    [Fact]
     public void A_character_falls_and_lands_on_the_floor()
     {
         var (world, physics) = Make();

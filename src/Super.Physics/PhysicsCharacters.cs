@@ -134,7 +134,8 @@ public sealed class PhysicsCharacters
         };
         Entity? ground = footing != Footing.InAir && _owners.TryGetValue(character.GroundBodyId, out var under) ? under : null;
         var normal = footing == Footing.InAir ? Vector3.Zero : character.GroundNormal;
-        return new CharacterMove(position, character.LinearVelocity, footing, normal, ground);
+        var carried = character.GroundVelocity;
+        return new CharacterMove(position, character.LinearVelocity, footing, normal, ground, carried);
     }
 
     /// <summary>The entity's Jolt character, made or rebuilt to match its components.</summary>

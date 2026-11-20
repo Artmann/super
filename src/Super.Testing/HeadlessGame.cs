@@ -54,6 +54,14 @@ public sealed class HeadlessRun<TGame> : IDisposable
         where TState : struct, Enum =>
         (States<TState>)_host.GetService(typeof(States<TState>));
 
+    /// <summary>
+    /// One of the game's services, such as a score keeper or a system, so a test can read it without the game
+    /// handing it out through a property.
+    /// </summary>
+    public TService Service<TService>()
+        where TService : class =>
+        (TService)_host.GetService(typeof(TService));
+
     /// <summary>Keeps <see cref="Content.IsLoaded"/> false, so a test can look at a loading screen.</summary>
     public void HoldLoading() => _host.Content.Store.Loading.Held = true;
 

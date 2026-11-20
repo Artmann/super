@@ -109,7 +109,7 @@ code you save is applied while the game runs. See
 using System.Numerics;
 using Super;
 
-Game.StartWindowsGameLoop<Spinner>(new GameOptions { Title = "Spinner" });
+Game.Run<Spinner>(new GameOptions { Title = "Spinner" });
 
 class Spinner(World world) : IGame
 {
@@ -130,7 +130,7 @@ class Spinner(World world) : IGame
 }
 ```
 
-`StartWindowsGameLoop` opens the window and runs until it closes. `ModelRef.Cube` is a
+`Game.Run` opens the window and runs until it closes. `ModelRef.Cube` is a
 built-in cube, so this runs with no files at all. There are
 [other built-in shapes](rendering.md#built-in-shapes) too, such as `ModelRef.Sphere`.
 
@@ -167,7 +167,7 @@ Animators from content follow it on their own, and a
 ## Options
 
 ```csharp
-Game.StartWindowsGameLoop<MyGame>(new GameOptions
+Game.Run<MyGame>(new GameOptions
 {
     Title = "Colony",
     Id = "colony",
@@ -191,7 +191,7 @@ constructor, and call them in the order you want. A "system" is simply a class w
 update method, and there's no hidden scheduler deciding what runs first.
 
 ```csharp
-Game.StartWindowsGameLoop<MyColony>(new GameOptions { Title = "Colony" }, services =>
+Game.Run<MyColony>(new GameOptions { Title = "Colony" }, services =>
 {
     services.AddSingleton<Colony>();
     services.AddSingleton<Pathfinder>();

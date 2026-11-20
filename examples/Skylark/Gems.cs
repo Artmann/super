@@ -53,7 +53,7 @@ public sealed class Gems(World world, Physics physics, Journey journey, Levels l
         foreach (var row in world.Query<Gem, Transform>())
         {
             row.Second.Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, turn * 2f);
-            row.Second.Position = row.Second.Position with { Y = row.First.Height + MathF.Sin(turn * 3f + row.Second.Position.X) * 0.12f };
+            row.Second.Position.Y = row.First.Height + MathF.Sin(turn * 3f + row.Second.Position.X) * 0.12f;
         }
     }
 

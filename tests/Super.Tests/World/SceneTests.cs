@@ -61,6 +61,23 @@ public class SceneTests
     }
 
     [Fact]
+    public void A_scene_spawn_of_five_components_belongs_to_the_scene()
+    {
+        using var run = HeadlessGame.Create<Empty>(1);
+        Entity crate = default;
+        run.Scenes.Go(scene => crate = scene.Spawn(new Piece(1), Transform.Identity, new Model(default), new Hidden(), new Static()));
+        run.Ticks(1);
+        bool hadAll = run.World.Has<Piece>(crate) && run.World.Has<Transform>(crate) && run.World.Has<Model>(crate)
+            && run.World.Has<Hidden>(crate) && run.World.Has<Static>(crate);
+
+        run.Scenes.Go(_ => { });
+        run.Ticks(1);
+
+        Assert.True(hadAll);
+        Assert.False(run.World.IsAlive(crate));
+    }
+
+    [Fact]
     public void Go_destroys_the_old_scene_before_building_the_new_one()
     {
         using var run = HeadlessGame.Create<Empty>(1);

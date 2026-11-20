@@ -30,7 +30,7 @@ things, like a colony sim's workers, animals and items. Your own components are 
 structs, and a query walks every entity that has them:
 
 ```csharp
-Game.StartWindowsGameLoop<Farm>(new GameOptions { Title = "Farm" }, services =>
+Game.Run<Farm>(new GameOptions { Title = "Farm" }, services =>
 {
     services.AddSingleton<Movement>();
 });
@@ -88,7 +88,7 @@ made, and the first error is thrown after the last one.
 
 | Call | What it does |
 | --- | --- |
-| `world.Spawn(a, b, ...)` | Makes an entity with up to four components. Add more with `Add` |
+| `world.Spawn(a, b, ...)` | Makes an entity with up to five components. Add more with `Add` |
 | `world.Create()` | Makes an entity with no components |
 | `world.Add(entity, component)` | Adds a component, or replaces one of the same type |
 | `world.Remove<T>(entity)` | Removes a component |
@@ -98,6 +98,22 @@ made, and the first error is thrown after the last one.
 | `world.Changed(entity)` | Says a `Static` entity was changed through `Get`, so it's drawn again. See [Static draws](#static-draws) |
 | `world.Destroy(entity)` | Removes the entity and its components, and destroys its children, and theirs |
 | `world.Children(entity)` | The entities whose `Parent` is this one, without their own children, in no particular order. It reads an index, so it's quick however many parented entities there are |
+| `world.Count<T>()` | How many entities have a `T` |
+| `world.Single<T>()` | The one entity that has a `T`, such as the player or the camera. It throws when there is none or more than one |
+| `world.TrySingle<T>(out entity)` | The same, giving false when there is none or more than one |
+
+`Count`, `Single` and `TrySingle` don't start a query and allocate nothing, so they're fine
+every tick, and inside a query's loop:
+
+```csharp
+var player = world.Single<Player>();
+ref var health = ref world.Get<Health>(player);
+
+if (world.Count<Gem>() == 0)
+{
+    Win();
+}
+```
 | `world.IsAlive(entity)` | Whether it still exists. A destroyed entity's ID isn't confused with a new one |
 | `world.Count` | How many entities there are |
 
@@ -191,7 +207,7 @@ var bell = world.Spawn(
 
 | Component | What it does |
 | --- | --- |
-| `Transform` | Position, rotation and scale. `Transform.At` and `Transform.Facing` build common ones, and `Transform.From` takes a [spline](splines.md) pose or a matrix made of a scale, a rotation and a move. A `Model` or `Animated` entity gets `Transform.Identity` if it has none |
+| `Transform` | Position, rotation and scale. They are fields, so one axis can be set in place: `world.Get<Transform>(entity).Position.Y = 2f`. `Transform.At` and `Transform.Facing` build common ones, and `Transform.From` takes a [spline](splines.md) pose or a matrix made of a scale, a rotation and a move. A `Model` or `Animated` entity gets `Transform.Identity` if it has none |
 | `Model` | A `ModelRef`, and an optional color that tints the model and keeps its textures, a `MeshMask` and a `DistanceFade` that [fades it out with distance](rendering.md#fading-with-distance) |
 | `Parent` | Counts the entity's transform from another entity's, so an attached thing follows. Give a `Bone` to follow a joint of an `Animated` parent, such as a sword in a hand. Destroying the parent destroys it too |
 | `Swim` | Bends the model like a swimming fish, with the phase blended between ticks too |

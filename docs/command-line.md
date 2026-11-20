@@ -117,11 +117,19 @@ public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string
 | `Hold(button)`, `Release(button)` | Presses or lets go of a mouse button |
 | `Press(key)` | Taps a key: down on one tick and up on the next. It takes a tick |
 | `Hold(key)`, `Release(key)` | Holds a key down, or lets it go |
+| `Press(control)` | Taps an [action](input.md), whatever it's bound to. It takes a tick |
+| `Hold(control)`, `Release(control)` | Holds an action as a button, or hands it back to its bindings |
+| `Hold(control, vector)` | Holds an action at a vector, as a stick leaned that way, until `Release(control)` |
 | `Drag(from, to)` | Presses at one place, moves and lets go at the other |
 | `Drag(fromId, toId, button)` | The same between two views found by id, with any button (left if left out) |
 | `Scroll(notches)` | Turns the wheel |
 | `LeaveWindow()` | Moves the cursor out of the window |
 | `Wait(ticks)` | Waits before the next step |
+
+A script written with actions keeps working when the keys are rebound, and is the way to
+script a stick: `new InputScript().Hold(Control.Move, new Vector2(0f, 1f)).Wait(60).Press(Control.Jump)`.
+The game needs an `Actions<TControl>` for that enum, and a script that plays one it doesn't
+have stops the run and says so.
 
 An id is looked up when its step plays, in the layout last drawn, so a script needs no
 pixel positions and keeps working when the layout changes. An id no view has stops the

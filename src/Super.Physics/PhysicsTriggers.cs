@@ -18,28 +18,30 @@ public sealed class PhysicsTriggers
     private readonly Dictionary<Entity, List<Entity>> _inside = [];
     private readonly List<Entity> _touching = [];
     private readonly List<Entity> _gone = [];
-    private readonly List<TriggerEvent> _entered = [];
-    private readonly List<TriggerEvent> _exited = [];
 
     internal PhysicsTriggers(World world, BodySync bodies, QueryParts parts)
     {
         _world = world;
         _bodies = bodies;
         (_shapes, _filters, _overlaps) = parts;
+        Lists = new TriggerLists(world);
     }
+
+    /// <summary>The pairs behind <see cref="Entered"/>, <see cref="Exited"/> and the views in <see cref="TriggerFilters"/>.</summary>
+    internal TriggerLists Lists { get; }
 
     /// <summary>
     /// Who came into a <see cref="Trigger"/> area in the last step, in trigger then entity order. Read it in Update;
     /// the next step replaces it.
     /// </summary>
-    public IReadOnlyList<TriggerEvent> Entered => _entered;
+    public IReadOnlyList<TriggerEvent> Entered => Lists.Entered;
 
     /// <summary>
     /// Who left a <see cref="Trigger"/> area in the last step, in trigger then entity order. An entity destroyed, or
     /// stripped of its collider, while inside leaves too, so check <see cref="World.IsAlive"/> before using it. A
     /// trigger that is itself removed reports no one leaving.
     /// </summary>
-    public IReadOnlyList<TriggerEvent> Exited => _exited;
+    public IReadOnlyList<TriggerEvent> Exited => Lists.Exited;
 
     /// <summary>Who is in a <see cref="Trigger"/> area, as of the last step, in entity order. Empty for anything else.</summary>
     public IReadOnlyList<Entity> Inside(Entity trigger) => _inside.TryGetValue(trigger, out var inside) ? inside : Nobody;
@@ -47,8 +49,9 @@ public sealed class PhysicsTriggers
     /// <summary>Finds who is in each trigger the last sync met, and who came and went since the last step.</summary>
     internal void Find()
     {
-        _entered.Clear();
-        _exited.Clear();
+        Lists.Entered.Clear();
+        Lists.Exited.Clear();
+        Lists.Within.Clear();
         foreach (var trigger in _bodies.Triggers)
         {
             Check(trigger);
@@ -91,6 +94,10 @@ public sealed class PhysicsTriggers
         Compare(trigger, inside, _touching);
         inside.Clear();
         inside.AddRange(_touching);
+        foreach (var other in _touching)
+        {
+            Lists.Within.Add(new TriggerEvent(trigger, other));
+        }
     }
 
     /// <summary>Walks two lists in entity order, reporting who is only in the new one as entering, and only in the old one as leaving.</summary>
@@ -103,11 +110,11 @@ public sealed class PhysicsTriggers
             int order = i == before.Count ? 1 : j == now.Count ? -1 : EntityOrder.Instance.Compare(before[i], now[j]);
             if (order < 0)
             {
-                _exited.Add(new TriggerEvent(trigger, before[i++]));
+                Lists.Exited.Add(new TriggerEvent(trigger, before[i++]));
             }
             else if (order > 0)
             {
-                _entered.Add(new TriggerEvent(trigger, now[j++]));
+                Lists.Entered.Add(new TriggerEvent(trigger, now[j++]));
             }
             else
             {
