@@ -1,0 +1,252 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_control_flow_attributes : require
+#include "common.glsl"
+#include "paint.glsl"
+#define EXPOSURE_SET 2
+#define EXPOSURE_ACCESS readonly
+#include "exposure.glsl"
+
+// The oil-paint look: an anisotropic Kuwahara filter with polynomial sector weights, after Kyprianidis, Kang and
+// Döllner, "Image and Video Abstraction by Anisotropic Kuwahara Filtering" (2009), and Kyprianidis, Semmo, Kang and
+// Döllner, "Anisotropic Kuwahara Filtering with Polynomial Weighting Functions" (2010).
+//
+// Each group paints 16x16 half-size pixels. It loads the picture round them once into shared memory, works out the
+// structure tensor from it, and then every pixel looks over an ellipse stretched along the edge it sits on. The ellipse
+// is cut into eight overlapping sectors; each one's mean colour is weighed by how flat it is, so the brush takes its
+// colour from the side of an edge it is on and the edge stays hard while flat parts go to strokes. A group with no
+// pixel that will be painted writes the picture as it is. See "Paint" in docs/design.md.
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 1, binding = 0) uniform sampler2D sourceTexture; // The full-size picture, read smoothly.
+layout(set = 1, binding = 1) uniform sampler2D depthTexture;  // The scene's depth, read by uv.
+layout(set = 1, binding = 2, rgba16f) uniform writeonly image2D painted; // Half size.
+
+const int GROUP = 16;
+
+// How far the ellipse may reach from its pixel, in half-size pixels. Must match PaintConstants.MaxReach.
+const int REACH = 11;
+
+// The shared tile: the group and REACH on every side.
+const int APRON = REACH;
+const int TILE = GROUP + 2 * APRON;
+
+// The structure tensor is smoothed over 5x5, so it is worked out two pixels past the group.
+const int TENSOR = GROUP + 4;
+
+// Colours are kept squashed into 0 to 1, so the sun doesn't drown every sector's variance, and as halves, red and green
+// in one word and blue in another, so each read of the tile is two words, not three.
+shared uint tileRG[TILE * TILE];
+shared float tileB[TILE * TILE];
+shared vec3 tensor[TENSOR * TENSOR];
+shared uint anyPainted;
+shared uint anyEdge;
+
+// Below this squared gradient, in squashed colour per half-size pixel, the picture is taken as flat: a group with no
+// steeper pixel, such as clear sky, would come out of the filter as it went in, so it isn't filtered.
+const float FLAT = 4e-6;
+
+// How far a sector reaches past the centre into the opposite side, and how wide each of the eight is: their parabolas
+// meet the rays at ±pi/8 from their middle.
+const float ZETA = 0.33;
+const float SECTOR_SIN = 0.38268343;
+const float SECTOR_COS = 0.92387953;
+const float ETA = (ZETA + SECTOR_COS) / (SECTOR_SIN * SECTOR_SIN);
+
+const float MIDDLE_GREY = 0.18;
+
+float largest(vec3 c) {
+    return max(c.r, max(c.g, c.b));
+}
+
+// Brings exposed light into 0 to 1 keeping its hue, and back.
+vec3 squash(vec3 light) {
+    return light / (1.0 + largest(light));
+}
+
+vec3 unsquash(vec3 squashed) {
+    return squashed / max(1.0 - largest(squashed), 1e-3);
+}
+
+vec3 tileAt(ivec2 p) {
+    p = clamp(p, ivec2(0), ivec2(TILE - 1));
+    int i = p.y * TILE + p.x;
+    return vec3(unpackHalf2x16(tileRG[i]), tileB[i]);
+}
+
+// The structure tensor's three parts, E, F and G, from Sobel gradients summed over the colour channels.
+vec3 gradientTensor(ivec2 p) {
+    vec3 a = tileAt(p + ivec2(-1, -1));
+    vec3 b = tileAt(p + ivec2(0, -1));
+    vec3 c = tileAt(p + ivec2(1, -1));
+    vec3 d = tileAt(p + ivec2(-1, 0));
+    vec3 e = tileAt(p + ivec2(1, 0));
+    vec3 f = tileAt(p + ivec2(-1, 1));
+    vec3 g = tileAt(p + ivec2(0, 1));
+    vec3 h = tileAt(p + ivec2(1, 1));
+    vec3 dx = (c + 2.0 * e + h - a - 2.0 * d - f) * 0.25;
+    vec3 dy = (f + 2.0 * g + h - a - 2.0 * b - c) * 0.25;
+    return vec3(dot(dx, dx), dot(dx, dy), dot(dy, dy));
+}
+
+// Adds one tap to a sector: its weight, the colour times it, and the colour squared times it.
+void addTap(inout vec4 sum, inout vec3 squares, float weight, vec3 color) {
+    sum += vec4(color * weight, weight);
+    squares += color * color * weight;
+}
+
+// How much a sector's mean counts: flat sectors count far more than ones crossing an edge.
+vec4 weighSector(vec4 sum, vec3 squares) {
+    float total = max(sum.w, 1e-6);
+    vec3 mean = sum.rgb / total;
+    vec3 spread = max(squares / total - mean * mean, vec3(0.0));
+    // q = 8: weigh by 1 / (1 + (hardness * variance)^4). Clamped so a busy sector still keeps a sliver.
+    float s = min(paint.hardness * (spread.r + spread.g + spread.b), 1e3);
+    float s2 = s * s;
+    float weight = 1.0 / (1.0 + s2 * s2);
+    return vec4(mean * weight, weight);
+}
+
+void main() {
+    ivec2 halfSize = imageSize(painted);
+    vec2 fullSize = vec2(textureSize(sourceTexture, 0));
+    ivec2 groupOrigin = ivec2(gl_WorkGroupID.xy) * GROUP;
+    ivec2 local = ivec2(gl_LocalInvocationID.xy);
+    int thread = local.y * GROUP + local.x;
+    ivec2 pixel = groupOrigin + local;
+
+    float exposureScale = frame.grade.x;
+    if (!isOff(OFF_AUTO_EXPOSURE)) {
+        exposureScale *= MIDDLE_GREY * exp2(-exposure.adaptedEv);
+    }
+    exposureScale = max(exposureScale, 1e-8);
+
+    // Whether any pixel of the group will be painted: the farthest of the four scene pixels it covers decides, since
+    // paint only grows with distance.
+    if (thread == 0) {
+        anyPainted = 0u;
+        anyEdge = 0u;
+    }
+    barrier();
+
+    vec2 uv = (vec2(pixel) * 2.0 + 1.0) / fullSize;
+    if (all(lessThan(pixel, halfSize))) {
+        vec4 depths = textureGather(depthTexture, uv, 0);
+        float farthest = min(min(depths.x, depths.y), min(depths.z, depths.w));
+        if (paintMask(uv, farthest) >= PAINT_CUT) {
+            anyPainted = 1u;
+        }
+    }
+    barrier();
+
+    // A group with nothing to paint writes the picture as it is and skips the tile. The flag is shared, so the whole
+    // group leaves together and no barrier below is missed.
+    bool painting = anyPainted != 0u;
+    if (!painting) {
+        if (all(lessThan(pixel, halfSize))) {
+            imageStore(painted, pixel, vec4(max(textureLod(sourceTexture, uv, 0.0).rgb, vec3(0.0)), 1.0));
+        }
+        return;
+    }
+
+    // Each half-size pixel is the mean of the four full-size ones it covers, read smoothly at their shared corner.
+    ivec2 tileOrigin = groupOrigin - APRON;
+    for (int i = thread; i < TILE * TILE; i += GROUP * GROUP) {
+        ivec2 t = ivec2(i % TILE, i / TILE);
+        vec2 at = (vec2(tileOrigin + t) * 2.0 + 1.0) / fullSize;
+        vec3 light = max(textureLod(sourceTexture, at, 0.0).rgb, vec3(0.0));
+        vec3 squashed = squash(light * exposureScale);
+        tileRG[i] = packHalf2x16(squashed.rg);
+        tileB[i] = squashed.b;
+    }
+    barrier();
+
+    for (int i = thread; i < TENSOR * TENSOR; i += GROUP * GROUP) {
+        ivec2 t = ivec2(i % TENSOR, i / TENSOR);
+        vec3 parts = gradientTensor(t + APRON - 2);
+        tensor[i] = parts;
+        if (parts.x + parts.z > FLAT) {
+            anyEdge = 1u;
+        }
+    }
+    barrier();
+
+    if (any(greaterThanEqual(pixel, halfSize))) {
+        return;
+    }
+
+    ivec2 centre = local + APRON;
+    if (anyEdge == 0u) {
+        imageStore(painted, pixel, vec4(unsquash(tileAt(centre)) / exposureScale, 1.0));
+        return;
+    }
+
+    // Smooth the tensor over 5x5 with binomial weights, so the strokes follow edges rather than noise.
+    const float BINOMIAL[5] = float[](1.0, 4.0, 6.0, 4.0, 1.0);
+    vec3 structure = vec3(0.0);
+    for (int y = 0; y < 5; y++) {
+        for (int x = 0; x < 5; x++) {
+            structure += tensor[(local.y + y) * TENSOR + local.x + x] * (BINOMIAL[x] * BINOMIAL[y] / 256.0);
+        }
+    }
+
+    float e = structure.x;
+    float f = structure.y;
+    float g = structure.z;
+    float root = sqrt((e - g) * (e - g) + 4.0 * f * f);
+    float major = 0.5 * (e + g + root);
+    float minor = 0.5 * (e + g - root);
+    vec2 along = vec2(major - e, -f);
+    along = dot(along, along) > 1e-12 ? normalize(along) : vec2(0.0, 1.0);
+    float anisotropy = major + minor > 1e-8 ? (major - minor) / (major + minor) : 0.0;
+
+    // The ellipse: long along the edge and narrow across it, as anisotropic as the edge is clear.
+    float lengthAlong = min(paint.radius * (1.0 + anisotropy), float(REACH));
+    float lengthAcross = paint.radius / (1.0 + anisotropy);
+    vec2 across = vec2(-along.y, along.x);
+
+    // Eight sectors, four from the disc's axes and four from its diagonals.
+    vec4 sum0 = vec4(0.0), sum1 = vec4(0.0), sum2 = vec4(0.0), sum3 = vec4(0.0);
+    vec4 sum4 = vec4(0.0), sum5 = vec4(0.0), sum6 = vec4(0.0), sum7 = vec4(0.0);
+    vec3 sq0 = vec3(0.0), sq1 = vec3(0.0), sq2 = vec3(0.0), sq3 = vec3(0.0);
+    vec3 sq4 = vec3(0.0), sq5 = vec3(0.0), sq6 = vec3(0.0), sq7 = vec3(0.0);
+
+    // Taps on a grid over the unit disc, each mapped into the ellipse and read from the nearest pixel. Unrolled, so each
+    // tap's sector weights, which hang only on where it sits in the disc, are worked out once by the compiler.
+    [[unroll]] for (int j = -4; j <= 4; j++) {
+        [[unroll]] for (int i = -4; i <= 4; i++) {
+            if (i * i + j * j > 16) {
+                continue;
+            }
+
+            vec2 u = vec2(i, j) * 0.25;
+            vec2 offset = along * (u.x * lengthAlong) + across * (u.y * lengthAcross);
+            vec3 color = tileAt(centre + ivec2(round(offset)));
+            float falloff = exp(-3.125 * dot(u, u));
+
+            // Each sector's weight is a parabola opening out from the centre, squared and cut at zero.
+            vec2 v = vec2(u.x - u.y, u.x + u.y) * 0.70710678;
+            vec4 axes = vec4(ZETA + u.x, ZETA + u.y, ZETA - u.x, ZETA - u.y) - ETA * vec4(u.y * u.y, u.x * u.x, u.y * u.y, u.x * u.x);
+            vec4 diagonals = vec4(ZETA + v.x, ZETA + v.y, ZETA - v.x, ZETA - v.y) - ETA * vec4(v.y * v.y, v.x * v.x, v.y * v.y, v.x * v.x);
+            axes = max(axes, vec4(0.0));
+            diagonals = max(diagonals, vec4(0.0));
+            axes = axes * axes * falloff;
+            diagonals = diagonals * diagonals * falloff;
+
+            addTap(sum0, sq0, axes.x, color);
+            addTap(sum1, sq1, axes.y, color);
+            addTap(sum2, sq2, axes.z, color);
+            addTap(sum3, sq3, axes.w, color);
+            addTap(sum4, sq4, diagonals.x, color);
+            addTap(sum5, sq5, diagonals.y, color);
+            addTap(sum6, sq6, diagonals.z, color);
+            addTap(sum7, sq7, diagonals.w, color);
+        }
+    }
+
+    vec4 result = weighSector(sum0, sq0) + weighSector(sum1, sq1) + weighSector(sum2, sq2) + weighSector(sum3, sq3)
+        + weighSector(sum4, sq4) + weighSector(sum5, sq5) + weighSector(sum6, sq6) + weighSector(sum7, sq7);
+    vec3 squashed = result.w > 0.0 ? result.rgb / result.w : tileAt(centre);
+    imageStore(painted, pixel, vec4(unsquash(squashed) / exposureScale, 1.0));
+}

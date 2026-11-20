@@ -85,7 +85,9 @@ public sealed class TerrainGame(World world, GameRandom random, Actions<Control>
         world.Spawn(
             new Sun(new Vector3(0.5f, 0.8f, 0.3f), new Vector3(3.6f, 3.4f, 3.1f)),
             new Shadows(40f, 3),
-            new Finish(new PostSettings { Contrast = 0.08f, Saturation = 0.08f, Vignette = 0.25f }));
+            new Finish(new PostSettings { Contrast = 0.08f, Saturation = 0.08f, Vignette = 0.25f }),
+            // The far hills turn to paint, while the road near the camera stays sharp.
+            new PaintSettings { Amount = 1f, Near = 40f, Far = 150f });
     }
 
     public void Update(GameTime time)

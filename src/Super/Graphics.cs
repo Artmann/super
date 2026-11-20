@@ -105,6 +105,7 @@ public sealed class Graphics
             ChromaticAberration = false,
             SpeedBlur = false,
             LensFlare = false,
+            Paint = false,
         },
         Drawing = { MeshDetail = 0.5f },
     };
@@ -163,7 +164,7 @@ public sealed class Graphics
         // Puddles and wind stay on: in the Courtyard each costs less than a frame's noise, and the water is part
         // of the place, not a finish on it.
         Surfaces = { Decals = false, HeightMaps = false },
-        Picture = { AutoExposure = false, DepthOfField = false },
+        Picture = { AutoExposure = false, DepthOfField = false, Paint = false },
         Baking = { BakeBudget = 1f },
         Drawing = { MeshDetail = 0.5f },
     };

@@ -115,17 +115,25 @@ internal sealed unsafe class BloomPass : IDisposable
     public void SetSource(ImageView hdr) => WriteSet(_downSets[0], hdr, hdr);
 
     /// <summary>
-    /// Leaves bloom out of this frame. Nothing reads <see cref="Result"/> then, but tonemapping
-    /// still binds it, so it's made ready to sample.
+    /// Records bloom, or leaves it out of this frame when <paramref name="off"/> holds <see cref="RenderEffects.Bloom"/>.
+    /// Left out, nothing reads <see cref="Result"/>, but tonemapping still binds it, so it's made ready to sample.
+    /// Expects the HDR image to be ready for sampling.
     /// </summary>
-    public void RecordSkipped(CommandBuffer cmd) =>
+    public void Record(CommandBuffer cmd, RenderEffects off)
+    {
+        if (!off.HasFlag(RenderEffects.Bloom))
+        {
+            RecordLevels(cmd);
+            return;
+        }
+
         _context.Api.Transition(cmd, new ImageTransition(_levels.Up[0].Image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal),
             (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit),
             (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
+    }
 
-    /// <summary>Expects the HDR image to be ready for sampling.</summary>
-    public void Record(CommandBuffer cmd)
+    private void RecordLevels(CommandBuffer cmd)
     {
         var api = _context.Api;
         var (down, up, extents) = (_levels.Down, _levels.Up, _levels.Extents);

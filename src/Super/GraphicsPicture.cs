@@ -85,6 +85,13 @@ public sealed class GraphicsPicture
     /// </summary>
     public bool LensFlare { get; set; } = true;
 
+    /// <summary>
+    /// The oil-paint look set with <see cref="ViewEffects.Paint"/>. Off, its passes don't run and the picture is left
+    /// unpainted. While a game paints the whole picture it takes a good share of the GPU frame, so <see cref="GraphicsQuality.Low"/> and
+    /// <see cref="Graphics.Fastest"/> turn it off.
+    /// </summary>
+    public bool Paint { get; set; } = true;
+
     /// <summary>Takes every setting from <paramref name="other"/>.</summary>
     internal void CopyFrom(GraphicsPicture other)
     {
@@ -101,5 +108,6 @@ public sealed class GraphicsPicture
         Flashes = other.Flashes;
         ScreenEffects = other.ScreenEffects;
         LensFlare = other.LensFlare;
+        Paint = other.Paint;
     }
 }

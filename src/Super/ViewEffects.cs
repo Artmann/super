@@ -31,10 +31,11 @@ public sealed class ViewEffects
     public ReadOnlySpan<FogVolumeDraw> DrawnFogVolumes => _fogVolumes.Items;
 
     /// <summary>The finish, with the screen effects set with <see cref="Screen"/> laid over its own.</summary>
-    internal PostSettings Post => _finish with { Screen = ScreenEffects.Over(_screen, _finish.Screen) };
+    internal PostSettings Post => Look.Post;
 
-    private PostSettings _finish;
-    private ScreenEffects _screen;
+    /// <summary>The finish, the screen effects and the paint this frame asks for.</summary>
+    internal ViewLook Look { get; } = new();
+
     internal OutlineSettings OutlineSettings { get; private set; } = new();
 
     /// <summary>How the screen moves between pictures this frame. Set by <see cref="Transitions"/>.</summary>
@@ -158,7 +159,7 @@ public sealed class ViewEffects
         ThinLens.Check(
             settings.Lens.FocusDistance, settings.Lens.Aperture, ThinLens.FocalLength(settings.Lens.FocalLength), nameof(settings));
         FinishChecks.Screen(settings.Screen, nameof(settings));
-        _finish = settings;
+        Look.Finish = settings;
 
         static void RefuseOutsideOne(float value, string name)
         {
@@ -180,7 +181,19 @@ public sealed class ViewEffects
     public void Screen(in ScreenEffects effects)
     {
         FinishChecks.Screen(effects, nameof(effects));
-        _screen = effects;
+        Look.Screen = effects;
+    }
+
+    /// <summary>
+    /// Turns the picture into an oil painting for this frame: flat parts go to brush strokes that follow the edges, and
+    /// the edges stay hard. <see cref="PaintSettings.Amount"/> says how much shows; give <see cref="PaintSettings.Near"/>
+    /// and <see cref="PaintSettings.Far"/> to paint only the distance, such as far hills, with the sky counted as far. A
+    /// <see cref="PaintSettings"/> component on an entity does the same. See "Paint" in docs/rendering.md.
+    /// </summary>
+    public void Paint(in PaintSettings settings)
+    {
+        PaintChecks.Settings(settings, nameof(settings));
+        Look.Paint = settings;
     }
 
     /// <summary>
@@ -213,8 +226,7 @@ public sealed class ViewEffects
         _particles.Clear();
         _decals.Clear();
         _fogVolumes.Clear();
-        _finish = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
-        _screen = default;
+        Look.Clear();
         OutlineSettings = new OutlineSettings();
         Transition = new ScreenTransition { Hold = Transition.Hold };
     }
