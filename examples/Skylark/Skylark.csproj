@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Super\Super.csproj" />
+    <ProjectReference Include="..\..\src\Super.Physics\Super.Physics.csproj" />
+  </ItemGroup>
+
+</Project>

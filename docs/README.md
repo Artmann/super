@@ -6,7 +6,7 @@ that doesn't exist yet; everything else works today.
 | Page | What it covers |
 | --- | --- |
 | [Getting started](getting-started.md) | Requirements, a first game, the game loop, packages and where your code goes |
-| [Guides](guides/README.md) | Step-by-step walkthroughs that build a whole game, starting with a tower defense |
+| [Guides](guides/README.md) | Step-by-step walkthroughs that build a whole game, a tower defense and a 3D platformer |
 | [Working with coding agents](agents.md) | How an agent builds, runs, tests and sees a Super game |
 | [The world](ecs.md) | Where everything in a game lives: spawning entities, the components the world draws, queries, sounds, scenes, state-scoped entities and systems |
 | [Cameras and clicking](cameras.md) | `Camera`, the camera helpers, orthographic and shifted views, and picking |

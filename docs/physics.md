@@ -6,12 +6,18 @@ turn into ragdolls and back; trigger areas notice who comes and goes; contacts s
 hit what and how hard; and rays and shape casts find what's in the way. It's built on
 [Jolt Physics](https://github.com/jrouwe/JoltPhysics), through JoltPhysicsSharp.
 
-It's an optional package, since it brings a native library (`joltc.dll`, copied beside
-the game by the build). Reference `Super.Physics` and register it:
+It comes with the Super package, along with its native library (`joltc.dll`, copied beside
+the game by the build). A game that wants physics turns it on where it registers its own
+services:
 
 ```csharp
-services.AddSuperPhysics();   // Also registers the ECS if it isn't yet.
+using Super.Physics;
+
+services.AddSuperPhysics();
 ```
+
+From then on the world is stepped before each `Update`, and a game asks for `Physics` in a
+constructor like any other service.
 
 ## Colliders
 
@@ -19,9 +25,9 @@ A `Collider` is an ECS component. It needs a `Transform`, and it moves, turns an
 with it, following `Parent` too:
 
 ```csharp
-var knight = world.Create();
-world.Add(knight, Transform.At(position));
-world.Add(knight, Collider.Capsule(height: 1.8f, radius: 0.4f, layers: Enemies));
+var knight = world.Spawn(
+    Transform.At(position),
+    Collider.Capsule(height: 1.8f, radius: 0.4f, layers: Enemies));
 ```
 
 | Shape | Made with | Where it sits |
