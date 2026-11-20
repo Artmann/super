@@ -135,7 +135,7 @@ public sealed class DrawBatchTests
     [Theory, Seeds(10)]
     public void A_crowded_view_has_one_draw_for_each_look_holding_every_copy_of_it_in_the_order_they_came(int seed)
     {
-        var draws = DrawBatchBenchmarkTests.CrowdedView(seed);
+        var draws = CrowdedView(seed);
 
         var batches = Batch(draws, keepOrder: false, out int[] order);
 
@@ -207,4 +207,43 @@ public sealed class DrawBatchTests
         Assert.Equal([new DrawBatch(0, 2), new DrawBatch(2, 1), new DrawBatch(3, 1)], batches);
         Assert.Equal([0, 1, 2, 3], order);
     }
+
+    /// <summary>
+    /// A view like the Reef's: a shoal of six thousand copies of one model at three levels of detail, a few hundred of
+    /// another, and some twelve hundred copies of sixty kinds of scenery, all mixed together.
+    /// </summary>
+    private static DrawItem[] CrowdedView(int seed)
+    {
+        var random = new System.Random(seed);
+        var draws = new List<DrawItem>();
+        for (int i = 0; i < 6000; i++)
+        {
+            int level = random.Next(3);
+            draws.Add(Draw(mesh: 1, firstIndex: (uint)(level * 5000), indexCount: (uint)(4968 >> level), material: 1, random));
+        }
+
+        for (int i = 0; i < 240; i++)
+        {
+            draws.Add(Draw(mesh: 2, firstIndex: 0, indexCount: 17967, material: 2, random));
+        }
+
+        for (int i = 0; i < 1250; i++)
+        {
+            int kind = random.Next(60);
+            draws.Add(Draw(mesh: 3 + kind, firstIndex: 0, indexCount: (uint)(600 + kind * 30), material: 3 + kind % 7, random));
+        }
+
+        var mixed = draws.ToArray();
+        random.Shuffle(mixed);
+        return mixed;
+    }
+
+    private static DrawItem Draw(int mesh, uint firstIndex, uint indexCount, int material, System.Random random) => new()
+    {
+        Mesh = new MeshHandle(mesh),
+        FirstIndex = firstIndex,
+        IndexCount = indexCount,
+        Material = new MaterialHandle(material),
+        Transform = Matrix4x4.CreateTranslation(random.NextSingle() * 100f, random.NextSingle() * 10f, random.NextSingle() * 100f),
+    };
 }
