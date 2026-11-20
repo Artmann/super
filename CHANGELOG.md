@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/Artmann/super/compare/v2.0.0...v2.0.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* make and dispose a Physics under the lock joltc's shared state needs ([3969ed4](https://github.com/Artmann/super/commit/3969ed43dfcd0f74b9a2362002e0cd3140aca777))
+* upgrade JoltPhysicsSharp so a disposed Physics frees its native system ([a2039f8](https://github.com/Artmann/super/commit/a2039f8cfd621341b6c881c78aefc3bd0fd5672a))
+
 ## [2.0.0](https://github.com/Artmann/super/compare/v1.6.0...v2.0.0) (2026-11-20)
 
 
