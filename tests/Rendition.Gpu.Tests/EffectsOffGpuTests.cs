@@ -34,6 +34,7 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
     [InlineData("Anti-aliasing")]
     [InlineData("Depth of field")]
     [InlineData("Bloom")]
+    [InlineData("Paint")]
     [InlineData("Subsurface")]
     [InlineData("Light clusters")]
     [InlineData("Glass and particles")]
@@ -109,7 +110,7 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
 
     // Everything the effects can act on: a floor that gets puddles, a swaying panel, a cube and a glowing quad for bloom
     // and reflections, a decal on the floor, a sun and a point light that cast shadows, fog, a light probe box, depth of
-    // field and auto exposure. Also a skin-like quad for subsurface, the dust for particles, and the point light's
+    // field, auto exposure and paint. Also a skin-like quad for subsurface, the dust for particles, and the point light's
     // clusters.
     private Scene BuildScene()
     {
@@ -209,6 +210,7 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
                     AutoExposure = true,
                     Lens = new LensSettings { Aperture = 2.8f, FocalLength = 50f, FocusDistance = 2f },
                 },
+                Paint = new PaintSettings { Amount = 1f },
             },
             Extras = new FrameExtras { Decals = decals, Particles = Dust },
             Off = off,

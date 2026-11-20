@@ -32,11 +32,12 @@ public sealed class GpuFixture : IDisposable
 
     /// <summary>
     /// A fixture of its own, alongside the shared one. Pass true to make its device without ray queries, or to
-    /// make a renderer that can swap in shaders compiled again.
+    /// make a renderer that can swap in shaders compiled again. <paramref name="size"/> is how many pixels across and
+    /// down its surface is asked to be.
     /// </summary>
-    internal GpuFixture(bool disableRayTracing, bool liveShaders = false)
+    internal GpuFixture(bool disableRayTracing, bool liveShaders = false, int size = Size)
     {
-        _surface = ITestSurface.Create(Size);
+        _surface = ITestSurface.Create(size);
         _width = _surface.Width;
         _height = _surface.Height;
         try

@@ -126,6 +126,7 @@ next frame follows, so it can back an options menu.
 | `Picture.Flashes` | No flashes, whatever `ScreenEffects.Flash` asks for, for a player who is sensitive to flashing light. The fade stays. It costs nothing |
 | `Picture.ScreenEffects` | None of the [screen effects](#screen-effects) a game sets, but the fade: no fringes, blur, flash, edge tints, loss of colour or paper. The fade stays, since a game uses it to say something, such as that the player fell |
 | `Picture.LensFlare` | No [lens flare](#lens-flare) from the sun or the lights a game names, and its passes don't run. `Graphics.Fastest()` turns it off |
+| `Picture.Paint` | No [oil-paint look](#paint), whatever `PaintSettings` a game sets, and its passes don't run. It costs nothing while a game doesn't paint. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
 | `Drawing.Culling` | Every model is drawn into the picture, each of the sun's cascades and each light's shadow tile, seen or not. It only costs time: it's there to check that culling hides nothing it shouldn't |
 | `Drawing.SimplerModels` | Every model is drawn at full detail at any distance, whatever `MeshDetail` says, in the picture and the shadows. It only costs time: it's there to see what the simpler versions change |
 | `Drawing.DepthFirst` | Large solid surfaces are no longer drawn twice, depth first and then shaded, so a surface drawn before the one that hides it is shaded for nothing. It only costs time: it's there to measure what drawing depth first saves. The picture is the same, but where two surfaces lie in the very same plane, where the other of the two may show |
@@ -160,7 +161,7 @@ itself, or offers it in an options menu.
 
 | Quality | What changes from `High` |
 |---|---|
-| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, the screen bounce, reflections, auto exposure, depth of field, decals, volumetric fog and height maps. Puddles and wind stay on, as they cost next to nothing |
+| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, the screen bounce, reflections, auto exposure, depth of field, paint, decals, volumetric fog and height maps. Puddles and wind stay on, as they cost next to nothing |
 | `Medium` | Render scale 0.85, 3 cascades, `MeshDetail` 0.75, `ProbeQuality.Medium` and a 2 ms bake budget. Off: depth of field and volumetric fog |
 | `Ultra` | 4096 shadow maps, `MeshDetail` 1.5, `ReflectionResolution.Full`, `OcclusionResolution.Full` and 128 volumetric fog slices |
 
@@ -1440,6 +1441,54 @@ The flare doesn't show clouds covering the sun yet, and the default streak is ha
 a bright sky. Hamlet under a low sun, without and with it:
 
 ![Hamlet's low sun without and with a lens flare, labelled](media/lens-flare.webp)
+
+### Paint
+
+Paint turns the picture into an oil painting. Flat parts such as grass, rock and leaves become
+brush strokes that follow the shapes in them, and the edges between things stay hard where a blur
+would soften them. It can paint the whole picture or only what is far away, so the far hills look
+painted while the player and what's near stay sharp.
+
+Set it for one frame with `view.Effects.Paint`, or keep it on an entity as a `PaintSettings`
+component, where the newest one wins:
+
+```csharp
+world.Spawn(new PaintSettings { Amount = 1f, Near = 40f, Far = 150f });
+```
+
+The default paints nothing. The settings are:
+
+- `Amount` says how much of the painted picture shows, from 0 for none to 1 for all of it.
+- `BrushSize` is the brush's radius in pixels of a picture 1080 pixels tall, up to 16, so it covers
+  the same share of the screen at any size. 0, the default, gives 10. Strokes along an edge are up
+  to twice as long.
+- `Sharpness` is how hard the edges between strokes are, from 0, soft and blended, to 1, crisp.
+  Null gives 0.5.
+- `Near` and `Far` paint only the distance: nothing nearer than `Near` metres, fading in to the
+  full amount at `Far`. A `Far` of 0, the default, paints the whole picture alike. The sky always
+  counts as far.
+
+A setting that can't be drawn, such as an amount above 1 or a far distance short of the near one,
+is refused, and the message says why.
+
+Paint works on the lit picture before the colour grade and the tonemap, so the grade, the vignette
+and the grain lie over the strokes rather than being smeared by them. Bloom reads the picture
+unpainted. Below a tiny amount a pixel is left exactly as it was, so the near part of a picture
+painted by distance is untouched.
+
+The `Picture.Paint` switch turns it off, and `GraphicsQuality.Low` and `Graphics.Fastest()` do too.
+With Rendition alone, set `PictureSettings.Paint` on the frame's `Picture`, and turn it off with
+`RenderEffects.Paint`.
+
+The strokes are worked out at half size, so a thin dark line against the sky, such as a far
+skyline, can show small steps along it. Nothing carries the strokes from one frame to the next, so
+where the picture is busy and moving they can shimmer. The
+[Terrain](../examples/Terrain) example paints its far hills, from 40 to 150 metres. Without and
+with that, then the road near the camera with the whole picture painted:
+
+![Terrain's far hills without and with paint from 40 to 150 metres, labelled](media/paint-far-hills.webp)
+
+![Terrain's road without and with the whole picture painted, labelled](media/paint-whole.webp)
 
 ### Auto exposure
 

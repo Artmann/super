@@ -330,6 +330,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.Flashes), RenderEffects.Flashes)]
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.ScreenEffects), RenderEffects.ScreenEffects)]
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.LensFlare), RenderEffects.LensFlare)]
+    [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.Paint), RenderEffects.Paint)]
     [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.Culling), RenderEffects.Culling)]
     [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.SimplerModels), RenderEffects.SimplerModels)]
     [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.DepthFirst), RenderEffects.DepthFirst)]
@@ -368,7 +369,7 @@ public class GraphicsTests
             | RenderEffects.Puddles | RenderEffects.Wind | RenderEffects.HeightMaps | RenderEffects.Vignette
             | RenderEffects.Grain | RenderEffects.Sharpening | RenderEffects.Subsurface | RenderEffects.FogVolumes
             | RenderEffects.ScreenBounce | RenderEffects.OcclusionHistory | RenderEffects.ChromaticAberration | RenderEffects.SpeedBlur
-            | RenderEffects.LensFlare,
+            | RenderEffects.LensFlare | RenderEffects.Paint,
             GraphicsSwitches.Off(graphics));
         Assert.True(graphics.Surfaces.Materials);
         Assert.True(graphics.Baking.BakedLighting);
