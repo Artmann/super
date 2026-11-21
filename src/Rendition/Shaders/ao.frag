@@ -128,7 +128,10 @@ void gatherBounce(
     }
 
     float fade = clamp((bounceRadius - distance) / (BOUNCE_FALLOFF * bounceRadius), 0.0, 1.0);
-    vec3 radiance = min(texture(historyTexture, historyUv).rgb, vec3(BOUNCE_MAX_RADIANCE));
+    vec3 radiance = texture(historyTexture, historyUv).rgb;
+    // Last frame's light, where a pixel that isn't a number would be bounced onto its neighbours, and from them onto
+    // theirs, frame after frame. So one that isn't a number counts as none.
+    radiance = any(isnan(radiance)) ? vec3(0.0) : min(radiance, vec3(BOUNCE_MAX_RADIANCE));
     light += radiance * (float(bitCount(bits)) / 32.0 * facing * fade);
 }
 

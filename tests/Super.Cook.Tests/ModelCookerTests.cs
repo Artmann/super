@@ -548,6 +548,29 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
+    public void Triangle_with_no_area_gets_a_tangent_along_the_surface_and_a_warning_naming_the_mesh()
+    {
+        string src = Temp();
+        TinyGltf.WriteCollapsed(src, "a.gltf", "iron");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(["mesh 0 (spike) has 3 vertices with no tangent, from triangles with no area; gave them one along the surface"],
+            result.Problems.Select(problem => problem.Message));
+        var vertices = Model(store, "a.gltf").Vertices;
+        Assert.Equal(6, vertices.Length);
+        Assert.All(vertices, vertex =>
+        {
+            var tangent = new Vector3(vertex.Tangent.X, vertex.Tangent.Y, vertex.Tangent.Z);
+            Assert.True(float.IsFinite(tangent.X) && float.IsFinite(tangent.Y) && float.IsFinite(tangent.Z), $"tangent {vertex.Tangent}");
+            Assert.Equal(1f, tangent.Length(), 3);
+            Assert.Equal(0f, Vector3.Dot(tangent, vertex.Normal), 3);
+            Assert.Equal(1f, MathF.Abs(vertex.Tangent.W));
+        });
+    }
+
+    [Fact]
     public void Changing_the_gltf_buffer_cooks_again()
     {
         string src = Temp();

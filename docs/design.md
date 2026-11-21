@@ -860,6 +860,17 @@ the geometry, and `ModelFile.ReadRig` reads them on its way to the rig, so `Cont
 them to `ContentModels.RememberMeshNames`. `ContentModels` caches each model's names by index and
 drops them when the model is unloaded.
 
+Assimp's `CalculateTangentSpace` gives a triangle with no area a tangent that isn't a number,
+and the vertices it shares with triangles that do have area keep it. Once it reaches the
+G-buffer, the lit pixel isn't a number either, and the occlusion's history spreads it into a
+black blob that grows frame after frame. So `ModelMeshes.ReadVertex` checks every vertex's
+normal and tangent. A normal that isn't a direction becomes +Y, which only a vertex of
+triangles with no area can have. A tangent that isn't a number, has no length, or lies along
+the normal becomes any direction at right angles to the normal, with a handedness of +1. That
+covers the flat frame of a mesh without UVs too, whose fixed +X lies along the normal of a face
+that looks along x, but only a tangent Assimp made counts towards the warning `ModelReader`
+gives for the mesh.
+
 At draw time a `MeshMask` is a bitset over the model's parts, made for one `ModelRef`.
 `View.Model` checks the mask's model, and `MeshMaskParts.AddShown` copies only the shown parts
 into the frame's draw list, checking that the mask's part count matches the loaded model. A
@@ -3721,6 +3732,14 @@ frame, give or take 0.1, so the floor a figure walked off lets go of its shade. 
 history is never thrown out for disagreeing with the frame, since two rays say too little:
 a first version did that, and it started over on plain grain. The bent normal is averaged
 as a direction and the bounce as it is, with no clamp.
+
+A pixel that isn't a number would stay in this history and leak into its neighbours every
+frame, and bloom would ring it in white. So the pass takes a traced occlusion or bounce that
+isn't finite as open and unlit, and skips a history texel that isn't finite as if it were
+another surface. `ao.frag` counts a texel of last frame's picture that isn't a number as no
+light to bounce, and `bloom_down.frag` counts one as black. `surfaceFrame` in `surface.glsl`
+falls back to any direction across the surface when the tangent, once the normal is taken out
+of it, has no length, so a heightfield's fixed +X on a sheer face lights as a number too.
 
 The pass runs for a frame only, with the frame's `MotionHistory`. A probe's faces are
 drawn once each, so theirs go straight to the blur. `OcclusionTargets.HistoryReady` is

@@ -29,8 +29,9 @@ internal sealed class ModelMeshes
     /// <summary>
     /// Adds a mesh's vertices, placed by <paramref name="world"/>, and returns them so a rig can skin them before more are
     /// added. A graph's UVs are in metres, so with a <paramref name="graphWidth"/> above 0 they're divided by it.
+    /// <paramref name="untangled"/> counts the vertices whose normal or tangent had no direction and were given one.
     /// </summary>
-    public unsafe Span<Vertex> AddVertices(Mesh* mesh, in Matrix4x4 world, float graphWidth)
+    public unsafe Span<Vertex> AddVertices(Mesh* mesh, in Matrix4x4 world, float graphWidth, out int untangled)
     {
         int material = (int)mesh->MMaterialIndex;
         int first = Vertices.Count;
@@ -41,10 +42,11 @@ internal sealed class ModelMeshes
             : (uv2Count.With + 1, uv2Count.Without);
 
         // A mirroring placement turns the tangent frame over, so its sign flips.
+        untangled = 0;
         var placement = new Placement(world, NormalMatrix(world), world.GetDeterminant() < 0f);
         for (uint v = 0; v < mesh->MNumVertices; v++)
         {
-            Vertices.Add(ReadVertex(mesh, v, placement, graphWidth));
+            Vertices.Add(ReadVertex(mesh, v, placement, graphWidth, ref untangled));
         }
 
         return CollectionsMarshal.AsSpan(Vertices).Slice(first, (int)mesh->MNumVertices);
@@ -75,20 +77,13 @@ internal sealed class ModelMeshes
         });
     }
 
-    private static unsafe Vertex ReadVertex(Mesh* mesh, uint v, in Placement placement, float graphWidth)
+    private static unsafe Vertex ReadVertex(Mesh* mesh, uint v, in Placement placement, float graphWidth, ref int untangled)
     {
-        var normal = mesh->MNormals != null ? mesh->MNormals[v] : Vector3.UnitY;
+        var (normal, tangent) = ReadFrame(mesh, v, ref untangled);
         var uv = mesh->MTextureCoords[0] != null ? mesh->MTextureCoords[0][v] : Vector3.Zero;
         if (graphWidth > 0f)
         {
             uv = GraphUv(uv, graphWidth);
-        }
-
-        var tangent = new Vector4(Vector3.UnitX, 1f);
-        if (mesh->MTangents != null && mesh->MBitangents != null)
-        {
-            float sign = Vector3.Dot(Vector3.Cross(normal, mesh->MTangents[v]), mesh->MBitangents[v]) < 0f ? -1f : 1f;
-            tangent = new Vector4(mesh->MTangents[v], sign);
         }
 
         var uvs2 = mesh->MTextureCoords[1];
@@ -101,6 +96,62 @@ internal sealed class ModelMeshes
         {
             Uv2 = uvs2 != null ? new Vector2(uvs2[v].X, uvs2[v].Y) : Vector2.Zero,
         };
+    }
+
+    // A vertex's normal and tangent, each given a direction when it has none. untangled counts the vertices whose
+    // normal had none, or whose tangent from Assimp had none.
+    private static unsafe (Vector3 Normal, Vector4 Tangent) ReadFrame(Mesh* mesh, uint v, ref int untangled)
+    {
+        var normal = mesh->MNormals != null ? mesh->MNormals[v] : Vector3.UnitY;
+        bool broken = !IsDirection(normal);
+        if (broken)
+        {
+            normal = Vector3.UnitY; // Only a triangle with no area leaves a vertex without a normal, and it draws nothing.
+        }
+
+        var tangent = new Vector4(Vector3.UnitX, 1f);
+        bool tangents = mesh->MTangents != null && mesh->MBitangents != null;
+        if (tangents)
+        {
+            float sign = Vector3.Dot(Vector3.Cross(normal, mesh->MTangents[v]), mesh->MBitangents[v]) < 0f ? -1f : 1f;
+            tangent = new Vector4(mesh->MTangents[v], sign);
+        }
+
+        // The flat frame's +x lies along the normal of a face that looks along x, so it is checked too, but only a
+        // tangent the file should have had is worth a warning.
+        if (!IsAlongSurface(new Vector3(tangent.X, tangent.Y, tangent.Z), normal))
+        {
+            tangent = new Vector4(Perpendicular(normal), 1f);
+            broken |= tangents;
+        }
+
+        if (broken)
+        {
+            untangled++;
+        }
+
+        return (normal, tangent);
+    }
+
+    // Assimp gives a triangle with no area a tangent that isn't a number, and the vertices it shares with triangles that
+    // do have area take it too. A tangent of no length, or one along the normal, frames nothing either.
+    private static bool IsAlongSurface(Vector3 tangent, Vector3 normal)
+    {
+        return IsDirection(tangent) && IsDirection(tangent - normal * (Vector3.Dot(tangent, normal) / normal.LengthSquared()));
+    }
+
+    // A vector that has a direction: every part a number, and not of zero length.
+    private static bool IsDirection(Vector3 vector)
+    {
+        return float.IsFinite(vector.X) && float.IsFinite(vector.Y) && float.IsFinite(vector.Z) && vector.LengthSquared() > 1e-12f;
+    }
+
+    // Any direction at right angles to the normal. Without a UV direction to follow, one is as good as another.
+    private static Vector3 Perpendicular(Vector3 normal)
+    {
+        var helper = MathF.Abs(normal.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX;
+        var across = Vector3.Cross(helper, normal);
+        return across.LengthSquared() > 1e-12f ? Vector3.Normalize(across) : Vector3.UnitX;
     }
 
     // Normals keep pointing off the surface when a placement stretches it, so they use the inverse transpose.
