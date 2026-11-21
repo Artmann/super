@@ -2142,7 +2142,10 @@ Poly Haven's downloads keep them in `textures`. Some plants ship their leaf cut-
 as a separate grey image beside a colour JPEG with no alpha; name it with `alpha`, and
 its red becomes the colour texture's opacity. A mesh without UVs whose material uses a
 texture warns, since every read lands on one texel; an untextured mesh needs no UVs. A
-texture a rule names that can't be found stops the cook; one the model file links to only
+mesh with triangles of no area, such as a lathed cone whose tip ring has a radius of 0, warns
+too, naming the mesh and how many of its vertices had no tangent. The cook gives each of them
+one along the surface, so the model still draws, but taking those triangles out in the
+modelling tool is the real fix. A texture a rule names that can't be found stops the cook; one the model file links to only
 warns.
 
 Every cooked model has a second UV set for lighting and for [wear and dirt](#wear-and-dirt),

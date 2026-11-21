@@ -222,8 +222,14 @@ bool puddlesHere() {
 mat3 surfaceFrame() {
     bool foliage = (materials[draw.material].flags & MATERIAL_FOLIAGE) != 0u;
     vec3 n = normalize(gl_FrontFacing || foliage ? inNormal : -inNormal);
-    vec3 t = normalize(inTangent.xyz - n * dot(n, inTangent.xyz));
-    vec3 b = cross(n, t) * inTangent.w;
+    vec3 t = inTangent.xyz - n * dot(n, inTangent.xyz);
+    // A tangent along the normal, such as a heightfield's fixed +x on a sheer face, or one that isn't a number, leaves
+    // nothing to normalise. Any direction across the surface is used instead, so the lighting stays a number.
+    if (!(dot(t, t) > 1e-12)) {
+        t = cross(abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), n);
+    }
+    t = normalize(t);
+    vec3 b = cross(n, t) * (inTangent.w < 0.0 ? -1.0 : 1.0);
     return mat3(t, b, n);
 }
 

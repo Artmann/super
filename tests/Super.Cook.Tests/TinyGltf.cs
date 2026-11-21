@@ -176,27 +176,9 @@ internal static class TinyGltf
         int indexAccessor = accessors.Count;
         Add(48, 12, "SCALAR", 5125);
 
-        var gltf = new JsonObject
-        {
-            ["asset"] = new JsonObject { ["version"] = "2.0" },
-            ["scene"] = 0,
-            ["scenes"] = new JsonArray(new JsonObject { ["nodes"] = new JsonArray(0) }),
-            ["nodes"] = new JsonArray(new JsonObject { ["name"] = "quads", ["mesh"] = 0 }),
-            ["meshes"] = new JsonArray(new JsonObject
-            {
-                ["name"] = "quads",
-                ["primitives"] = new JsonArray(new JsonObject { ["attributes"] = attributes, ["indices"] = indexAccessor, ["material"] = 0 }),
-            }),
-            ["materials"] = new JsonArray(new JsonObject { ["name"] = materialName }),
-            ["buffers"] = new JsonArray(new JsonObject
-            {
-                ["byteLength"] = bytes.Length,
-                ["uri"] = "data:application/octet-stream;base64," + Convert.ToBase64String(bytes),
-            }),
-            ["bufferViews"] = views,
-            ["accessors"] = accessors,
-        };
-        File.WriteAllText(Path.Combine(folder, name), gltf.ToJsonString());
+        WriteOneMesh(folder, name, "quads", bytes,
+            new JsonArray(new JsonObject { ["attributes"] = attributes, ["indices"] = indexAccessor, ["material"] = 0 }),
+            new JsonArray(new JsonObject { ["name"] = materialName }), views, accessors);
     }
 
     /// <summary>
@@ -281,23 +263,7 @@ internal static class TinyGltf
             primitives[primitive]!["indices"] = accessors.Count - 1;
         }
 
-        var gltf = new JsonObject
-        {
-            ["asset"] = new JsonObject { ["version"] = "2.0" },
-            ["scene"] = 0,
-            ["scenes"] = new JsonArray(new JsonObject { ["nodes"] = new JsonArray(0) }),
-            ["nodes"] = new JsonArray(new JsonObject { ["name"] = "quads", ["mesh"] = 0 }),
-            ["meshes"] = new JsonArray(new JsonObject { ["name"] = "quads", ["primitives"] = primitives }),
-            ["materials"] = materials,
-            ["buffers"] = new JsonArray(new JsonObject
-            {
-                ["byteLength"] = bytes.Length,
-                ["uri"] = "data:application/octet-stream;base64," + Convert.ToBase64String(bytes),
-            }),
-            ["bufferViews"] = views,
-            ["accessors"] = accessors,
-        };
-        File.WriteAllText(Path.Combine(folder, name), gltf.ToJsonString());
+        WriteOneMesh(folder, name, "quads", bytes, primitives, materials, views, accessors);
     }
 
     /// <summary>
@@ -329,34 +295,20 @@ internal static class TinyGltf
         System.Buffer.BlockCopy(floats, 0, bytes, 0, floats.Length * 4);
         System.Buffer.BlockCopy(indices, 0, bytes, floats.Length * 4, indices.Length * 4);
 
-        var gltf = new JsonObject
-        {
-            ["asset"] = new JsonObject { ["version"] = "2.0" },
-            ["scene"] = 0,
-            ["scenes"] = new JsonArray(new JsonObject { ["nodes"] = new JsonArray(0) }),
-            ["nodes"] = new JsonArray(new JsonObject { ["name"] = "scattered", ["mesh"] = 0 }),
-            ["meshes"] = new JsonArray(new JsonObject
+        WriteOneMesh(folder, name, "scattered", bytes,
+            new JsonArray(new JsonObject
             {
-                ["name"] = "scattered",
-                ["primitives"] = new JsonArray(new JsonObject
-                {
-                    ["attributes"] = new JsonObject { ["POSITION"] = 0, ["NORMAL"] = 1, ["TEXCOORD_0"] = 2 },
-                    ["indices"] = 3,
-                    ["material"] = 0,
-                }),
+                ["attributes"] = new JsonObject { ["POSITION"] = 0, ["NORMAL"] = 1, ["TEXCOORD_0"] = 2 },
+                ["indices"] = 3,
+                ["material"] = 0,
             }),
-            ["materials"] = new JsonArray(new JsonObject { ["name"] = materialName }),
-            ["buffers"] = new JsonArray(new JsonObject
-            {
-                ["byteLength"] = bytes.Length,
-                ["uri"] = "data:application/octet-stream;base64," + Convert.ToBase64String(bytes),
-            }),
-            ["bufferViews"] = new JsonArray(
+            new JsonArray(new JsonObject { ["name"] = materialName }),
+            new JsonArray(
                 new JsonObject { ["buffer"] = 0, ["byteOffset"] = 0, ["byteLength"] = vertices * 12 },
                 new JsonObject { ["buffer"] = 0, ["byteOffset"] = vertices * 12, ["byteLength"] = vertices * 12 },
                 new JsonObject { ["buffer"] = 0, ["byteOffset"] = vertices * 24, ["byteLength"] = vertices * 8 },
                 new JsonObject { ["buffer"] = 0, ["byteOffset"] = vertices * 32, ["byteLength"] = vertices * 4 }),
-            ["accessors"] = new JsonArray(
+            new JsonArray(
                 new JsonObject
                 {
                     ["bufferView"] = 0, ["componentType"] = 5126, ["count"] = vertices, ["type"] = "VEC3",
@@ -364,7 +316,62 @@ internal static class TinyGltf
                 },
                 new JsonObject { ["bufferView"] = 1, ["componentType"] = 5126, ["count"] = vertices, ["type"] = "VEC3" },
                 new JsonObject { ["bufferView"] = 2, ["componentType"] = 5126, ["count"] = vertices, ["type"] = "VEC2" },
-                new JsonObject { ["bufferView"] = 3, ["componentType"] = 5125, ["count"] = vertices, ["type"] = "SCALAR" }),
+                new JsonObject { ["bufferView"] = 3, ["componentType"] = 5125, ["count"] = vertices, ["type"] = "SCALAR" }));
+    }
+
+    /// <summary>
+    /// Writes one mesh named "spike" facing +z, with normals and UVs: a 1-metre right triangle, and a second whose three
+    /// corners all sit at one point, as at the tip of a lathed cone. The second has no area, so it has no tangent.
+    /// </summary>
+    public static void WriteCollapsed(string folder, string name, string materialName)
+    {
+        float[] positions = [0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f, 1f, 0f, 1f, 1f, 0f];
+        float[] normals = [0f, 0f, 1f, 0f, 0f, 1f, 0f, 0f, 1f, 0f, 0f, 1f, 0f, 0f, 1f, 0f, 0f, 1f];
+        float[] uvs = [0f, 1f, 1f, 1f, 0f, 0f, 0.25f, 0f, 0.5f, 0f, 0.75f, 0f];
+        float[] floats = [.. positions, .. normals, .. uvs];
+        var bytes = new byte[floats.Length * 4];
+        System.Buffer.BlockCopy(floats, 0, bytes, 0, bytes.Length);
+
+        WriteOneMesh(folder, name, "spike", bytes,
+            new JsonArray(new JsonObject
+            {
+                ["attributes"] = new JsonObject { ["POSITION"] = 0, ["NORMAL"] = 1, ["TEXCOORD_0"] = 2 },
+                ["material"] = 0,
+            }),
+            new JsonArray(new JsonObject { ["name"] = materialName }),
+            new JsonArray(
+                new JsonObject { ["buffer"] = 0, ["byteOffset"] = 0, ["byteLength"] = 72 },
+                new JsonObject { ["buffer"] = 0, ["byteOffset"] = 72, ["byteLength"] = 72 },
+                new JsonObject { ["buffer"] = 0, ["byteOffset"] = 144, ["byteLength"] = 48 }),
+            new JsonArray(
+                new JsonObject
+                {
+                    ["bufferView"] = 0, ["componentType"] = 5126, ["count"] = 6, ["type"] = "VEC3",
+                    ["min"] = new JsonArray(0f, 0f, 0f), ["max"] = new JsonArray(1f, 1f, 0f),
+                },
+                new JsonObject { ["bufferView"] = 1, ["componentType"] = 5126, ["count"] = 6, ["type"] = "VEC3" },
+                new JsonObject { ["bufferView"] = 2, ["componentType"] = 5126, ["count"] = 6, ["type"] = "VEC2" }));
+    }
+
+    // A file of one node holding one mesh, both called meshName, whose buffer is embedded.
+    private static void WriteOneMesh(string folder, string name, string meshName, byte[] bytes, JsonArray primitives, JsonArray materials,
+        JsonArray views, JsonArray accessors)
+    {
+        var gltf = new JsonObject
+        {
+            ["asset"] = new JsonObject { ["version"] = "2.0" },
+            ["scene"] = 0,
+            ["scenes"] = new JsonArray(new JsonObject { ["nodes"] = new JsonArray(0) }),
+            ["nodes"] = new JsonArray(new JsonObject { ["name"] = meshName, ["mesh"] = 0 }),
+            ["meshes"] = new JsonArray(new JsonObject { ["name"] = meshName, ["primitives"] = primitives }),
+            ["materials"] = materials,
+            ["buffers"] = new JsonArray(new JsonObject
+            {
+                ["byteLength"] = bytes.Length,
+                ["uri"] = "data:application/octet-stream;base64," + Convert.ToBase64String(bytes),
+            }),
+            ["bufferViews"] = views,
+            ["accessors"] = accessors,
         };
         File.WriteAllText(Path.Combine(folder, name), gltf.ToJsonString());
     }

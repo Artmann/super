@@ -164,7 +164,13 @@ internal static unsafe class ModelReader
             }
 
             uint baseVertex = (uint)meshes.Vertices.Count;
-            var added = meshes.AddVertices(mesh, world, materials.GraphWidths[material]);
+            var added = meshes.AddVertices(mesh, world, materials.GraphWidths[material], out int untangled);
+            if (untangled > 0)
+            {
+                // Left as Assimp gave them, they light as not-a-number, and the screen effects spread it.
+                cook.Warning($"mesh {m} ({mesh->MName.AsString}) has {untangled} vertices with no tangent, from triangles with no area; gave them one along the surface");
+            }
+
             rig?.Skin(mesh, (int)m, added);
             meshes.AddTriangles(mesh, baseVertex);
             if (named)

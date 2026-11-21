@@ -41,6 +41,11 @@ const float VISIBILITY_MARGIN = 0.1;
 const float MOTION_TOLERANCE = 0.01;
 const float MOTION_PRECISION = 1.0 / 512.0;
 
+// Whether every part is a number that isn't infinite.
+bool isFinite(vec4 value) {
+    return !any(isnan(value)) && !any(isinf(value));
+}
+
 // How far along the view the surface in a pixel of the screen is, under either projection. The sky is as far as the
 // depth can say.
 float distanceAlong(ivec2 pixel, ivec2 size) {
@@ -62,6 +67,14 @@ void main() {
     float depth = texelFetch(depthTexture, pixel, 0).r;
     vec4 traced = texelFetch(occlusionTexture, own, 0);
     vec3 bounce = texelFetch(bounceTexture, own, 0).rgb;
+    // One pixel that isn't a number would stay in the history and spread from it to its neighbours, frame after frame,
+    // so it is taken as open and unlit.
+    if (!isFinite(traced)) {
+        traced = vec4(0.5, 0.5, 1.0, 0.0);
+    }
+    if (!isFinite(vec4(bounce, 0.0))) {
+        bounce = vec3(0.0);
+    }
 
     if (depth == 0.0) {
         outOcclusion = vec4(0.5, 0.5, 1.0, 0.0);
@@ -125,13 +138,13 @@ void main() {
             }
 
             vec4 old = texelFetch(bounceHistory, cell, 0);
-            if (old.a <= 0.0 || abs(gapBehind(camera, previous, old.a)) > tolerance) {
+            vec4 occlusion = texelFetch(occlusionHistory, cell, 0);
+            if (old.a <= 0.0 || abs(gapBehind(camera, previous, old.a)) > tolerance || !isFinite(old) || !isFinite(occlusion)) {
                 continue;
             }
 
             vec2 each = mix(1.0 - part, part, vec2(offset));
             float weight = each.x * each.y;
-            vec4 occlusion = texelFetch(occlusionHistory, cell, 0);
             direction += octahedralDecode(occlusion.xy * 2.0 - 1.0) * weight;
             visibilityAndFrames += vec3(occlusion.z, occlusion.a, 0.0) * weight;
             bounced += old.rgb * weight;

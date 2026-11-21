@@ -9,11 +9,17 @@ layout(location = 0) out vec4 outColor;
 // A single tiny highlight must not become a flickering blob.
 const vec3 BRIGHTEST = vec3(20.0);
 
+// A tap that isn't a number counts as black, or the glow would carry it over every pixel it reaches.
+vec3 tap(vec2 uv) {
+    vec3 color = texture(sourceTexture, uv).rgb;
+    return any(isnan(color)) ? vec3(0.0) : color;
+}
+
 void main() {
     vec2 texel = 1.0 / vec2(textureSize(sourceTexture, 0));
-    vec3 color = texture(sourceTexture, inUv + texel * vec2(-1.0, -1.0)).rgb
-        + texture(sourceTexture, inUv + texel * vec2(1.0, -1.0)).rgb
-        + texture(sourceTexture, inUv + texel * vec2(-1.0, 1.0)).rgb
-        + texture(sourceTexture, inUv + texel * vec2(1.0, 1.0)).rgb;
+    vec3 color = tap(inUv + texel * vec2(-1.0, -1.0))
+        + tap(inUv + texel * vec2(1.0, -1.0))
+        + tap(inUv + texel * vec2(-1.0, 1.0))
+        + tap(inUv + texel * vec2(1.0, 1.0));
     outColor = vec4(min(color * 0.25, BRIGHTEST), 1.0);
 }
