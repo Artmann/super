@@ -53,11 +53,13 @@ public class FoliageTests
     [Fact]
     public void Foliage_writes_its_materials_translucency_as_a_negative_number()
     {
+        string marks = Shader("gbuffer_marks.glsl");
         string surface = Shader("surface.glsl");
 
-        Assert.Contains("return -max(material.transmission, FOLIAGE_MARK);", surface);
-        Assert.Contains("float channel = foliage ? foliageChannel(material) : surface.clearcoat;", surface);
-        Assert.Contains("outEmissiveClearcoat = vec4(surface.emissive, foliage ? foliageChannel(material) : 0.0);", surface);
+        Assert.Contains("return -max(translucency, FOLIAGE_MARK);", marks);
+        Assert.Contains("float channel = foliage ? foliageChannel(material.transmission) : surface.clearcoat;", surface);
+        Assert.Contains(
+            "outEmissiveClearcoat = vec4(surface.emissive, foliage ? foliageChannel(material.transmission) : 0.0);", surface);
     }
 
     [Fact]
