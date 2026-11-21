@@ -5,6 +5,7 @@
 #include "material.glsl"
 #include "sampling.glsl"
 #include "chunks.glsl"
+#include "gbuffer_marks.glsl"
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 1) in vec4 inTangent;
@@ -31,9 +32,6 @@ layout(location = 5) out vec4 outShadowMask; // the baked shadow mask, 1 where n
 // can reject a hidden pixel by depth before shading it. A shader that may discard has to be shaded first.
 layout(constant_id = 0) const bool CUT_OUTS = true;
 
-// The motion of a point that was behind last frame's camera: far off any picture, near the most a 16-bit float holds.
-const float MOTION_OFF_PICTURE = -60000.0;
-
 struct Surface {
     vec3 baseColor;
     float metallic;
@@ -42,10 +40,6 @@ struct Surface {
     vec3 emissive;
     float clearcoat;
 };
-
-// Foliage writes its translucency, the material's transmission, as a negative number, and at least
-// this much, so foliage that lets no light through is still marked as foliage.
-const float FOLIAGE_MARK = 1.0 / 1024.0;
 
 // Parallax fades out between these distances from the camera, in metres, and is off past
 // the far one. Grooves a few centimetres deep are too small to see that far away.
@@ -415,11 +409,6 @@ vec4 shaderLayer(int slot, vec2 uv, float layer) {
     return texture(textureArrays[materials[draw.material].shaderArrays[slot]], vec3(uv, layer), frame.mipBias);
 }
 
-// What foliage writes in the clearcoat channel: its translucency as a negative number.
-float foliageChannel(Material material) {
-    return -max(material.transmission, FOLIAGE_MARK);
-}
-
 // Writes the baked light a copy with a lightmap gets, turned to the normal it is lit with, and its shadow mask. The
 // irradiance page holds light with pi in, so dividing by pi gives what a white surface sends back, as the lighting
 // wants. The direction page holds the way the light mostly came from, d, as d * 0.5 + 0.5, with |d| how much of it came
@@ -604,12 +593,12 @@ void writeSurface(Surface surface) {
 
         outBaseColorMetallic = vec4(plain.baseColor, plain.metallic);
         outNormalRoughnessAo = vec4(octahedralEncode(plain.normal), plain.roughness, waterSide());
-        outEmissiveClearcoat = vec4(surface.emissive, foliage ? foliageChannel(material) : 0.0);
+        outEmissiveClearcoat = vec4(surface.emissive, foliage ? foliageChannel(material.transmission) : 0.0);
         writeBaked(plain.normal);
         return;
     }
 
-    float channel = foliage ? foliageChannel(material) : surface.clearcoat;
+    float channel = foliage ? foliageChannel(material.transmission) : surface.clearcoat;
     // With subsurface off the surface is marked plain, so the lighting shades it as matte and sends nothing to blur.
     // Toon and outlined materials are marked the same way, and the lighting looks up which the material is.
     if ((material.subsurface.w > 0.0 && !isOff(OFF_SUBSURFACE)) || (material.flags & (MATERIAL_TOON | MATERIAL_OUTLINE)) != 0u) {
