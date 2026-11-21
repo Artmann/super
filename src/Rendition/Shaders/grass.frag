@@ -6,6 +6,7 @@
 #include "sampling.glsl"
 #include "wind.glsl"
 #include "grass.glsl"
+#include "gbuffer_marks.glsl"
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 1) in float inUp;
@@ -20,9 +21,6 @@ layout(location = 3) out vec2 outMotion;
 layout(location = 4) out vec4 outBaked;
 layout(location = 5) out vec4 outShadowMask;
 
-// See surface.glsl.
-const float MOTION_OFF_PICTURE = -60000.0;
-const float FOLIAGE_MARK = 1.0 / 1024.0;
 const float GRASS_ROUGHNESS = 0.55;
 
 // How much soft light reaches the root of a blade, among the others, and how far up it the shade reaches.
@@ -46,7 +44,7 @@ void main() {
         : vec2(MOTION_OFF_PICTURE);
     outBaseColorMetallic = vec4(clamp(color, 0.0, 1.0), 0.0);
     outNormalRoughnessAo = vec4(octahedralEncode(normalize(inNormal)), roughness, occlusion);
-    outEmissiveClearcoat = vec4(0.0, 0.0, 0.0, -max(kind.base.a, FOLIAGE_MARK));
+    outEmissiveClearcoat = vec4(0.0, 0.0, 0.0, foliageChannel(kind.base.a));
     outBaked = vec4(0.0);
     outShadowMask = vec4(1.0);
 }
