@@ -6,7 +6,7 @@ namespace Rendition;
 
 /// <summary>
 /// What lights the scene besides its surfaces: the shadow maps of the sun and the point and spot lights, the sky, the
-/// reflection probes and the capture a frame makes of one, the live light probes, and the volumetric fog.
+/// reflection probes and the capture a frame makes of one, the planar reflection, the live light probes, and the volumetric fog.
 /// </summary>
 internal sealed class SceneLighting
 {
@@ -36,6 +36,7 @@ internal sealed class SceneLighting
         stores.Settings.Probes = LightProbes;
         FogStage = new FogStage(context, kit, stores.Switches);
         CloudStage = new CloudStage(context, kit, stores.Switches, cloudNoise);
+        Planar = new PlanarStage(context, kit, stores.Resources, stores.Switches, (meshes.MeshSlots, meshes.DetailSlots));
     }
 
     /// <summary>The shadow maps: the sun's cascades and the lights' tiles.</summary>
@@ -68,6 +69,9 @@ internal sealed class SceneLighting
     /// <summary>The clouds.</summary>
     public CloudStage CloudStage { get; }
 
+    /// <summary>The planar reflection: the scene drawn from the camera mirrored in one level plane.</summary>
+    public PlanarStage Planar { get; }
+
     /// <summary>
     /// Makes the light probes' atlases on the first frame with the probes on, again after a change of
     /// <see cref="ProbeQuality"/>, and frees them when the probes are switched off. Each of those waits
@@ -98,7 +102,7 @@ internal sealed class SceneLighting
             new ProbePlanInputs(RendererReflections.ProbeLightingKey(view, EnvironmentSky.Version, switches.Off), switches.ShadowSun(view), frameNumber));
     }
 
-    /// <summary>Frees the shadow maps, the probes, the fog, the clouds, the capture and the sky.</summary>
+    /// <summary>Frees the shadow maps, the probes, the fog, the clouds, the mirror, the capture and the sky.</summary>
     public void Dispose()
     {
         ShadowPass.Dispose();
@@ -107,6 +111,7 @@ internal sealed class SceneLighting
         LightProbes.Dispose();
         FogStage.Dispose();
         CloudStage.Dispose();
+        Planar.Dispose();
         FrameReflectionCapture.Pass.Dispose();
         EnvironmentSky.Dispose();
     }

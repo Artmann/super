@@ -26,7 +26,7 @@ internal static class TargetDescriptors
         WriteDisplaySets(stores, passes, targets);
     }
 
-    // The reflection probe capture's set, and what blends over the lit image: glass and particles.
+    // The reflection probe capture's and the mirror's sets, and what blends over the lit image: glass and particles.
     private static void WriteBlendSets(SceneStores stores, (SceneLighting Lights, FrameStages Stages) passes, GBuffer gBuffer)
     {
         var (lights, stages) = passes;
@@ -37,6 +37,11 @@ internal static class TargetDescriptors
             new(kit.LinearSampler, lights.LightProbes.Volume.DepthView, ImageLayout.General),
             new(map.Sampler, map.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
             kit.ShadowSampler);
+        lights.Planar.WriteSet(
+            new(kit.LinearSampler, lights.LightProbes.Volume.IrradianceView, ImageLayout.General),
+            new(kit.LinearSampler, lights.LightProbes.Volume.DepthView, ImageLayout.General),
+            new(kit.ShadowSampler, lights.ShadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(map.Sampler, map.Irradiance, ImageLayout.ShaderReadOnlyOptimal));
 
         stages.BlendStage.WriteTargets(gBuffer, lights.ShadowPass.Target.View, map);
     }

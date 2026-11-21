@@ -3,6 +3,14 @@ using System.Numerics;
 namespace Rendition;
 
 /// <summary>
+/// A level plane at <see cref="Height"/> metres that mirrors the scene, for puddles, a pond or a polished floor. Smooth
+/// surfaces lying in it show a true reflection of what stands over them, sharp where it touches and blurring with
+/// height and roughness, in place of the screen-space reflections and the reflection probes. See "Planar reflections"
+/// in docs/rendering.md.
+/// </summary>
+public readonly record struct ReflectionPlane(float Height);
+
+/// <summary>
 /// Standing water on surfaces whose material has <see cref="MaterialFlags.Puddles"/>. <see cref="Level"/> is the
 /// height of the water in metres; whatever lies below it is under water. <see cref="Band"/> is how far above the
 /// water, in metres, the surface is damp, darkest at the waterline and dry at the band's top.

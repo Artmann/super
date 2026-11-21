@@ -59,6 +59,7 @@ internal sealed unsafe class FrameUniformWriter(FrameParts parts, FrameBakes bak
         lights.FogStage.WriteWater(uniforms, view);
         var air = uniforms->AirBlock.AirExtinction;
         lights.CloudStage.Write(uniforms, view, camera.Previous, historyValid, new Vector3(air.X, air.Y, air.Z));
+        lights.Planar.Write(uniforms, view);
 
         uniforms->CountBlock.Time = view.Time;
         uniforms->CountBlock.PreviousTime = historyValid ? cameras.PreviousTime : view.Time;
@@ -120,7 +121,7 @@ internal sealed unsafe class FrameUniformWriter(FrameParts parts, FrameBakes bak
     {
         var (sky, off) = (parts.SceneLighting.EnvironmentSky, parts.SceneStores.Switches.Off);
         uniforms->CameraBlock.CameraPosition = new Vector4(view.CameraPosition, 1f);
-        uniforms->BackgroundRadiance = new Vector4(view.Background.Radiance, view.Environment.Intensity);
+        uniforms->BackgroundBlock.BackgroundRadiance = new Vector4(view.Background.Radiance, view.Environment.Intensity);
         var flat = sky.Map.Flat;
         uniforms->BakedBlock.FlatIrradiance = new Vector4(flat.Irradiance, 0f);
         uniforms->BakedBlock.FlatReflection = new Vector4(flat.Reflection, 0f);
@@ -145,7 +146,7 @@ internal sealed unsafe class FrameUniformWriter(FrameParts parts, FrameBakes bak
         float normalOffset = view.Shadows.Radius * 4f / parts.SceneLighting.ShadowPass.Resolution;
         // A fade from 0 to 0 is none: the shaders fade only where the end lies past the start.
         bool haze = !off.HasFlag(RenderEffects.Haze);
-        uniforms->Parameters = new Vector4(
+        uniforms->BackgroundBlock.Parameters = new Vector4(
             haze ? view.Background.FadeStart : 0f, haze ? view.Background.FadeEnd : 0f, view.Shadows.LightAngle, normalOffset);
     }
 

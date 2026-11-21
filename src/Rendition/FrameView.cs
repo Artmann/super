@@ -245,6 +245,13 @@ public ref struct FrameExtras
     /// between them; any number of grounds may share one. Empty while <see cref="RenderEffects.Grass"/> is off.
     /// </summary>
     public ReadOnlySpan<GrassDraw> Grass;
+
+    /// <summary>
+    /// The one level plane that mirrors the scene, drawn from a mirrored camera at half the resolution. Null mirrors at
+    /// the puddles' level when <see cref="WeatherSettings.Puddles"/> has some, and nowhere otherwise. None while
+    /// <see cref="RenderEffects.PlanarReflections"/> is off.
+    /// </summary>
+    public ReflectionPlane? ReflectionPlane;
 }
 
 /// <summary>The areas whose lighting is baked, for <see cref="FrameView.Baked"/>.</summary>

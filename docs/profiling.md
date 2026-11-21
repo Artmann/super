@@ -91,6 +91,10 @@ costs nothing.
 Lower `Graphics.Lighting.ProbeQuality` to update fewer a frame, or turn `Graphics.Lighting.LightProbes` off.
 "Reflection probes" is the time spent photographing [reflection probes](rendering.md#reflections),
 one a frame at most, and blurring the photograph.
+"Planar reflection" is the time spent drawing the scene from under the
+[mirror plane](rendering.md#planar-reflections) at half size and halving it into mips, about
+1 ms on Courtyard at 1600x900. It's near 0 when no frame has a mirror plane. Turn
+`Graphics.Lighting.PlanarReflections` off to drop it.
 
 "Clouds" is the time spent on the [clouds](rendering.md#clouds) and their shadow. The marched
 clouds cost about a tenth of a High frame, and the flat layer on Low and Medium about a

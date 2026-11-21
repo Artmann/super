@@ -126,6 +126,11 @@ internal static class WorldLights
             view.Surroundings.Puddles(puddles.Level, puddles.Band);
         }
 
+        if (Newest<MirrorPlane>(world) is { } mirror)
+        {
+            view.Surroundings.ReflectionPlane(mirror.Height);
+        }
+
         if (Newest<Wind>(world) is { } wind)
         {
             view.Surroundings.Wind(wind.Direction, wind.Strength, wind.Gustiness);

@@ -17,6 +17,7 @@ internal static class GraphicsSwitches
         (graphics => graphics.Lighting.OcclusionHistory, RenderEffects.OcclusionHistory),
         (graphics => graphics.Lighting.MultiscatterSpecular, RenderEffects.MultiscatterSpecular),
         (graphics => graphics.Lighting.Reflections, RenderEffects.Reflections),
+        (graphics => graphics.Lighting.PlanarReflections, RenderEffects.PlanarReflections),
         (graphics => graphics.Screen.AntiAliasing, RenderEffects.AntiAliasing),
         (graphics => graphics.Picture.Bloom, RenderEffects.Bloom),
         (graphics => graphics.Atmosphere.Fog, RenderEffects.Fog),

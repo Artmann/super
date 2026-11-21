@@ -23,6 +23,17 @@ internal struct FrameCameraBlock
     public Vector4 CameraPosition;
 }
 
+/// <summary>The background the camera sees and the environment's strength, and how things fade into it.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct FrameBackgroundBlock
+{
+    /// <summary>rgb: background; a: environment intensity.</summary>
+    public Vector4 BackgroundRadiance;
+
+    /// <summary>x, y: background fade start and end; z: shadow light angle; w: normal offset.</summary>
+    public Vector4 Parameters;
+}
+
 /// <summary>How the light clusters cut up the view, and the size of the targets they cover. See LocalLightShadows.</summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct FrameClusterBlock
@@ -358,4 +369,21 @@ internal struct FrameCloudBlock
 
     /// <summary>xy: how far the clouds' tops lean along the wind, in metres; zw: the clouds' picture's width and height in pixels.</summary>
     public Vector4 CloudLean;
+}
+
+/// <summary>
+/// The planar reflection this frame: the mirrored camera and the plane it mirrors in. Written by
+/// <see cref="PlanarStage.Write"/>. Must match the mirror fields at the end of Frame in Shaders/common.glsl.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct FrameMirrorBlock
+{
+    /// <summary>World to the mirror's clip space, with the plane as its near plane. See <see cref="MirrorView"/>.</summary>
+    public Matrix4x4 MirrorViewProjection;
+
+    /// <summary>x: the plane's height; y: 1 when the frame has a mirror picture; z: how high the camera is above the plane; w: the mirror picture's pixels across one unit of tangent, up and down.</summary>
+    public Vector4 MirrorPlane;
+
+    /// <summary>xyz: where the mirrored camera stands; w: the mirror picture's last mip.</summary>
+    public Vector4 MirrorEye;
 }

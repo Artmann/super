@@ -75,6 +75,12 @@ public readonly record struct Underwater(UnderwaterSettings Settings);
 public readonly record struct Puddles(float Level, float Band = PuddleSettings.DefaultBand);
 
 /// <summary>
+/// A flat, level plane at <see cref="Height"/> metres that mirrors the scene, as a component, for
+/// <see cref="ViewSurroundings.ReflectionPlane"/>. The newest entity with one wins.
+/// </summary>
+public readonly record struct MirrorPlane(float Height);
+
+/// <summary>
 /// A breeze that sways the materials that ask for wind, as a component, for <see cref="ViewSurroundings.Wind"/>, which
 /// says what each value does and the limits it checks. Write it in <c>Update</c> for a wind that changes. The newest
 /// entity with one wins.

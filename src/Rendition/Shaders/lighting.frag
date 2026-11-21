@@ -41,6 +41,9 @@ layout(set = 1, binding = 16) uniform sampler2D bounceTexture;
 // The environment without the sun's disc, at its sharpest: the sky shown where nothing was drawn, and what fog and
 // haze melt into.
 layout(set = 1, binding = 17) uniform samplerCube backgroundTexture;
+// The planar reflection's half-size picture from mirror.frag, with its mips: the mirrored scene's light in layer 0
+// with how much was drawn in a, and in layer 1 how high what was drawn stands over the plane. See PlanarStage.cs.
+layout(set = 1, binding = 18) uniform sampler2DArray planarTexture;
 
 // The clouds' half-size picture from cloud_resolve.comp: their light in rgb, and how much of what lies past them
 // shows in a. A texel that shows no cloud while they're off.
@@ -422,6 +425,72 @@ float contactShadow(vec3 position, vec3 n, vec3 l) {
     return 1.0;
 }
 
+// How far from the plane a surface still takes the planar reflection, in metres: it fades out from the first to the
+// second. The plane's own surfaces sit on it, give or take how they were modelled.
+const float PLANAR_NEAR = 0.01;
+const float PLANAR_FAR = 0.05;
+// The mip the planar reflection's height is read at: blurred enough that an edge of what is reflected doesn't snap the
+// blur from sharp to soft.
+const float PLANAR_HEIGHT_LOD = 3.0;
+// How far a bumpy normal bends the reflection across the picture, in metres along the bent ray.
+const float PLANAR_BEND = 0.5;
+
+// The planar reflection for a point on its plane: rgb the light the mirror saw there and a how far to trust it. A
+// rough surface spreads its reflection, and the spread grows with how far the ray goes past the plane before it
+// meets something, so what stands on the plane reflects sharp at its foot and softer up its height. The trust fades
+// off the plane, on surfaces that don't face up, on rough ones, where nothing was drawn and towards the edge of the
+// picture, and there the probes and the traced reflection show through.
+vec4 planarReflection(vec3 position, vec3 n, vec3 v, float roughness) {
+    if (frame.mirrorPlane.y < 0.5) {
+        return vec4(0.0);
+    }
+
+    float onPlane = 1.0 - smoothstep(PLANAR_NEAR, PLANAR_FAR, abs(position.y - frame.mirrorPlane.x));
+    float facing = smoothstep(0.7, 0.9, n.y);
+    float smooth_ = 1.0 - smoothstep(0.5, 0.8, roughness);
+    float weight = onPlane * facing * smooth_;
+    if (weight <= 0.0) {
+        return vec4(0.0);
+    }
+
+    // The flat plane's reflection of a point on it is where the mirrored camera sees that point. A bumpy normal bends
+    // the ray off the flat one, which moves where it is read.
+    vec3 bent = reflect(-v, n) - reflect(-v, vec3(0.0, 1.0, 0.0));
+    vec4 clip = frame.mirrorViewProjection * vec4(position + bent * PLANAR_BEND, 1.0);
+    if (clip.w <= 0.0) {
+        return vec4(0.0);
+    }
+
+    vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+    vec2 edge = min(uv, 1.0 - uv);
+    weight *= smoothstep(0.0, 0.05, min(edge.x, edge.y));
+    if (weight <= 0.0) {
+        return vec4(0.0);
+    }
+
+    // The ray spreads by about alpha for each metre it goes, and it goes as far past the plane as what it meets
+    // stands over it. Seen from the mirrored camera, which is the camera's height on the other side, that spread
+    // covers h / (h + camera height) of the picture's pixels per unit tangent. The height is read as wide as the
+    // widest blur could reach, so a point beside what is reflected, where nothing was drawn, still blurs it over. That
+    // wide read takes in the tall parts too, so it is read again only as wide as the blur it gave, which lets the foot
+    // of what stands on the plane come back sharp.
+    float alpha = roughness * roughness;
+    float pixels = frame.mirrorPlane.w * alpha;
+    for (int pass = 0; pass < 2; pass++) {
+        float reach = clamp(log2(max(2.0 * pixels, 1.0)) + 1.0, PLANAR_HEIGHT_LOD, frame.mirrorEye.w);
+        vec4 heights = textureLod(planarTexture, vec3(uv, 1.0), reach);
+        float height = heights.r / max(heights.a, 1e-3);
+        pixels = frame.mirrorPlane.w * alpha * height / max(height + frame.mirrorPlane.z, 1e-3);
+    }
+
+    float lod = clamp(log2(max(2.0 * pixels, 1.0)), 0.0, frame.mirrorEye.w);
+
+    // Cleared to nothing, so a blurred texel's light is weighed by what was drawn in it.
+    vec4 seen = textureLod(planarTexture, vec3(uv, 0.0), lod);
+    vec3 light = seen.rgb / max(seen.a, 1e-3) / max(frame.backgroundRadiance.a, 1e-3);
+    return vec4(light, weight * clamp(seen.a, 0.0, 1.0));
+}
+
 // How much a half-resolution reflection counts for a pixel it wasn't traced from. Two surfaces at different distances
 // or facing different ways reflect different things, so one's ray says little about the other.
 const float TRACED_DEPTH_FALLOFF = 40.0;
@@ -681,6 +750,9 @@ void main() {
     // reflection is occluded. A traced reflection found what's in the way itself.
     reflectedLight *= specularOcclusion(nDotV, ao, roughness);
     reflectedLight = mix(reflectedLight, traced.rgb, traced.a);
+    // The planar reflection sees what the screen can't, so on its plane it wins over both.
+    vec4 planar = specular ? planarReflection(position, n, v, roughness) : vec4(0.0);
+    reflectedLight = mix(reflectedLight, planar.rgb, planar.a);
     vec3 environmentSpecular = specular ? reflectedLight * (f0 * brdf.x + brdf.y) * multiscatter : vec3(0.0);
     // Soft light already carries the environment's intensity; the reflections don't yet.
     // A lightmapped pixel's soft light is baked, with the environment's intensity in it, and the screen's occlusion
@@ -735,6 +807,7 @@ void main() {
         vec3 coatReflection = sampleReflection(position, reflect(-v, n), CLEARCOAT_ROUGHNESS * REFLECTION_LODS);
         coatReflection *= specularOcclusion(nDotV, ao, CLEARCOAT_ROUGHNESS);
         coatReflection = mix(coatReflection, traced.rgb, traced.a);
+        coatReflection = mix(coatReflection, planar.rgb, planar.a);
         environmentLight = environmentLight * (1.0 - coatFresnel) + coatReflection * coatFresnel;
         environmentDiffuse *= 1.0 - coatFresnel;
     }
