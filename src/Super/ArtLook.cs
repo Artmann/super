@@ -21,7 +21,10 @@ public readonly record struct ArtLook
     /// </summary>
     public PostSettings Finish { get; init; }
 
-    /// <summary>The oil paint. With an amount above 0 it replaces any paint the game set; the default paints nothing.</summary>
+    /// <summary>
+    /// The oil paint. It takes over from any paint the game set as its amount rises to 1, and below that lies between
+    /// the two; the default paints nothing.
+    /// </summary>
     public PaintSettings Paint { get; init; }
 
     /// <summary>Big pixels, fewer shades and a pattern of dots. The default changes nothing.</summary>
@@ -81,7 +84,7 @@ public readonly record struct LookLight
 
     /// <summary>
     /// Cloud cover added to the sky's, from -1 to 1: 0.4 turns a fair sky cloudy. A sky without clouds gets fair-weather
-    /// clouds this thick. Only a physical sky has clouds.
+    /// clouds this thick, with their cirrus growing as the cover does. Only a physical sky has clouds.
     /// </summary>
     public float Clouds { get; init; }
 

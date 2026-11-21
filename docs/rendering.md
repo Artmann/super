@@ -1601,12 +1601,15 @@ under any look. The parts are:
   of 0.2 adds 0.2 to the game's own, and the result is held to its range. A colour table in it
   replaces the game's, and a screen effect set in it wins over the game's. The exposure meter, the
   tonemapper and the lens stay the game's.
-- `Paint` is [paint](#paint) that replaces the game's when its amount is above 0.
+- `Paint` is [paint](#paint) that takes over from the game's as its amount rises to 1. Below 1 the
+  brush and amount lie between the game's paint and the look's, so a look easing in grows out of the
+  game's paint instead of replacing it at once. A game that paints nothing gets the look's as it is.
 - `Retro` is [retro pixels](#retro-pixels).
 - `Light` is a `LookLight`. `Sun` and `Sky` make the suns and the sky that many stops brighter.
   `SunWarmth`, from -1 to 1, turns the suns' colour from a cold blue to a low orange sun and keeps
   their brightness. `Fog` adds fog density, where 0.01 is a light haze. `Clouds` adds cloud cover,
-  and a [physical sky](#clouds) without clouds gets fair-weather ones. `Flare` makes the
+  and a [physical sky](#clouds) without clouds gets fair-weather ones that grow from nothing, their
+  cirrus thickening with the cover. `Flare` makes the
   [lens flare](#lens-flare) that many stops brighter, so -10 all but hides it.
 
 `ArtLook.Lerp(from, to, t)` gives the look part of the way between two, as a blend does. Numbers move

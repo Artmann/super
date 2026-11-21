@@ -60,12 +60,31 @@ public class LookTests
     }
 
     [Fact]
-    public void A_looks_paint_replaces_the_games_only_when_it_paints()
+    public void A_looks_paint_leaves_the_games_when_it_paints_nothing_and_replaces_it_at_full_amount()
     {
         var game = new PaintSettings { Amount = 0.5f, BrushSize = 4f };
 
         Assert.Equal(game, LookLayer.Paint(game, Looks.Noir));
         Assert.Equal(Looks.Painterly.Paint, LookLayer.Paint(game, Looks.Painterly));
+    }
+
+    [Fact]
+    public void A_painting_look_easing_in_grows_from_the_games_paint()
+    {
+        var game = new PaintSettings { Amount = 0.5f, BrushSize = 4f };
+        var look = new ArtLook { Paint = new PaintSettings { Amount = 1f, BrushSize = 10f, Sharpness = 0.7f } };
+
+        var start = LookLayer.Paint(game, ArtLook.Lerp(Looks.Natural, look, 0.01f));
+        var half = LookLayer.Paint(game, ArtLook.Lerp(Looks.Natural, look, 0.5f));
+        var alone = LookLayer.Paint(default, ArtLook.Lerp(Looks.Natural, look, 0.3f));
+
+        // Just started, it is nearly the game's: 0.99 of 0.5 and 0.01 of 0.01, and 0.99 of 4 and 0.01 of 10.
+        Assert.Equal(0.495f, start.Amount, 3);
+        Assert.Equal(4.06f, start.BrushSize, 3);
+        // Halfway, the look's paint is half there and weighs half: 0.5 of 0.5 and 0.5 of 0.5, and a brush of 7.
+        Assert.Equal(0.5f, half.Amount, 5);
+        Assert.Equal(7f, half.BrushSize, 5);
+        Assert.Equal(look.Paint with { Amount = 0.3f }, alone);
     }
 
     [Fact]
@@ -107,6 +126,22 @@ public class LookTests
 
         var clear = LookLayer.Clouds(new CloudSettings(), cloudier)!.Value;
         Assert.Equal(CloudSettings.Fair with { Coverage = 0.4f }, clear);
+    }
+
+    [Fact]
+    public void Clouds_easing_into_a_clear_sky_grow_their_cirrus_from_nothing()
+    {
+        var look = new ArtLook { Light = new LookLight { Clouds = 0.76f } };
+
+        var start = LookLayer.Clouds(CloudSettings.Clear, ArtLook.Lerp(Looks.Natural, look, 0.001f).Light)!.Value;
+        var quarter = LookLayer.Clouds(CloudSettings.Clear, ArtLook.Lerp(Looks.Natural, look, 0.25f).Light)!.Value;
+        var full = LookLayer.Clouds(CloudSettings.Clear, look.Light)!.Value;
+
+        Assert.True(start.Cirrus < 0.001f, $"Just as the look eases in, the clear sky already has cirrus {start.Cirrus}.");
+        // A quarter of the way the cover is 0.19, half fair weather's 0.38, so the cirrus is half its 0.35.
+        Assert.Equal(0.19f, quarter.Coverage, 5);
+        Assert.Equal(0.175f, quarter.Cirrus, 5);
+        Assert.Equal(0.35f, full.Cirrus, 5);
     }
 
     [Fact]

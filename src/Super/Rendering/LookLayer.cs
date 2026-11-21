@@ -80,8 +80,25 @@ internal static class LookLayer
         };
     }
 
-    /// <summary>The look's paint when it paints, or else the game's.</summary>
-    public static PaintSettings Paint(in PaintSettings game, in ArtLook look) => look.Paint.Amount > 0f ? look.Paint : game;
+    /// <summary>
+    /// The paint between the game's and the look's: the look's takes over as its amount rises to 1, so a look easing in
+    /// grows from the game's paint rather than replacing it at once. A game that paints nothing gets the look's as it is.
+    /// </summary>
+    public static PaintSettings Paint(in PaintSettings game, in ArtLook look)
+    {
+        float weight = Math.Clamp(look.Paint.Amount, 0f, 1f);
+        if (weight == 0f)
+        {
+            return game;
+        }
+
+        if (weight == 1f || game.Amount == 0f)
+        {
+            return look.Paint;
+        }
+
+        return LookMix.Paint(game, look.Paint, weight);
+    }
 
     /// <summary>A sun's colour, brighter and warmer or colder as the look asks.</summary>
     public static Vector3 Sun(Vector3 color, in LookLight light)
@@ -105,7 +122,10 @@ internal static class LookLayer
     public static FogSettings Fog(FogSettings fog, in LookLight light) =>
         light.Fog == 0f ? fog : fog with { Density = MathF.Max(fog.Density + light.Fog, 0f) };
 
-    /// <summary>The clouds with the look's cover added; a sky without clouds gets fair-weather ones, and none stays none.</summary>
+    /// <summary>
+    /// The clouds with the look's cover added; none stays none. A sky without clouds gets fair-weather ones that grow
+    /// from nothing: their cirrus thickens with the cover until it is fair weather's at fair weather's cover.
+    /// </summary>
     public static CloudSettings? Clouds(CloudSettings? clouds, in LookLight light)
     {
         if (light.Clouds == 0f || clouds is not { } sky)
@@ -113,8 +133,14 @@ internal static class LookLayer
             return clouds;
         }
 
-        var start = sky.Any ? sky : CloudSettings.Fair with { Coverage = 0f };
-        return start with { Coverage = Math.Clamp(start.Coverage + light.Clouds, 0f, 1f) };
+        if (sky.Any)
+        {
+            return sky with { Coverage = Math.Clamp(sky.Coverage + light.Clouds, 0f, 1f) };
+        }
+
+        var fair = CloudSettings.Fair;
+        float cover = Math.Clamp(light.Clouds, 0f, 1f);
+        return fair with { Coverage = cover, Cirrus = fair.Cirrus * MathF.Min(cover / fair.Coverage, 1f) };
     }
 
     /// <summary>The lens flare, as many stops brighter as the look asks.</summary>
