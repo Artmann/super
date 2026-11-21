@@ -381,7 +381,7 @@ internal struct FrameMirrorBlock
     /// <summary>World to the mirror's clip space, with the plane as its near plane. See <see cref="MirrorView"/>.</summary>
     public Matrix4x4 MirrorViewProjection;
 
-    /// <summary>x: the plane's height; y: 1 when the frame has a mirror picture; z: how high the camera is above the plane; w: the mirror picture's pixels across one unit of tangent, up and down.</summary>
+    /// <summary>x: the plane's height; y: 1 when the frame has a mirror picture; z: how high the camera is above the plane, or -1 for an orthographic camera; w: the mirror picture's pixels across one unit of tangent, up and down, or across a metre when orthographic.</summary>
     public Vector4 MirrorPlane;
 
     /// <summary>xyz: where the mirrored camera stands; w: the mirror picture's last mip.</summary>

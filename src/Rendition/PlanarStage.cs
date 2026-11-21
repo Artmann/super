@@ -106,11 +106,13 @@ internal sealed class PlanarStage : IDisposable
             return;
         }
 
+        // Pixels per unit of tangent, or under an orthographic camera per metre, which z's -1 marks.
         float pixels = MathF.Abs(view.Projection.M22) * _targets.Extent.Height / 2f;
+        float above = view.Projection.M34 == 0f ? -1f : view.CameraPosition.Y - height;
         uniforms->MirrorBlock = new FrameMirrorBlock
         {
             MirrorViewProjection = mirror.ViewProjection,
-            MirrorPlane = new(height, 1f, view.CameraPosition.Y - height, pixels),
+            MirrorPlane = new(height, 1f, above, pixels),
             MirrorEye = new(mirror.Eye, _targets.Mips - 1),
         };
     }
