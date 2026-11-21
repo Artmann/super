@@ -22,6 +22,7 @@ public class GraphicsProfileTests
             AmbientOcclusion = false,
             MultiscatterSpecular = false,
             Reflections = false,
+            PlanarReflections = false,
             Specular = false,
             EnvironmentLight = false,
             Emissive = false,
@@ -97,7 +98,7 @@ public class GraphicsProfileTests
         var defaults = new Graphics();
         var unusual = Unusual();
 
-        Assert.Equal(67, Settings().Length);
+        Assert.Equal(68, Settings().Length);
         Assert.All(Settings(), setting => Assert.NotEqual(Value(defaults, setting), Value(unusual, setting)));
     }
 
@@ -326,6 +327,7 @@ public class GraphicsProfileTests
         Assert.Equal(1f, low.Baking.BakeBudget);
         Assert.True(off.HasFlag(RenderEffects.VolumetricFog));
         Assert.True(off.HasFlag(RenderEffects.Reflections));
+        Assert.True(off.HasFlag(RenderEffects.PlanarReflections));
         Assert.True(off.HasFlag(RenderEffects.AmbientOcclusion));
         Assert.True(off.HasFlag(RenderEffects.HeightMaps));
     }

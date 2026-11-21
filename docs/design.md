@@ -1129,6 +1129,8 @@ volumetric_inject.comp compute -> with volumetric fog, each froxel's extinction 
                                   clusters (under water, the water and its shafts), blended with last frame's
 volumetric_integrate.comp compute -> the same summed front to back along each column, which the lighting pass,
                                   glass and particles read as the fog in front of each pixel
+PlanarStage   scene geometry   -> with a mirror plane, the scene from the mirrored camera at half size: lit colour and
+                                  height over the plane, halved into mips; see "Planar reflections"
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, motion, baked light, shadow mask, depth
 DecalPass     decal boxes      -> colour, normal and roughness laid over the G-buffer, reading a copy of its normals
 GBufferPass   no-decal draws   -> the same targets, loaded: skinned draws and NoDecals materials, only when decals and they are both in the frame
@@ -1584,6 +1586,9 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
   cleared once so the tonemap adds nothing. See [Lens flare](#lens-flare).
 - `Paint` (bit 48) makes `PaintConstants.For` return null, as an amount of 0 or a debug view does,
   so `PaintPass.Record` records nothing. See [Paint](#paint).
+- `PlanarReflections` (bit 53) makes `PlanarStage.PlaneHeight` null, so the frame has no mirror:
+  `PlanarStage.Record` draws nothing and `frame.mirrorPlane.y` is 0, which the lighting reads as
+  off. See [Planar reflections](#planar-reflections).
 - `Culling` (bit 27) makes `DetailView.CanSee` true for every ball, for the camera, the
   cascades and the light tiles alike. `SimplerModels` (bit 28) hands `DetailView` a `MaxError`
   of 0, which no simpler level meets, since every level's error is above 0.
@@ -2216,6 +2221,68 @@ step. A key missing from a frame is removed alone, and the rest keep their pictu
 `Reflections` switch off Super wants no probes, so it removes them and glass falls back to the
 studio cube. A screenshot renders one more frame per probe after the light probes settle, since
 each waits in line at most once.
+
+### Planar reflections
+
+`PlanarStage` (`src/Rendition/PlanarStage.cs`) draws the scene a second time from the camera
+mirrored in one level plane, and the lighting pass lays that picture over the traced reflection
+on surfaces that lie in the plane. `PlanarStage.PlaneHeight` picks the plane:
+`FrameExtras.ReflectionPlane` when the frame has one, else the puddles' level while
+`RenderEffects.Puddles` is on, and none at all with `RenderEffects.PlanarReflections` off. Super
+fills `FrameExtras.ReflectionPlane` from `view.Surroundings.ReflectionPlane`, which the newest
+`MirrorPlane` component sets.
+
+`MirrorView.Create` (`src/Rendition/MirrorView.cs`) builds the mirror's matrices from the
+camera's. The view is the camera's view times the reflection in the plane, and a flip of x
+afterwards keeps the triangles' winding, so the ordinary culled pipelines draw it. The near
+plane is then swapped for the mirror plane itself with Lengyel's oblique clip (Lengyel,
+"Oblique View Frustum Depth Projection and Clipping", 2005), in reversed-Z, so nothing below the
+water is drawn and no clip plane is needed in the shaders. Leaning the near plane squeezes depth,
+so the z row is scaled to keep the plane's farthest corner of the view in front of the far plane
+(`DepthReach`, 0.999). The camera must stand at least `MirrorView.LowestCamera`, 1 cm, above the
+plane, or the frame has no mirror; level with it, the oblique plane would hold the eye.
+
+The picture, `MirrorTargets`, is half the scene's size each way, in two layers of one
+`R16G16B16A16_SFLOAT` array with up to seven mips (`MaxMips`), and a depth buffer.
+`MirrorPipeline` draws into it through `SceneDraws.Record`: `mirror.vert` places the camera's
+own draws, with their skinning, swimming and wind, and `mirror.frag` lights them as a reflection probe's
+capture does: `probe_light.glsl` for the suns, through the frame's own cascades in one
+comparison, and the local lights, then `soft_light.glsl`. The light leaves each point towards
+the mirrored eye, which is where the real camera sees it from through the plane. Layer 0 takes
+the colour with a coverage of 1, and layer 1 how high the surface stands over the plane; both
+are cleared to 0. `MipBlits.Fill`, which the glass pass's copy of the picture shares, then
+halves both layers down the chain, so each mip holds the coverage-weighted average of what was
+drawn. `FrameDrawPicker.SelectMirror` picks the draws with the mirrored view's frustum and
+level of detail, and the mirror's set (set 2) holds the light probes' atlases, the sun's
+cascades and the environment's irradiance, laid out and written by `LitCaptureSet`, which
+`ReflectionCapturePass` shares. `GpuTimer` reports it as "Planar reflection", after
+"Reflection probes". While no frame wants a mirror, `KeepTargets` shrinks the picture to one
+texel, and each change of size waits for the GPU once.
+
+`planarReflection` in `lighting.frag` reads the picture at set 1 binding 18. A surface takes it
+within `PLANAR_NEAR` (1 cm) of the plane, fading out by `PLANAR_FAR` (5 cm), facing up and with
+roughness under 0.8, and it fades towards the picture's edges. The point is projected with the
+mirror's view-projection; a bumpy normal moves it by the difference between its reflected ray
+and the flat plane's, times `PLANAR_BEND`. The blur works the way contact hardening does for a
+soft shadow: a ray spreads by about the GGX alpha (roughness squared) for each metre it goes,
+and it goes as far past the plane as the thing it meets stands above it, so the spread on the
+mirror's picture is `w · alpha · h / (h + c)`, where `h` is that height, `c` the camera's height
+above the plane and `w` the picture's pixels per unit of tangent. That picks the mip. The height
+is read from layer 1 at a mip as wide as the widest blur could reach, so a point beside a post,
+where nothing was drawn, still blurs it over; then read again only as wide as the blur that gave,
+so the post's foot comes back sharp. The colour is divided by its coverage, and by the
+environment's intensity, since the lighting multiplies every reflection by it again. The
+reflection is mixed over the traced one by its weight times the coverage, and over the clear
+coat's reflection too, at the base roughness.
+
+What the mirror leaves out: grass, the marched clouds, glass, particles, decals and fog, since
+they draw in passes of their own after the lighting, and every pass after the lighting, such as
+ambient occlusion, bloom, depth of field and paint. Its surfaces are lit without their shine and
+without the traced, probe or planar reflections, and the sky behind them is left as coverage 0,
+so the probes and the traced reflection fill it. Ghosts and dithered fades are drawn solid.
+`PlanarReflectionGpuTests` checks that a glowing panel above the camera's view shows in a smooth
+floor only with the switch on, and that a post on a rough floor reflects narrow at its foot and
+spread further from it.
 
 ## Light probes
 
@@ -4516,7 +4583,7 @@ manifest names its library with no folder, which macOS only finds with `DYLD_LIB
 with libc's `setenv`, since .NET's own doesn't reach native code on Unix.
 
 MoltenVK's ordinary descriptor limits are low: 16 samplers a stage and 1212 descriptors a set. The
-texture table and the lighting set, which with the frame set's three samples 19 textures, are made
+texture table and the lighting set, which with the frame set's five samples 24 textures, are made
 update-after-bind (`Descriptors.CreateSetLayout` with `updateAfterBind`), which counts them against
 the far higher update-after-bind limits, so the device needs
 `descriptorBindingSampledImageUpdateAfterBind`. The table sizes itself from `maxPerSetDescriptors`

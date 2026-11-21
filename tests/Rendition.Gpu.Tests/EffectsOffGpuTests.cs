@@ -27,6 +27,7 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
     [Theory]
     [InlineData("Shadows")]
     [InlineData("Light probes")]
+    [InlineData("Planar reflection")]
     [InlineData("Volumetric fog")]
     [InlineData("Ambient occlusion")]
     [InlineData("AO blur")]

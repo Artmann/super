@@ -147,7 +147,7 @@ internal sealed unsafe class FrameRecorder(
     }
 
     /// <summary>
-    /// Updates the light probes and the reflection probe capture from the whole scene, sorts the lights into clusters
+    /// Updates the light probes, the reflection probe capture and the planar reflection, sorts the lights into clusters
     /// and fills the volumetric fog, each as a timed pass, ahead of the G-buffer.
     /// </summary>
     private void RecordLightSetup(CommandBuffer cmd, DescriptorSet frameSet, in FrameDraws draws, InstanceBuffer instances)
@@ -160,6 +160,10 @@ internal sealed unsafe class FrameRecorder(
 
         // After the light probes, whose light the capture's surfaces take.
         lights.FrameReflectionCapture.Record(cmd, frameSet, draws.Scene, instances, parts.SceneStores.Ring.Index);
+        timer.Mark(cmd);
+
+        // After the sun's cascades and the light probes, which light the mirror's surfaces.
+        lights.Planar.Record(cmd, frameSet, instances);
         timer.Mark(cmd);
 
         if (lights.LocalLightShadows.ClustersNeeded)

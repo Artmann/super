@@ -33,6 +33,7 @@ And when a scene asks for it:
 - [Depth of field](#focus) from a lens with a focus distance, an aperture and a focal length
 - [Decals](#decals) that lay grime, rust, moss and boot prints onto what is under them
 - [Puddles](#puddles) of standing water, with a damp band, wherever the ground lies below a level
+- [Planar reflections](#planar-reflections) in a flat floor or pool that mirror what's off screen too, sharp where things touch it
 - [Wind](#wind) that sways grass, leaves and their shadows
 - [Wear and dirt](#wear-and-dirt) on edges and in hollows, from masks the cook bakes from the mesh
 - A [render scale](#graphics-settings) that draws the scene smaller or larger than the window, and [AMD FSR](#upscaling) to rebuild the full picture from a smaller one
@@ -88,6 +89,7 @@ next frame follows, so it can back an options menu.
 | `Lighting.LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
 | `Lighting.ProbeQuality` | How many [light probes](#bounced-light) follow the camera and how many are redrawn a frame. `High`, the default and the best look, keeps 32 × 16 × 32 probes in each of the four boxes and redraws 32 a frame, for about 170 MB. `Medium` keeps 24 × 12 × 24 and redraws 16, for about 73 MB. `Low` keeps 16 × 8 × 16 and redraws 8, for about 43 MB, so the boxes reach half as far, the bounce fills in more slowly at the start and is slower to follow lights that move. Anything else is refused. A change starts every probe again on the next frame, which waits for the GPU once. `Graphics.Fastest()` sets `Low`, so turning the probes back on stays cheap |
 | `Lighting.Reflections` | Shiny surfaces, water and glass reflect only the sky: not what's on screen, and no [reflection probes](#reflections) are photographed |
+| `Lighting.PlanarReflections` | A [mirror plane](#planar-reflections) or the puddles' level no longer mirrors the scene: a wet floor reflects only what's on screen and the probes, so what stands above the top of the picture is missing from it. It saves drawing the scene a second time at half size, about 1 ms of GPU time a frame on the Courtyard at 1600 by 900 on an RTX 4060 Ti. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
 | `Lighting.ReflectionResolution` | Not a switch: how many pixels look for what the screen shows in them each frame. At `Half`, the default, one pixel in four does, a different one each frame, and the pixels between take theirs from the ones round them on the same surface. Anti-aliasing blends the frames, so a still reflection looks the same as at `Full`, where every pixel looks every frame for up to four times the cost. `Full` keeps a reflection sharper while it moves fast, and is the one to pick with `AntiAliasing` off. Anything else is refused. A change rebuilds the scene's targets before the next frame, which waits for the GPU once. `GraphicsQuality.Ultra` sets `Full` |
 | `Lighting.OcclusionResolution` | Not a switch: how many pixels work out their [ambient occlusion](#ambient-occlusion) each frame. At `Half`, the default, one pixel in four does, a different one each frame, and the pixels between take theirs from the ones round them at the same depth. Occlusion is soft, so the picture is hard to tell from `Full`, where every pixel works out its own for about two and a half times the cost of the effect. At `Full` each pixel looks in one direction a frame and the average over the last frames gathers them, so with `OcclusionHistory` off it looks in two and costs more. With `AntiAliasing` off nothing blends the frames, so pick `Full` there too. Anything else is refused. A change rebuilds the scene's targets before the next frame, which waits for the GPU once. `GraphicsQuality.Ultra` sets `Full` |
 | `Screen.AntiAliasing` | Edges show their pixels, and moving things stay sharp |
@@ -166,7 +168,7 @@ itself, or offers it in an options menu.
 
 | Quality | What changes from `High` |
 |---|---|
-| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `GrassDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, the screen bounce, reflections, auto exposure, depth of field, paint, decals, volumetric fog, the marched clouds and height maps. Puddles, wind and the flat clouds with their shadows stay on, as they cost little |
+| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `GrassDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, the screen bounce, reflections, planar reflections, auto exposure, depth of field, paint, decals, volumetric fog, the marched clouds and height maps. Puddles, wind and the flat clouds with their shadows stay on, as they cost little |
 | `Medium` | Render scale 0.85, 3 cascades, `MeshDetail` 0.75, `GrassDetail` 0.75, `ProbeQuality.Medium` and a 2 ms bake budget. Off: depth of field, volumetric fog and the marched clouds, so the [clouds](#clouds) are a flat layer |
 | `Ultra` | 4096 shadow maps, `MeshDetail` 1.5, `GrassDetail` 1.25, `ReflectionResolution.Full`, `OcclusionResolution.Full` and 128 volumetric fog slices |
 
@@ -1160,6 +1162,53 @@ key used once a frame. A `ReflectionCapture` entity's key is its entity's id, so
 them needs a key no entity has, such as a negative one. With `Graphics.Lighting.Reflections` off, no probes are photographed and shiny
 surfaces and glass reflect only the sky.
 
+### Planar reflections
+
+A flat, level floor that shines, such as a wet yard, a polished hall or a still pool, can mirror
+the scene exactly, off screen and behind things too. A `MirrorPlane` entity names the plane's
+height in metres:
+
+```csharp
+world.Spawn(new MirrorPlane(0f));   // the floor at 0 mirrors the scene
+```
+
+When several entities have one, the newest wins. Drawing by hand,
+`view.Surroundings.ReflectionPlane(height)` sets it for one frame, and a height that isn't a
+finite number is refused. [Puddles](#puddles) set the plane at their level by themselves, so a
+scene with puddles needs nothing more; a `MirrorPlane` takes over from them.
+
+Each frame the scene is drawn a second time, at half the picture's size each way, from a camera
+mirrored under the plane, and the surfaces that lie in it read their reflection from that
+picture. It shows what the screen's own reflections can't: the top of a wall above the edge of
+the picture, the far side of a post, the sky behind the camera. A surface takes it when it lies
+within 1 cm of the plane, fading out by 5 cm, faces up, and is smooth: it fades out as the
+roughness goes from 0.5 to 0.8. Elsewhere, and near the picture's edges, the screen's reflections
+and the probes show as before. A bumpy normal, such as the puddles' ripples, bends where the
+reflection is read.
+
+A rough surface blurs its reflection, and the blur grows with how far the reflected ray goes past
+the plane before it meets something. So a post standing in a wet floor reflects sharp at its
+foot and softer up its height, and a wall's reflection is crisp where the wall meets the floor.
+The mirror's picture keeps how high above the plane each thing it saw stands, and its smaller
+copies, each half the size of the last, give the blur.
+
+![The Courtyard puddle with planar reflections off, showing a dark sheet with the probe's blurry yard in it, and on, showing the red brick wall, the stones and the grass behind the puddle in the water](media/planar-reflections.webp)
+
+The mirror draws the scene's solid surfaces with their materials, lit by the suns, the lamps
+and the soft light round them, but leaves out grass, the marched clouds, glass, particles,
+decals and fog, and runs none of the effects on the picture, such as ambient occlusion, bloom,
+depth of field or paint. Only one plane is mirrored in a frame. A surface that isn't level, such
+as a ramp or a wall-mounted mirror, doesn't take it. Like every reflection it is scaled by the
+environment's intensity, so with `EnvironmentSettings.Intensity` at 0 it shows black, as the
+screen's own reflections do. The camera must stand at least 1 cm above the plane; below it
+nothing is mirrored.
+
+It costs about 1 ms of GPU time a frame on the Courtyard at 1600 by 900 on an RTX 4060 Ti,
+since the whole scene is drawn again. The mirror's pictures are made the first frame that has a
+plane and shrunk to a single pixel the first frame without one, and each change waits for the
+GPU once. [`Graphics.Lighting.PlanarReflections`](#graphics-settings) turns it off, and
+`GraphicsQuality.Low` and `Graphics.Fastest()` turn it off.
+
 ## The look of the picture
 
 ```csharp
@@ -2087,7 +2136,8 @@ Only materials that ask for it get wet: a model sidecar's rule with `"puddles": 
 deep its height map sinks it (the material's `heightDepth` times how far below white the
 height is), so the mortar between flagstones and the hollows in mud fill before the tops.
 A pixel below the level is water. It mirrors the sky and what's on screen with roughness
-0.03 and no metalness, its normal points straight up but for two layers of ripples 1 mm
+0.03 and no metalness, and the level is a [mirror plane](#planar-reflections) too, so it also
+shows what stands above the top of the picture; its normal points straight up but for two layers of ripples 1 mm
 high that drift and change, at 0.4 and 0.9 cycles a second, so the wind breaks the reflection
 up a little. It reflects as water does: 2% of the light looking straight down, about a quarter
 from a standing eye a few metres off, and nearly all of it at grazing. Its colour is the

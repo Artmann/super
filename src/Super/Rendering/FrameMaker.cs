@@ -174,7 +174,7 @@ internal sealed class FrameMaker
         };
     }
 
-    /// <summary>What the frame draws besides its draws: the view's overlay, particles, decals, fog volumes and grass.</summary>
+    /// <summary>What the frame draws besides its draws: the view's overlay, particles, decals, fog volumes, grass and reflection plane.</summary>
     private FrameExtras Extras(View view, RenderEffects off) => new()
     {
         Overlay = view.Ui is { } ui ? ui.Quads : [],
@@ -182,6 +182,7 @@ internal sealed class FrameMaker
         Decals = _decals.Drawn,
         FogVolumes = off.HasFlag(RenderEffects.FogVolumes) || off.HasFlag(RenderEffects.VolumetricFog) ? default : view.Effects.DrawnFogVolumes,
         Grass = off.HasFlag(RenderEffects.Grass) ? default : _draws.Grass,
+        ReflectionPlane = view.Surroundings.ReflectionPlaneSettings,
     };
 
     /// <summary>The view's suns as the frame's lights, at most <see cref="MaxLights"/>, with one casting the shadows.</summary>

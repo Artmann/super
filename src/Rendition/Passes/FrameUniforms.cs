@@ -54,12 +54,7 @@ internal struct FrameUniforms
     public const int MaxLights = 8;
 
     public FrameCameraBlock CameraBlock;
-
-    /// <summary>rgb: background; a: environment intensity.</summary>
-    public Vector4 BackgroundRadiance;
-
-    /// <summary>x, y: background fade start and end; z: shadow light angle; w: normal offset.</summary>
-    public Vector4 Parameters;
+    public FrameBackgroundBlock BackgroundBlock;
 
     public FrameGradeBlock GradeBlock;
     public FrameWaterBlock WaterBlock;
@@ -82,6 +77,7 @@ internal struct FrameUniforms
     public FrameSunBlock SunBlock;
     public FrameScreenBlock ScreenBlock;
     public FrameCloudBlock CloudBlock;
+    public FrameMirrorBlock MirrorBlock;
 }
 
 /// <summary>One point or spot light as the shaders read it. Must match LocalLight in Shaders/light_data.glsl.</summary>
