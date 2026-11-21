@@ -1569,17 +1569,17 @@ for a menu. [`--look`](command-line.md) picks the look a game starts with, over 
 itself. The [Hamlet example](../examples/Hamlet) steps through them with L. Here is each on the same
 frame of Hamlet:
 
-![Hamlet's village at midday in each built-in look, labelled: Natural; Painterly, with soft brush strokes and warm light; Candy, pastel and pinker; Golden hour, warm orange light with a flare and darker corners; Noir, black and white with hard contrast; Horror, dark and green in thick fog; VHS, a cool, washed picture with fringes and fine dots; PSX, big square pixels with a dither](media/looks.webp)
+![Hamlet's village at midday in each built-in look, labelled: Natural; Painterly, warm and yellow-green with broad brush strokes; Candy, bright and pastel with pink-tinted towers; Golden hour, warm orange light with a flare and darker corners; Noir, black and white with hard contrast; Horror, dark, green and hazy but still readable; VHS, a faded, warm picture with colour fringes and noise; PSX, big square pixels with a dither](media/looks.webp)
 
 | Look | What it does |
 | --- | --- |
 | `Looks.Natural` | Nothing: the game's own picture |
-| `Looks.Painterly` | An oil painting in warm light, with soft brush strokes and rich colour |
-| `Looks.Candy` | Bright and pastel, with pink light, teal shade and a glow |
+| `Looks.Painterly` | An oil painting in warm light, with broad, crisp brush strokes and rich colour |
+| `Looks.Candy` | Bright, soft and pastel: lifted exposure, rich colour, pink light, mint shade and a glow |
 | `Looks.GoldenHour` | A low orange sun under a dimmer sky, teal shade, a brighter flare and darker corners |
 | `Looks.Noir` | Black and white with hard contrast, a brighter sun, deep corners and grain |
-| `Looks.Horror` | Dark and sickly green, the sun and sky dimmed under thick fog and cloud, grain and no flare |
-| `Looks.Vhs` | A worn home video: grey blacks, colour fringes, grain, slightly big pixels and fewer shades |
+| `Looks.Horror` | Dark and sickly green but readable: the sun and sky dimmed under heavy cloud and a low fog, grain and no flare |
+| `Looks.Vhs` | A worn home video: faded, warm colour, grey blacks, colour bleeding at the edges, noise, soft big pixels and fewer shades |
 | `Looks.Psx` | A 1990s console: big square pixels, few shades with a dither between them and no sharpening |
 
 A look is a plain value, so make your own or change one with `with`:
