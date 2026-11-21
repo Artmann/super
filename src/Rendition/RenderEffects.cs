@@ -301,10 +301,16 @@ public enum RenderEffects : long
     /// </summary>
     Grass = 1L << 52,
 
+    /// <summary>
+    /// The mirror picture of a level reflective plane, such as puddles or a pond, that <see cref="FrameExtras.ReflectionPlane"/>
+    /// places. Without it the plane shows the screen-space reflections and the reflection probes, as everything else does.
+    /// </summary>
+    PlanarReflections = 1L << 53,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
         | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
         | ScreenBounce | AerialPerspective | Stars | OcclusionHistory | ColorLut | ChromaticAberration | SpeedBlur | Flashes
-        | ScreenEffects | LensFlare | Paint | Clouds | VolumetricClouds | CloudShadows | Grass,
+        | ScreenEffects | LensFlare | Paint | Clouds | VolumetricClouds | CloudShadows | Grass | PlanarReflections,
 }

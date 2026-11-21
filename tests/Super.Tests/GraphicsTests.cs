@@ -301,6 +301,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Shadowing), nameof(GraphicsShadowing.LightShadows), RenderEffects.LightShadows)]
     [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.AmbientOcclusion), RenderEffects.AmbientOcclusion)]
     [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.Reflections), RenderEffects.Reflections)]
+    [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.PlanarReflections), RenderEffects.PlanarReflections)]
     [InlineData(nameof(Graphics.Screen), nameof(GraphicsScreen.AntiAliasing), RenderEffects.AntiAliasing)]
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.Bloom), RenderEffects.Bloom)]
     [InlineData(nameof(Graphics.Surfaces), nameof(GraphicsSurfaces.Materials), RenderEffects.Materials)]
@@ -374,7 +375,7 @@ public class GraphicsTests
             | RenderEffects.Grain | RenderEffects.Sharpening | RenderEffects.Subsurface | RenderEffects.FogVolumes
             | RenderEffects.ScreenBounce | RenderEffects.OcclusionHistory | RenderEffects.ChromaticAberration | RenderEffects.SpeedBlur
             | RenderEffects.LensFlare | RenderEffects.Paint | RenderEffects.Clouds | RenderEffects.VolumetricClouds
-            | RenderEffects.CloudShadows | RenderEffects.Grass,
+            | RenderEffects.CloudShadows | RenderEffects.Grass | RenderEffects.PlanarReflections,
             GraphicsSwitches.Off(graphics));
         Assert.True(graphics.Surfaces.Materials);
         Assert.True(graphics.Baking.BakedLighting);

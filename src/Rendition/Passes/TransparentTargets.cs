@@ -67,48 +67,10 @@ internal static unsafe class TransparentTargets
             Extent = new Extent3D(targets.Extent.Width, targets.Extent.Height, 1),
         };
         api.CmdCopyImage(cmd, targets.Hdr.Image, ImageLayout.TransferSrcOptimal, copy.Image, ImageLayout.TransferDstOptimal, 1, &region);
-        HalveDownMips(api, cmd, copy, targets.Extent);
-
-        if (copy.Mips > 1)
-        {
-            api.Transition(cmd, new ImageTransition(copy.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal) { MipCount = copy.Mips - 1 },
-                (CopyStage, AccessFlags2.TransferReadBit), (SampledStage, AccessFlags2.ShaderSampledReadBit));
-        }
-
-        api.Transition(cmd, new ImageTransition(copy.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal) { BaseMip = copy.Mips - 1 },
-            (CopyStage, AccessFlags2.TransferWriteBit), (SampledStage, AccessFlags2.ShaderSampledReadBit));
+        MipBlits.Fill(api, cmd, copy, targets.Extent);
 
         api.Transition(cmd, new ImageTransition(targets.Hdr.Image, ImageAspectFlags.ColorBit,
             ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal), (CopyStage, AccessFlags2.TransferReadBit),
             (ColorStage, ColorWrite | AccessFlags2.ColorAttachmentReadBit));
-    }
-
-    // Blits each mip of the copy from the one before it, at half the size. Every mip but the last is left ready to read
-    // from by a transfer, and the last ready to write.
-    private static void HalveDownMips(Vk api, CommandBuffer cmd, RenderTarget copy, Extent2D extent)
-    {
-        int width = (int)extent.Width;
-        int height = (int)extent.Height;
-        for (uint mip = 1; mip < copy.Mips; mip++)
-        {
-            api.Transition(cmd, new ImageTransition(copy.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferDstOptimal, ImageLayout.TransferSrcOptimal) { BaseMip = mip - 1 },
-                (CopyStage, AccessFlags2.TransferWriteBit), (CopyStage, AccessFlags2.TransferReadBit));
-
-            int nextWidth = Math.Max(1, width / 2);
-            int nextHeight = Math.Max(1, height / 2);
-            var blit = new ImageBlit
-            {
-                SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, mip - 1, 0, 1),
-                DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, mip, 0, 1),
-            };
-            blit.SrcOffsets[1] = new Offset3D(width, height, 1);
-            blit.DstOffsets[1] = new Offset3D(nextWidth, nextHeight, 1);
-            api.CmdBlitImage(cmd, copy.Image, ImageLayout.TransferSrcOptimal, copy.Image, ImageLayout.TransferDstOptimal, 1, &blit, Filter.Linear);
-            width = nextWidth;
-            height = nextHeight;
-        }
     }
 }

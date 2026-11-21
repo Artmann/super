@@ -15,7 +15,7 @@ internal sealed unsafe class GpuTimer : IDisposable
     /// <summary>The passes of a frame, in the order the renderer marks them.</summary>
     internal static readonly string[] FramePasses =
     [
-        "Sky", "Grass", "Shadows", "Light probes", "Reflection probes", "Light clusters", "Clouds", "Volumetric fog", "G-buffer", "Ambient occlusion", "AO blur", "Reflections", "Lighting", "Subsurface", "Glass and particles",
+        "Sky", "Grass", "Shadows", "Light probes", "Reflection probes", "Planar reflection", "Light clusters", "Clouds", "Volumetric fog", "G-buffer", "Ambient occlusion", "AO blur", "Reflections", "Lighting", "Subsurface", "Glass and particles",
         "Anti-aliasing", "Depth of field", "Bloom", "Paint", "Tonemap", "Finish", "Overlay",
     ];
 

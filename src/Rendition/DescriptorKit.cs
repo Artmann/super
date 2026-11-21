@@ -26,8 +26,8 @@ internal sealed unsafe class DescriptorKit : IDisposable
         ShadowSampler = CreateSampler(Filter.Linear, compare: true);
 
         FrameSetLayout = CreateFrameSetLayout(context);
-        // With the frame set's five, the lighting pass samples 23 textures, more than MoltenVK allows in ordinary sets.
-        LightingSetLayout = CreateTextureLayout(18, updateAfterBind: true);
+        // With the frame set's five, the lighting pass samples 24 textures, more than MoltenVK allows in ordinary sets.
+        LightingSetLayout = CreateTextureLayout(19, updateAfterBind: true);
         SixTextureLayout = CreateTextureLayout(6);
         FourTextureLayout = CreateTextureLayout(4);
         TwoTextureLayout = CreateTextureLayout(2);
@@ -39,7 +39,7 @@ internal sealed unsafe class DescriptorKit : IDisposable
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 10 * FrameRing.Count),
             new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 42 + 5 * FrameRing.Count));
         _lightingPool = context.CreateDescriptorPool(
-            DescriptorPoolCreateFlags.UpdateAfterBindBit, 1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 18));
+            DescriptorPoolCreateFlags.UpdateAfterBindBit, 1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 19));
     }
 
     /// <summary>Reads the nearest texel, clamped at the edges.</summary>
@@ -57,7 +57,7 @@ internal sealed unsafe class DescriptorKit : IDisposable
     /// <summary>The frame's set, as <see cref="CreateFrameSetLayout"/> lays it out.</summary>
     public DescriptorSetLayout FrameSetLayout { get; }
 
-    /// <summary>The lighting pass's 18 textures, which can be updated while bound.</summary>
+    /// <summary>The lighting pass's 19 textures, which can be updated while bound.</summary>
     public DescriptorSetLayout LightingSetLayout { get; }
 
     public DescriptorSetLayout SixTextureLayout { get; }

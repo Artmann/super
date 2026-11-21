@@ -21,7 +21,7 @@ internal sealed class FrameStages
         var copier = new HistoryCopier(context.Api);
         OcclusionStage = new OcclusionStage(context, kit, copier);
         LightingStage = new LightingStage(context, kit,
-            new LightingStage.Sources(resources, map, lights.ReflectionProbes, lights.ProbeVolume, lights.ShadowPass));
+            new LightingStage.Sources(resources, map, lights.ReflectionProbes, lights.ProbeVolume, lights.ShadowPass, lights.Planar));
         // Counting each pass's shaders needs a device feature; without it the frame is only timed.
         GpuWork = context.Abilities.PipelineStatistics ? new GpuWorkCounter(context, FrameRing.Count, GpuTimer.FramePasses) : null;
         GpuTimer = new GpuTimer(context, FrameRing.Count, counter: GpuWork);

@@ -27,6 +27,7 @@ internal sealed class Newest
         Track<BakedLighting>(types);
         Track<Underwater>(types);
         Track<Puddles>(types);
+        Track<MirrorPlane>(types);
         Track<Wind>(types);
     }
 
