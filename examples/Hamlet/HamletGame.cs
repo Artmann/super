@@ -12,10 +12,10 @@ namespace Hamlet;
 /// one by one and flicker. Every building is a baked chunk, so the light bounced round its
 /// rooms is baked once per kind and shared by every copy. The camera circles the village,
 /// then walks into a cottage to see the window light by day and the lamp by night. R makes
-/// a new village from the next seed, P shows the light probes, and 1, 2 and 3 switch between live lighting, the
-/// bakes and direct light only.
+/// a new village from the next seed, P shows the light probes, L eases into the next look, and 1, 2 and 3 switch
+/// between live lighting, the bakes and direct light only.
 /// </summary>
-public sealed class HamletGame(World world, GameRandom random, Input input, Content content, Graphics graphics) : IGame
+public sealed class HamletGame(World world, GameRandom random, Input input, Content content, Graphics graphics, ArtStyle style) : IGame
 {
     private readonly LightingSwitch _lighting = new(input, graphics);
     private Kinds _kinds = null!;
@@ -71,6 +71,13 @@ public sealed class HamletGame(World world, GameRandom random, Input input, Cont
             graphics.DebugView = graphics.DebugView == DebugView.Probes ? DebugView.None : DebugView.Probes;
         }
 
+        // The next of the looks Super comes with, eased in over a second.
+        if (input.Pressed(Key.L))
+        {
+            int next = (Looks.All.ToList().FindIndex(look => look.Name == style.Current.Name) + 1) % Looks.All.Count;
+            style.Use(Looks.All[next], seconds: 1f);
+        }
+
         float seconds = time.Tick * time.TickSeconds;
         if (input.Pressed(Key.R))
         {
@@ -84,11 +91,12 @@ public sealed class HamletGame(World world, GameRandom random, Input input, Cont
         Light(seconds);
     }
 
-    /// <summary>The lighting modes in the bottom-left corner, with the current one in bold, and whether P shows the probes.</summary>
+    /// <summary>The lighting modes in the bottom-left corner, with the current one in bold, whether P shows the probes and the look L steps through.</summary>
     public UiView? Ui => _lighting.Panel(modes =>
     {
         var probes = new Text("P  Light probes");
         modes.Add(graphics.DebugView == DebugView.Probes ? probes.Bold() : probes.Foreground(LightingSwitch.Muted));
+        modes.Add(new Text($"L  Look: {style.Current.Name ?? Looks.Natural.Name}").Foreground(LightingSwitch.Muted));
     });
 
     /// <summary>Moves the camera along its tour, and sets the day's light, the lamps and the cart for <paramref name="seconds"/>.</summary>

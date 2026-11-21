@@ -73,6 +73,7 @@ public class GraphicsProfileTests
             ScreenEffects = false,
             LensFlare = false,
             Paint = false,
+            Retro = false,
         },
         Baking = { BakedLighting = false, BakeOnArrival = false, BakeBudget = 3f },
         Drawing = { MeshDetail = 1.5f, GrassDetail = 0.5f, Culling = false, SimplerModels = false, DepthFirst = false, Fades = false },
@@ -98,7 +99,7 @@ public class GraphicsProfileTests
         var defaults = new Graphics();
         var unusual = Unusual();
 
-        Assert.Equal(68, Settings().Length);
+        Assert.Equal(69, Settings().Length);
         Assert.All(Settings(), setting => Assert.NotEqual(Value(defaults, setting), Value(unusual, setting)));
     }
 

@@ -59,6 +59,7 @@ internal sealed class HostServices : IDisposable
         services.AddSingleton(provider => new GameCapture(provider.GetRequiredService<Audio>()));
         services.AddSingleton<GameStats>();
         services.AddSingleton<Transitions>();
+        services.AddSingleton<ArtStyle>();
         services.AddSingleton<Director>();
         services.AddSingleton<World>();
         services.AddSingleton<Scenes>();
@@ -66,6 +67,7 @@ internal sealed class HostServices : IDisposable
         services.AddSingleton<ITickHook>(provider => provider.GetRequiredService<World>());
         services.AddSingleton<IStateHook>(provider => provider.GetRequiredService<World>());
         services.AddSingleton<IDrawHook, SoundSync>();
+        services.AddSingleton<IDrawHook>(provider => provider.GetRequiredService<ArtStyle>());
         services.AddSingleton<TGame>();
 
         // This comes last so a game or a test can replace the services above. Audio is the exception for a game: it

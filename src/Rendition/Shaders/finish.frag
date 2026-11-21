@@ -133,6 +133,18 @@ vec3 screenEffects(vec3 color) {
     return color;
 }
 
+// A 4x4 ordered dither's threshold for a cell, from just above 0 to just below 1: neighbouring cells take thresholds
+// far apart, so a shade between two steps comes out as an even pattern of both.
+float bayer(ivec2 cell) {
+    ivec2 p = cell & 3;
+    int a = (p.x ^ p.y) & 1;
+    int b = (p.y & 1);
+    int c = ((p.x ^ p.y) >> 1) & 1;
+    int d = (p.y >> 1) & 1;
+    int index = (a << 3) | (b << 2) | (c << 1) | d;
+    return (float(index) + 0.5) / 16.0;
+}
+
 // The last touches: restores crispness, moves between pictures, darkens the corners and adds
 // fine noise. An 8-bit screen can't show a slow gradient smoothly, and the noise hides those steps.
 void main() {
@@ -140,7 +152,17 @@ void main() {
     vec2 texel = 1.0 / size;
     // A debug view is shown unsharpened, with no vignette or grain; only the dither below is left.
     bool debugView = isOff(OFF_DEBUG_VIEW);
-    vec3 color = debugView ? texture(sourceTexture, inUv).rgb : sharpened(sourceTexture, inUv, texel);
+
+    // Retro pixels: every pixel in a block shows the colour at the block's centre. The blocks are square on screen.
+    vec2 uv = inUv;
+    vec2 cell = gl_FragCoord.xy;
+    if (!debugView && frame.screenRetro.x > 0.0) {
+        vec2 block = vec2(frame.screenRetro.x * size.y / size.x, frame.screenRetro.x);
+        cell = floor(inUv / block);
+        uv = (cell + 0.5) * block;
+    }
+
+    vec3 color = debugView ? texture(sourceTexture, uv).rgb : sharpened(sourceTexture, uv, texel);
 
     int kind = int(transition.style.x + 0.5);
     if (kind == STYLE_FADE) {
@@ -161,5 +183,14 @@ void main() {
     float noise = frameNoise(gl_FragCoord.xy, frame.frameNumber) - 0.5;
     float grain = debugView ? 0.0 : frame.finish.y;
     vec3 display = max(sqrt(color) + noise * (DITHER_STRENGTH + grain), vec3(0.0));
+
+    // Fewer shades: each channel snaps to its nearest step, or with the dither, to the step above or below in a
+    // pattern whose mix of the two matches the shade between them.
+    float steps = debugView ? 0.0 : frame.screenRetro.y;
+    if (steps > 0.0) {
+        float threshold = mix(0.5, bayer(ivec2(cell)), frame.screenRetro.z);
+        display = floor(clamp(display, 0.0, 1.0) * steps + threshold) / steps;
+    }
+
     outColor = vec4(display * display, 1.0);
 }

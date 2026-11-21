@@ -53,6 +53,7 @@ internal sealed class FrameMaker
     public FrameView Create(View view, Content content, FrameRequest request, RenderEffects off, DebugView debugView)
     {
         var shot = view.Shot;
+        var look = view.Effects.Look.Style;
         float aspect = request.Width / (float)Math.Max(request.Height, 1);
         var frame = new FrameView
         {
@@ -65,12 +66,13 @@ internal sealed class FrameMaker
             Picture = new PictureSettings
             {
                 DebugView = debugView,
-                Post = WithRendererItems(view.Effects.Post, content),
+                Post = WithRendererItems(LookLayer.Finish(view.Effects.Post, look), content),
                 Transition = view.Effects.Transition,
-                LensFlare = view.Lights.LensFlareSettings,
-                Paint = view.Effects.Look.Paint,
+                LensFlare = LookLayer.Flare(view.Lights.LensFlareSettings, look.Light),
+                Paint = LookLayer.Paint(view.Effects.Look.Paint, look),
+                Retro = look.Retro,
             },
-            Lights = Lights(view.Lights.Suns),
+            Lights = Lights(view.Lights.Suns, look.Light),
             Bones = _draws.Bones,
             Shadows = FrameShadows(view, aspect),
             ScreenSpace = new ScreenSpaceSettings
@@ -147,11 +149,12 @@ internal sealed class FrameMaker
     private FrameView WithSky(FrameView frame, View view, RenderEffects off)
     {
         var sky = view.Surroundings.SkySettings;
+        var light = view.Effects.Look.Style.Light;
         return frame with
         {
             Environment = new EnvironmentSettings
             {
-                Intensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,
+                Intensity = LookLayer.Sky(sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f, light),
                 Sky = ViewSky.FrameSky(view, off, _skyOf),
                 ShowAsBackground = sky is not null,
             },
@@ -165,11 +168,11 @@ internal sealed class FrameMaker
             },
             Weather = new WeatherSettings
             {
-                Fog = ViewSky.FrameFog(sky),
+                Fog = LookLayer.Fog(ViewSky.FrameFog(sky), light),
                 Water = view.Surroundings.WaterSettings,
                 Puddles = view.Surroundings.PuddleSettings,
                 Wind = view.Surroundings.WindSettings,
-                Clouds = FrameClouds(sky),
+                Clouds = LookLayer.Clouds(FrameClouds(sky), light),
             },
         };
     }
@@ -186,7 +189,7 @@ internal sealed class FrameMaker
     };
 
     /// <summary>The view's suns as the frame's lights, at most <see cref="MaxLights"/>, with one casting the shadows.</summary>
-    private ReadOnlySpan<DirectionalLight> Lights(ReadOnlySpan<Sun> suns)
+    private ReadOnlySpan<DirectionalLight> Lights(ReadOnlySpan<Sun> suns, in LookLight look)
     {
         int count = Math.Min(suns.Length, MaxLights);
         int shadowSun = ShadowSun(suns);
@@ -195,7 +198,7 @@ internal sealed class FrameMaker
             _lights[i] = new DirectionalLight
             {
                 Direction = suns[i].Direction,
-                Radiance = suns[i].Color,
+                Radiance = LookLayer.Sun(suns[i].Color, look),
                 CastsShadow = i == shadowSun,
                 Mode = suns[i].Mode,
             };

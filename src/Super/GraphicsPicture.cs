@@ -92,6 +92,13 @@ public sealed class GraphicsPicture
     /// </summary>
     public bool Paint { get; set; } = true;
 
+    /// <summary>
+    /// The big pixels, fewer shades and dots set with a <see cref="ArtLook"/>'s <see cref="ArtLook.Retro"/>. Off, the picture
+    /// keeps its own pixels and every shade. It is a few sums in the finish pass, so <see cref="Graphics.Fastest"/>
+    /// leaves it on.
+    /// </summary>
+    public bool Retro { get; set; } = true;
+
     /// <summary>Takes every setting from <paramref name="other"/>.</summary>
     internal void CopyFrom(GraphicsPicture other)
     {
@@ -109,5 +116,6 @@ public sealed class GraphicsPicture
         ScreenEffects = other.ScreenEffects;
         LensFlare = other.LensFlare;
         Paint = other.Paint;
+        Retro = other.Retro;
     }
 }

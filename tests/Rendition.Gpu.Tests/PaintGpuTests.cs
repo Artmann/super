@@ -265,39 +265,9 @@ public sealed class PaintGpuTests : IDisposable
         return between / (float)rows;
     }
 
-    // How many pixels in the band differ between two pictures by more than the dither's two steps in any channel.
-    private int Changed(byte[] a, byte[] b, float across, float until)
-    {
-        int changed = 0;
-        Band(across, until, (x, y) =>
-        {
-            int at = (y * _wide + x) * 4;
-            for (int channel = 0; channel < 3; channel++)
-            {
-                if (Math.Abs(a[at + channel] - b[at + channel]) > 2)
-                {
-                    changed++;
-                    return;
-                }
-            }
-        });
-        return changed;
-    }
+    private int Changed(byte[] a, byte[] b, float across, float until) => PictureBand.Changed(a, b, _wide, across, until);
 
-    private void Band(float across, float until, Action<int, int> each)
-    {
-        for (int y = _wide / 4; y < _wide * 3 / 4; y++)
-        {
-            for (int x = (int)(across * _wide); x < (int)(until * _wide); x++)
-            {
-                each(x, y);
-            }
-        }
-    }
+    private void Band(float across, float until, Action<int, int> each) => PictureBand.Each(_wide, across, until, each);
 
-    private float Shade(byte[] pixels, int x, int y)
-    {
-        int at = (y * _wide + x) * 4;
-        return (pixels[at] + pixels[at + 1] + pixels[at + 2]) / 3f;
-    }
+    private float Shade(byte[] pixels, int x, int y) => PictureBand.Shade(pixels, _wide, x, y);
 }

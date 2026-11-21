@@ -60,6 +60,7 @@ The current lighting shows in the bottom-left corner. The keys switch between:
 | 3 | Direct light only | No bake and no bounced light |
 | P | Light probes | Draws the live light probes over the scene, on and off; works in any lighting. Watch the cart's light move between chunks |
 | R | A new village | The next seed |
+| L | A new look | Steps through the [looks](../../docs/rendering.md#looks), easing into each over a second. `--look name` starts on one |
 
 Keys 1, 2 and 3 and their panel come from `examples/Shared/LightingSwitch.cs`, which the Gallery shares.
 P sets `Graphics.DebugView` to `DebugView.Probes` and back to `None`. `--script live` presses key 1 and `--script probes` presses P, so a screenshot shows live lighting or the probes. `--debug-view probes` on the

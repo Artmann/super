@@ -107,6 +107,7 @@ internal sealed unsafe class FrameUniformWriter(FrameParts parts, FrameBakes bak
         // A paper whose texture is gone, or never was, reads as none rather than a slot the table no longer fills.
         int canvas = post.Screen.Canvas is { } paper && parts.SceneStores.Resources.Textures.IsLive(paper.Index) ? paper.Index : -1;
         uniforms->ScreenBlock = PostGrade.Screen(post.Screen, canvas);
+        uniforms->ScreenBlock.ScreenRetro = view.Picture.Retro.Pack(off);
         (uniforms->GradeBlock.HazeOrigin, uniforms->GradeBlock.HazeColor) = Haze.Pack(view.CameraPosition, view.Background.FadeOrigin, view.Background.FadeColor);
         uniforms->Occlusion = Occlusion.Pack(view.ScreenSpace.Occlusion, view.ScreenSpace.Bounce, off, historyValid);
         (uniforms->OutlineBlock.Outline, uniforms->OutlineBlock.OutlineFade) = Outlines.Pack(view.ScreenSpace.Outlines, parts.FrameTargets.GBuffer.Extent.Width / (float)Math.Max(view.Width, 1));
