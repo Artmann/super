@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.1.0](https://github.com/Artmann/super/compare/v2.0.1...v2.1.0) (2026-11-21)
+
+
+### Features
+
+* bake the grade into a colour table, with artist LUTs ([bbf733f](https://github.com/Artmann/super/commit/bbf733f6922e671e0852ac7db1b5c6fbebabc775))
+* grass fields on terrain ([cb93c4b](https://github.com/Artmann/super/commit/cb93c4b461c903aaf66798e94bfab1e1dab1b537))
+* grass in tufts with varied colour, carried further at three details ([81fc060](https://github.com/Artmann/super/commit/81fc06049a2494817e5b4e7bc280c0efefdd61f5))
+* lens flare ([99d7b9f](https://github.com/Artmann/super/commit/99d7b9fe3c333cee9ccbb161cee8fe69ae812d14))
+* look presets with art style blending and retro pixels ([c431d3f](https://github.com/Artmann/super/commit/c431d3fae3d632fe22085218bcd93896b2431f42))
+* oil-paint look from an anisotropic Kuwahara filter ([467168b](https://github.com/Artmann/super/commit/467168bbd4aba7f0e545235eec5c7e2a2573db1a))
+* planar reflections ([32bfbd3](https://github.com/Artmann/super/commit/32bfbd30187eea13815079dd28b12fb931412207))
+* screen effects driven from play ([91555ec](https://github.com/Artmann/super/commit/91555ec2a2f3577b348a0bae651d69dd06bd64e0))
+* volumetric clouds with ground shadows and sky captures ([acfc0b8](https://github.com/Artmann/super/commit/acfc0b8aee2adb81ea79f6bc3646c0586ceba03a))
+
+
+### Bug Fixes
+
+* brighter pastel Candy, broader Painterly strokes, readable Horror and a warm faded VHS ([b42e1f6](https://github.com/Artmann/super/commit/b42e1f6721379be11ccc9facb27311c561e63160))
+* build Super.Materials in the engine's configuration so dotnet watch works on a game that builds Super in Release ([1298f30](https://github.com/Artmann/super/commit/1298f3049db89085f94f66bbd5ac44c93a00cb66)), closes [#175](https://github.com/Artmann/super/issues/175)
+* ease a look's paint and clouds in from what the game had ([eb58b10](https://github.com/Artmann/super/commit/eb58b10404301312873ddd8de147c03cae172bc6))
+* free an artist's colour table when its content unloads ([002a4f7](https://github.com/Artmann/super/commit/002a4f74cf3abd29ebb46d750becf76aa2e970bc))
+* group the lens settings so PostSettings stays small ([a8d1356](https://github.com/Artmann/super/commit/a8d13561801aec1c606a4548ee9740fd1b1cb376))
+* keep NaN tangents from zero-area triangles out of the lighting and AO history ([b00e051](https://github.com/Artmann/super/commit/b00e0517e41a66074f235cdc1a811021b725453e)), closes [#145](https://github.com/Artmann/super/issues/145)
+* march the clouds over their picture's own size and keep their targets once made ([78fad35](https://github.com/Artmann/super/commit/78fad359caed5691091a06eef4f85b64676ba18c))
+* mirror orthographic cameras with depth reaching the highest corner they see ([e4f8896](https://github.com/Artmann/super/commit/e4f8896a94bd5df9c853d377494f18ca9600d725))
+* name the struct the flare visibility shader must match ([3f7cdb8](https://github.com/Artmann/super/commit/3f7cdb86d1d2c4f0c725f21f2a1e9350bb5c2314))
+* share the G-buffer's foliage and motion marks between surfaces and grass ([fe109a6](https://github.com/Artmann/super/commit/fe109a676a78d1d9030b1054dcaa8b564f672c1f))
+
 ## [2.0.1](https://github.com/Artmann/super/compare/v2.0.0...v2.0.1) (2026-11-20)
 
 
