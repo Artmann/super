@@ -13,42 +13,51 @@ public static class Looks
     /// <summary>The game's own picture, unchanged.</summary>
     public static ArtLook Natural { get; } = new() { Name = "Natural" };
 
-    /// <summary>An oil painting in warm afternoon light: brush strokes, softer edges and gentle, rich colour.</summary>
+    /// <summary>An oil painting in warm afternoon light: broad, crisp brush strokes and gentle, rich colour.</summary>
     public static ArtLook Painterly { get; } = new()
     {
         Name = "Painterly",
         Finish = new PostSettings
         {
-            Saturation = 0.2f,
-            Contrast = 0.06f,
-            Temperature = 0.06f,
-            Sharpen = -0.4f,
-            Vignette = 0.1f,
+            Saturation = 0.25f,
+            Contrast = 0.12f,
+            Temperature = 0.18f,
+            Tint = 0.04f,
+            Sharpen = 0.3f,
+            Vignette = 0.15f,
+            Gain = new Vector3(0.04f, 0.02f, -0.03f),
+            Grade = new ColorGrade
+            {
+                SplitShadows = new Vector3(0.02f, 0f, 0.06f),
+                SplitHighlights = new Vector3(0.1f, 0.05f, 0f),
+            },
         },
-        Paint = new PaintSettings { Amount = 1f, BrushSize = 10f, Sharpness = 0.7f },
-        Light = new LookLight { SunWarmth = 0.3f },
+        Paint = new PaintSettings { Amount = 1f, BrushSize = 16f, Sharpness = 1f },
+        Light = new LookLight { SunWarmth = 0.45f },
     };
 
-    /// <summary>Sweet and bright: pastel colour, pink light, teal shade and a dreamy glow.</summary>
+    /// <summary>Sweet and bright: soft pastel colour, pink light, mint shade and a dreamy glow.</summary>
     public static ArtLook Candy { get; } = new()
     {
         Name = "Candy",
         Finish = new PostSettings
         {
-            Exposure = 0.25f,
-            Saturation = 0.35f,
-            Contrast = -0.12f,
-            Tint = 0.08f,
-            Bloom = 0.08f,
-            Lift = new Vector3(0.05f, 0.03f, 0.06f),
+            Exposure = 0.55f,
+            Saturation = 0.6f,
+            Contrast = -0.06f,
+            Tint = 0.1f,
+            Bloom = 0.12f,
+            Sharpen = -0.3f,
+            Lift = new Vector3(0.03f, 0.02f, 0.04f),
+            Gain = new Vector3(0.06f, 0.02f, 0.06f),
             Grade = new ColorGrade
             {
-                SplitShadows = new Vector3(0f, 0.06f, 0.1f),
-                SplitHighlights = new Vector3(0.15f, 0.03f, 0.1f),
+                SplitShadows = new Vector3(0.02f, 0.06f, 0.1f),
+                SplitHighlights = new Vector3(0.2f, 0.04f, 0.14f),
             },
             Vignette = -0.2f,
         },
-        Light = new LookLight { Sky = 0.3f },
+        Light = new LookLight { Sun = 0.2f },
     };
 
     /// <summary>The hour before sunset on film: a low orange sun, teal shade, a glowing flare and darker corners.</summary>
@@ -87,37 +96,41 @@ public static class Looks
         Light = new LookLight { Sun = 0.3f },
     };
 
-    /// <summary>Something is wrong here: a dark, sickly green, thick fog under heavy cloud, grain and a shaky lens.</summary>
+    /// <summary>Something is wrong here: dark and sickly green under heavy cloud and a low fog, grain and a shaky lens.</summary>
     public static ArtLook Horror { get; } = new()
     {
         Name = "Horror",
         Finish = new PostSettings
         {
-            Exposure = -0.25f,
-            Saturation = -0.6f,
-            Contrast = 0.15f,
-            Temperature = -0.15f,
-            Tint = -0.1f,
-            Lift = new Vector3(0f, 0.008f, 0.004f),
+            Exposure = -0.2f,
+            Saturation = -0.45f,
+            Contrast = 0.3f,
+            Temperature = -0.2f,
+            Tint = -0.15f,
+            Lift = new Vector3(0f, 0.012f, 0.006f),
             Grain = 0.05f,
-            Vignette = 0.45f,
+            Vignette = 0.55f,
+            Grade = new ColorGrade { SplitShadows = new Vector3(0f, 0.04f, 0.03f) },
             Screen = new ScreenEffects { ChromaticAberration = 0.15f },
         },
-        Light = new LookLight { Sun = -1.2f, Sky = -0.6f, Fog = 0.03f, Clouds = 0.6f, Flare = -10f },
+        Light = new LookLight { Sun = -1f, Sky = -0.8f, Fog = 0.012f, Clouds = 0.7f, Flare = -10f },
     };
 
-    /// <summary>A worn home video: colour fringes, soft big pixels, grey blacks and fewer shades.</summary>
+    /// <summary>A worn home video: colour bleeding at the edges, soft big pixels, noise, faded colour and a warm cast.</summary>
     public static ArtLook Vhs { get; } = new()
     {
         Name = "VHS",
         Finish = new PostSettings
         {
-            Contrast = -0.1f,
-            Temperature = -0.08f,
-            Tint = 0.08f,
-            Lift = new Vector3(0.05f, 0.04f, 0.06f),
-            Grain = 0.08f,
-            Sharpen = -0.4f,
+            Saturation = -0.25f,
+            Contrast = -0.12f,
+            Temperature = 0.12f,
+            Tint = 0.04f,
+            Lift = new Vector3(0.06f, 0.05f, 0.04f),
+            Grain = 0.12f,
+            Bloom = 0.06f,
+            Sharpen = -1f,
+            Vignette = 0.2f,
             Screen = new ScreenEffects { ChromaticAberration = 1f },
         },
         Retro = new RetroSettings { PixelSize = 3f, Levels = 40, Dither = 0.6f },
