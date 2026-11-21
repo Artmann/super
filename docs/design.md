@@ -1517,7 +1517,10 @@ buffers, sync objects and the uniform buffer.
 A skipped pass records nothing but still calls `GpuTimer.Mark`, since the timer's pass names
 are fixed. Where the GPU has `pipelineStatisticsQuery`, the frame's timer also counts the
 vertex, fragment and compute shaders each pass runs, with one pipeline statistics query a pass
-begun and ended at the marks. `Renderer.Stats.GpuWork` hands them out beside `GpuTimes`. A skipped
+begun and ended at the marks. A mark inside a render pass (`GpuTimer.Mark` with `insidePass`, round
+the grass's blades in the G-buffer pass) writes its timestamp but leaves the running count
+alone, since a query can't begin or end there, so the passes it ends count nothing of their own.
+`Renderer.Stats.GpuWork` hands them out beside `GpuTimes`. A skipped
 pass counts exactly zero, while a pass that still runs counts every shader, even those that
 return at once, so `EffectsOffGpuTests` checks each switch by its count, not its time. Every image a later pass binds must still be in a valid layout, so a skipped
 pass moves its output from `Undefined` to `ShaderReadOnlyOptimal` instead (the sun's shadow
@@ -3397,19 +3400,19 @@ its `GrassSettings` and an optional `GrassDensity` map. `GrassStage` owns everyt
 holds the buffers and the ground map, made the first frame with grass. Nothing about a blade is
 kept from frame to frame. Every blade comes from a hash of its point on a lattice fixed to the world, so each frame grows the same blades and they never crawl as the
 camera moves. The technique follows the usual GPU grass recipe (Ghost of Tsushima's talk is the
-best reference): a compute pass scatters blades per frame into a buffer, and one indirect draw
-draws them.
+best reference): a compute pass scatters blades per frame into a buffer, and indirect draws,
+one for each detail, draw them.
 
-Each frame has three steps, recorded between the sky and the shadow maps, under the "Grass"
-GPU timer:
+Each frame has three steps, recorded between the sky and the shadow maps, under the "Grass
+scatter" GPU timer:
 
 1. `Prepare`, on the CPU, checks every draw, gives each different look a kind (at most
    `GrassField.MaxKinds`, 8; a ninth throws), and plans the squares of the lattice the camera
    sees. `GrassField.Plan` walks the 4-metre squares inside the last ring, keeps the finest
    level each square's nearest point is inside, and culls each against the camera's five
    planes, taken as tall as the last ring round the camera's height and grown by 2 metres for
-   a blade's reach, since the ground's height isn't known on the CPU. At most 8,192 squares are
-   kept, row by row, and any past that are left bare.
+   a blade's reach, since the ground's height isn't known on the CPU. At most 16,384 squares are
+   kept (`GrassField.MaxTiles`), row by row, and any past that are left bare.
 2. The ground map. Each ground draw's mesh is drawn from straight above into a 1024² depth
    target and a 1024² RGBA8 target that cover the last ring plus a square, centred on the
    camera and snapped to whole texels so the heights don't shimmer as it moves. Depth is the
@@ -3421,34 +3424,65 @@ GPU timer:
    the finest lattice keeps a blade only if its level is at least the square's level: level L
    holds every 2^L-th point along both axes, so each ring keeps a quarter of the blades of the
    one inside it. A kept point is jittered within its own cell of its level, so a far blade
-   doesn't move when the finer ones fade in round it. It reads the ground's height bilinearly
-   and its info from the nearest texel, drops the point where any texel has no ground or the hash is above the density,
-   finds its clump as the nearest of the Voronoi middles scattered one per `ClumpSize` cell, and
-   takes its lean, height and shade from the clump's shared hash. Blades shrink away over the
-   last 30% of their ring (`GrassField.FadeShare`), and each level up doubles their width so the
-   far ground doesn't look bare. A last sphere test against the planes drops blades out of
-   view. Survivors are appended with an atomic on the indirect args, up to
-   `GrassStage.MaxBlades`, 2^18.
+   doesn't move when the finer ones fade in round it. It reads the ground's height and density
+   bilinearly, so the density's edges are slopes the blades' thresholds fray rather than steps a
+   texel wide, and its kind from the nearest texel, and drops the point where any texel has no
+   ground. The density is scaled by 0.75 to 1.2 by smooth noise six clumps across, so a field's
+   edge wanders. It finds its clump as the nearest of the Voronoi middles scattered one per
+   `ClumpSize` cell, and takes its lean, height and shade from the clump's shared hash.
+   `bladeStands` decides whether the blade grows: where the density is 0.8 or more each blade's
+   own hash is compared with it, and as the density falls toward 0.2 the comparison blends to
+   the blade's squared distance from its clump's middle (over `GRASS_CLUMP_DISC`, the disc a
+   clump covers), so thin grass keeps the blades near each clump's middle and grows in tufts,
+   with about the same share standing either way. A tuft's blades are tallest in its middle and
+   splay out from it. Blades shrink away over the last 30% of their ring
+   (`GrassField.FadeShare`), and widen by 2 to the power of the summed fades of the rings
+   they're past, so the width grows smoothly rather than stepping at each ring, but never past
+   half their height, which keeps a short, fading blade from lying as a wide flake that catches
+   the light. A last sphere test against the planes drops blades out of view.
 
-Each blade is 48 bytes: root and height, the way it faces with its width and bend, and its
-clump offset, shade and kind. `grass.glsl` turns a blade into seven points, two at each of three
-heights and the tip, drawn as five triangles from 15 vertices with no vertex buffer. The spine
+Survivors are sorted into three details by their distance across the ground: drawn in full
+inside `GrassField.FullDetailShare` (three quarters) of the first ring, with two rows to the
+second ring, and as one triangle past it (`GrassField.DetailDistances`, in the `details`
+uniform). Each detail has its own region of the blades buffer (`GrassField.DetailBlades`:
+32,768, 131,072 and 131,072, starting at `DetailStart`, in the `regions` uniform) and its own
+16 bytes of indirect args, and a blade is appended with an atomic on its detail's count; past
+the region's room the add is undone and the blade dropped. `GrassStage.RecordBlades` makes one
+indirect draw a detail, passing the detail in the push constants so `grass.vert` reads its
+region and its vertex count.
+
+Each blade is 48 bytes: root and height, the way it faces with its width and bend, the way out
+from its clump's middle, its tint and its kind. The tint is `packUnorm4x8` of its brightness
+(from the clump, the blade and the patch noise), its yellowing (from noise three clumps across
+and the clump), its dryness (from thin grass) and the density round it. `grass.glsl` turns a
+blade in full into seven points, two at each of three rows and the tip, drawn as five triangles
+from 15 vertices with no vertex buffer; with two rows it is five points and three triangles
+from 9 vertices, and with one, a single triangle (`grassRows`). The spine
 is a quadratic curve from the root, up, to a tip bent over by `Bend` and swayed by the same
 wind noise `wind.glsl` gives meshes, kept to the blade's length so the wind bends rather than
-stretches it. Seen edge on, the ribbon turns a little toward the camera so it never thins to
-nothing, and its normal is rounded across it and leans out from the clump's middle, so a clump
-shades as one tuft. `grass.vert` works out the blade at this frame's time and at last frame's
-for the motion vectors, so anti-aliasing keeps swaying grass steady.
+stretches it. Seen edge on, the ribbon turns toward the camera and widens by up to 30% so it
+never thins to nothing, and further off it turns fully, as a far blade stands for the ground
+round it. Its normal is rounded across it and leans out from the clump's middle, so a clump
+shades as one tuft, and further off it leans further up, so far blades shade like a lawn rather
+than glinting one by one. `grass.vert` works out the blade at this frame's time and at last
+frame's for the motion vectors, so anti-aliasing keeps swaying grass steady.
 
 `grass.frag` writes the G-buffer as surfaces do: the colour runs from `BaseColor` at the root to
-`TipColor` at the tip, varied by the blade's shade, the root is darkened where the blades round
-it shade it, and the translucency goes negated into the clearcoat channel through the same
+`TipColor` at the tip, yellowed, faded toward straw by dryness and scaled by brightness from
+the tint, with the top quarter brightened. The root's colour is darkened by up to
+`GRASS_ROOT_DARK` and its occlusion lowered where the blades round it stand thick. The
+translucency goes negated into the clearcoat channel through the same
 `foliageChannel` foliage uses, from `gbuffer_marks.glsl`,
-so the lighting lets a low sun behind the grass shine through it. The blades draw two-sided,
-after the G-buffer's own draws, so the ground is already in the depth buffer. `grass_shadow.vert`
-draws the same blades, from the same indirect args, into the sun's cascades 0 and 1 only; further
-cascades see the ground alone. Only blades in the camera's view were scattered, so a blade just
-off screen casts no shadow.
+so the lighting lets a low sun behind the grass shine through it. For foliage, `lighting.frag`
+adds a forward-scattering term to that, `FOLIAGE_SCATTER` times the view's alignment with the
+sun to the power `FOLIAGE_SCATTER_POWER`, so leaves and blades seen against a low sun glow
+most. The blades draw two-sided, inside the G-buffer pass after its own draws, so the ground is
+already in the depth buffer; marks inside the pass (`insidePass`) before and after them time them as
+"Grass blades". After the sun's cascades are drawn, `SunShadows.Finish` draws the blades of the
+two nearer details over cascades 0 and 1 (`GrassStage.ShadowDetails` and `ShadowCascades`),
+loading what the casters left, timed as "Grass shadows". Further cascades and the one-triangle
+blades cast none, as their shadows would be under a texel. Only blades in the camera's view
+were scattered, so a blade just off screen casts no shadow.
 
 The descriptor set holds the uniforms, the planned squares, the blades, the indirect args and
 the two ground maps, written through `Descriptors`. The buffers and maps are made the first
@@ -3458,8 +3492,8 @@ barrier after last frame's draws before resetting the args.
 
 `RenderEffects.Grass` off, or no grass in the frame, leaves `Active` false and every step and
 draw returns at once, so a frame without grass costs nothing. `RenderSettings.GrassDetail`, from
-`MinGrassDetail` 0.25 to `MaxGrassDetail` 2, scales `GrassField.BaseRadii` (16, 32, 64 and 120
-metres). On the Super side, a `Grass` component reaches the view through `WorldFrame` as
+`MinGrassDetail` 0.25 to `MaxGrassDetail` 2, scales `GrassField.BaseRadii` (16, 36, 80 and 160
+metres) and with them the detail distances. On the Super side, a `Grass` component reaches the view through `WorldFrame` as
 `ModelOptions.Grass`, `DressedDraws` makes a `GrassDraw` for each shown part of the model, with
 its `GrassMap`'s texture looked up on the GPU, and `FrameMaker` leaves them out when the switch is
 off. The frame's buffers are reused, so grass allocates nothing per frame.

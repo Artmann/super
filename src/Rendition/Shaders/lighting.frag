@@ -150,7 +150,12 @@ struct Surface {
     float clearcoat;
     float translucency;
     vec3 transmissionTint;
+    float scatter; // for foliage, its translucency: thin blades and leaves glow most looking toward the light
 };
+
+// How tightly the glow of foliage seen against the light gathers round the light, and how bright it is at most.
+const float FOLIAGE_SCATTER_POWER = 6.0;
+const float FOLIAGE_SCATTER = 0.6;
 
 // The light a surface sends to the eye from a light arriving along l, for each unit of
 // the light's brightness, kept as diffuse and specular so subsurface materials can blur
@@ -162,8 +167,10 @@ bool shade(Surface s, vec3 l, out vec3 diffuseLit, out vec3 specularLit) {
     float facing = dot(s.n, l);
     float nDotL = max(facing, 0.0);
 
-    // Leaves lit from behind glow with their own colour.
+    // Leaves lit from behind glow with their own colour, and foliage the more so the nearer the light is behind it, as
+    // light through a thin blade mostly keeps going the way it was.
     float transmitted = s.translucency * max(-facing, 0.0);
+    transmitted += s.scatter * FOLIAGE_SCATTER * pow(max(dot(-s.v, l), 0.0), FOLIAGE_SCATTER_POWER);
     if (nDotL == 0.0 && transmitted == 0.0) {
         return false;
     }
@@ -820,7 +827,8 @@ void main() {
     }
 
     // Subsurface materials keep the diffuse light of every light apart, for the blur.
-    Surface surface = Surface(n, v, nDotV, alpha, f0, multiscatter, baseColor, metallic, clearcoat, translucency, transmissionTint);
+    Surface surface = Surface(n, v, nDotV, alpha, f0, multiscatter, baseColor, metallic, clearcoat, translucency, transmissionTint,
+        foliage ? translucency : 0.0);
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
         vec3 diffuseLit;

@@ -101,11 +101,14 @@ clouds cost about a tenth of a High frame, and the flat layer on Low and Medium 
 twentieth of a Medium frame. Turn off `Graphics.Atmosphere.VolumetricClouds` to fall back to the
 flat layer, or `Clouds` to drop them.
 
-"Grass" is the time spent growing the [grass](rendering.md#grass)'s blades for the frame, under
-a tenth of a millisecond. The blades themselves are drawn in "G-buffer" and "Shadows", and
-lighting their pixels shows in "Lighting": in the Terrain example at 1920 by 1080, grass adds
-about 1.2 ms a frame in all. Lower `Graphics.Drawing.GrassDetail` to draw fewer, or turn
-`Graphics.Surfaces.Grass` off.
+[Grass](rendering.md#grass) has three lines. "Grass scatter" is the time spent growing the
+frame's blades, "Grass shadows" drawing them into the sun's two nearest cascades, and "Grass
+blades" drawing them into the G-buffer, after its own draws and before "Decals". Lighting their
+pixels shows in "Lighting". In the Terrain example at 1920 by 1080 from low over the valley, they
+take about 0.11, 0.04 and 0.18 ms. Lower `Graphics.Drawing.GrassDetail` to draw fewer, or turn
+`Graphics.Surfaces.Grass` off. The marks either side of "Grass blades" fall inside the
+G-buffer's render pass, where a shader count can't begin or end, so the shaders "Grass blades"
+and "Decals" run are counted under "G-buffer" and they count none of their own.
 
 ## Hitches
 

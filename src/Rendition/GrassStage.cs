@@ -47,10 +47,17 @@ internal struct GrassUniforms
     public Vector4 Heights;
     public Vector4 Rings;
     public Vector4 Camera;
+    public Vector4 Details;
     public int Tiles;
-    public int MaxBlades;
     private readonly int _unused0;
     private readonly int _unused1;
+    private readonly int _unused2;
+
+    /// <summary>Where each detail's blades start in the buffer, and in the last, the blades it holds in all.</summary>
+    public int FirstRegion;
+    public int SecondRegion;
+    public int ThirdRegion;
+    public int AllBlades;
     public GrassKinds Kinds;
 }
 
@@ -62,13 +69,18 @@ internal struct GrassConstants
     public int DensityMap;
     public int DensityChannel;
     public int Kind;
-    private readonly int _unused;
+
+    /// <summary>The detail a draw of the blades draws them at, as GrassField.Details counts them.</summary>
+    public int Detail;
 
     /// <summary>The density map's corners in the ground's own x and z: Min in xy, Max in zw.</summary>
     public Vector4 DensityArea;
 
-    /// <summary>The constants for a shadow draw into <paramref name="cascade"/>.</summary>
-    public static GrassConstants Shadow(int cascade) => new() { DensityMap = cascade };
+    /// <summary>The constants for a draw of the blades at <paramref name="detail"/>.</summary>
+    public static GrassConstants Blades(int detail) => new() { Detail = detail };
+
+    /// <summary>The constants for a shadow draw of the blades at <paramref name="detail"/> into <paramref name="cascade"/>.</summary>
+    public static GrassConstants Shadow(int cascade, int detail) => new() { DensityMap = cascade, Detail = detail };
 }
 
 /// <summary>
@@ -77,15 +89,21 @@ internal struct GrassConstants
 /// that stand are drawn into the G-buffer and the sun's nearest two cascades from one indirect draw. See "Grass" in
 /// docs/design.md.
 /// </summary>
-internal sealed unsafe class GrassStage(VulkanContext context, SceneStores stores) : IDisposable
+internal sealed unsafe class GrassStage(VulkanContext context, SceneStores stores, GpuTimer timer) : IDisposable
 {
-    /// <summary>The most blades a frame draws. Past it, the scatter keeps the first it finds.</summary>
-    public const int MaxBlades = 1 << 18;
-
     /// <summary>The sun's cascades the blades are drawn into: the nearest, where their shadows show.</summary>
     public const int ShadowCascades = 2;
 
-    private const uint BladeVertices = 15;
+    /// <summary>
+    /// The details whose blades cast shadows: the nearer ones. Further blades are too small in the cascades they fall
+    /// in to shade anything the ground's own shadow doesn't.
+    /// </summary>
+    public const int ShadowDetails = 2;
+
+    /// <summary>The indirect draws' arguments: four words for each detail.</summary>
+    public const int ArgsSize = GrassField.Details * ArgsStride;
+
+    private const int ArgsStride = 16;
 
     private readonly GrassPipelines _pipelines = new(context, stores);
     private readonly GrassPlan _plan = new(stores.Meshes, stores.Resources);
@@ -143,8 +161,13 @@ internal sealed unsafe class GrassStage(VulkanContext context, SceneStores store
             (PipelineStageFlags2.DrawIndirectBit | PipelineStageFlags2.VertexShaderBit | PipelineStageFlags2.ComputeShaderBit,
                 AccessFlags2.IndirectCommandReadBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit),
             (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit));
-        var reset = stackalloc uint[] { BladeVertices, 0, 0, 0 };
-        api.CmdUpdateBuffer(cmd, _targets!.Args.Handle, 0, 16, reset);
+        var reset = stackalloc uint[GrassField.Details * 4];
+        for (int i = 0; i < GrassField.Details; i++)
+        {
+            reset[4 * i] = (uint)GrassField.DetailVertices[i];
+        }
+
+        api.CmdUpdateBuffer(cmd, _targets!.Args.Handle, 0, ArgsSize, reset);
 
         RecordGround(cmd, frameSet);
 
@@ -231,20 +254,30 @@ internal sealed unsafe class GrassStage(VulkanContext context, SceneStores store
         api.CmdDrawIndexed(cmd, count, 1, draw.Ground.FirstIndex, 0, 0);
     }
 
-    /// <summary>Draws the scattered blades inside the G-buffer pass, after its draws.</summary>
+    /// <summary>
+    /// Draws the scattered blades inside the G-buffer pass, after its draws. Marks the timer before and after, with
+    /// grass or without, so the G-buffer's draws and the blades are each timed as a pass.
+    /// </summary>
     public void RecordBlades(CommandBuffer cmd, DescriptorSet frameSet)
     {
-        if (!Active)
+        timer.Mark(cmd, insidePass: true);
+        if (Active)
         {
-            return;
+            context.Api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipelines.Blades);
+            _pipelines.Bind(cmd, frameSet, PipelineBindPoint.Graphics, stores.Ring.Index);
+            for (int detail = 0; detail < GrassField.Details; detail++)
+            {
+                _pipelines.Push(cmd, GrassConstants.Blades(detail));
+                context.Api.CmdDrawIndirect(cmd, _targets!.Args.Handle, (ulong)(detail * ArgsStride), 1, ArgsStride);
+            }
         }
 
-        context.Api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipelines.Blades);
-        _pipelines.Bind(cmd, frameSet, PipelineBindPoint.Graphics, stores.Ring.Index);
-        context.Api.CmdDrawIndirect(cmd, _targets!.Args.Handle, 0, 1, 16);
+        timer.Mark(cmd, insidePass: true);
     }
 
-    /// <summary>Draws the scattered blades into a cascade of the sun's map, inside its pass, for the nearest cascades only.</summary>
+    /// <summary>
+    /// Draws the nearer details' blades into a cascade of the sun's map, inside its pass, for the nearest cascades only.
+    /// </summary>
     public void RecordShadow(CommandBuffer cmd, DescriptorSet frameSet, int cascade)
     {
         if (!Active || cascade < 0 || cascade >= ShadowCascades)
@@ -254,8 +287,11 @@ internal sealed unsafe class GrassStage(VulkanContext context, SceneStores store
 
         context.Api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipelines.Shadow);
         _pipelines.Bind(cmd, frameSet, PipelineBindPoint.Graphics, stores.Ring.Index);
-        _pipelines.Push(cmd, GrassConstants.Shadow(cascade));
-        context.Api.CmdDrawIndirect(cmd, _targets!.Args.Handle, 0, 1, 16);
+        for (int detail = 0; detail < ShadowDetails; detail++)
+        {
+            _pipelines.Push(cmd, GrassConstants.Shadow(cascade, detail));
+            context.Api.CmdDrawIndirect(cmd, _targets!.Args.Handle, (ulong)(detail * ArgsStride), 1, ArgsStride);
+        }
     }
 
     public void Dispose()
