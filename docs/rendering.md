@@ -1299,8 +1299,12 @@ the strip starts from the picture without it. Colours past white, before the scr
 them, pass by the table unchanged. The vignette, the grain and the sharpening come after it.
 
 `Graphics.Picture.ColorLut` turns the table off. With Rendition alone, upload one with
-`renderer.CreateColorLut(data)`, from `ColorLutData.Read` of a cooked table or
+`renderer.Luts.Create(data)`, from `ColorLutData.Read` of a cooked table or
 `ColorLutData.From(size, colour => ...)`, and pass the handle in `PostSettings.Grade.Lut`.
+
+A table stays until it is let go: `content.Unload(lut)` in a game, or `renderer.Luts.Destroy(lut)`
+with Rendition alone. Its image is freed once the frames that read it are done, the next table
+made takes its slot, and a picture that still names it afterwards throws.
 
 ### Auto exposure
 

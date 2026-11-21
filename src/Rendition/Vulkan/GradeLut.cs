@@ -19,7 +19,7 @@ internal sealed unsafe class GradeLut : IDisposable
     // Must match local_size in grade_lut.comp.
     private const uint GroupSize = 4;
 
-    /// <summary>The artists' tables <see cref="Renderer.CreateColorLut"/> made, and the neutral one.</summary>
+    /// <summary>The artists' tables <see cref="RendererLuts.Create"/> made, and the neutral one.</summary>
     public readonly ColorLuts Luts;
 
     /// <summary>The table for the tonemap, as one sampled 3D texture at binding 0 of a one-texture set.</summary>
@@ -97,6 +97,16 @@ internal sealed unsafe class GradeLut : IDisposable
             Pipeline = (ulong)_bake.Handle.Handle,
         };
         _slot = slot;
+    }
+
+    /// <summary>
+    /// Destroys an artist's table through <see cref="ColorLuts.Destroy"/> and forgets the last bake, so a table made
+    /// later whose view has the same handle still bakes.
+    /// </summary>
+    public void DestroyLut(ColorLut lut, RetiredSlot retired)
+    {
+        Luts.Destroy(lut, retired);
+        _baked = default;
     }
 
     /// <summary>

@@ -3934,8 +3934,10 @@ through it: the part of the colour past either end is added back after, so a neu
 back what came in, which the GPU test checks within a step. Without a table, or at a blend of 0,
 `Without` drops it and the bake reads a 2-cell neutral one, so the descriptor is never empty.
 Each bake points its frame slot's set at the table it reads, which is free to change since that
-slot's last frame is done. `ColorLuts` keeps the tables and the neutral one, and they live until
-the renderer is disposed, and `Renderer.CreateColorLut` waits for the upload,
+slot's last frame is done. `ColorLuts` keeps the tables and the neutral one. `Destroy` hands a
+table's volume to the retired slot of the last frame submitted, as other resources go, and puts
+its index on a free list the next `Create` takes from; the grade forgets its last bake then, so a
+new table whose view reuses the old handle still bakes. `RendererLuts.Create` waits for the upload,
 so a Super game makes them while content loads. Super cooks `.cube` files and `.lut.png` strips
 with `LutCooker` into `ColorLutData`'s own little format, `RLUT` and a version before the halves.
 

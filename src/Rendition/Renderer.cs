@@ -21,6 +21,7 @@ public sealed class Renderer : IDisposable
         targets.WriteDescriptors();
 
         (Baking, Assets) = AssetsAndBakes.Make(FrameParts);
+        Luts = new RendererLuts(stages.PostStage.Grade, stores.Retired);
         FrameDrawer = new FrameDrawer(FrameParts, Baking, Stats);
         Reflections = new RendererReflections(
             (lights.ReflectionProbes, lights.FrameReflectionCapture), (lights.EnvironmentSky, lights.LightProbes, Baking.Frame), () =>
@@ -62,6 +63,9 @@ public sealed class Renderer : IDisposable
     /// What the renderer draws with: meshes, models, textures, materials, surface shaders and the overlay's atlas.
     /// </summary>
     public RendererAssets Assets { get; }
+
+    /// <summary>The artists' colour tables, for <see cref="ColorGrade.Lut"/>.</summary>
+    public RendererLuts Luts { get; }
 
     /// <summary>
     /// Baked lighting: where bakes are looked up, how they fade in, what the last frame's baked areas came to, the
@@ -111,12 +115,6 @@ public sealed class Renderer : IDisposable
     /// for the upload and stays until the renderer is disposed. See "A photographed sky" in docs/rendering.md.
     /// </summary>
     public SkyImageHandle CreateSkyImage(SkyImageData data) => FrameParts.SceneLighting.EnvironmentSky.Create(data);
-
-    /// <summary>
-    /// Uploads an artist's colour table, cooked from a .cube file or a PNG strip, for <see cref="ColorGrade.Lut"/>. It
-    /// waits for the upload and stays until the renderer is disposed. See "A colour table" in docs/rendering.md.
-    /// </summary>
-    public ColorLut CreateColorLut(ColorLutData data) => FrameParts.FrameStages.PostStage.Grade.Luts.Create(data);
 
     public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws) => FrameDrawer.Render(view, draws);
 

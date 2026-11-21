@@ -6,7 +6,7 @@ namespace Rendition;
 /// <summary>
 /// An artist's colour table, cooked from a .cube file or a PNG strip: a cube of <see cref="Size"/> cells a side, each the
 /// colour the cell's own sRGB-encoded colour turns into. Red runs across, green down and blue deep, as .cube files
-/// list them. Upload it with <see cref="Renderer.CreateColorLut"/>. See "A colour table" in docs/rendering.md.
+/// list them. Upload it with <see cref="RendererLuts.Create"/>. See "A colour table" in docs/rendering.md.
 /// </summary>
 public sealed class ColorLutData
 {
