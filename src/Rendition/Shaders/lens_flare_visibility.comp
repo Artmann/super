@@ -15,7 +15,7 @@ layout(set = 0, binding = 0) buffer Visibility
 
 layout(set = 0, binding = 1) uniform sampler2D depthTexture;
 
-// Must match VisibilityConstants in LensFlarePass.cs.
+// Must match Constants in Passes/LensFlareVisibility.cs.
 layout(push_constant) uniform Constants
 {
     // xy where the light is, as a fraction of the screen; z the depth something must lie beyond to leave it seen, 0
