@@ -1204,7 +1204,7 @@ back to where it was, with x to the right and y down the picture, as texture coo
 run. Last frame's point is at `uv + motion / sceneSize`, so something moving right one
 pixel a frame writes (-1, 0). Sky, where no draw writes, is cleared to (0, 0) and has a
 depth of 0, so a reader works out the camera's motion there itself. A vertex that was
-behind last frame's camera writes -60,000 (`MOTION_OFF_PICTURE` in `surface.glsl`), which
+behind last frame's camera writes -60,000 (`MOTION_OFF_PICTURE` in `gbuffer_marks.glsl`), which
 reads as off the picture. An upscaler such as FSR that wants camera motion in the sky has
 to add it, since the target only holds what the draws wrote.
 
@@ -1295,7 +1295,7 @@ model's normals, for ivy and grass whose leaves aren't one shape), draws both si
 their normal. The lighting pass then lets sunlight through the leaves from behind, by the
 material's own translucency. That rides in `GpuMaterial.Transmission` (`GpuMaterials.Transmission` picks it), which subsurface
 uses for its own and foliage can share since the two exclude each other, and `writeSurface`
-writes it negated into the clearcoat channel (`foliageChannel`, never above `-1/1024` so 0
+writes it negated into the clearcoat channel (`foliageChannel` in `gbuffer_marks.glsl`, never above `-1/1024` so 0
 still reads as foliage). The lighting pass reads the size of a negative channel back as the
 translucency.
 
@@ -3360,7 +3360,8 @@ for the motion vectors, so anti-aliasing keeps swaying grass steady.
 
 `grass.frag` writes the G-buffer as surfaces do: the colour runs from `BaseColor` at the root to
 `TipColor` at the tip, varied by the blade's shade, the root is darkened where the blades round
-it shade it, and the translucency goes negated into the clearcoat channel, as foliage's does,
+it shade it, and the translucency goes negated into the clearcoat channel through the same
+`foliageChannel` foliage uses, from `gbuffer_marks.glsl`,
 so the lighting lets a low sun behind the grass shine through it. The blades draw two-sided,
 after the G-buffer's own draws, so the ground is already in the depth buffer. `grass_shadow.vert`
 draws the same blades, from the same indirect args, into the sun's cascades 0 and 1 only; further
