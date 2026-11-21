@@ -1486,12 +1486,11 @@ With Rendition alone, set `PictureSettings.Paint` on the frame's `Picture`, and 
 The strokes are worked out at half size, so a thin dark line against the sky, such as a far
 skyline, can show small steps along it. Nothing carries the strokes from one frame to the next, so
 where the picture is busy and moving they can shimmer. The
-[Terrain](../examples/Terrain) example paints its far hills, from 40 to 150 metres. Without and
-with that, then the road near the camera with the whole picture painted:
+[Terrain](../examples/Terrain) example paints its far hills, from 40 to 150 metres. Courtyard's
+ivy, bricks and barrel without and with the whole picture painted at an amount of 1 and the
+default brush:
 
-![Terrain's far hills without and with paint from 40 to 150 metres, labelled](media/paint-far-hills.webp)
-
-![Terrain's road without and with the whole picture painted, labelled](media/paint-whole.webp)
+![Courtyard's ivy-covered brick wall without and with the whole picture painted, labelled](media/paint-courtyard.webp)
 
 ### Auto exposure
 
