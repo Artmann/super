@@ -47,6 +47,9 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     /// </summary>
     public ImageView Background => _prefilter.Background;
 
+    /// <summary>The physical sky's sky-view table, in the shader-read layout, which the clouds take their sky light from.</summary>
+    public ImageView SkyView => _uniforms.SkyView;
+
     /// <summary>
     /// What Graphics.Lighting.EnvironmentLight off gives every side; see <see cref="EnvironmentFlat"/>. After a
     /// <see cref="Record"/> that was waited for it is exact; after a recorded update it is the last one the GPU has finished, and its reflection half can trail
@@ -57,7 +60,8 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     /// <summary>True while the rough reflection levels still show an earlier sky than the sharp ones.</summary>
     public bool Unfinished => _prefilter.Unfinished;
 
-    public EnvironmentMap(VulkanContext context)
+    /// <param name="weather">The clouds' weather map and the repeating sampler it is read with, for the clouds the captures draw.</param>
+    public EnvironmentMap(VulkanContext context, (Sampler Repeat, ImageView View) weather)
     {
         _context = context;
         _cubes = (
@@ -80,7 +84,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         };
         context.Api.CreateSampler(context.Device, &samplerInfo, null, out Sampler).Check();
         _uniforms = new EnvironmentUniforms(context, Sampler);
-        _prefilter = new EnvironmentPrefilter(context, _uniforms, Sampler, _cubes);
+        _prefilter = new EnvironmentPrefilter(context, _uniforms, Sampler, _cubes, weather);
     }
 
     /// <summary>The cube level a test reads back.</summary>

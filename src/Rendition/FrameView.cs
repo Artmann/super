@@ -185,6 +185,13 @@ public struct WeatherSettings
     /// The wind that sways materials with <see cref="Material.Wind"/>, and their shadows. Null keeps everything still.
     /// </summary>
     public WindSettings? Wind;
+
+    /// <summary>
+    /// The clouds in a physical sky, which the wind in <see cref="CloudSettings.Wind"/> carries over
+    /// <see cref="FrameView.Time"/>. Null, or <see cref="CloudSettings.Clear"/>, leaves the sky clear. A sky without
+    /// a turbidity has none. See "Clouds" in docs/rendering.md.
+    /// </summary>
+    public CloudSettings? Clouds;
 }
 
 /// <summary>The finished picture, for <see cref="FrameView.Picture"/>.</summary>

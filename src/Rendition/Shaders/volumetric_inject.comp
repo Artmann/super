@@ -85,7 +85,7 @@ vec3 lightInAir(vec3 ambient, vec3 position, vec2 uv, float depth, vec3 towards,
     vec3 light = ambient;
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
-        float shadow = frame.lights[i].direction.w > 0.5 ? sunShadowInAir(position) : 1.0;
+        float shadow = (frame.lights[i].direction.w > 0.5 ? sunShadowInAir(position) : 1.0) * cloudShadowAt(position, i);
         light += frame.lights[i].radiance.rgb * shadow * volumetricPhase(dot(towards, l), g);
     }
 
@@ -126,7 +126,7 @@ vec3 waterInScatter(vec3 position, vec3 towards) {
 
     vec3 l = frame.lights[0].direction.xyz;
     float pattern = causticAt(position, l, frame.waterLight.y * SHAFT_PATTERN_SCALE);
-    float shadow = frame.lights[0].direction.w > 0.5 ? sunShadowInAir(position) : 1.0;
+    float shadow = (frame.lights[0].direction.w > 0.5 ? sunShadowInAir(position) : 1.0) * cloudShadowAt(position, 0);
     float towardsSun = 0.5 + 0.5 * dot(towards, l);
     vec3 down = waterAbsorbed(metresToSurface(position, l));
     return light + frame.waterDeep.a * pattern * shadow * towardsSun * down * frame.waterShallow.rgb;

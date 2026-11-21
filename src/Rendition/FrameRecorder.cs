@@ -155,6 +155,10 @@ internal sealed unsafe class FrameRecorder(
 
         timer.Mark(cmd);
 
+        // The clouds need the sky's tables, and the fog and the lighting pass their shadow map and picture.
+        lights.CloudStage.Record(cmd, frameSet);
+        timer.Mark(cmd);
+
         // The fog's air needs the shadow maps and the light lists, and the lighting pass needs the fog.
         lights.FogStage.Record(cmd, frameSet);
 

@@ -162,7 +162,7 @@ public sealed class RendererBaking
         _context.WaitIdle();
         Background.DropAll();
         _uploads.Flush();
-        _sky.Follow(view);
+        _sky.Follow(view, view.Off);
         _sky.Flush();
     }
 }

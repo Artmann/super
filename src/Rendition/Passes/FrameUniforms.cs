@@ -65,14 +65,7 @@ internal struct FrameUniforms
     public FrameWaterBlock WaterBlock;
     public FrameShadowBlock ShadowBlock;
 
-    /// <summary>
-    /// How the view's depth is cut into the clusters' slices. x, y: the nearest and furthest
-    /// depth any light reaches; z: 1 when the view is parallel, so the slices are even.
-    /// </summary>
-    public Vector4 Clusters;
-
-    /// <summary>x, y: the size of the render targets in pixels.</summary>
-    public Vector4 Screen;
+    public FrameClusterBlock ClusterBlock;
 
     /// <summary>x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1.</summary>
     public Vector4 Occlusion;
@@ -88,6 +81,7 @@ internal struct FrameUniforms
     public GpuLightArray Lights;
     public FrameSunBlock SunBlock;
     public FrameScreenBlock ScreenBlock;
+    public FrameCloudBlock CloudBlock;
 }
 
 /// <summary>One point or spot light as the shaders read it. Must match LocalLight in Shaders/light_data.glsl.</summary>

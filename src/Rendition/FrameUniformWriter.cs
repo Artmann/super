@@ -57,6 +57,8 @@ internal sealed unsafe class FrameUniformWriter(FrameParts parts, FrameBakes bak
         ProbeUniforms.WriteBaked(uniforms, bakes, BakedProbeBand);
         WriteSky(uniforms, view);
         lights.FogStage.WriteWater(uniforms, view);
+        var air = uniforms->AirBlock.AirExtinction;
+        lights.CloudStage.Write(uniforms, view, camera.Previous, historyValid, new Vector3(air.X, air.Y, air.Z));
 
         uniforms->CountBlock.Time = view.Time;
         uniforms->CountBlock.PreviousTime = historyValid ? cameras.PreviousTime : view.Time;

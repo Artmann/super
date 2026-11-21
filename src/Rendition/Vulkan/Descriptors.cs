@@ -102,23 +102,26 @@ internal static unsafe class Descriptors
     }
 
     /// <summary>
-    /// Makes a set of a storage buffer at binding 0, which compute and <paramref name="bufferStages"/> read, and a sampled
-    /// image at binding 1, which compute reads, with a pool of its own, and writes <paramref name="buffer"/> into it. The
-    /// image is left for the pass to write. A compute pass that keeps its state in a buffer, such as the exposure meter,
-    /// uses it.
+    /// Makes a set of a storage buffer at binding 0, which compute and <paramref name="bufferStages"/> read, and
+    /// <paramref name="images"/> sampled images from binding 1 on, which compute reads, with a pool of its own, and
+    /// writes <paramref name="buffer"/> into it. The images are left for the pass to write. A compute pass that keeps its
+    /// state in a buffer, such as the exposure meter, uses it.
     /// </summary>
     public static (DescriptorSetLayout Layout, DescriptorPool Pool, DescriptorSet Set) CreateStateSet(
-        this VulkanContext context, ShaderStageFlags bufferStages, DescriptorBufferInfo buffer)
+        this VulkanContext context, ShaderStageFlags bufferStages, DescriptorBufferInfo buffer, int images = 1)
     {
-        var layout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit | bufferStages),
-            new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-        ]);
+        var bindings = new DescriptorSetLayoutBinding[1 + images];
+        bindings[0] = new(0, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit | bufferStages);
+        for (int i = 1; i <= images; i++)
+        {
+            bindings[i] = new((uint)i, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit);
+        }
+
+        var layout = context.CreateSetLayout(bindings);
         var pool = context.CreateDescriptorPool(
             1,
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 1),
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 1));
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, (uint)images));
         var set = context.AllocateSet(pool, layout);
         var write = BufferWrite(set, 0, &buffer);
         context.Api.UpdateDescriptorSets(context.Device, 1, &write, 0, null);

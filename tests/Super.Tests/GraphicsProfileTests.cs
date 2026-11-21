@@ -40,6 +40,9 @@ public class GraphicsProfileTests
             Stars = false,
             Underwater = false,
             FogVolumes = false,
+            Clouds = false,
+            VolumetricClouds = false,
+            CloudShadows = false,
         },
         Surfaces =
         {
@@ -93,7 +96,7 @@ public class GraphicsProfileTests
         var defaults = new Graphics();
         var unusual = Unusual();
 
-        Assert.Equal(62, Settings().Length);
+        Assert.Equal(65, Settings().Length);
         Assert.All(Settings(), setting => Assert.NotEqual(Value(defaults, setting), Value(unusual, setting)));
     }
 
@@ -322,6 +325,20 @@ public class GraphicsProfileTests
         Assert.True(off.HasFlag(RenderEffects.Reflections));
         Assert.True(off.HasFlag(RenderEffects.AmbientOcclusion));
         Assert.True(off.HasFlag(RenderEffects.HeightMaps));
+    }
+
+    [Theory]
+    [InlineData(GraphicsQuality.Low, false)]
+    [InlineData(GraphicsQuality.Medium, false)]
+    [InlineData(GraphicsQuality.High, true)]
+    [InlineData(GraphicsQuality.Ultra, true)]
+    public void Every_quality_keeps_the_clouds_and_their_shadows_and_only_high_and_ultra_march_them(GraphicsQuality quality, bool marched)
+    {
+        var graphics = Graphics.For(quality);
+
+        Assert.True(graphics.Atmosphere.Clouds);
+        Assert.True(graphics.Atmosphere.CloudShadows);
+        Assert.Equal(marched, graphics.Atmosphere.VolumetricClouds);
     }
 
     [Theory]

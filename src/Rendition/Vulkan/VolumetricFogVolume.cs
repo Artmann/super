@@ -117,18 +117,12 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         var api = _context.Api;
 
         // Last frame's passes read the history and the sum, and wrote what is history now.
-        const AccessFlags2 used = AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderSampledReadBit;
-        api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.FragmentShaderBit, used),
-            (PipelineStageFlags2.ComputeShaderBit, used));
-
-        var sets = stackalloc DescriptorSet[] { frameSet, _sets.Sets[_current] };
+        api.BeginHistoryCompute(cmd, _pipelineLayout, frameSet, _sets.Sets[_current]);
         var size = _grid.Size;
 
         // Each of the inject pass's invocations lights a block of InjectBlock by InjectBlock cells.
         const int injectGroup = 8 * InjectBlock;
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _inject);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 2, sets, 0, null);
         api.CmdDispatch(cmd, (uint)(size.X + injectGroup - 1) / injectGroup, (uint)(size.Y + injectGroup - 1) / injectGroup, (uint)size.Z);
 
         api.MemoryBarrier(cmd,

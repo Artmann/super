@@ -26,7 +26,7 @@ internal sealed unsafe class DescriptorKit : IDisposable
         ShadowSampler = CreateSampler(Filter.Linear, compare: true);
 
         FrameSetLayout = CreateFrameSetLayout(context);
-        // With the frame set's three, the lighting pass samples 19 textures, more than MoltenVK allows in ordinary sets.
+        // With the frame set's five, the lighting pass samples 23 textures, more than MoltenVK allows in ordinary sets.
         LightingSetLayout = CreateTextureLayout(18, updateAfterBind: true);
         SixTextureLayout = CreateTextureLayout(6);
         FourTextureLayout = CreateTextureLayout(4);
@@ -37,7 +37,7 @@ internal sealed unsafe class DescriptorKit : IDisposable
             FrameRing.Count + 12,
             new DescriptorPoolSize(DescriptorType.UniformBuffer, FrameRing.Count),
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 10 * FrameRing.Count),
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 42 + 3 * FrameRing.Count));
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 42 + 5 * FrameRing.Count));
         _lightingPool = context.CreateDescriptorPool(
             DescriptorPoolCreateFlags.UpdateAfterBindBit, 1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 18));
     }
@@ -116,7 +116,8 @@ internal sealed unsafe class DescriptorKit : IDisposable
     /// volumetric.glsl reads it, 9 where each copy stood last frame, as instances.glsl reads it for motion vectors, and
     /// 10 where each copy reads its baked light. 11 holds the frame's suns and placed chunks and 12 the sky projected
     /// by SkySh, as chunks.glsl reads them, to relight every copy of a chunk's bake. 13 holds the reflection probes the
-    /// view sees, as light_data.glsl reads them.
+    /// view sees, as light_data.glsl reads them. 14 holds the clouds' shadow map, as cloud_shadow.glsl reads it, and 15
+    /// their picture, which the lighting pass lays over the sky.
     /// </summary>
     private static DescriptorSetLayout CreateFrameSetLayout(VulkanContext context)
     {
@@ -137,8 +138,10 @@ internal sealed unsafe class DescriptorKit : IDisposable
             new(11, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
             new(12, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
             new(13, DescriptorType.StorageBuffer, 1, everyStage),
+            new(14, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit | ShaderStageFlags.ComputeBit),
+            new(15, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
         };
-        return context.CreateSetLayout(new ReadOnlySpan<DescriptorSetLayoutBinding>(bindings, 14));
+        return context.CreateSetLayout(new ReadOnlySpan<DescriptorSetLayoutBinding>(bindings, 16));
     }
 
     public void Dispose()

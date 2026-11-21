@@ -62,7 +62,7 @@ internal sealed unsafe class LensFlareVisibility : IDisposable
         _buffer = new GpuBuffer(
             context, BufferSize, BufferUsageFlags.StorageBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
 
-        (SetLayout, _pool, Set) = context.CreateStateSet(ShaderStageFlags.VertexBit, new DescriptorBufferInfo(_buffer.Handle, 0, BufferSize));
+        (SetLayout, _pool, Set) = context.CreateStateSet(ShaderStageFlags.VertexBit, new DescriptorBufferInfo(_buffer.Handle, 0, BufferSize), images: 2);
         _layout = context.CreatePipelineLayout([SetLayout], new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(Constants)));
         _pipeline = PipelineFactory.CreateCompute(context, "lens_flare_visibility.comp", _layout);
 
@@ -87,6 +87,17 @@ internal sealed unsafe class LensFlareVisibility : IDisposable
     {
         var image = new DescriptorImageInfo(_depthSampler, depth, ImageLayout.DepthReadOnlyOptimal);
         var write = Descriptors.ImageWrite(Set, 1, DescriptorType.CombinedImageSampler, &image);
+        _context.Api.UpdateDescriptorSets(_context.Device, 1, &write, 0, null);
+    }
+
+    /// <summary>
+    /// Points the sun's taps at the clouds' picture, whose alpha says how much of the sky they let through. Only call
+    /// it while no frame in flight uses the set.
+    /// </summary>
+    public void SetClouds(ImageView picture)
+    {
+        var image = new DescriptorImageInfo(_depthSampler, picture, ImageLayout.General);
+        var write = Descriptors.ImageWrite(Set, 2, DescriptorType.CombinedImageSampler, &image);
         _context.Api.UpdateDescriptorSets(_context.Device, 1, &write, 0, null);
     }
 

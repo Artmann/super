@@ -92,6 +92,11 @@ Lower `Graphics.Lighting.ProbeQuality` to update fewer a frame, or turn `Graphic
 "Reflection probes" is the time spent photographing [reflection probes](rendering.md#reflections),
 one a frame at most, and blurring the photograph.
 
+"Clouds" is the time spent on the [clouds](rendering.md#clouds) and their shadow. The marched
+clouds cost about a tenth of a High frame, and the flat layer on Low and Medium about a
+twentieth of a Medium frame. Turn off `Graphics.Atmosphere.VolumetricClouds` to fall back to the
+flat layer, or `Clouds` to drop them.
+
 ## Hitches
 
 An average hides a single slow frame, so the report also lists the slowest frames:
