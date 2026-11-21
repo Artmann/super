@@ -102,12 +102,41 @@
     A test project is the exception. Super.Testing's MemoryContent cooks in the test process, and the material
     cooker loads Super.Materials there. Private="false" on this direct reference would also keep out the copy
     that comes through Super.Testing, so a test project keeps the library in its output.
+
+    The library builds in the configuration the game asks for the engine in. A game can reference Super
+    with SetConfiguration="Configuration=Release" to play faster while it is built in Debug. Without the
+    same setting here, Super.Materials and Super.Random would build twice, once in each configuration, and
+    dotnet watch, which keeps a graph's projects by path and target framework, stopped with "An item with
+    the same key has already been added". Item conditions can't read metadata while a project loads, so
+    the engine references are found with an Exclude of everything outside the engine's folder.
   -->
+  <PropertyGroup>
+    <_SuperEngineFolder>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)..'))</_SuperEngineFolder>
+  </PropertyGroup>
   <ItemGroup Condition="'$(SuperCookPrebuilt)' == ''">
+    <_SuperOutsideReference Include="@(ProjectReference)" Exclude="$(_SuperEngineFolder)**" />
+    <_SuperEngineReference Include="@(ProjectReference)" Exclude="@(_SuperOutsideReference)" />
     <ProjectReference Include="$(MSBuildThisFileDirectory)..\Super.Materials\Super.Materials.csproj"
                       Private="$([MSBuild]::ValueOrDefault('$(IsTestProject)', 'false'))"
-                      PrivateAssets="all" />
+                      PrivateAssets="all"
+                      SetConfiguration="@(_SuperEngineReference->HasMetadata('SetConfiguration')->'%(SetConfiguration)'->Distinct())" />
   </ItemGroup>
+
+  <!--
+    The SDK also gives the game a reference to each project its references reference, such as Super.Random
+    through Super, and those carry no SetConfiguration. This gives the engine's ones the game's engine
+    configuration, so a game that builds the engine in Release doesn't build Super.Random in Debug as well.
+  -->
+  <Target Name="_SuperTransitiveEngineConfiguration" AfterTargets="IncludeTransitiveProjectReferences" Condition="'$(SuperCookPrebuilt)' == ''">
+    <PropertyGroup>
+      <_SuperEngineConfiguration>@(_SuperEngineReference->HasMetadata('SetConfiguration')->'%(SetConfiguration)'->Distinct())</_SuperEngineConfiguration>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(_SuperEngineConfiguration)' != ''">
+      <ProjectReference Condition="'%(ProjectReference.SetConfiguration)' == '' and $([System.String]::Copy('%(ProjectReference.FullPath)').StartsWith('$(_SuperEngineFolder)', System.StringComparison.OrdinalIgnoreCase))">
+        <SetConfiguration>$(_SuperEngineConfiguration)</SetConfiguration>
+      </ProjectReference>
+    </ItemGroup>
+  </Target>
 
   <Target Name="SuperCook" AfterTargets="Build">
     <!-- Items are read here rather than when the project loads, so SuperContent can be listed after the import. -->

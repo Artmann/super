@@ -136,3 +136,8 @@ Assert.Equal(Screen.House, run.States<Screen>().Current);
 Hot reload runs on the desktop window, from source, under `dotnet watch` or an IDE. A
 plain `dotnet run` and a published game don't have it, and they close on an error as
 before.
+
+A game in Debug can build the engine in Release to run faster, by giving its references to
+Super and Rendition `SetConfiguration="Configuration=Release"`. `dotnet watch` works with
+that too: `Super.targets` builds the engine's other projects, such as `Super.Materials`, in
+the same configuration.

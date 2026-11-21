@@ -810,7 +810,12 @@ input, and the game's build compiles them all together, via a `ProjectReference`
 `Super.targets`, only so the editor can complete and check them. That output is never used, and `Private="false"` keeps
 the library out of the game's folder. A test project (`IsTestProject`) copies it anyway: `MemoryContent` runs the
 material cooker in the test process, and `Private="false"` on the direct reference would also drop the copy that
-comes through `Super.Testing`. The cooker's `Version` is
+comes through `Super.Testing`. The reference takes the `SetConfiguration` of the game's own references to
+the engine, the ones under `src`, found with an `Exclude` of everything else because an item condition can't
+read metadata while a project loads. A game that asks for Super in Release while it builds in Debug would
+otherwise build `Super.Materials` and `Super.Random` in both, and `dotnet watch` stopped on the repeated
+`Super.Random`. `_SuperTransitiveEngineConfiguration` does the same for the references the SDK adds through
+the engine's own, such as `Super.Random` through Super. `Super.Build.Tests` checks that graph. The cooker's `Version` is
 folded from the module version ids of `Super.Materials`, `Super.Random` and
 `Super.Cook.Materials`, so rebuilding any of them with a change cooks every graph again.
 The model cooker's list and `MemoryContent` both include it.
