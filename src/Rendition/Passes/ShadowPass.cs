@@ -40,6 +40,9 @@ internal sealed unsafe class ShadowPass : IDisposable
 
     private Extent2D Extent => new((uint)Resolution, (uint)Resolution);
 
+    /// <summary>The frame's grass, whose blades the nearest cascades draw too, or none.</summary>
+    public GrassStage? Grass { get; set; }
+
     /// <summary>Every point and spot light's shadow, each in its own square of it.</summary>
     public readonly RenderTarget Atlas;
 
@@ -114,14 +117,16 @@ internal sealed unsafe class ShadowPass : IDisposable
 
     /// <summary>Draws one cascade into its layer of the map.</summary>
     public void Record(CommandBuffer cmd, DescriptorSet frameSet, in SceneGeometry casters, int cascade) =>
-        RecordInto(cmd, frameSet, casters, (Target.LayerViews[cascade], Extent), new SceneDrawOptions(ScenePass.Shadow) { Cascade = cascade });
+        RecordInto(cmd, frameSet, casters, (Target.LayerViews[cascade], Extent), new SceneDrawOptions(ScenePass.Shadow) { Cascade = cascade }, cascade);
 
     /// <summary>
     /// Draws the casters into any depth view, already in the depth attachment layout, through the
-    /// matrix the options' cascade picks in shadow.vert: -1 for the light probes' sun map.
+    /// matrix the options' cascade picks in shadow.vert: -1 for the light probes' sun map. The grass's blades go in
+    /// too when <paramref name="grassCascade"/> is one of the sun's cascades they cast into.
     /// </summary>
     public void RecordInto(
-        CommandBuffer cmd, DescriptorSet frameSet, in SceneGeometry casters, (ImageView View, Extent2D Extent) target, in SceneDrawOptions options)
+        CommandBuffer cmd, DescriptorSet frameSet, in SceneGeometry casters, (ImageView View, Extent2D Extent) target, in SceneDrawOptions options,
+        int grassCascade = -1)
     {
         var api = _context.Api;
         var extent = target.Extent;
@@ -148,6 +153,7 @@ internal sealed unsafe class ShadowPass : IDisposable
         var sets = stackalloc DescriptorSet[] { frameSet, _scene.Resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
         SceneDraws.Record(new SceneTarget(api, cmd, _layout), _scene, casters, options);
+        Grass?.RecordShadow(cmd, frameSet, grassCascade);
 
         api.CmdEndRendering(cmd);
     }

@@ -50,6 +50,7 @@ internal static class GraphicsSwitches
         (graphics => graphics.Drawing.Fades, RenderEffects.Fades),
         (graphics => graphics.Surfaces.Subsurface, RenderEffects.Subsurface),
         (graphics => graphics.Surfaces.Particles, RenderEffects.Particles),
+        (graphics => graphics.Surfaces.Grass, RenderEffects.Grass),
         (graphics => graphics.Lighting.LocalLights, RenderEffects.LocalLights),
         (graphics => graphics.Atmosphere.Haze, RenderEffects.Haze),
         (graphics => graphics.Atmosphere.AerialPerspective, RenderEffects.AerialPerspective),

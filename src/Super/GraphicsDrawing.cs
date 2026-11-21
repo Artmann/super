@@ -3,7 +3,7 @@ using Rendition;
 
 namespace Super;
 
-/// <summary>How models are drawn: their detail with distance, culling, the depth-first pass and fading.</summary>
+/// <summary>How models are drawn: their detail with distance, how far grass reaches, culling, the depth-first pass and fading.</summary>
 public sealed class GraphicsDrawing
 {
     /// <summary>
@@ -18,6 +18,21 @@ public sealed class GraphicsDrawing
             ? value
             : throw new ArgumentOutOfRangeException(nameof(value), value, string.Create(CultureInfo.InvariantCulture,
                 $"Mesh detail can be from {RenderSettings.MinMeshDetail} to {RenderSettings.MaxMeshDetail}."));
+    } = 1f;
+
+    /// <summary>
+    /// How far <see cref="Super.Grass"/> grows from the camera, from 0.25 to 2. At 1 its densest blades reach 16 metres
+    /// and its sparsest 120. The blades drawn go as its square, so 0.5 draws about a quarter as many.
+    /// <see cref="GraphicsQuality.Low"/> sets 0.5, <see cref="GraphicsQuality.Medium"/> 0.75 and
+    /// <see cref="GraphicsQuality.Ultra"/> 1.25.
+    /// </summary>
+    public float GrassDetail
+    {
+        get;
+        set => field = value is >= RenderSettings.MinGrassDetail and <= RenderSettings.MaxGrassDetail
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, string.Create(CultureInfo.InvariantCulture,
+                $"Grass detail can be from {RenderSettings.MinGrassDetail} to {RenderSettings.MaxGrassDetail}."));
     } = 1f;
 
     /// <summary>
@@ -55,6 +70,7 @@ public sealed class GraphicsDrawing
     internal void CopyFrom(GraphicsDrawing other)
     {
         MeshDetail = other.MeshDetail;
+        GrassDetail = other.GrassDetail;
         Culling = other.Culling;
         SimplerModels = other.SimplerModels;
         DepthFirst = other.DepthFirst;

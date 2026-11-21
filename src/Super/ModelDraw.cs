@@ -8,7 +8,7 @@ namespace Super;
 /// pose skins a rigged model; PoseAhead is how many seconds past the last tick the
 /// display is, so clips keep moving between ticks. A ghost draws it in one colour. Meshes,
 /// when set, shows only the masked meshes of the model; null shows them all. Static marks a
-/// draw that never moves, so baked lighting can hold it; its parts get bake ids.
+/// draw that never moves, so baked lighting can hold it; its parts get bake ids. Grass, when set, grows over it.
 /// </summary>
 public readonly record struct ModelDraw(
     int Key,
@@ -21,4 +21,5 @@ public readonly record struct ModelDraw(
     Ghost? Ghost = null,
     MeshMask? Meshes = null,
     bool Static = false,
-    DistanceFade? Fade = null);
+    DistanceFade? Fade = null,
+    Grass? Grass = null);

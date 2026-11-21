@@ -295,10 +295,16 @@ public enum RenderEffects : long
     /// <summary>The shadows the clouds cast on the ground, on the water and in the volumetric fog.</summary>
     CloudShadows = 1L << 51,
 
+    /// <summary>
+    /// The grass that <see cref="FrameExtras.Grass"/> grows on the ground. Without it no blade is scattered or drawn,
+    /// and the ground shows bare.
+    /// </summary>
+    Grass = 1L << 52,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
         | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
         | ScreenBounce | AerialPerspective | Stars | OcclusionHistory | ColorLut | ChromaticAberration | SpeedBlur | Flashes
-        | ScreenEffects | LensFlare | Paint | Clouds | VolumetricClouds | CloudShadows,
+        | ScreenEffects | LensFlare | Paint | Clouds | VolumetricClouds | CloudShadows | Grass,
 }

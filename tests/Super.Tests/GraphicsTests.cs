@@ -348,6 +348,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.Clouds), RenderEffects.Clouds)]
     [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.VolumetricClouds), RenderEffects.VolumetricClouds)]
     [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.CloudShadows), RenderEffects.CloudShadows)]
+    [InlineData(nameof(Graphics.Surfaces), nameof(GraphicsSurfaces.Grass), RenderEffects.Grass)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string group, string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -373,7 +374,7 @@ public class GraphicsTests
             | RenderEffects.Grain | RenderEffects.Sharpening | RenderEffects.Subsurface | RenderEffects.FogVolumes
             | RenderEffects.ScreenBounce | RenderEffects.OcclusionHistory | RenderEffects.ChromaticAberration | RenderEffects.SpeedBlur
             | RenderEffects.LensFlare | RenderEffects.Paint | RenderEffects.Clouds | RenderEffects.VolumetricClouds
-            | RenderEffects.CloudShadows,
+            | RenderEffects.CloudShadows | RenderEffects.Grass,
             GraphicsSwitches.Off(graphics));
         Assert.True(graphics.Surfaces.Materials);
         Assert.True(graphics.Baking.BakedLighting);

@@ -35,15 +35,13 @@ internal sealed unsafe class FrameRecorder(
         stages.BlendStage.Upload(view);
 
         stages.OpaqueStage.UploadDecals();
+        stages.Grass.Upload();
         if (timed)
         {
             stages.GpuTimer.Begin(cmd, stores.Ring.Index);
         }
 
-        // A changed sky, redrawn before the frame's passes read it. It waits on the GPU for earlier reads itself, so the
-        // bake slice above traces last frame's sky, a frame behind, which the timer leaves out of the "Sky" pass.
-        parts.SceneLighting.EnvironmentSky.RecordFrame(cmd);
-        stages.GpuTimer.Mark(cmd);
+        RecordBeforePasses(cmd, frame.Set);
 
         // Worked out here, just before the frame is recorded, so a frame that is never drawn doesn't move the clock.
         stages.PostStage.StepExposure(view, stores.Switches.Off);
@@ -52,6 +50,22 @@ internal sealed unsafe class FrameRecorder(
         stores.Context.Api.EndCommandBuffer(cmd).Check();
         stats.DrawCalls = stores.Settings.MeasureGpu ? (int)(DrawCallCount.Issued - issued) : 0;
         return cmd;
+    }
+
+    // What the frame's passes read, each measured by the timer as a pass of its own: the sky, then the grass.
+    private void RecordBeforePasses(CommandBuffer cmd, DescriptorSet frameSet)
+    {
+        var stages = parts.FrameStages;
+
+        // A changed sky, redrawn before the frame's passes read it. It waits on the GPU for earlier reads itself, so the
+        // bake slice recorded before it traces last frame's sky, a frame behind, which the timer leaves out of the
+        // "Sky" pass.
+        parts.SceneLighting.EnvironmentSky.RecordFrame(cmd);
+        stages.GpuTimer.Mark(cmd);
+
+        // The grass's blades, scattered before the shadows and the G-buffer draw them.
+        stages.Grass.Record(cmd, frameSet);
+        stages.GpuTimer.Mark(cmd);
     }
 
     /// <summary>

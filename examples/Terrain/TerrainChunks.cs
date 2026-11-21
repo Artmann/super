@@ -84,7 +84,11 @@ internal sealed class TerrainChunks(World world, Content content, Hills hills, N
             },
         };
         var model = content.Mesh(hills.Field.Chunk(chunkX, chunkZ, ChunkQuads, surface, UvPerMetre));
-        return new Chunk(model, splat, world.Spawn(Transform.Identity, new Model(model)));
+        // The splat's edge texels sit on the chunk's edges, so its area reaches half a texel past them.
+        float texel = ChunkSize / (SplatSize - 1f);
+        var origin = new Vector2(chunkX, chunkZ) * ChunkSize;
+        var grass = new Grass { Density = new GrassMap(splat, origin - new Vector2(texel / 2f), origin + new Vector2(ChunkSize + texel / 2f)) };
+        return new Chunk(model, splat, world.Spawn(Transform.Identity, new Model(model), grass));
     }
 
     /// <summary>How grassy each spot of a chunk is: damp lowlands grow grass and dry ground stays sand.</summary>
