@@ -332,6 +332,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.ScreenEffects), RenderEffects.ScreenEffects)]
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.LensFlare), RenderEffects.LensFlare)]
     [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.Paint), RenderEffects.Paint)]
+    [InlineData(nameof(Graphics.Picture), nameof(GraphicsPicture.Retro), RenderEffects.Retro)]
     [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.Culling), RenderEffects.Culling)]
     [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.SimplerModels), RenderEffects.SimplerModels)]
     [InlineData(nameof(Graphics.Drawing), nameof(GraphicsDrawing.DepthFirst), RenderEffects.DepthFirst)]
@@ -388,6 +389,7 @@ public class GraphicsTests
         Assert.True(graphics.Picture.ColorLut);
         Assert.True(graphics.Picture.Flashes);
         Assert.True(graphics.Picture.ScreenEffects);
+        Assert.True(graphics.Picture.Retro);
         Assert.True(graphics.Drawing.Culling);
         Assert.True(graphics.Drawing.SimplerModels);
         Assert.True(graphics.Drawing.DepthFirst);

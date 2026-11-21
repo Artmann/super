@@ -307,10 +307,16 @@ public enum RenderEffects : long
     /// </summary>
     PlanarReflections = 1L << 53,
 
+    /// <summary>
+    /// The big pixels, fewer shades and dots from <see cref="FrameView.Picture"/>'s <see cref="PictureSettings.Retro"/>.
+    /// Without it the picture keeps its own pixels and every shade.
+    /// </summary>
+    Retro = 1L << 54,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
         | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
         | ScreenBounce | AerialPerspective | Stars | OcclusionHistory | ColorLut | ChromaticAberration | SpeedBlur | Flashes
-        | ScreenEffects | LensFlare | Paint | Clouds | VolumetricClouds | CloudShadows | Grass | PlanarReflections,
+        | ScreenEffects | LensFlare | Paint | Clouds | VolumetricClouds | CloudShadows | Grass | PlanarReflections | Retro,
 }

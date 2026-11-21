@@ -14,6 +14,9 @@ internal sealed class ViewLook
 
     public PaintSettings Paint { get; set; }
 
+    /// <summary>The <see cref="ArtLook"/> <see cref="ArtStyle"/> shows this frame, laid over the rest as the frame is made.</summary>
+    public ArtLook Style { get; set; }
+
     /// <summary>The finish, with the screen effects laid over its own.</summary>
     public PostSettings Post => Finish with { Screen = ScreenEffects.Over(Screen, Finish.Screen) };
 
@@ -23,5 +26,6 @@ internal sealed class ViewLook
         Finish = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
         Screen = default;
         Paint = default;
+        Style = default;
     }
 }
