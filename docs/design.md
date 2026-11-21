@@ -4072,7 +4072,7 @@ smear into the background; and the near layer, whose taps spread their colour ov
 own circle's area, so it covers past its edges and its alpha says how much. `dof_combine.frag`
 blends them back at full size: the far layer by the pixel's own full-size circle, so edges
 stay crisp, and the near layer from the strongest of five taps 2 pixels apart. Circles under
-a quarter of a pixel blend nothing. The pass runs only when `PostSettings.Aperture` is above
+a quarter of a pixel blend nothing. The pass runs only when `PostSettings.Lens.Aperture` is above
 0, the lens is valid and `RenderEffects.DepthOfField` isn't in `Off`; a lens `view.Effects.Finish`
 would refuse simply gives no blur in Rendition alone. Probe captures only record the scene,
 never this pass, and `PostSettings` isn't in the lighting hashes, so focusing never captures

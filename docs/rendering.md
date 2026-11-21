@@ -101,7 +101,7 @@ next frame follows, so it can back an options menu.
 | `Atmosphere.VolumetricFogCellSize` | Not a switch: how many scene pixels across, each way, one cell of the [volumetric fog's](#volumetric-fog) grid covers, from 4 to 32. 8 is the default. Smaller cells show finer shafts and sharper edges on fog volumes; each halving costs about four times the memory and work. The size is after `RenderScale`. Anything else is refused. A change remakes the grid before the next frame, which waits for the GPU once and starts its history again. See [the grid's cost](#the-grids-cost) |
 | `Atmosphere.VolumetricFogSlices` | Not a switch: how many slices deep the volumetric fog's grid is, from 16 to 128, out to `FogSettings.VolumetricDistance`. 64 is the default. More slices keep shafts and fog volumes sharp further out, for memory and work that grow with the count. Anything else is refused. A change remakes the grid like `VolumetricFogCellSize`. `GraphicsQuality.Ultra` sets 128 |
 | `Picture.AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
-| `Picture.DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
+| `Picture.DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Lens.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
 | `Surfaces.Particles` | No [particles](views.md#particles) are drawn, and none is uploaded. The game can still emit them |
 | `Surfaces.Decals` | No [decals](#decals): surfaces show as they are, without the grime and stains `Decal` entities lay on them. It saves a copy of the normal target and a pass over the decals' pixels |
 | `Surfaces.Puddles` | Every surface is dry, whatever level a `Puddles` entity sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
@@ -1181,9 +1181,10 @@ each channel that much brighter, by its share, so it shows most in the highlight
 | `Temperature` | White balance, from -1 to 1. Above 0 warms the picture, as if the camera were balanced for light bluer than daylight: 1 balances for 12000 K. Below 0 cools it, down to 4000 K at -1. 0.1 is a gentle afternoon warmth |
 | `Tint` | White balance the other way, from -1 to 1. Above 0 pulls the picture towards magenta, below 0 towards green |
 | `Grade` | The finer colour grade, a `ColorGrade` with the settings in the next table |
-| `FocusDistance` | Where the lens is focused, in metres from the camera. See [focus](#focus) |
-| `Aperture` | The lens's f-number, such as 2.8 or 8. Smaller opens the lens wider and blurs more. 0, the default, is no depth of field |
-| `FocalLength` | The lens's focal length in millimetres, for the blur only. 0, the default, means 35. It doesn't change the field of view, which the camera sets |
+| `Lens` | The camera's lens, for depth of field, a `LensSettings` with the three settings below. See [focus](#focus) |
+| `Lens.FocusDistance` | Where the lens is focused, in metres from the camera |
+| `Lens.Aperture` | The lens's f-number, such as 2.8 or 8. Smaller opens the lens wider and blurs more. 0, the default, is no depth of field |
+| `Lens.FocalLength` | The lens's focal length in millimetres, for the blur only. 0, the default, means 35. It doesn't change the field of view, which the camera sets |
 
 The finer grade goes in `Grade`, so a look that only wants contrast and a vignette never sees it:
 
@@ -1409,9 +1410,12 @@ use it: they hold light, and exposure is applied after lighting.
 ```csharp
 world.Spawn(new Finish(new PostSettings
 {
-    FocusDistance = 11f,   // metres to what should be sharp
-    Aperture = 8f,         // the f-number; 0, the default, keeps everything sharp
-    FocalLength = 35f,     // millimetres; 0 means 35
+    Lens = new LensSettings
+    {
+        FocusDistance = 11f,   // metres to what should be sharp
+        Aperture = 8f,         // the f-number; 0, the default, keeps everything sharp
+        FocalLength = 35f,     // millimetres; 0 means 35
+    },
 }));
 ```
 
@@ -1424,7 +1428,7 @@ point at 5 m, or at the horizon, over 0.09 mm, about 4 pixels of a 1600 pixel pi
 The blur is measured in the scene's own pixels, so it looks the same at any
 [render scale](#graphics-settings). No circle grows past 16 pixels in radius (32 across).
 
-`FocalLength` only sizes the blur. The field of view still comes from the camera, so set
+`Lens.FocalLength` only sizes the blur. The field of view still comes from the camera, so set
 them to match if it matters. The sensor is 36 mm across the picture's width, so in a 16:9
 picture 35 mm sees about 0.56 radians top to bottom, the camera's `fieldOfView`, and 50 mm
 about 0.40.
@@ -1445,7 +1449,7 @@ of a blurred wall blurs with the wall. Where a sharp edge in front sits on a blu
 background, the background can pick up a pixel-wide fringe of the edge's colour, since each
 half-size pixel mixes the four pixels under it.
 
-A view refuses a negative or broken `FocusDistance`, `Aperture` or `FocalLength`, and a focus
+A view refuses a negative or broken `Lens.FocusDistance`, `Lens.Aperture` or `Lens.FocalLength`, and a focus
 distance no further than the focal length while the aperture is open. Rendition used on its
 own draws no depth of field for those instead. [`Graphics.Picture.DepthOfField`](#graphics-settings)
 turns it off for every view, and `Graphics.Fastest()` turns it off. Probes never see it, so
