@@ -480,7 +480,9 @@ vec4 planarReflection(vec3 position, vec3 n, vec3 v, float roughness) {
         float reach = clamp(log2(max(2.0 * pixels, 1.0)) + 1.0, PLANAR_HEIGHT_LOD, frame.mirrorEye.w);
         vec4 heights = textureLod(planarTexture, vec3(uv, 1.0), reach);
         float height = heights.r / max(heights.a, 1e-3);
-        pixels = frame.mirrorPlane.w * alpha * height / max(height + frame.mirrorPlane.z, 1e-3);
+        // An orthographic camera's rays don't spread from an eye, so the blur is the spread itself, in metres.
+        float spread = frame.mirrorPlane.z < 0.0 ? height : height / max(height + frame.mirrorPlane.z, 1e-3);
+        pixels = frame.mirrorPlane.w * alpha * spread;
     }
 
     float lod = clamp(log2(max(2.0 * pixels, 1.0)), 0.0, frame.mirrorEye.w);
