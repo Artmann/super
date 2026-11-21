@@ -10,7 +10,7 @@ internal sealed unsafe class GBufferPass : IDisposable
     private readonly ResourceTable _resources;
     private readonly PipelineLayout _layout;
     private readonly List<PipelineVariants> _pipelines = [];
-    private static readonly Format[] ColorFormats =
+    internal static readonly Format[] ColorFormats =
     [
         GBuffer.BaseColorFormat, GBuffer.NormalFormat, GBuffer.EmissiveFormat, GBuffer.MotionFormat,
         GBuffer.BakedFormat, GBuffer.MaskFormat,
@@ -50,6 +50,9 @@ internal sealed unsafe class GBufferPass : IDisposable
     }
 
     public int ShaderCount => _pipelines.Count;
+
+    /// <summary>The frame's grass, whose blades are drawn after the solid things and before the decals, or none.</summary>
+    public GrassStage? Grass { get; set; }
 
     /// <summary>
     /// Adds a surface shader. No code means the standard one. The name is the compiled file the code came from, such
@@ -110,6 +113,10 @@ internal sealed unsafe class GBufferPass : IDisposable
         SceneDraws.Record(
             new SceneTarget(api, cmd, _layout), new ScenePipelines(_pipelines, _resources) { Solids = _solids }, scene,
             new SceneDrawOptions(pass) { DepthFirst = depthFirst is null ? null : _depthFirst });
+        if (pass != ScenePass.OpaqueAfterDecals)
+        {
+            Grass?.RecordBlades(cmd, frameSet);
+        }
 
         api.CmdEndRendering(cmd);
     }

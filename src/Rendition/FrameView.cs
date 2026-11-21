@@ -239,6 +239,12 @@ public ref struct FrameExtras
     /// At most <see cref="FogVolumeBatch.MaxVolumes"/>. Empty while <see cref="RenderEffects.VolumetricFog"/> is off.
     /// </summary>
     public ReadOnlySpan<FogVolumeDraw> FogVolumes;
+
+    /// <summary>
+    /// Fields of grass, each grown over a ground draw. At most <see cref="GrassField.MaxKinds"/> different looks
+    /// between them; any number of grounds may share one. Empty while <see cref="RenderEffects.Grass"/> is off.
+    /// </summary>
+    public ReadOnlySpan<GrassDraw> Grass;
 }
 
 /// <summary>The areas whose lighting is baked, for <see cref="FrameView.Baked"/>.</summary>

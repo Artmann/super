@@ -83,7 +83,10 @@ public sealed class TerrainGame(World world, GameRandom random, Actions<Control>
         _chunks.Update(_position);
         _camera = world.Spawn(Camera());
         world.Spawn(
-            new Sun(new Vector3(0.5f, 0.8f, 0.3f), new Vector3(3.6f, 3.4f, 3.1f)),
+            // A low evening sun ahead of the camera, so the grass glows where it lights the blades from behind.
+            new Sun(Vector3.Normalize(new Vector3(0.35f, 0.2f, -0.9f)), new Vector3(9f, 6.8f, 4.6f)),
+            new Sky(new SkySettings { Brightness = 0.8f, Turbidity = 3.5f, HazeStart = 80f, HazeEnd = 260f }),
+            new Wind(new Vector3(0.8f, 0f, -0.6f), 0.45f),
             new Shadows(40f, 3),
             new Finish(new PostSettings { Contrast = 0.08f, Saturation = 0.08f, Vignette = 0.25f }),
             // The far hills turn to paint, while the road near the camera stays sharp.

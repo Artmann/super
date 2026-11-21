@@ -3318,6 +3318,80 @@ motions turn round. Gravity, wind, sizes and colours stay
 in the world. An emitter drawn alone turns into an effect once and keeps it, so a
 frame allocates nothing.
 
+## Grass
+
+`FrameView.Extras.Grass` holds a `GrassDraw` for each ground draw: the `DrawItem` it grows on,
+its `GrassSettings` and an optional `GrassDensity` map. `GrassStage` owns everything else:
+`GrassPlan` is the CPU side, `GrassPipelines` holds the pipelines and sets, and `GrassTargets`
+holds the buffers and the ground map, made the first frame with grass. Nothing about a blade is
+kept from frame to frame. Every blade comes from a hash of its point on a lattice fixed to the world, so each frame grows the same blades and they never crawl as the
+camera moves. The technique follows the usual GPU grass recipe (Ghost of Tsushima's talk is the
+best reference): a compute pass scatters blades per frame into a buffer, and one indirect draw
+draws them.
+
+Each frame has three steps, recorded between the sky and the shadow maps, under the "Grass"
+GPU timer:
+
+1. `Prepare`, on the CPU, checks every draw, gives each different look a kind (at most
+   `GrassField.MaxKinds`, 8; a ninth throws), and plans the squares of the lattice the camera
+   sees. `GrassField.Plan` walks the 4-metre squares inside the last ring, keeps the finest
+   level each square's nearest point is inside, and culls each against the camera's five
+   planes, taken as tall as the last ring round the camera's height and grown by 2 metres for
+   a blade's reach, since the ground's height isn't known on the CPU. At most 8,192 squares are
+   kept, row by row, and any past that are left bare.
+2. The ground map. Each ground draw's mesh is drawn from straight above into a 1024² depth
+   target and a 1024² RGBA8 target that cover the last ring plus a square, centred on the
+   camera and snapped to whole texels so the heights don't shimmer as it moves. Depth is the
+   height, 0 meaning no ground and the greater test keeping the highest surface; the colour's
+   red is how thick the grass stands there, from the draw's `GrassSettings.Density` times its
+   density map (bare outside the map), and green is its kind. Where two grounds overlap, the
+   higher one's look wins. Both faces draw, so a mesh wound either way counts.
+3. `grass_scatter.comp` runs one workgroup per square. Each of the square's 32² points of
+   the finest lattice keeps a blade only if its level is at least the square's level: level L
+   holds every 2^L-th point along both axes, so each ring keeps a quarter of the blades of the
+   one inside it. A kept point is jittered within its own cell of its level, so a far blade
+   doesn't move when the finer ones fade in round it. It reads the ground's height bilinearly
+   and its info from the nearest texel, drops the point where any texel has no ground or the hash is above the density,
+   finds its clump as the nearest of the Voronoi middles scattered one per `ClumpSize` cell, and
+   takes its lean, height and shade from the clump's shared hash. Blades shrink away over the
+   last 30% of their ring (`GrassField.FadeShare`), and each level up doubles their width so the
+   far ground doesn't look bare. A last sphere test against the planes drops blades out of
+   view. Survivors are appended with an atomic on the indirect args, up to
+   `GrassStage.MaxBlades`, 2^18.
+
+Each blade is 48 bytes: root and height, the way it faces with its width and bend, and its
+clump offset, shade and kind. `grass.glsl` turns a blade into seven points, two at each of three
+heights and the tip, drawn as five triangles from 15 vertices with no vertex buffer. The spine
+is a quadratic curve from the root, up, to a tip bent over by `Bend` and swayed by the same
+wind noise `wind.glsl` gives meshes, kept to the blade's length so the wind bends rather than
+stretches it. Seen edge on, the ribbon turns a little toward the camera so it never thins to
+nothing, and its normal is rounded across it and leans out from the clump's middle, so a clump
+shades as one tuft. `grass.vert` works out the blade at this frame's time and at last frame's
+for the motion vectors, so anti-aliasing keeps swaying grass steady.
+
+`grass.frag` writes the G-buffer as surfaces do: the colour runs from `BaseColor` at the root to
+`TipColor` at the tip, varied by the blade's shade, the root is darkened where the blades round
+it shade it, and the translucency goes negated into the clearcoat channel, as foliage's does,
+so the lighting lets a low sun behind the grass shine through it. The blades draw two-sided,
+after the G-buffer's own draws, so the ground is already in the depth buffer. `grass_shadow.vert`
+draws the same blades, from the same indirect args, into the sun's cascades 0 and 1 only; further
+cascades see the ground alone. Only blades in the camera's view were scattered, so a blade just
+off screen casts no shadow.
+
+The descriptor set holds the uniforms, the planned squares, the blades, the indirect args and
+the two ground maps, written through `Descriptors`. The buffers and maps are made the first
+frame with grass and kept. The uniforms and squares sit in one host-visible buffer per frame in
+flight; the blades and args are one device buffer shared by the frames, so `Record` puts a
+barrier after last frame's draws before resetting the args.
+
+`RenderEffects.Grass` off, or no grass in the frame, leaves `Active` false and every step and
+draw returns at once, so a frame without grass costs nothing. `RenderSettings.GrassDetail`, from
+`MinGrassDetail` 0.25 to `MaxGrassDetail` 2, scales `GrassField.BaseRadii` (16, 32, 64 and 120
+metres). On the Super side, a `Grass` component reaches the view through `WorldFrame` as
+`ModelOptions.Grass`, `DressedDraws` makes a `GrassDraw` for each shown part of the model, with
+its `GrassMap`'s texture looked up on the GPU, and `FrameMaker` leaves them out when the switch is
+off. The frame's buffers are reused, so grass allocates nothing per frame.
+
 ## Custom shaders
 
 A surface shader is a game's own fragment shader for the G-buffer pass. It decides

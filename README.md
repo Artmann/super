@@ -166,7 +166,7 @@ marked as planned. The examples are the best place to see it running:
 | [Rooms](examples/Rooms) | Game states, a loading screen, JSON content, clicking the ground and huts that rise on a curve |
 | [Courtyard](examples/Courtyard) | Material graphs: bricks, flagstones, dirt, wood, leather and rusty metal made in code, on a courtyard modelled in Blender |
 | [Crafting](examples/Crafting) | An inventory and crafting bench driven entirely by the mouse |
-| [Terrain](examples/Terrain) | Endless generated hills with a custom surface shader, a road built along a spline with a cart driving it, and a flyover on F |
+| [Terrain](examples/Terrain) | Endless generated hills at sunset with GPU grass and a custom surface shader, a road built along a spline with a cart driving it, and a flyover on F |
 | [Toon](examples/Toon) | A cartoon garden in flat bands of light with ink outlines, under a low sun, a lantern and fog, beside a physically based chrome ball; T and O turn them off |
 | [Reef](examples/Reef) | 6,240 schooling fish as entities, water and a stats panel |
 | [Fox](examples/Fox) | A skinned character blending walk into run, with a head turn played over it and footsteps from its clips |

@@ -97,6 +97,12 @@ clouds cost about a tenth of a High frame, and the flat layer on Low and Medium 
 twentieth of a Medium frame. Turn off `Graphics.Atmosphere.VolumetricClouds` to fall back to the
 flat layer, or `Clouds` to drop them.
 
+"Grass" is the time spent growing the [grass](rendering.md#grass)'s blades for the frame, under
+a tenth of a millisecond. The blades themselves are drawn in "G-buffer" and "Shadows", and
+lighting their pixels shows in "Lighting": in the Terrain example at 1920 by 1080, grass adds
+about 1.2 ms a frame in all. Lower `Graphics.Drawing.GrassDetail` to draw fewer, or turn
+`Graphics.Surfaces.Grass` off.
+
 ## Hitches
 
 An average hides a single slow frame, so the report also lists the slowest frames:

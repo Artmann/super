@@ -109,6 +109,8 @@ internal static class WorldFrame
 
         public int Hidden { get; init; }
 
+        public int Grass { get; init; }
+
         public static ModelTypes Of(World world) => new()
         {
             Transform = world.Archetypes.TypeIdOrMissing<Transform>(),
@@ -120,6 +122,7 @@ internal static class WorldFrame
             Static = world.Archetypes.TypeIdOrMissing<Static>(),
             Ghost = world.Archetypes.TypeIdOrMissing<Ghost>(),
             Hidden = world.Archetypes.TypeIdOrMissing<Hidden>(),
+            Grass = world.Archetypes.TypeIdOrMissing<Grass>(),
         };
     }
 
@@ -142,6 +145,8 @@ internal static class WorldFrame
 
         public Ghost[]? Ghosts { get; init; }
 
+        public Grass[]? Grasses { get; init; }
+
         public bool IsStatic { get; init; }
 
         public static ModelRows Of(Archetype archetype, in ModelTypes types)
@@ -158,6 +163,7 @@ internal static class WorldFrame
                 Parents = archetype.ColumnOrNull<Parent>(types.Parent)?.Values,
                 Swims = archetype.ColumnOrNull<Swim>(types.Swim)?.Values,
                 Ghosts = archetype.ColumnOrNull<Ghost>(types.Ghost)?.Values,
+                Grasses = archetype.ColumnOrNull<Grass>(types.Grass)?.Values,
                 IsStatic = isStatic,
             };
         }
@@ -191,6 +197,7 @@ internal static class WorldFrame
                 Meshes = model.Meshes,
                 Static = IsStatic,
                 Fade = model.Fade,
+                Grass = Grasses?[i],
             });
         }
 

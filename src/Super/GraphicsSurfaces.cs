@@ -57,6 +57,13 @@ public sealed class GraphicsSurfaces
     /// <summary>Particles, such as dust, smoke, sparks and flames. Off, none is uploaded or drawn.</summary>
     public bool Particles { get; set; } = true;
 
+    /// <summary>
+    /// The blades grown over models with a <see cref="Super.Grass"/> component. Off, no blade is scattered or drawn and the
+    /// ground shows bare. It costs a scatter pass, the blades in the picture and in the two nearest shadow cascades, so
+    /// <see cref="Graphics.Fastest"/> turns it off; <see cref="GraphicsDrawing.GrassDetail"/> sets how far it reaches.
+    /// </summary>
+    public bool Grass { get; set; } = true;
+
     /// <summary>Takes every setting from <paramref name="other"/>.</summary>
     internal void CopyFrom(GraphicsSurfaces other)
     {
@@ -68,5 +75,6 @@ public sealed class GraphicsSurfaces
         Decals = other.Decals;
         Subsurface = other.Subsurface;
         Particles = other.Particles;
+        Grass = other.Grass;
     }
 }
