@@ -82,6 +82,52 @@ public sealed class CloudsGpuTests(GpuFixture gpu, ITestOutputHelper output)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    // A look easing in and out clears the sky and clouds it over again, so the targets must stay, and while they're off
+    // the flare must see the sun however the last clouds covered it. The sun is low in front, at (0.3, 0.3) on the
+    // screen, and the flare's one ghost lands at (0.7, 0.7).
+    [Fact]
+    public void A_sky_that_clears_and_clouds_over_again_keeps_the_clouds_and_flares_as_a_clear_one()
+    {
+        int errors = gpu.ValidationErrors;
+        var stage = gpu.Renderer.FrameParts.SceneLighting.CloudStage;
+
+        var clearFirst = Flared(CloudSettings.Clear);
+        var overcast = Flared(CloudSettings.Overcast);
+        int builds = stage.Builds;
+        var clearAfter = Flared(CloudSettings.Clear);
+        Flared(CloudSettings.Overcast);
+        int rebuilt = stage.Builds - builds;
+
+        var first = TestPixels.Around(clearFirst, _wide, 0.7f, 0.7f);
+        var dimmed = TestPixels.Around(overcast, _wide, 0.7f, 0.7f);
+        var after = TestPixels.Around(clearAfter, _wide, 0.7f, 0.7f);
+        output.WriteLine($"The ghost's place is {TestPixels.Show(first)} under a clear sky, {TestPixels.Show(dimmed)} overcast, "
+            + $"{TestPixels.Show(after)} clear again; the targets were made {rebuilt} more times.");
+
+        Assert.True(builds > 0, "The overcast sky never made the clouds' targets.");
+        Assert.Equal(0, rebuilt);
+        Assert.True(
+            TestPixels.Brightness(dimmed) < TestPixels.Brightness(first) - 10f,
+            $"The overcast sky left the ghost at {TestPixels.Show(dimmed)} against {TestPixels.Show(first)}, so the clouds don't dim it.");
+        Assert.True(
+            Vector3.Distance(first, after) < 1f,
+            $"Clear again, the ghost's place was {TestPixels.Show(after)}, not {TestPixels.Show(first)} as before the clouds.");
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    private byte[] Flared(CloudSettings clouds)
+    {
+        var sun = Vector3.Normalize(new Vector3(-0.4f * MathF.Tan(MathF.PI / 6f), 0.4f * MathF.Tan(MathF.PI / 6f), -1f));
+        LensFlareElement[] ghost = [new(LensFlareShape.Ghost, 2f, 0.12f, new Vector3(0.5f))];
+        var view = TestSky.View(Size, -Vector3.UnitZ, sun) with
+        {
+            Weather = new WeatherSettings { Clouds = clouds },
+            Picture = new PictureSettings { LensFlare = new LensFlareSettings { Elements = ghost } },
+            Off = Steady,
+        };
+        return TestSky.Capture(gpu, view, [], Frames, out _wide);
+    }
+
     // How many pixels across the last picture read back is.
     private int _wide = Size;
 

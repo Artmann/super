@@ -356,6 +356,6 @@ internal struct FrameCloudBlock
     /// <summary>rgb: how much the air between the camera and the clouds dims per metre.</summary>
     public Vector4 CloudAir;
 
-    /// <summary>xy: how far the clouds' tops lean along the wind, in metres.</summary>
+    /// <summary>xy: how far the clouds' tops lean along the wind, in metres; zw: the clouds' picture's width and height in pixels.</summary>
     public Vector4 CloudLean;
 }

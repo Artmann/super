@@ -53,7 +53,8 @@ internal sealed class LensFlarePass : IDisposable
         if (_quadCount > 0)
         {
             SourceCount = count;
-            _visibility.Take(_sources.AsSpan(0, count), hold: !off.HasFlag(RenderEffects.AntiAliasing), frame.HistoryReady);
+            _visibility.Take(
+                _sources.AsSpan(0, count), hold: !off.HasFlag(RenderEffects.AntiAliasing), frame.HistoryReady, clouds: CloudModel.Tier(view, off) > 0);
         }
     }
 
