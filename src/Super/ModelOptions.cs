@@ -40,6 +40,11 @@ public readonly record struct ModelOptions
     public DistanceFade? Fade { get; init; }
 
     /// <summary>
+    /// Grows grass over the model's top surface, as the <see cref="Super.Grass"/> component does. Null grows none.
+    /// </summary>
+    public Grass? Grass { get; init; }
+
+    /// <summary>
     /// Throws for a fade that ends before it starts, or for a static model that swims or has a pose, naming the
     /// options as <paramref name="name"/>.
     /// </summary>
@@ -49,6 +54,8 @@ public readonly record struct ModelOptions
         {
             throw new ArgumentException($"Model {key}'s {problem}", name);
         }
+
+        Grass?.Check(key, name);
 
         if (!Static)
         {

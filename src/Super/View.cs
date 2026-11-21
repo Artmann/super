@@ -139,7 +139,7 @@ public sealed class View
         // So the animator's clip sounds play where the model stands.
         pose?.Drawn = transform;
         _models.Add(new ModelDraw(
-            key, model, transform, options.Color, options.Swim, pose, pose is null ? 0f : Clock.PoseAhead, null, options.Meshes, options.Static, options.Fade));
+            key, model, transform, options.Color, options.Swim, pose, pose is null ? 0f : Clock.PoseAhead, null, options.Meshes, options.Static, options.Fade, options.Grass));
     }
 
     /// <summary>

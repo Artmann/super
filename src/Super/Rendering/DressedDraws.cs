@@ -16,6 +16,8 @@ internal sealed class DressedDraws(Renderer renderer, UploadedItems items)
     private readonly PoseSkinning _skinning = new();
     private readonly BakeIdScratch _scratch = new();
     private DrawItem[] _draws = new DrawItem[64];
+    private GrassDraw[] _grass = new GrassDraw[8];
+    private int _grassCount;
     private BakeSphere[] _partBounds = new BakeSphere[16];
     private int _count;
 
@@ -25,10 +27,14 @@ internal sealed class DressedDraws(Renderer renderer, UploadedItems items)
     /// <summary>The bone matrices of the posed draws <see cref="Fill"/> made.</summary>
     public ReadOnlySpan<Matrix4x4> Bones => _skinning.Bones;
 
+    /// <summary>The grass <see cref="Fill"/> grew, one field over each shown part of a model drawn with grass.</summary>
+    public ReadOnlySpan<GrassDraw> Grass => _grass.AsSpan(0, _grassCount);
+
     /// <summary>Makes the frame's draws from the view's, skinning each posed draw once however many of its parts are shown.</summary>
     public void Fill(View view, Content content)
     {
         _count = 0;
+        _grassCount = 0;
         _skinning.Clear();
         var context = new DressContext(content, new BakeIdAreas(view.Indirect.BakedSpace, view.Indirect.PlacedBakedChunks, _scratch));
         foreach (ref readonly var draw in view.Drawn)
@@ -44,6 +50,27 @@ internal sealed class DressedDraws(Renderer renderer, UploadedItems items)
             var bones = draw.Pose is { } pose ? _skinning.Skin(pose, draw.PoseAhead, model, draw.Model.Index, content) : default;
             var partBounds = draw.Static ? BoundsOf(model.Parts) : default;
             Dress(_draws.AsSpan(first, _count - first), in draw, bones, partBounds, in context);
+            if (draw.Grass is { } grass)
+            {
+                GrowOver(_draws.AsSpan(first, _count - first), grass, content);
+            }
+        }
+    }
+
+    /// <summary>Grows <paramref name="grass"/> over each of a draw's shown parts, with its density map on the GPU.</summary>
+    private void GrowOver(ReadOnlySpan<DrawItem> parts, in Grass grass, Content content)
+    {
+        GrassDensity? density = grass.Density is { } map
+            ? new GrassDensity(items.Require<TextureOnGpu>(map.Map.Index, content).Handle, map.Min, map.Max, map.Channel)
+            : null;
+        if (_grass.Length < _grassCount + parts.Length)
+        {
+            Array.Resize(ref _grass, Math.Max(_grassCount + parts.Length, _grass.Length * 2));
+        }
+
+        foreach (ref readonly var part in parts)
+        {
+            _grass[_grassCount++] = new GrassDraw(part, grass.Look, density);
         }
     }
 

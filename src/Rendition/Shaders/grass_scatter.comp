@@ -1,0 +1,197 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+// Scatters the blades of one square of the grass's lattice: each point of it that the square keeps grows a blade
+// unless the ground map says there is no grass there, it has shrunk away with distance, or the camera can't see it.
+// The blades that stand are appended for the indirect draws. Nothing is kept from frame to frame: every blade comes
+// from a hash of where its point is on the lattice, so it is the same each frame. See "Grass" in docs/design.md.
+#define GRASS_SCATTER
+#include "common.glsl"
+#include "wind.glsl"
+#include "grass.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(std430, set = 2, binding = 1) readonly buffer GrassTiles {
+    ivec4 tiles[]; // xy: the square's place, in squares; z: the finest level it keeps; w unused
+};
+
+layout(std430, set = 2, binding = 2) writeonly buffer GrassBladesOut {
+    GrassBlade blades[];
+};
+
+// What the draws read: the vertices of a blade, how many blades, and two zeros.
+layout(std430, set = 2, binding = 3) buffer GrassArgs {
+    uint vertexCount;
+    uint bladeCount;
+    uint firstVertex;
+    uint firstInstance;
+} args;
+
+layout(set = 2, binding = 4) uniform sampler2D groundHeight; // the ground's top seen from above; 0 where there is none
+layout(set = 2, binding = 5) uniform sampler2D groundInfo;   // r: how thick the grass is; g: its look over 255
+
+// Four numbers from 0 to 1 for a point of the lattice and a salt, from a PCG hash.
+uvec4 grassHash(ivec2 point, uint salt) {
+    uvec4 v = uvec4(uint(point.x), uint(point.y), salt, uint(point.x) ^ uint(point.y) * 7919u);
+    v = v * 1664525u + 1013904223u;
+    v.x += v.y * v.w;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v.w += v.y * v.z;
+    v ^= v >> 16u;
+    v.x += v.y * v.w;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v.w += v.y * v.z;
+    return v;
+}
+
+vec4 grassRandom(ivec2 point, uint salt) {
+    return vec4(grassHash(point, salt) >> 8u) / 16777216.0;
+}
+
+// The finest level a point of the lattice belongs to: 0 for every point, up to 3 for every eighth along both ways.
+int pointLevel(ivec2 point) {
+    int x = point.x == 0 ? 3 : findLSB(point.x);
+    int z = point.y == 0 ? 3 : findLSB(point.y);
+    return min(min(x, z), 3);
+}
+
+// The ground's height at a place, between the map's texels, or false where any of them has no ground.
+bool groundAt(vec2 at, out float height, out vec4 info) {
+    vec2 texel = (at - grass.capture.xy) / grass.capture.z - 0.5;
+    ivec2 corner = ivec2(floor(texel));
+    int size = int(grass.capture.w);
+    if (any(lessThan(corner, ivec2(0))) || any(greaterThanEqual(corner + 1, ivec2(size)))) {
+        return false;
+    }
+
+    vec2 f = texel - vec2(corner);
+    float d00 = texelFetch(groundHeight, corner, 0).r;
+    float d10 = texelFetch(groundHeight, corner + ivec2(1, 0), 0).r;
+    float d01 = texelFetch(groundHeight, corner + ivec2(0, 1), 0).r;
+    float d11 = texelFetch(groundHeight, corner + ivec2(1, 1), 0).r;
+    if (min(min(d00, d10), min(d01, d11)) <= 0.0) {
+        return false;
+    }
+
+    float depth = mix(mix(d00, d10, f.x), mix(d01, d11, f.x), f.y);
+    height = grass.heights.x + depth * grass.heights.y;
+    info = texelFetch(groundInfo, ivec2(floor(texel + 0.5)), 0);
+    return true;
+}
+
+// The clump a place is in, as the nearest of the clumps' middles, one scattered in each cell of clumpSize metres:
+// the way out from that middle over the clump's size, and four numbers from 0 to 1 the whole clump shares.
+vec4 clumpAt(vec2 at, float clumpSize, out vec2 fromMiddle) {
+    vec2 cell = floor(at / clumpSize);
+    float nearest = 1e9;
+    ivec2 chosen = ivec2(0);
+    vec2 middle = vec2(0.0);
+    for (int z = -1; z <= 1; z++) {
+        for (int x = -1; x <= 1; x++) {
+            ivec2 c = ivec2(cell) + ivec2(x, z);
+            vec2 m = (vec2(c) + grassRandom(c, 0x9e37u).xy) * clumpSize;
+            float d = dot(m - at, m - at);
+            if (d < nearest) {
+                nearest = d;
+                chosen = c;
+                middle = m;
+            }
+        }
+    }
+
+    fromMiddle = (at - middle) / clumpSize;
+    return grassRandom(chosen, 0x51edu);
+}
+
+bool inView(vec3 centre, float radius) {
+    for (int i = 0; i < 5; i++) {
+        if (dot(grass.planes[i].xyz, centre) + grass.planes[i].w < -radius) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void scatter(ivec2 point, int level) {
+    vec4 random = grassRandom(point, 0x1234u);
+    vec4 more = grassRandom(point, 0x4321u);
+
+    // Within its own cell of its own level, so a far point moves nowhere when the finer ones fade in round it.
+    float cell = GRASS_SPACING * float(1 << level);
+    vec2 at = (vec2(point) + 0.5) * GRASS_SPACING + (random.xy - 0.5) * cell;
+    float distance = length(at - grass.camera.xz);
+    float reach = grass.rings[level];
+    if (distance >= reach) {
+        return;
+    }
+
+    float height;
+    vec4 info;
+    if (!groundAt(at, height, info) || info.r <= 0.0) {
+        return;
+    }
+
+    int kindIndex = clamp(int(info.g * 255.0 + 0.5), 0, 7);
+    GrassKind kind = grass.kinds[kindIndex];
+    float density = info.r * kind.more.x;
+    if (random.z >= density) {
+        return;
+    }
+
+    vec2 fromMiddle;
+    vec4 clump = clumpAt(at, kind.more.y, fromMiddle);
+
+    // Thin grass is short grass, and blades shrink away over the last of their ring.
+    float fade = 1.0 - smoothstep((1.0 - grass.camera.w) * reach, reach, distance);
+    float tall = kind.shape.x * mix(0.7, 1.3, clump.x) * (1.0 + kind.shape.y * (2.0 * random.w - 1.0));
+    float bladeHeight = tall * mix(0.55, 1.0, density) * fade;
+    if (bladeHeight < 0.01) {
+        return;
+    }
+
+    // Blades of a clump lean the same way, and those near its middle stand straighter.
+    float leanAngle = clump.y * 2.0 * GRASS_PI;
+    vec2 lean = vec2(cos(leanAngle), sin(leanAngle));
+    float ownAngle = more.x * 2.0 * GRASS_PI;
+    vec2 facing = normalize(mix(vec2(cos(ownAngle), sin(ownAngle)), lean, 0.6) + vec2(1e-4, 0.0));
+    float bend = clamp(kind.shape.w * mix(0.5, 1.5, more.y) + 0.25 * clump.z, 0.0, 1.0);
+
+    // Each level up keeps a quarter of the blades, so they double in width to keep the far ground from looking bare.
+    float width = kind.shape.z * mix(0.7, 1.2, more.z) * exp2(float(level));
+
+    // Whatever the wind does, the blade stays within its height of its root.
+    vec3 root = vec3(at.x, height, at.y);
+    if (!inView(root + vec3(0.0, 0.5 * bladeHeight, 0.0), bladeHeight + width)) {
+        return;
+    }
+
+    uint slot = atomicAdd(args.bladeCount, 1u);
+    if (slot >= uint(grass.counts.y)) {
+        atomicAdd(args.bladeCount, uint(-1));
+        return;
+    }
+
+    GrassBlade blade;
+    blade.root = vec4(root, bladeHeight);
+    blade.shape = vec4(facing, width, bend);
+    blade.look = vec4(fromMiddle, 2.0 * mix(clump.w, more.w, 0.4) - 1.0, float(kindIndex));
+    blades[slot] = blade;
+}
+
+void main() {
+    ivec4 tile = tiles[gl_WorkGroupID.x];
+    int level = tile.z;
+    int step = 1 << level;
+    int across = GRASS_TILE_POINTS >> level;
+    ivec2 first = tile.xy * GRASS_TILE_POINTS;
+    for (int i = int(gl_LocalInvocationIndex); i < across * across; i += 64) {
+        ivec2 point = first + ivec2(i % across, i / across) * step;
+        int own = pointLevel(point);
+        if (own >= level) {
+            scatter(point, own);
+        }
+    }
+}

@@ -67,7 +67,7 @@ component on its entity instead. See [Audio](audio.md).
 | `view.TransformOf(entity)` | Where an entity is drawn this frame, so something drawn by hand can sit on it. The world draws its own [entities](ecs.md#drawing-entities) before `Draw` |
 
 `ModelOptions` holds everything a model draw can take beyond a colour: `Color`, `Swim` for a
-`SwimMotion` that bends a fish as it swims, `Meshes`, `Static` and `Fade`. Leave out what you don't need.
+`SwimMotion` that bends a fish as it swims, `Meshes`, `Static`, `Fade` and `Grass`, which grows [grass](rendering.md#grass) over it. Leave out what you don't need.
 
 The suns, point and spot lights, shadows, ambient occlusion, screen bounce, light probes,
 baked lighting, sky, water, puddles, wind, finished look, outlines, decals, fog volumes, reflection probes and baked pieces are components in the

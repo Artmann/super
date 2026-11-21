@@ -54,6 +54,7 @@ public class GraphicsProfileTests
             HeightMaps = false,
             Subsurface = false,
             Particles = false,
+            Grass = false,
         },
         Picture =
         {
@@ -73,7 +74,7 @@ public class GraphicsProfileTests
             Paint = false,
         },
         Baking = { BakedLighting = false, BakeOnArrival = false, BakeBudget = 3f },
-        Drawing = { MeshDetail = 1.5f, Culling = false, SimplerModels = false, DepthFirst = false, Fades = false },
+        Drawing = { MeshDetail = 1.5f, GrassDetail = 0.5f, Culling = false, SimplerModels = false, DepthFirst = false, Fades = false },
         DebugView = DebugView.Probes,
     };
 
@@ -96,7 +97,7 @@ public class GraphicsProfileTests
         var defaults = new Graphics();
         var unusual = Unusual();
 
-        Assert.Equal(65, Settings().Length);
+        Assert.Equal(67, Settings().Length);
         Assert.All(Settings(), setting => Assert.NotEqual(Value(defaults, setting), Value(unusual, setting)));
     }
 
@@ -301,6 +302,7 @@ public class GraphicsProfileTests
             Assert.True(higher.Shadowing.ShadowResolution >= lower.Shadowing.ShadowResolution, pair);
             Assert.True(higher.Shadowing.ShadowCascades >= lower.Shadowing.ShadowCascades, pair);
             Assert.True(higher.Drawing.MeshDetail >= lower.Drawing.MeshDetail, pair);
+            Assert.True(higher.Drawing.GrassDetail >= lower.Drawing.GrassDetail, pair);
             Assert.True(higher.Screen.RenderScale >= lower.Screen.RenderScale, pair);
             Assert.True(higher.Lighting.ProbeQuality >= lower.Lighting.ProbeQuality, pair);
             Assert.True(higher.Lighting.ReflectionResolution >= lower.Lighting.ReflectionResolution, pair);
@@ -320,11 +322,31 @@ public class GraphicsProfileTests
         Assert.Equal(1024, low.Shadowing.ShadowResolution);
         Assert.Equal(2, low.Shadowing.ShadowCascades);
         Assert.Equal(0.5f, low.Drawing.MeshDetail);
+        Assert.Equal(0.5f, low.Drawing.GrassDetail);
         Assert.Equal(1f, low.Baking.BakeBudget);
         Assert.True(off.HasFlag(RenderEffects.VolumetricFog));
         Assert.True(off.HasFlag(RenderEffects.Reflections));
         Assert.True(off.HasFlag(RenderEffects.AmbientOcclusion));
         Assert.True(off.HasFlag(RenderEffects.HeightMaps));
+    }
+
+    [Theory]
+    [InlineData(0.2f)]
+    [InlineData(2.5f)]
+    public void Grass_detail_out_of_range_is_explained_with_invariant_numbers_under_swedish_culture(float detail)
+    {
+        var original = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
+        try
+        {
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { Drawing = { GrassDetail = detail } });
+
+            Assert.StartsWith("Grass detail can be from 0.25 to 2.", error.Message);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
     }
 
     [Theory]
@@ -431,14 +453,15 @@ public class GraphicsProfileTests
     }
 
     [Fact]
-    public void Shadow_cascades_and_mesh_detail_reach_the_renderer()
+    public void Shadow_cascades_mesh_detail_and_grass_detail_reach_the_renderer()
     {
-        var graphics = new Graphics { Shadowing = { ShadowCascades = 2 }, Drawing = { MeshDetail = 0.75f } };
+        var graphics = new Graphics { Shadowing = { ShadowCascades = 2 }, Drawing = { MeshDetail = 0.75f, GrassDetail = 1.5f } };
 
         var settings = WindowFrames.RendererSettings(graphics, hidden: false);
 
         Assert.Equal(2, settings.ShadowCascades);
         Assert.Equal(0.75f, settings.MeshDetail);
+        Assert.Equal(1.5f, settings.GrassDetail);
     }
 
     [Fact]

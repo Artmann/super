@@ -93,7 +93,7 @@ public sealed class Graphics
             Reflections = false,
         },
         Atmosphere = { Fog = false, VolumetricFog = false, FogVolumes = false, Clouds = false, VolumetricClouds = false, CloudShadows = false },
-        Surfaces = { WearAndDirt = false, Decals = false, Puddles = false, Wind = false, HeightMaps = false, Subsurface = false },
+        Surfaces = { WearAndDirt = false, Decals = false, Puddles = false, Wind = false, HeightMaps = false, Subsurface = false, Grass = false },
         Picture =
         {
             Bloom = false,
@@ -166,7 +166,7 @@ public sealed class Graphics
         Surfaces = { Decals = false, HeightMaps = false },
         Picture = { AutoExposure = false, DepthOfField = false, Paint = false },
         Baking = { BakeBudget = 1f },
-        Drawing = { MeshDetail = 0.5f },
+        Drawing = { MeshDetail = 0.5f, GrassDetail = 0.5f },
     };
 
     private static Graphics Medium() => new()
@@ -178,7 +178,7 @@ public sealed class Graphics
         Atmosphere = { VolumetricFog = false, VolumetricClouds = false },
         Picture = { DepthOfField = false },
         Baking = { BakeBudget = 2f },
-        Drawing = { MeshDetail = 0.75f },
+        Drawing = { MeshDetail = 0.75f, GrassDetail = 0.75f },
     };
 
     private static Graphics Ultra() => new()
@@ -186,6 +186,6 @@ public sealed class Graphics
         Shadowing = { ShadowResolution = 4096 },
         Lighting = { ReflectionResolution = ReflectionResolution.Full, OcclusionResolution = OcclusionResolution.Full },
         Atmosphere = { VolumetricFogSlices = 128 },
-        Drawing = { MeshDetail = 1.5f },
+        Drawing = { MeshDetail = 1.5f, GrassDetail = 1.25f },
     };
 }

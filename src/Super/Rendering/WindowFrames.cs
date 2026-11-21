@@ -233,7 +233,7 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
     public void ApplyGraphics(Graphics graphics)
     {
         var settings = scene.Renderer.Settings;
-        (scene.Off, settings.Vsync, settings.ShadowResolution, settings.MaxShadowCascades, settings.MeshDetailScale,
+        (scene.Off, settings.Vsync, settings.ShadowResolution, settings.MaxShadowCascades, settings.MeshDetailScale, settings.GrassDetail,
             settings.RenderScale, settings.Upscaler, settings.ProbeQuality, settings.ReflectionResolution,
             settings.OcclusionResolution, settings.VolumetricFogCellSize, settings.VolumetricFogSlices, scene.DebugView) =
             RendererSettings(graphics, hidden, _takingShot, CommandLineDebugView, scene.Renderer.CanTrace);
@@ -241,14 +241,14 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
 
     /// <summary>
     /// What the renderer is told from the game's graphics settings: the effects left out, whether to wait
-    /// for the display, the sun's shadow map size and cascades, the mesh detail, the render scale, the upscaler, the light
+    /// for the display, the sun's shadow map size and cascades, the mesh detail, how far grass reaches, the render scale, the upscaler, the light
     /// probes' quality, the resolution of the reflections and the occlusion, the volumetric fog's grid, and the debug view.
     /// A hidden window always waits for the display, except for a screenshot, where waiting would only slow the
     /// shot down. The debug view is the command line's when it named one,
     /// else the game's <see cref="Graphics.DebugView"/>, except that a game's Trace view is dropped to None on a
     /// GPU that can't trace (<paramref name="canTrace"/>), where the renderer would throw.
     /// </summary>
-    internal static (RenderEffects Off, bool Vsync, int ShadowResolution, int ShadowCascades, float MeshDetail, float RenderScale,
+    internal static (RenderEffects Off, bool Vsync, int ShadowResolution, int ShadowCascades, float MeshDetail, float GrassDetail, float RenderScale,
         Upscaler Upscaler, ProbeQuality ProbeQuality, ReflectionResolution ReflectionResolution,
         OcclusionResolution OcclusionResolution, int VolumetricFogCellSize, int VolumetricFogSlices, Rendition.DebugView DebugView)
         RendererSettings(
@@ -263,7 +263,7 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
 
         var (screen, shadowing, lighting, atmosphere) = (graphics.Screen, graphics.Shadowing, graphics.Lighting, graphics.Atmosphere);
         return (GraphicsSwitches.Off(graphics), hidden ? !takingShot : screen.Vsync, shadowing.ShadowResolution, shadowing.ShadowCascades,
-            graphics.Drawing.MeshDetail, screen.RenderScale, screen.Upscaler, lighting.ProbeQuality, lighting.ReflectionResolution,
+            graphics.Drawing.MeshDetail, graphics.Drawing.GrassDetail, screen.RenderScale, screen.Upscaler, lighting.ProbeQuality, lighting.ReflectionResolution,
             lighting.OcclusionResolution, atmosphere.VolumetricFogCellSize, atmosphere.VolumetricFogSlices, debugView);
     }
 }
