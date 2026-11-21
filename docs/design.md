@@ -2020,13 +2020,18 @@ cellular noise into heaps, and three finer cellular octaves), a 32³ detail text
 the edges, and a 512² weather map over 40960 m that says where the clouds gather and holds the
 cirrus's streaks, read four times finer. The weather map, 2 MB, is made with `CloudNoise`, before the sky, since the
 sky captures read it whether or not the clouds are drawn yet; the shape and detail are made the first
-time a frame draws clouds, with the targets. Switching the clouds off frees all but the weather map
-after a device wait.
+time a frame draws clouds, with the targets, and kept from then on: a sky that clears and clouds over
+again, as a look easing in and out does, never waits for the device. Only a new size makes the targets
+again, and only while the clouds are drawn. While they're off the frame block says so (`CloudLight.w`
+0, `CloudShadow.w` -1) and the flare's visibility pass takes a flag, so nothing reads the last clouds
+left in the kept picture.
 
 #### The march
 
 `cloud_march.comp` runs at a quarter of the screen's width and height, on one pixel of each 2×2 of
-the half-size picture per frame (`CloudFrame.x` turns through the four). Each ray finds where it
+the half-size picture per frame (`CloudFrame.x` turns through the four). Its rays are spread over
+the picture's own size, from `CloudLean.zw`, since the picture rounds an odd scene up and so isn't
+always twice the march's size. Each ray finds where it
 enters and leaves the shell between the base and the top (`cloud_layer.glsl`, worked out from the
 difference of heights so the planet's radius doesn't swamp single precision), from below, above or
 inside, and takes `Steps` (64) steps straight up and up to 128 across, out to 80 km, with a jittered

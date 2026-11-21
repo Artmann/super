@@ -9,9 +9,10 @@ namespace Rendition;
 /// The clouds on the GPU: the <see cref="CloudNoise"/> they're made of, and each frame the <see cref="CloudPasses"/>,
 /// which draw their shadow round the camera, march a quarter of the screen's pixels through them and fill out the rest
 /// of a half-size picture from last frame's, which the lighting pass lays over the sky. The targets are made the first
-/// time a frame draws clouds and freed when they're switched off, so a game without them spends no memory on them
-/// beyond the 2 MB weather map; until then the frame sets read stand-ins that let all the light through and show no
-/// cloud. See "Clouds" in docs/design.md.
+/// time a frame draws clouds and kept from then on, so a game that never draws them spends no memory on them beyond
+/// the 2 MB weather map, and one whose sky clears and clouds over again never waits for the GPU; until then the frame
+/// sets read stand-ins that let all the light through and show no cloud. While the clouds are off nothing reads the
+/// kept picture or shadow, since the frame block and the flare say they're off. See "Clouds" in docs/design.md.
 /// </summary>
 internal sealed class CloudStage : IDisposable
 {
@@ -53,34 +54,28 @@ internal sealed class CloudStage : IDisposable
     public bool HistoryReady { get; private set; }
 
     /// <summary>
-    /// Makes the noise and the targets the first time a frame draws clouds, frees them while they're switched off or
-    /// the sky has none, and makes the targets again at a new size. Each waits for the GPU, which is rare. Returns
-    /// whether the targets changed, so the sets that read them must be written again.
+    /// Makes the noise and the targets the first time a frame draws clouds, and the targets again when a frame draws
+    /// them at a new size. Each waits for the GPU. Once made they're kept while the clouds are off or the sky has none,
+    /// so a sky that clears and clouds over again, as a look easing in and out does, never waits. Returns whether the
+    /// targets changed, so the sets that read them must be written again.
     /// </summary>
     public bool KeepTargets(in FrameView view, Extent2D scene)
     {
         bool wanted = CloudModel.Tier(view, _switches.Off) > 0;
-        bool changed = wanted
-            ? _targets is null || _targets.Size != CloudTargets.PictureSize(scene)
-            : _targets is not null;
-        if (!changed)
+        if (!wanted || (_targets is not null && _targets.Size == CloudTargets.PictureSize(scene)))
         {
             return false;
         }
 
-        // Frames in flight still read them. Switching the clouds or the size is rare.
+        // Frames in flight still read them. Drawing the first clouds or a new size is rare.
         _context.WaitIdle();
-        if (wanted)
-        {
-            Make(scene);
-        }
-        else
-        {
-            Release();
-        }
-
+        Make(scene);
+        Builds++;
         return true;
     }
+
+    /// <summary>How many times the targets have been made, for tests.</summary>
+    public int Builds { get; private set; }
 
     /// <summary>Points the march at the physical sky's sky-view table, which it takes the sky's light from.</summary>
     public void SetSources(in DescriptorImageInfo skyView) => _passes.SetSources(skyView);
@@ -96,6 +91,12 @@ internal sealed class CloudStage : IDisposable
         {
             block.CloudLight.W = 0f;
             block.CloudShadow.W = -1f;
+        }
+        else
+        {
+            // The march spreads its rays over the picture's own size, which an odd scene doesn't make twice the march's.
+            block.CloudLean.Z = _targets.Size.Width;
+            block.CloudLean.W = _targets.Size.Height;
         }
 
         uniforms->CloudBlock = block;
@@ -126,7 +127,7 @@ internal sealed class CloudStage : IDisposable
 
     public void Dispose()
     {
-        Release();
+        _targets?.Dispose();
         _standIns.Shadow.Dispose();
         _standIns.Picture.Dispose();
         _passes.Dispose();
@@ -141,14 +142,6 @@ internal sealed class CloudStage : IDisposable
         _noise.MakeVolumes();
         _targets = new CloudTargets(_context, CloudTargets.PictureSize(scene));
         _passes.PointAt(_targets);
-        HistoryReady = false;
-    }
-
-    private void Release()
-    {
-        _targets?.Dispose();
-        _targets = null;
-        _noise.ReleaseVolumes();
         HistoryReady = false;
     }
 }
