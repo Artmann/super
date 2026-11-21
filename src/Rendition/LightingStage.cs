@@ -133,6 +133,7 @@ internal sealed unsafe class LightingStage : IDisposable
             new(nearest, targets.Traced.View, ImageLayout.ShaderReadOnlyOptimal),
             new(nearest, targets.Occlusion.BounceBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
             new(environment.Sampler, environment.Background, ImageLayout.ShaderReadOnlyOptimal),
+            new(_kit.MipSampler, _sources.Planar.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         ImageSets.Write(_context, _reflectionSet,
         [
@@ -155,9 +156,9 @@ internal sealed unsafe class LightingStage : IDisposable
 
     /// <summary>
     /// What the lighting reads besides the targets: the material table, the environment, the reflection probes, the
-    /// light probes' atlases and the sun's shadow maps.
+    /// light probes' atlases, the sun's shadow maps and the planar reflection's picture.
     /// </summary>
     public sealed record Sources(
         ResourceTable Resources, EnvironmentMap Environment, ReflectionProbes ReflectionProbes, ProbeVolume ProbeVolume,
-        ShadowPass Shadows);
+        ShadowPass Shadows, PlanarStage Planar);
 }

@@ -20,6 +20,7 @@ public sealed class ViewSurroundings
 
     internal UnderwaterSettings WaterSettings { get; private set; }
     internal PuddleSettings? PuddleSettings { get; private set; }
+    internal ReflectionPlane? ReflectionPlaneSettings { get; private set; }
     internal WindSettings? WindSettings { get; private set; }
     internal SkySettings? SkySettings { get; private set; }
 
@@ -64,6 +65,23 @@ public sealed class ViewSurroundings
     }
 
     /// <summary>
+    /// Mirrors the scene in the flat, level plane at <paramref name="height"/> metres, such as a wet floor or a calm
+    /// pool: surfaces lying in it that face up and are smooth enough show the scene from a camera mirrored under the
+    /// plane, so they reflect what is off screen or hidden too, blurred by their roughness. Puddles set the plane at
+    /// their level by themselves; this takes over from them. <see cref="GraphicsLighting.PlanarReflections"/> turns it
+    /// off. See docs/rendering.md.
+    /// </summary>
+    public void ReflectionPlane(float height)
+    {
+        if (!float.IsFinite(height))
+        {
+            throw new ArgumentOutOfRangeException(nameof(height), height, "The reflection plane's height must be a number of metres.");
+        }
+
+        ReflectionPlaneSettings = new Rendition.ReflectionPlane(height);
+    }
+
+    /// <summary>
     /// Lets the wind blow along the ground towards <paramref name="direction"/>, swaying every surface whose material
     /// asks for it, and its shadow with it. <paramref name="strength"/> is how far, in metres, it leans the tip of grass
     /// 1 m tall at a gust's peak: 0.1 is a breeze, 0.35 a fresh wind and 1 a gale. Gusts roll across the ground
@@ -98,11 +116,12 @@ public sealed class ViewSurroundings
         WindSettings = new WindSettings(direction, strength, gustiness);
     }
 
-    /// <summary>Forgets the last frame's sky, water, puddles and wind as a frame starts.</summary>
+    /// <summary>Forgets the last frame's sky, water, puddles, reflection plane and wind as a frame starts.</summary>
     internal void Clear()
     {
         WaterSettings = default;
         PuddleSettings = null;
+        ReflectionPlaneSettings = null;
         WindSettings = null;
         SkySettings = null;
     }

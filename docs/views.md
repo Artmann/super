@@ -70,7 +70,7 @@ component on its entity instead. See [Audio](audio.md).
 `SwimMotion` that bends a fish as it swims, `Meshes`, `Static`, `Fade` and `Grass`, which grows [grass](rendering.md#grass) over it. Leave out what you don't need.
 
 The suns, point and spot lights, shadows, ambient occlusion, screen bounce, light probes,
-baked lighting, sky, water, puddles, wind, finished look, outlines, decals, fog volumes, reflection probes and baked pieces are components in the
+baked lighting, sky, water, puddles, mirror plane, wind, finished look, outlines, decals, fog volumes, reflection probes and baked pieces are components in the
 [world](ecs.md#drawing-entities), such as `world.Spawn(new Wind(direction, 0.35f))`, and the
 calls below set them for one frame when drawing by hand. The view still takes
 `view.Lights.Point` and `view.Lights.Spot` for a light that only one frame shows, such as
@@ -85,13 +85,14 @@ a muzzle flash. The rest of what a frame shows is set through parts of the view:
 | `view.Indirect.ReflectionProbe(key, position, boxMin, boxMax, blend, priority, update, version)` | A photograph of the scene from one spot, which shiny surfaces and glass in its box reflect, taken during play without stopping the game. Up to 64 a frame; where boxes overlap, the higher priority, then the smaller box, goes first. `update` says when it's taken again: when the light changes (the default), when `version` changes, or always. See [Rendering](rendering.md#reflections) |
 | `view.Surroundings.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
 | `view.Surroundings.Puddles(level, band)` | Lets water stand below `level` on materials that ask for puddles, damp for `band` metres above. See [Rendering](rendering.md#puddles) |
+| `view.Surroundings.ReflectionPlane(height)` | A level mirror at `height`: smooth surfaces lying in it reflect the scene drawn from under it, sharp even for what the screen doesn't show. Puddles set one at their level by themselves. See [Rendering](rendering.md#planar-reflections) |
 | `view.Surroundings.Wind(direction, strength, gustiness)` | A breeze that sways grass and leaves on materials that ask for wind, leaning grass 1 m tall `strength` metres downwind, with gusts from 0 for steady to 1. See [Rendering](rendering.md#wind) |
 | `view.Effects.Particles(key, effect, position, age)` | A burst of particles, such as dust or smoke. See [Particles](#particles) |
 | `view.Effects.Decal(key, box, material, blend)` | Grime, damp or a stain projected onto whatever is inside a box. Up to 256 a frame. See [Decals](rendering.md#decals) |
 | `view.Effects.FogVolume(key, shape, transform, settings)` | A box, ellipsoid, cylinder or cone filled with fog of its own, such as mist in a room or a lamp's beam. Up to 64 a frame. See [Fog volumes](rendering.md#fog-volumes) |
 
 `view.Indirect` holds the light that bounces, live, in probes or baked; `view.Surroundings`
-the water, puddles and wind; and `view.Effects` particles, decals and fog volumes.
+the water, puddles, mirror plane and wind; and `view.Effects` particles, decals and fog volumes.
 
 What you draw by hand is flat: a list of things, not a tree of nodes. To attach one
 thing to another, multiply their transforms. In the world, a [`Parent`](ecs.md#drawing-entities)

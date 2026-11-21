@@ -141,7 +141,7 @@ internal sealed class FrameDrawer
 
     /// <summary>
     /// Takes the effects the frame leaves out, and what follows from them: the wind's reach, the fade rules, the
-    /// volumetric fog's and the clouds' targets, depth of field and the grade's table.
+    /// volumetric fog's, the clouds' and the mirror's targets, depth of field and the grade's table.
     /// </summary>
     private void TakeEffects(in FrameView view, RenderEffects viewOff)
     {
@@ -154,6 +154,11 @@ internal sealed class FrameDrawer
         }
 
         if (_parts.SceneLighting.CloudStage.KeepTargets(view, targets.GBuffer.Extent))
+        {
+            targets.WriteDescriptors();
+        }
+
+        if (_parts.SceneLighting.Planar.KeepTargets(view, targets.GBuffer.Extent))
         {
             targets.WriteDescriptors();
         }
@@ -222,14 +227,16 @@ internal sealed class FrameDrawer
         // Before the uniforms, which carry the probes' sun shadow maps and whether surfaces read the probes.
         int frameNumber = FrameCameras.FrameNumber;
         int probeInstances = lights.PlanProbes(view, draws, frameNumber) + lights.FrameReflectionCapture.Plan(view, draws, frameNumber);
+        lights.Planar.Plan(view);
 
         bool castsShadow = FrameUniformWriter.Write(frame, view, camera, _picker.Casters(draws));
+        int mirrorCount = lights.Planar.Select(_picker, view, draws);
         FrameSlots.WriteBones(frame, view.Bones);
         FrameCameras.Advance(frame, view, draws, camera);
         _parts.FrameStages.HeldPicture.Take(view.Picture.Transition);
         var (cameraCount, shadowCount) = _picker.Select(view, camera.ViewProjection, draws, castsShadow);
         int tileDrawCount = _picker.SelectTiles(draws);
-        stores.Frames.ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
+        stores.Frames.ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances + mirrorCount);
         _baking.Frame.Relight.WriteTo(frame.Chunks, _baking.Frame.MaskSlots.SpaceSlots);
         return cameraCount;
     }

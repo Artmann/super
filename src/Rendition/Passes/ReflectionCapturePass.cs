@@ -29,8 +29,6 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
     /// <summary>How far round the middle of a probe's box its sun shadow map reaches, in the box's half-diagonals.</summary>
     public const float SunShadowReach = 2f;
 
-    private const uint EnvironmentBinding = 15;
-
     private readonly VulkanContext _context;
     private readonly ResourceTable _resources;
     private readonly CaptureScene _scene;
@@ -55,8 +53,7 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
         var materials = resources.Materials;
         _sun = new ProbeSunShadow(context, material => materials[material].Flags, SunShadowResolution);
 
-        _setLayout = context.CreateSetLayout(
-            [.. ProbeCapturePass.AtlasBindings, new(EnvironmentBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit)]);
+        _setLayout = context.CreateSetLayout(LitCaptureSet.Bindings);
         _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 4));
         _set = context.AllocateSet(_pool, _setLayout);
         _layout = context.CreatePipelineLayout(
@@ -100,14 +97,7 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
     public void WriteSet(DescriptorImageInfo irradiance, DescriptorImageInfo depth, DescriptorImageInfo environment, Sampler shadowSampler)
     {
         var sunShadow = new DescriptorImageInfo(shadowSampler, _sun.View, ImageLayout.ShaderReadOnlyOptimal);
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            Descriptors.ImageWrite(_set, ProbeCapturePass.IrradianceBinding, DescriptorType.CombinedImageSampler, &irradiance),
-            Descriptors.ImageWrite(_set, ProbeCapturePass.DepthBinding, DescriptorType.CombinedImageSampler, &depth),
-            Descriptors.ImageWrite(_set, ProbeCapturePass.SunShadowBinding, DescriptorType.CombinedImageSampler, &sunShadow),
-            Descriptors.ImageWrite(_set, EnvironmentBinding, DescriptorType.CombinedImageSampler, &environment),
-        };
-        _context.Api.UpdateDescriptorSets(_context.Device, 4, writes, 0, null);
+        LitCaptureSet.Write(_context, _set, new LitCaptureTextures(irradiance, depth, sunShadow, environment));
     }
 
     /// <summary>

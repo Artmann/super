@@ -196,8 +196,8 @@ internal sealed unsafe class GrassStage(VulkanContext context, SceneStores store
     private void BeginGround(CommandBuffer cmd)
     {
         var extent = new Extent2D(GrassField.CaptureSize, GrassField.CaptureSize);
-        var color = Cleared(_targets!.Info.View, ImageLayout.ColorAttachmentOptimal, default);
-        var depth = Cleared(_targets.Height.View, ImageLayout.DepthAttachmentOptimal, new ClearValue(depthStencil: new ClearDepthStencilValue(0f, 0)));
+        var color = VulkanExtensions.ClearedAttachment(_targets!.Info.View, ImageLayout.ColorAttachmentOptimal, default);
+        var depth = VulkanExtensions.ClearedAttachment(_targets.Height.View, ImageLayout.DepthAttachmentOptimal, new ClearValue(depthStencil: new ClearDepthStencilValue(0f, 0)));
         var rendering = new RenderingInfo
         {
             SType = StructureType.RenderingInfo,
@@ -210,16 +210,6 @@ internal sealed unsafe class GrassStage(VulkanContext context, SceneStores store
         context.Api.CmdBeginRendering(cmd, &rendering);
         context.Api.SetFullViewport(cmd, extent);
     }
-
-    private static RenderingAttachmentInfo Cleared(ImageView view, ImageLayout layout, ClearValue clear) => new()
-    {
-        SType = StructureType.RenderingAttachmentInfo,
-        ImageView = view,
-        ImageLayout = layout,
-        LoadOp = AttachmentLoadOp.Clear,
-        StoreOp = AttachmentStoreOp.Store,
-        ClearValue = clear,
-    };
 
     private void DrawGround(CommandBuffer cmd, in GrassDraw draw, int kind)
     {

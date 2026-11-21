@@ -91,6 +91,7 @@ public sealed class Graphics
             OcclusionHistory = false,
             MultiscatterSpecular = false,
             Reflections = false,
+            PlanarReflections = false,
         },
         Atmosphere = { Fog = false, VolumetricFog = false, FogVolumes = false, Clouds = false, VolumetricClouds = false, CloudShadows = false },
         Surfaces = { WearAndDirt = false, Decals = false, Puddles = false, Wind = false, HeightMaps = false, Subsurface = false, Grass = false },
@@ -158,7 +159,7 @@ public sealed class Graphics
     {
         Screen = { RenderScale = 0.75f },
         Shadowing = { ShadowResolution = 1024, ShadowCascades = 2, ContactShadows = false, LightShadows = false },
-        Lighting = { LightProbes = false, ProbeQuality = ProbeQuality.Low, AmbientOcclusion = false, ScreenBounce = false, Reflections = false },
+        Lighting = { LightProbes = false, ProbeQuality = ProbeQuality.Low, AmbientOcclusion = false, ScreenBounce = false, Reflections = false, PlanarReflections = false },
         Atmosphere = { VolumetricFog = false, VolumetricClouds = false },
 
         // Puddles and wind stay on: in the Courtyard each costs less than a frame's noise, and the water is part

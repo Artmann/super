@@ -72,6 +72,20 @@ internal sealed class FrameDrawPicker(FrameParts parts, FrameBakes bakes, Render
     }
 
     /// <summary>
+    /// Picks what the planar reflection's <paramref name="mirror"/> sees into <paramref name="into"/>, which needs room
+    /// for two of each draw, with models as simple as the camera's would be in a picture <paramref name="height"/>
+    /// pixels high through <paramref name="projection"/>. After <see cref="Casters"/>, with the same draws.
+    /// </summary>
+    public int SelectMirror(in MirrorView mirror, in Matrix4x4 projection, int height, ReadOnlySpan<DrawItem> draws, DrawItem[] into)
+    {
+        var (switches, settings) = (parts.SceneStores.Switches, parts.SceneStores.Settings);
+        var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(projection, height);
+        var view = new DetailView(mirror.ViewProjection, mirror.Eye, pixelsAtOneUnit, pixelsPerUnit,
+            switches.DetailError(CameraDetailError, settings.MeshDetailScale), cull: switches.Culls);
+        return DrawSelection.Select(view, draws, _balls, into);
+    }
+
+    /// <summary>
     /// Picks what each point and spot light's shadow tile draws, after <see cref="Select"/>, and returns how many draws
     /// there are in all. While the GPU is measured, the tiles' triangles join the shadows' and the tiles drawn and kept
     /// are counted.

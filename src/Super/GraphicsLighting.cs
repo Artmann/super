@@ -75,6 +75,15 @@ public sealed class GraphicsLighting
     public bool Reflections { get; set; } = true;
 
     /// <summary>
+    /// A sharp mirror of the scene in one flat, level plane, such as a wet floor, puddles or a calm pool, seen from
+    /// a camera mirrored under it, so it shows what is off screen or hidden too. It blurs with the surface's roughness,
+    /// more the higher what it shows stands over the plane. It is drawn when the view has a plane, set with
+    /// <c>view.Surroundings.ReflectionPlane</c> or by puddles. Off, the plane reflects what is on screen and the
+    /// probes, as any other surface does. <see cref="GraphicsQuality.Low"/> and <see cref="Graphics.Fastest"/> turn it off.
+    /// </summary>
+    public bool PlanarReflections { get; set; } = true;
+
+    /// <summary>
     /// How many pixels trace their screen-space reflection each frame, when <see cref="Reflections"/> is on.
     /// <see cref="Rendition.ReflectionResolution.Half"/>, the default, traces one pixel in four, a different one each
     /// frame, and anti-aliasing blends the frames into a full picture; <see cref="Rendition.ReflectionResolution.Full"/>
@@ -129,6 +138,7 @@ public sealed class GraphicsLighting
         ScreenBounce = other.ScreenBounce;
         OcclusionHistory = other.OcclusionHistory;
         Reflections = other.Reflections;
+        PlanarReflections = other.PlanarReflections;
         ReflectionResolution = other.ReflectionResolution;
         MultiscatterSpecular = other.MultiscatterSpecular;
         Specular = other.Specular;
