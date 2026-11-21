@@ -60,6 +60,9 @@ internal sealed class LensFlarePass : IDisposable
     /// <summary>Points the visibility pass at the scene's depth. Only call it while no frame in flight uses the set.</summary>
     public void SetDepth(ImageView depth) => _visibility.SetDepth(depth);
 
+    /// <summary>Points the sun's visibility at the clouds' picture. Only call it while no frame in flight uses the set.</summary>
+    public void SetClouds(ImageView picture) => _visibility.SetClouds(picture);
+
     /// <summary>Makes the target for a picture of a new size. Only call it while no frame in flight uses it.</summary>
     public void Resize(Extent2D display) => _draw.Resize(display);
 

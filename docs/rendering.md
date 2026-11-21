@@ -95,6 +95,9 @@ next frame follows, so it can back an options menu.
 | `Atmosphere.Haze` | Distant things keep their colours instead of fading into the sky between `SkySettings.HazeStart` and `HazeEnd`. The sky's own colour stays |
 | `Atmosphere.AerialPerspective` | Under a [physical sky](#the-sky), far surfaces keep their colours instead of fading into the air with distance. A view with its own haze gets that either way. It costs almost nothing |
 | `Atmosphere.Stars` | A [physical sky](#night) at night has no stars. The moon stays. They cost a little per sky pixel, so they stay on even in `Graphics.Fastest()` |
+| `Atmosphere.Clouds` | A [physical sky](#clouds) is clear, whatever `SkySettings.Clouds` asks for: no clouds in the sky, in its reflections or in its light, and no cloud shadows. None of the cloud passes run. `Graphics.Fastest()` turns it off |
+| `Atmosphere.VolumetricClouds` | The [clouds](#clouds) are a flat layer painted on the sky instead of heaped volumes lit from inside: no bright edges, dark bellies or towers, but the same clouds in the same places, and they still cast their shadows. It saves most of what the clouds cost. `GraphicsQuality.Low` and `Medium` turn it off |
+| `Atmosphere.CloudShadows` | The sun shines everywhere as if the sky were clear: no [cloud shadows](#clouds) drifting over the ground, the water or through the volumetric fog. The clouds still dim the sky light. It saves one small compute pass |
 | `Atmosphere.Underwater` | An `Underwater` entity is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
 | `Atmosphere.VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps, and under water no shafts of light. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
 | `Atmosphere.FogVolumes` | The [fog volumes](#fog-volumes) a frame places are left out, and only the scene's own fog fills the volumetric fog. They show only while `VolumetricFog` is on too. `Graphics.Fastest()` turns it off |
@@ -161,8 +164,8 @@ itself, or offers it in an options menu.
 
 | Quality | What changes from `High` |
 |---|---|
-| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, the screen bounce, reflections, auto exposure, depth of field, paint, decals, volumetric fog and height maps. Puddles and wind stay on, as they cost next to nothing |
-| `Medium` | Render scale 0.85, 3 cascades, `MeshDetail` 0.75, `ProbeQuality.Medium` and a 2 ms bake budget. Off: depth of field and volumetric fog |
+| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, the screen bounce, reflections, auto exposure, depth of field, paint, decals, volumetric fog, the marched clouds and height maps. Puddles, wind and the flat clouds with their shadows stay on, as they cost little |
+| `Medium` | Render scale 0.85, 3 cascades, `MeshDetail` 0.75, `ProbeQuality.Medium` and a 2 ms bake budget. Off: depth of field, volumetric fog and the marched clouds, so the [clouds](#clouds) are a flat layer |
 | `Ultra` | 4096 shadow maps, `MeshDetail` 1.5, `ReflectionResolution.Full`, `OcclusionResolution.Full` and 128 volumetric fog slices |
 
 In the Courtyard at 1600 by 900 on an RTX 4060 Ti, a frame takes 8.5 ms of GPU at `High`, 6.5 at
@@ -1437,8 +1440,8 @@ The `Picture.LensFlare` switch turns it off, and `Graphics.Fastest()` does too. 
 alone, set `PictureSettings.LensFlare` on the frame's `Picture`, and turn it off with
 `RenderEffects.LensFlare`.
 
-The flare doesn't show clouds covering the sun yet, and the default streak is hard to see against
-a bright sky. Hamlet under a low sun, without and with it:
+Clouds that cover the sun dim the flare with it, and a thick one hides it. The default streak is
+hard to see against a bright sky. Hamlet under a low sun, without and with it:
 
 ![Hamlet's low sun without and with a lens flare, labelled](media/lens-flare.webp)
 
@@ -1679,8 +1682,8 @@ the blue cast the gradient's zenith gave the shade:
 Once the sun is down, a physical sky shows stars. They fade in as the sun goes from 2° to
 12° below the horizon and thin out low down, where the light comes through more air.
 `StarRotation` turns them about the straight-up point, in radians, so a day cycle can turn
-them once a day. `HideStars` leaves them out, for a cloudy night, and `Graphics.Atmosphere.Stars` turns
-them off for every view.
+them once a day. `HideStars` leaves them out, and `Graphics.Atmosphere.Stars` turns them off for every view.
+[Clouds](#clouds) hide the stars behind them on their own.
 
 `Moon` puts the moon in the sky, as a direction from the ground towards it. It is lit by
 the sun, so it is full opposite the sun and a crescent beside it, and like the sun it turns
@@ -1716,6 +1719,81 @@ pink above the sunset:
 Looking up from Hamlet at night, at the moon and the stars:
 
 ![The moon and stars over Hamlet](media/night-sky.webp)
+
+### Clouds
+
+A physical sky has clouds: a layer of heaped cumulus, lit bright on the side facing the sun and
+grey underneath, with thin streaks of cirrus high above. They drift with the wind, cast shadows
+that move over the ground, and change with the time of day, white at noon and gold and pink at
+sunset. A sky with a turbidity and no `Clouds` gets `CloudSettings.Fair`, scattered cumulus over
+about a third of the sky, so a scene with a physical sky has them with no change. Set `Clouds` to
+choose the weather:
+
+```csharp
+world.Spawn(new Sky(new SkySettings
+{
+    Turbidity = 2.5f,
+    Clouds = CloudSettings.Cloudy with { Wind = new Vector2(20f, 5f) },
+}));
+```
+
+There are four ready-made kinds of weather to start from:
+
+| Weather | What it looks like |
+|---|---|
+| `CloudSettings.Clear` | No clouds at all |
+| `CloudSettings.Fair` | Scattered cumulus over about a third of the sky and a little cirrus, drifting slowly. The default |
+| `CloudSettings.Cloudy` | Broken cloud over more than half the sky, so the sun comes and goes |
+| `CloudSettings.Overcast` | A low, thick deck that hides the sun. The sky's light turns grey and soft, from everywhere at once |
+
+Each is a `CloudSettings` you can change with `with`:
+
+| Setting | What it does |
+|---|---|
+| `Coverage` | How much of the sky the cumulus covers, from 0 to 1. Past about 0.85 they merge into a deck |
+| `Density` | How thick they are inside, from 0 to 4. 1, and 0, is fair-weather cumulus; more is darker and greyer underneath, less thin and wispy |
+| `Altitude` | How high their base is above y 0, in metres, up to 8000. 0 is 1500 |
+| `Thickness` | How deep the layer is from base to the tallest tops, in metres, from 200 to 4000. 0 is 1600 |
+| `Wind` | How fast and which way they drift, in metres a second across the ground, x and z. The cirrus drifts twice as fast. Without wind they stay put, though their edges still churn slowly |
+| `Cirrus` | The high streaks above, from 0 for none to 1 for a sky full of them |
+
+A value out of its range, or a wind that is not a number, throws. Only a physical sky has clouds:
+a gradient sky or a [photographed one](#a-photographed-sky) ignores them. With Rendition alone,
+set `Clouds` on the frame's `Weather`; `FrameView.Time` moves them with the wind.
+
+The clouds light and shade the world as well as the sky. Their shadows drift over the ground,
+the water and through the [volumetric fog](#volumetric-fog), so a lit field can fall into shade
+as a cloud passes over it. The sky's soft light and its reflections hold them too, so an overcast
+sky turns the light under it grey. They sit over far hills and haze into the air with distance,
+and a cloud over the sun dims its [lens flare](#lens-flare).
+
+Hamlet at noon and at sunset, without and with `Fair` at `High`:
+
+![Hamlet at noon, without and with clouds, labelled](media/clouds-noon.webp)
+
+![Hamlet at sunset, without and with clouds, labelled](media/clouds-sunset.webp)
+
+At night the moon lights the clouds, when a light is aimed at it as [above](#night), and they
+hide the stars behind them:
+
+![Hamlet's night sky, without and with clouds, labelled](media/clouds-night.webp)
+
+`High` and `Ultra` march the clouds as volumes, lit from inside, with bright edges and dark
+bellies. `Low` and `Medium` turn `Graphics.Atmosphere.VolumetricClouds` off and draw them as a
+flat layer painted on the sky instead: the same clouds in the same places, with their shadows,
+but with no depth to them. In Hamlet at 1920 by 1080 the marched clouds take about a tenth of a
+`High` frame's GPU time, and the flat layer about a twentieth of a `Medium` frame's.
+`Graphics.Atmosphere.Clouds` turns them off, and `Graphics.Atmosphere.CloudShadows` their shadows;
+`Graphics.Fastest()` turns them off. See [graphics settings](#graphics-settings).
+
+![Hamlet at noon with the flat layer at Medium and the marched clouds at High, labelled](media/clouds-tiers.webp)
+
+The clouds are drawn at a quarter of the screen's size and filled out over four frames, so a
+fast turn of the camera can soften their edges for a moment. The sky's soft light and its
+sharpest reflections hold them, drawn as a single flat layer that moves on in steps of 250
+metres of wind, so the light changes a little as a step passes, not every frame. Rough
+reflections show the sky without them. The march can start inside or above the layer, but the
+clouds have only been looked at from under them so far.
 
 ### A photographed sky
 

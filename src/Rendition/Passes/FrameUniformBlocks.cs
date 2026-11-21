@@ -23,6 +23,20 @@ internal struct FrameCameraBlock
     public Vector4 CameraPosition;
 }
 
+/// <summary>How the light clusters cut up the view, and the size of the targets they cover. See LocalLightShadows.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct FrameClusterBlock
+{
+    /// <summary>
+    /// How the view's depth is cut into the clusters' slices. x, y: the nearest and furthest
+    /// depth any light reaches; z: 1 when the view is parallel, so the slices are even.
+    /// </summary>
+    public Vector4 Clusters;
+
+    /// <summary>x, y: the size of the render targets in pixels; z, w: one over them.</summary>
+    public Vector4 Screen;
+}
+
 /// <summary>The grade and finish, and the haze things fade into.</summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct FrameGradeBlock
@@ -302,4 +316,46 @@ internal struct FrameScreenBlock
 
     /// <summary>x: how much colour the picture loses; y: how much the paper shows; z: a tile's width in pixels, 0 for the texture's own; w: the paper's texture slot, -1 for none.</summary>
     public Vector4 ScreenCanvas;
+}
+
+/// <summary>
+/// The clouds this frame: their shape, where the wind has carried them, the light on them and how the march and its
+/// history line up with the view. Written by <see cref="CloudModel.Pack"/>. Must match the cloud fields at the end of
+/// Frame in Shaders/common.glsl.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct FrameCloudBlock
+{
+    /// <summary>A pixel's clip position to its direction from the camera: the unshifted view and projection, inverted, with the camera at the origin.</summary>
+    public Matrix4x4 CloudRays;
+
+    /// <summary>A point relative to this frame's camera to last frame's clip space, unshifted, for the clouds' history.</summary>
+    public Matrix4x4 CloudReprojection;
+
+    /// <summary>x: coverage, 0 to 1; y: density; z: the base's height in metres; w: the layer's depth in metres.</summary>
+    public Vector4 CloudShape;
+
+    /// <summary>xy: where the camera stands in the weather map, in metres, wrapped; zw: the same for the cirrus.</summary>
+    public Vector4 CloudWeather;
+
+    /// <summary>xy: where the camera stands in the shape noise, in metres, wrapped; zw: the same for the detail noise.</summary>
+    public Vector4 CloudNoise;
+
+    /// <summary>xy: the shadow map's centre less the camera's x and z; z: half its width in metres; w: the light that casts it, -1 for none.</summary>
+    public Vector4 CloudShadow;
+
+    /// <summary>xyz: towards the light on the clouds; w: how they're drawn, 0 not at all, 1 as a flat layer, 2 marched.</summary>
+    public Vector4 CloudLight;
+
+    /// <summary>rgb: that light's radiance; w: how much cirrus.</summary>
+    public Vector4 CloudRadiance;
+
+    /// <summary>x: which pixel of each 2 by 2 the march takes this frame; y: 1 when last frame's clouds can be used; z: the march's steps across the layer.</summary>
+    public Vector4 CloudFrame;
+
+    /// <summary>rgb: how much the air between the camera and the clouds dims per metre.</summary>
+    public Vector4 CloudAir;
+
+    /// <summary>xy: how far the clouds' tops lean along the wind, in metres.</summary>
+    public Vector4 CloudLean;
 }

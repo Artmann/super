@@ -85,6 +85,14 @@ public struct SkySettings
     public float StarRotation;
 
     /// <summary>
+    /// The clouds in a physical sky: heaped cumulus the sun and moon light, the wind carries and that shades the ground,
+    /// and high cirrus above. Null, the default, is <see cref="CloudSettings.Fair"/>; <see cref="CloudSettings.Clear"/>
+    /// is none. Only a sky with a <see cref="Turbidity"/> and no <see cref="Image"/> has clouds.
+    /// <see cref="GraphicsAtmosphere.Clouds"/> turns them off everywhere. See "Clouds" in docs/rendering.md.
+    /// </summary>
+    public CloudSettings? Clouds;
+
+    /// <summary>
     /// A photographed sky from <see cref="Content.Sky"/>, shown behind the scene and lighting and reflecting in it in
     /// place of Zenith, Horizon, Ground and <see cref="Turbidity"/>; the moon and stars are left out too. Its sun shows
     /// as a disc, but its light is yours to add with <c>View.Sun</c>, aimed at <see cref="SkyImage.SunDirectionAt"/>.

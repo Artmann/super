@@ -29,7 +29,8 @@ public sealed class EnvironmentPrefilterGpuTests(GpuFixture gpu)
     public void Rough_reflections_match_a_reference_integral_of_the_gradient(int mip)
     {
         int errors = gpu.ValidationErrors;
-        using var environment = new EnvironmentMap(gpu.Context);
+        using var noise = new CloudNoise(gpu.Context);
+        using var environment = new EnvironmentMap(gpu.Context, (noise.Repeat, noise.Weather));
         environment.Bake(gpu.Context, new EnvironmentDescription { Ceiling = Ceiling, Horizon = Horizon, Floor = Floor }, default);
 
         float roughness = mip / (float)(ReflectionMips - 1);
@@ -50,7 +51,8 @@ public sealed class EnvironmentPrefilterGpuTests(GpuFixture gpu)
         const int mip = 3;
         var panelRadiance = new Vector3(40f);
         var grey = new Vector3(0.2f);
-        using var environment = new EnvironmentMap(gpu.Context);
+        using var noise = new CloudNoise(gpu.Context);
+        using var environment = new EnvironmentMap(gpu.Context, (noise.Repeat, noise.Weather));
         environment.Bake(gpu.Context, new EnvironmentDescription
         {
             Ceiling = grey,
@@ -104,7 +106,8 @@ public sealed class EnvironmentPrefilterGpuTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         var colour = new Vector3(0.3f, 0.6f, 0.15f);
-        using var environment = new EnvironmentMap(gpu.Context);
+        using var noise = new CloudNoise(gpu.Context);
+        using var environment = new EnvironmentMap(gpu.Context, (noise.Repeat, noise.Weather));
         environment.SetDescription(new EnvironmentDescription { Ceiling = colour, Horizon = colour, Floor = colour });
 
         int waits = gpu.Context.Waits.SubmitAndWaitCount;
@@ -123,7 +126,8 @@ public sealed class EnvironmentPrefilterGpuTests(GpuFixture gpu)
         int errors = gpu.ValidationErrors;
         var before = new Vector3(0.9f, 0.2f, 0.1f);
         var after = new Vector3(0.1f, 0.4f, 0.8f);
-        using var environment = new EnvironmentMap(gpu.Context);
+        using var noise = new CloudNoise(gpu.Context);
+        using var environment = new EnvironmentMap(gpu.Context, (noise.Repeat, noise.Weather));
         environment.Bake(gpu.Context, Even(before), default);
 
         environment.SetDescription(Even(after));

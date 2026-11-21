@@ -1,0 +1,41 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+#include "cloud_sets.glsl"
+#include "clouds.glsl"
+
+// Draws the clouds' shadow map: for each texel, a point on the ground round the camera, how much
+// of the light that casts their shadow, frame.cloudShadow.w, the clouds let through on its way
+// down, from a few steps through the layer towards it. Light the clouds scatter forwards still
+// reaches the ground under them, so even thick cloud lets a little through. Read by
+// cloud_shadow.glsl. See "Clouds" in docs/design.md.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+const int STEPS = 10;
+
+// How much of the light the thickest cloud still lets through to the ground.
+const float LEAST = 0.08;
+
+void main() {
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(cloudShadowTarget).xy;
+    if (any(greaterThanEqual(texel, size))) {
+        return;
+    }
+
+    vec2 uv = (vec2(texel) + 0.5) / vec2(size);
+    vec2 across = frame.cloudShadow.xy + (uv - 0.5) * 2.0 * frame.cloudShadow.z;
+    vec3 ground = vec3(across.x, -frame.cameraPosition.y, across.y);
+    vec3 l = frame.lights[int(frame.cloudShadow.w)].direction.xyz;
+    float up = max(l.y, 0.1);
+    float start = frame.cloudShape.z / up;
+    float step = frame.cloudShape.w / up / float(STEPS);
+    float depth = 0.0;
+    for (int i = 0; i < STEPS; i++) {
+        depth += cloudDensity(ground + l * (start + (float(i) + 0.5) * step), 0.5) * step;
+    }
+
+    float through = exp(-depth * frame.cloudShape.y * CLOUD_EXTINCTION * 0.5);
+    imageStore(cloudShadowTarget, ivec3(texel, 0), vec4(LEAST + (1.0 - LEAST) * through));
+}

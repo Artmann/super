@@ -21,7 +21,9 @@ internal sealed class SceneLighting
         SunShadows = new SunShadows(context.Api, ShadowPass, meshes, stores.Switches);
         LocalLightShadows = new LocalLightShadows(context, kit.FrameSetLayout, ShadowPass, stores.Switches,
             (meshes, stores.ShadowWorld, stores.Resources.Materials));
-        EnvironmentSky = new EnvironmentSky(context, stores.Ring);
+        // The weather map is made first, since the sky captures read it from their first draw.
+        var cloudNoise = new CloudNoise(context);
+        EnvironmentSky = new EnvironmentSky(context, stores.Ring, (cloudNoise.Repeat, cloudNoise.Weather));
         stores.Frames.WriteSkySh(EnvironmentSky.Sh);
         var map = EnvironmentSky.Map;
         ReflectionProbes = new ReflectionProbes(context, map.Sampler, FrameRing.Count);
@@ -33,6 +35,7 @@ internal sealed class SceneLighting
             new LightProbes.Sources(stores.Resources, stores.Tracing, captureScene, stores.Ring, ProbeVolume));
         stores.Settings.Probes = LightProbes;
         FogStage = new FogStage(context, kit, stores.Switches);
+        CloudStage = new CloudStage(context, kit, stores.Switches, cloudNoise);
     }
 
     /// <summary>The shadow maps: the sun's cascades and the lights' tiles.</summary>
@@ -61,6 +64,9 @@ internal sealed class SceneLighting
 
     /// <summary>The volumetric fog.</summary>
     public FogStage FogStage { get; }
+
+    /// <summary>The clouds.</summary>
+    public CloudStage CloudStage { get; }
 
     /// <summary>
     /// Makes the light probes' atlases on the first frame with the probes on, again after a change of
@@ -92,7 +98,7 @@ internal sealed class SceneLighting
             new ProbePlanInputs(RendererReflections.ProbeLightingKey(view, EnvironmentSky.Version, switches.Off), switches.ShadowSun(view), frameNumber));
     }
 
-    /// <summary>Frees the shadow maps, the probes, the fog, the capture and the sky.</summary>
+    /// <summary>Frees the shadow maps, the probes, the fog, the clouds, the capture and the sky.</summary>
     public void Dispose()
     {
         ShadowPass.Dispose();
@@ -100,6 +106,7 @@ internal sealed class SceneLighting
         ReflectionProbes.Dispose();
         LightProbes.Dispose();
         FogStage.Dispose();
+        CloudStage.Dispose();
         FrameReflectionCapture.Pass.Dispose();
         EnvironmentSky.Dispose();
     }

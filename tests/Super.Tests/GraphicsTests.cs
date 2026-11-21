@@ -345,6 +345,9 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Lighting), nameof(GraphicsLighting.OcclusionHistory), RenderEffects.OcclusionHistory)]
     [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.AerialPerspective), RenderEffects.AerialPerspective)]
     [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.Stars), RenderEffects.Stars)]
+    [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.Clouds), RenderEffects.Clouds)]
+    [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.VolumetricClouds), RenderEffects.VolumetricClouds)]
+    [InlineData(nameof(Graphics.Atmosphere), nameof(GraphicsAtmosphere.CloudShadows), RenderEffects.CloudShadows)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string group, string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -369,7 +372,8 @@ public class GraphicsTests
             | RenderEffects.Puddles | RenderEffects.Wind | RenderEffects.HeightMaps | RenderEffects.Vignette
             | RenderEffects.Grain | RenderEffects.Sharpening | RenderEffects.Subsurface | RenderEffects.FogVolumes
             | RenderEffects.ScreenBounce | RenderEffects.OcclusionHistory | RenderEffects.ChromaticAberration | RenderEffects.SpeedBlur
-            | RenderEffects.LensFlare | RenderEffects.Paint,
+            | RenderEffects.LensFlare | RenderEffects.Paint | RenderEffects.Clouds | RenderEffects.VolumetricClouds
+            | RenderEffects.CloudShadows,
             GraphicsSwitches.Off(graphics));
         Assert.True(graphics.Surfaces.Materials);
         Assert.True(graphics.Baking.BakedLighting);
