@@ -4478,11 +4478,13 @@ side that has one.
 `FrameMaker.Create` lays the look over what the game set for the frame with `LookLayer`. Every
 number is added to the game's and held to its range, so `Looks.Natural`, whose numbers are all
 zero, is exactly the game's picture. The finish adds to `PostSettings` field by field and keeps
-the game's tonemapper and lens. Paint replaces the game's only when the look paints. A sun's
+the game's tonemapper and lens. Paint goes from the game's to the look's by the look's amount, through `LookMix.Paint`, so it
+eases from whatever the game painted and is the look's alone at an amount of 1. A sun's
 colour is tinted towards warm or cold, divided by the tint's luminance so it keeps its brightness,
 then scaled by `2^Sun`. The sky's brightness and the flare's intensity are scaled in stops, the
 fog's density is added and the clouds' cover is added, with fair-weather clouds for a sky that has
-none and nothing for a view without a sky. Since these only change `FrameView`, the graphics
+none, whose cirrus grows with the cover up to fair weather's at its cover so they ease in from a clear
+sky, and nothing for a view without a sky. Since these only change `FrameView`, the graphics
 switches still win: a look can't turn on fog, clouds, paint or a flare the player has switched
 off. Nothing here allocates; it copies structs.
 
