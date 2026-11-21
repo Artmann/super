@@ -24,6 +24,8 @@ internal sealed unsafe class GpuWorkCounter : IDisposable
     private readonly GpuPassWork[] _work;
     private int _frame;
     private bool _open;
+    // The pass whose count is running, while one is open.
+    private uint _running;
     private bool _collected;
 
     public GpuWorkCounter(VulkanContext context, int framesInFlight, string[] passNames)
@@ -54,29 +56,29 @@ internal sealed unsafe class GpuWorkCounter : IDisposable
     public void Begin(CommandBuffer cmd, int frame)
     {
         _frame = frame;
+        _open = false;
         _context.Api.CmdResetQueryPool(cmd, _pools[frame], 0, (uint)_work.Length);
     }
 
     /// <summary>
     /// The timer's mark number <paramref name="mark"/>: it ends the count of the pass before it, if any, and begins the
-    /// next one's. Mark 0 begins the frame, so pass i lies between marks i and i + 1.
+    /// next one's. Mark 0 begins the frame, so pass i lies between marks i and i + 1. A mark inside a render pass
+    /// changes nothing, as a query can't begin or end there: the count running goes on through it, and the passes it
+    /// ends count nothing of their own.
     /// </summary>
-    public void Mark(CommandBuffer cmd, uint mark)
+    public void Mark(CommandBuffer cmd, uint mark, bool insidePass = false)
     {
-        if (mark > _work.Length)
+        if (mark > _work.Length || insidePass)
         {
             return;
         }
 
-        if (mark > 0)
-        {
-            _context.Api.CmdEndQuery(cmd, _pools[_frame], mark - 1);
-        }
-
+        EndRunning(cmd, mark);
         _open = mark < _work.Length;
         if (_open)
         {
             _context.Api.CmdBeginQuery(cmd, _pools[_frame], mark, 0);
+            _running = mark;
         }
     }
 
@@ -86,13 +88,27 @@ internal sealed unsafe class GpuWorkCounter : IDisposable
     /// </summary>
     public void End(CommandBuffer cmd, uint marks)
     {
-        if (_open)
+        EndRunning(cmd, marks);
+        _written[_frame] = marks == _work.Length + 1;
+    }
+
+    // Ends the count running, if any, and gives each pass marked inside a render pass since it began an empty count, so
+    // every query of the frame is written.
+    private void EndRunning(CommandBuffer cmd, uint mark)
+    {
+        if (!_open)
         {
-            _context.Api.CmdEndQuery(cmd, _pools[_frame], marks - 1);
-            _open = false;
+            return;
         }
 
-        _written[_frame] = marks == _work.Length + 1;
+        _context.Api.CmdEndQuery(cmd, _pools[_frame], _running);
+        for (uint skipped = _running + 1; skipped < mark && skipped < _work.Length; skipped++)
+        {
+            _context.Api.CmdBeginQuery(cmd, _pools[_frame], skipped, 0);
+            _context.Api.CmdEndQuery(cmd, _pools[_frame], skipped);
+        }
+
+        _open = false;
     }
 
     /// <summary>Reads a frame's counts, once. Its fence must have been waited on.</summary>

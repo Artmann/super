@@ -66,8 +66,12 @@ internal sealed class GrassPlan(MeshStore meshes, ResourceTable resources)
         _uniforms.Heights = new Vector4(camera.Y - CaptureBelow, CaptureRange, 0f, 0f);
         _uniforms.Rings = radii;
         _uniforms.Camera = new Vector4(camera, GrassField.FadeShare);
+        _uniforms.Details = GrassField.DetailDistances(radii);
         _uniforms.Tiles = _tileCount;
-        _uniforms.MaxBlades = GrassStage.MaxBlades;
+        _uniforms.FirstRegion = GrassField.DetailStart(0);
+        _uniforms.SecondRegion = GrassField.DetailStart(1);
+        _uniforms.ThirdRegion = GrassField.DetailStart(2);
+        _uniforms.AllBlades = GrassField.DetailStart(GrassField.Details);
         for (int i = 0; i < kinds; i++)
         {
             _uniforms.Kinds[i] = GrassKindData.Of(_looks[i]);

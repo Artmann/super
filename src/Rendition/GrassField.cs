@@ -39,7 +39,25 @@ internal static class GrassField
     public const float TileSize = Spacing * TilePoints;
 
     /// <summary>The most squares a frame scatters. Further ones are left bare.</summary>
-    public const int MaxTiles = 8192;
+    public const int MaxTiles = 16384;
+
+    /// <summary>
+    /// How many details blades are drawn at, each with fewer rows than the last: in full near the camera, then with
+    /// fewer rows, then as one triangle. Must match GRASS_DETAILS in Shaders/grass.glsl.
+    /// </summary>
+    public const int Details = 3;
+
+    /// <summary>The vertices of a blade at each detail: three rows of two and a tip, then two rows, then one.</summary>
+    public static ReadOnlySpan<int> DetailVertices => [15, 9, 3];
+
+    /// <summary>
+    /// The most blades a frame draws at each detail. Past it, the scatter keeps the first it finds. The nearest detail
+    /// covers the least ground, as near blades are drawn in full and the grass thins by a quarter each ring.
+    /// </summary>
+    public static ReadOnlySpan<int> DetailBlades => [1 << 15, 1 << 17, 1 << 17];
+
+    /// <summary>The share of the first ring that blades are drawn in full over; past it to the second ring, with fewer rows.</summary>
+    public const float FullDetailShare = 0.75f;
 
     /// <summary>The ground's height map, from above, is this many texels across.</summary>
     public const int CaptureSize = 1024;
@@ -48,13 +66,31 @@ internal static class GrassField
     public const float FadeShare = 0.3f;
 
     /// <summary>How far each level reaches at a detail of 1, in metres.</summary>
-    public static readonly Vector4 BaseRadii = new(16f, 32f, 64f, 120f);
+    public static readonly Vector4 BaseRadii = new(16f, 36f, 80f, 160f);
 
     // How far a blade can stand above or reach out of the square its root is in, wind and all.
     private const float BladeReach = 2f;
 
     /// <summary>How far each level reaches at <paramref name="detail"/>.</summary>
     public static Vector4 Radii(float detail) => BaseRadii * detail;
+
+    /// <summary>
+    /// How far from the camera, across the ground, blades are drawn in full, in x, and with fewer rows, in y; past y they
+    /// are one triangle each.
+    /// </summary>
+    public static Vector4 DetailDistances(Vector4 radii) => new(radii.X * FullDetailShare, radii.Y, 0f, 0f);
+
+    /// <summary>Where the blades of <paramref name="detail"/> start in the blades' buffer; one past the last detail is the blades it holds in all.</summary>
+    public static int DetailStart(int detail)
+    {
+        int start = 0;
+        for (int i = 0; i < detail; i++)
+        {
+            start += DetailBlades[i];
+        }
+
+        return start;
+    }
 
     /// <summary>
     /// The finest level a square whose nearest point is <paramref name="nearest"/> metres from the camera, across the

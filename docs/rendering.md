@@ -2343,9 +2343,14 @@ it varies, the width at the root, how thick the blades stand (`Density`, from 0 
 about 64 blades a square metre near the camera), how far the tips droop (`Bend`), how much
 sunlight shines through a blade from behind (`Translucency`), how far the wind sways them
 (`Sway`) and how wide a clump is (`ClumpSize`). Blades grow in clumps that lean the same way and
-stand about as tall, so a field reads as tufts rather than an even carpet. Each blade is a
-curved strip that tapers to its tip, darker at its root where its neighbours shade it, and
-lit from both sides, so with the sun low behind it the grass glows. A look out of range, such
+stand about as tall, so a field reads as tufts rather than an even carpet. Where the grass is
+thin, the blades near a clump's middle stand first, so sparse ground grows separate tufts with
+bare earth between rather than single blades sprinkled evenly, and thin grass is shorter and
+drier. Each clump, and each patch a few clumps across, has its own shade and a little yellowing,
+so a field isn't one flat colour. Each blade is a curved strip that tapers to its tip, darker at
+its root where its neighbours shade it, the more so where the grass stands thick, with a
+brighter tip. It is lit from both sides, and the sun behind it shines through, strongest when
+you look straight toward it, so with the sun low ahead the grass glows. A look out of range, such
 as a height over 2 metres, is refused when the model is drawn, with a message that names it.
 
 A `GrassMap` says where the grass grows. It is a texture laid flat over the model from above,
@@ -2353,7 +2358,9 @@ from `Min` to `Max` in x and z in the model's own space, and its `Channel` says 
 grass stands, from 0 for bare to 1 for the full density. Outside the map nothing grows. The
 [Terrain example](../examples/Terrain) passes each chunk's splat map, whose red channel says how
 grassy the ground is, so blades grow in the damp lowlands and stop where the ground turns to
-sand. The splat's edge texels sit on the chunk's edges, so its area reaches half a texel past
+sand. The map is blended between its texels, so the grass's edge frays over a slope rather than
+in steps, and patches a few clumps across stand a little thicker or thinner, so the edge wanders.
+The splat's edge texels sit on the chunk's edges, so its area reaches half a texel past
 them:
 
 ```csharp
@@ -2365,22 +2372,26 @@ world.Spawn(Transform.Identity, new Model(chunkMesh), grass);
 
 The blades stand on a lattice fixed to the world, so they never crawl as the camera moves. It
 has four rings round the camera: every blade grows within 16 metres, a quarter of them out to
-32, a sixteenth out to 64 and one in 64 out to 120, and blades shrink away over the last part
-of each ring rather than pop. The further rings' blades are wider, so the far ground doesn't
-look bare. Only the squares of the lattice in view are grown. The blades sway in the
-[wind](#wind), cast shadows in the sun's two nearest cascades, and give motion vectors, so
-anti-aliasing keeps them steady as they move.
+36, a sixteenth out to 80 and one in 64 out to 160, and blades shrink away over the last part
+of each ring rather than pop. The blades left widen smoothly with distance, so the far ground
+doesn't look bare, but never past half their height, so a far blade never lies as a flat flake.
+Near blades are drawn in full, out to 12 metres; past that they have fewer rows, and past the
+second ring each is a single triangle. Only the squares of the lattice in view are grown. The
+blades sway in the [wind](#wind), give motion vectors, so anti-aliasing keeps them steady as
+they move, and cast shadows in the sun's two nearest cascades from within the second ring;
+further blades are too small for their shadows to show.
 
-![Terrain's valley with grass off, the bare splat-painted ground, and on, with blades over the green layer](media/grass-terrain.webp)
+![Terrain's bare hillside from the default camera, before with single blades sprinkled like confetti and after with tufts and bare earth between](media/grass-tufts.webp)
 
-![Terrain at sunset, the low sun behind the grass lighting its blades from behind](media/grass-sunset.webp)
+![Terrain's valley from low over the road, before with flat bright blades and after with darker roots, varied clumps and finer grass carried further up the hill](media/grass-field.webp)
 
 `Graphics.Surfaces.Grass` turns it off, and so does `Graphics.Fastest()`: the ground shows bare
 and nothing is grown. `Graphics.Drawing.GrassDetail`, from 0.25 to 2, scales how far each ring
 reaches, so the blades drawn go as its square. `GraphicsQuality.Low` sets 0.5, `Medium` 0.75 and
-`Ultra` 1.25. In the Terrain example at 1920 by 1080 on an RTX 4060 Ti, grass costs about 1.2 ms
-of GPU time a frame at `High`, mostly in lighting the grassy pixels; growing the blades takes
-under 0.1 ms. Drawing by hand, `ModelOptions.Grass` does the same as the component, and with
+`Ultra` 1.25. In the Terrain example at 1920 by 1080 on an RTX 4060 Ti at `High`, from low over
+the valley, growing the blades takes about 0.11 ms, drawing them 0.18 ms and their shadows
+0.04 ms; lighting the grassy pixels shows under "Lighting". The stats panel and the
+[profiler](profiling.md) list each of these on its own line. Drawing by hand, `ModelOptions.Grass` does the same as the component, and with
 Rendition alone `FrameExtras.Grass` takes a `GrassDraw` for each ground draw.
 
 Grass can't yet:
@@ -2388,9 +2399,11 @@ Grass can't yet:
 - Be pushed aside by things standing in it, unless the density map leaves a gap there.
 - Grow under overhangs or on walls: the blades follow the ground as seen from straight above.
 - Show in reflections, light probes or bakes, which see the bare ground.
-- Cast shadows past the sun's second cascade, or from blades out of view.
-- Have more than eight looks in a frame, or more than about 262,000 blades; the furthest squares
-  go bare past that.
+- Cast shadows past the sun's second cascade or the second ring, or from blades out of view.
+- Be hidden behind hills before it is grown: blades behind a hill are grown and drawn, and only
+  the depth test hides them.
+- Have more than eight looks in a frame, or more than 32,768 blades drawn in full, 131,072 with
+  fewer rows and 131,072 as single triangles; past that, blades of that detail go missing.
 
 ## Decals
 

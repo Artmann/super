@@ -19,12 +19,9 @@ layout(std430, set = 2, binding = 2) writeonly buffer GrassBladesOut {
     GrassBlade blades[];
 };
 
-// What the draws read: the vertices of a blade, how many blades, and two zeros.
+// What each detail's draw reads, four numbers each: the vertices of a blade, how many blades, and two zeros.
 layout(std430, set = 2, binding = 3) buffer GrassArgs {
-    uint vertexCount;
-    uint bladeCount;
-    uint firstVertex;
-    uint firstInstance;
+    uint words[GRASS_DETAILS * 4];
 } args;
 
 layout(set = 2, binding = 4) uniform sampler2D groundHeight; // the ground's top seen from above; 0 where there is none
@@ -57,8 +54,10 @@ int pointLevel(ivec2 point) {
     return min(min(x, z), 3);
 }
 
-// The ground's height at a place, between the map's texels, or false where any of them has no ground.
-bool groundAt(vec2 at, out float height, out vec4 info) {
+// The ground's height at a place, and how thick the grass stands there, both between the map's texels, and the look of
+// the nearest; or false where any of them has no ground. The density is blended, so its edges are smooth slopes the
+// blades' own thresholds fray, not steps a texel wide.
+bool groundAt(vec2 at, out float height, out float density, out int kind) {
     vec2 texel = (at - grass.capture.xy) / grass.capture.z - 0.5;
     ivec2 corner = ivec2(floor(texel));
     int size = int(grass.capture.w);
@@ -77,8 +76,36 @@ bool groundAt(vec2 at, out float height, out vec4 info) {
 
     float depth = mix(mix(d00, d10, f.x), mix(d01, d11, f.x), f.y);
     height = grass.heights.x + depth * grass.heights.y;
-    info = texelFetch(groundInfo, ivec2(floor(texel + 0.5)), 0);
+    float i00 = texelFetch(groundInfo, corner, 0).r;
+    float i10 = texelFetch(groundInfo, corner + ivec2(1, 0), 0).r;
+    float i01 = texelFetch(groundInfo, corner + ivec2(0, 1), 0).r;
+    float i11 = texelFetch(groundInfo, corner + ivec2(1, 1), 0).r;
+    density = mix(mix(i00, i10, f.x), mix(i01, i11, f.x), f.y);
+    kind = clamp(int(texelFetch(groundInfo, ivec2(floor(texel + 0.5)), 0).g * 255.0 + 0.5), 0, GRASS_KINDS - 1);
     return true;
+}
+
+// Smooth noise from 0 to 1 that changes over about a cell's width, for patches of the field.
+float patchNoise(vec2 at, float cell, uint salt) {
+    vec2 p = at / cell;
+    ivec2 i = ivec2(floor(p));
+    vec2 f = p - vec2(i);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = grassRandom(i, salt).x;
+    float b = grassRandom(i + ivec2(1, 0), salt).x;
+    float c = grassRandom(i + ivec2(0, 1), salt).x;
+    float d = grassRandom(i + ivec2(1, 1), salt).x;
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+// Whether a blade stands, from the grass's density and the blade's own random number. Where the grass is thick each
+// blade stands by its own number. Where it is thin the blades near a clump's middle stand first, so thin grass grows
+// in tufts with bare ground between, not as blades sprinkled evenly. A clump covers about a disc, so the share of
+// blades within a distance of its middle grows with its square, and either way about density's share stands.
+bool bladeStands(float density, float random, vec2 fromMiddle) {
+    float tuft = smoothstep(0.8, 0.2, density);
+    float inward = min(dot(fromMiddle, fromMiddle) / GRASS_CLUMP_DISC, 1.0);
+    return mix(random, 0.8 * inward + 0.2 * random, tuft) < density;
 }
 
 // The clump a place is in, as the nearest of the clumps' middles, one scattered in each cell of clumpSize metres:
@@ -129,38 +156,55 @@ void scatter(ivec2 point, int level) {
     }
 
     float height;
-    vec4 info;
-    if (!groundAt(at, height, info) || info.r <= 0.0) {
+    float ground;
+    int kindIndex;
+    if (!groundAt(at, height, ground, kindIndex) || ground <= 0.0) {
         return;
     }
 
-    int kindIndex = clamp(int(info.g * 255.0 + 0.5), 0, 7);
     GrassKind kind = grass.kinds[kindIndex];
-    float density = info.r * kind.more.x;
-    if (random.z >= density) {
-        return;
-    }
-
+    // Patches a few clumps across grow a little thicker or thinner, so the edge of a field wanders.
+    float field = patchNoise(at, 6.0 * kind.more.y, 0x7a11u);
+    float density = clamp(ground * kind.more.x * mix(0.75, 1.2, field), 0.0, 1.0);
     vec2 fromMiddle;
     vec4 clump = clumpAt(at, kind.more.y, fromMiddle);
+    if (!bladeStands(density, random.z, fromMiddle)) {
+        return;
+    }
 
-    // Thin grass is short grass, and blades shrink away over the last of their ring.
+    // Thin grass is short grass, but a tuft stands tallest in its middle. Blades shrink away over the last of their
+    // ring, and narrow with it, so a fading blade never lies as a wide flake.
+    float tuft = smoothstep(0.8, 0.2, density);
+    float inward = min(length(fromMiddle) / sqrt(GRASS_CLUMP_DISC), 1.0);
     float fade = 1.0 - smoothstep((1.0 - grass.camera.w) * reach, reach, distance);
     float tall = kind.shape.x * mix(0.7, 1.3, clump.x) * (1.0 + kind.shape.y * (2.0 * random.w - 1.0));
-    float bladeHeight = tall * mix(0.55, 1.0, density) * fade;
+    float bladeHeight = tall * mix(0.55, 1.0, density) * mix(1.0, 1.25 - 0.5 * inward, tuft) * fade;
     if (bladeHeight < 0.01) {
         return;
     }
 
-    // Blades of a clump lean the same way, and those near its middle stand straighter.
+    // Blades of a clump lean the same way, and those near its middle stand straighter. A tuft's blades splay out from
+    // its middle.
     float leanAngle = clump.y * 2.0 * GRASS_PI;
     vec2 lean = vec2(cos(leanAngle), sin(leanAngle));
     float ownAngle = more.x * 2.0 * GRASS_PI;
-    vec2 facing = normalize(mix(vec2(cos(ownAngle), sin(ownAngle)), lean, 0.6) + vec2(1e-4, 0.0));
-    float bend = clamp(kind.shape.w * mix(0.5, 1.5, more.y) + 0.25 * clump.z, 0.0, 1.0);
+    vec2 facing = mix(vec2(cos(ownAngle), sin(ownAngle)), lean, 0.6);
+    if (dot(fromMiddle, fromMiddle) > 1e-6) {
+        facing = mix(facing, normalize(fromMiddle), 0.7 * tuft);
+    }
 
-    // Each level up keeps a quarter of the blades, so they double in width to keep the far ground from looking bare.
-    float width = kind.shape.z * mix(0.7, 1.2, more.z) * exp2(float(level));
+    facing = normalize(facing + vec2(1e-4, 0.0));
+    float bend = clamp(kind.shape.w * mix(0.5, 1.5, more.y) + 0.25 * clump.z + 0.3 * tuft * inward, 0.0, 1.0);
+
+    // Past each ring a quarter of the blades are left, so the others widen as the ones that end there shrink away,
+    // twice as wide each ring, to keep the far ground from looking bare. Never wider than half their height, though:
+    // a wide, short blade is a flat flake that catches the light.
+    float spread = 0.0;
+    for (int ring = 0; ring < 3; ring++) {
+        spread += smoothstep((1.0 - grass.camera.w) * grass.rings[ring], grass.rings[ring], distance);
+    }
+
+    float width = min(kind.shape.z * mix(0.7, 1.2, more.z) * exp2(spread), 0.5 * bladeHeight);
 
     // Whatever the wind does, the blade stays within its height of its root.
     vec3 root = vec3(at.x, height, at.y);
@@ -168,17 +212,27 @@ void scatter(ivec2 point, int level) {
         return;
     }
 
-    uint slot = atomicAdd(args.bladeCount, 1u);
-    if (slot >= uint(grass.counts.y)) {
-        atomicAdd(args.bladeCount, uint(-1));
+    int detail = grassDetailAt(distance);
+    uint start = uint(grass.regions[detail]);
+    uint room = uint(detail + 1 < GRASS_DETAILS ? grass.regions[detail + 1] : grass.regions.w) - start;
+    uint slot = atomicAdd(args.words[detail * 4 + 1], 1u);
+    if (slot >= room) {
+        atomicAdd(args.words[detail * 4 + 1], uint(-1));
         return;
     }
+
+    // Each clump and each patch has its own shade and hue, and thin grass is drier.
+    float brightness = clamp(mix(clump.w, more.w, 0.4) * 0.8 + 0.2 * field, 0.0, 1.0);
+    float yellowing = clamp(0.6 * patchNoise(at, 3.0 * kind.more.y, 0x2b5du) + 0.4 * clump.z - 0.35, 0.0, 1.0);
+    float dryness = clamp(1.0 - density * 1.6, 0.0, 1.0) * mix(0.5, 1.0, clump.x);
 
     GrassBlade blade;
     blade.root = vec4(root, bladeHeight);
     blade.shape = vec4(facing, width, bend);
-    blade.look = vec4(fromMiddle, 2.0 * mix(clump.w, more.w, 0.4) - 1.0, float(kindIndex));
-    blades[slot] = blade;
+    blade.fromMiddle = fromMiddle;
+    blade.tint = packUnorm4x8(vec4(brightness, yellowing, dryness, density));
+    blade.kind = uint(kindIndex);
+    blades[start + slot] = blade;
 }
 
 void main() {

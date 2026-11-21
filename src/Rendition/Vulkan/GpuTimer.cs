@@ -15,7 +15,9 @@ internal sealed unsafe class GpuTimer : IDisposable
     /// <summary>The passes of a frame, in the order the renderer marks them.</summary>
     internal static readonly string[] FramePasses =
     [
-        "Sky", "Grass", "Shadows", "Light probes", "Reflection probes", "Planar reflection", "Light clusters", "Clouds", "Volumetric fog", "G-buffer", "Ambient occlusion", "AO blur", "Reflections", "Lighting", "Subsurface", "Glass and particles",
+        "Sky", "Grass scatter", "Shadows", "Grass shadows", "Light probes", "Reflection probes", "Planar reflection",
+        "Light clusters", "Clouds", "Volumetric fog", "G-buffer", "Grass blades", "Decals", "Ambient occlusion", "AO blur",
+        "Reflections", "Lighting", "Subsurface", "Glass and particles",
         "Anti-aliasing", "Depth of field", "Bloom", "Paint", "Tonemap", "Finish", "Overlay",
     ];
 
@@ -77,12 +79,17 @@ internal sealed unsafe class GpuTimer : IDisposable
         Mark(cmd);
     }
 
-    /// <summary>Marks the end of a pass. Does nothing outside a timed frame, as when capturing a probe.</summary>
-    public void Mark(CommandBuffer cmd)
+    /// <summary>
+    /// Marks the end of a pass. Does nothing outside a timed frame, as when capturing a probe. A mark
+    /// <paramref name="insidePass"/> a render pass, such as the G-buffer's draws before the grass's blades, times the
+    /// pass on its own, but its shaders are counted with the pass whose count was running when the render pass began,
+    /// as a count can't begin or end inside one.
+    /// </summary>
+    public void Mark(CommandBuffer cmd, bool insidePass = false)
     {
         if (_frame >= 0)
         {
-            _counter?.Mark(cmd, _nextMark);
+            _counter?.Mark(cmd, _nextMark, insidePass);
             _context.Api.CmdWriteTimestamp2(cmd, PipelineStageFlags2.AllCommandsBit, _pools[_frame], _nextMark++);
         }
     }

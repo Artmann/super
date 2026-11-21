@@ -40,9 +40,6 @@ internal sealed unsafe class ShadowPass : IDisposable
 
     private Extent2D Extent => new((uint)Resolution, (uint)Resolution);
 
-    /// <summary>The frame's grass, whose blades the nearest cascades draw too, or none.</summary>
-    public GrassStage? Grass { get; set; }
-
     /// <summary>Every point and spot light's shadow, each in its own square of it.</summary>
     public readonly RenderTarget Atlas;
 
@@ -117,45 +114,51 @@ internal sealed unsafe class ShadowPass : IDisposable
 
     /// <summary>Draws one cascade into its layer of the map.</summary>
     public void Record(CommandBuffer cmd, DescriptorSet frameSet, in SceneGeometry casters, int cascade) =>
-        RecordInto(cmd, frameSet, casters, (Target.LayerViews[cascade], Extent), new SceneDrawOptions(ScenePass.Shadow) { Cascade = cascade }, cascade);
+        RecordInto(cmd, frameSet, casters, (Target.LayerViews[cascade], Extent), new SceneDrawOptions(ScenePass.Shadow) { Cascade = cascade });
 
     /// <summary>
     /// Draws the casters into any depth view, already in the depth attachment layout, through the
-    /// matrix the options' cascade picks in shadow.vert: -1 for the light probes' sun map. The grass's blades go in
-    /// too when <paramref name="grassCascade"/> is one of the sun's cascades they cast into.
+    /// matrix the options' cascade picks in shadow.vert: -1 for the light probes' sun map.
     /// </summary>
     public void RecordInto(
-        CommandBuffer cmd, DescriptorSet frameSet, in SceneGeometry casters, (ImageView View, Extent2D Extent) target, in SceneDrawOptions options,
-        int grassCascade = -1)
+        CommandBuffer cmd, DescriptorSet frameSet, in SceneGeometry casters, (ImageView View, Extent2D Extent) target, in SceneDrawOptions options)
     {
         var api = _context.Api;
-        var extent = target.Extent;
+        Begin(cmd, target, AttachmentLoadOp.Clear);
+        var sets = stackalloc DescriptorSet[] { frameSet, _scene.Resources.Set };
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
+        SceneDraws.Record(new SceneTarget(api, cmd, _layout), _scene, casters, options);
+        api.CmdEndRendering(cmd);
+    }
+
+    /// <summary>
+    /// Begins drawing over what a cascade's layer already holds, for the grass's blades, drawn after its casters. The
+    /// caller ends the rendering.
+    /// </summary>
+    public void BeginOver(CommandBuffer cmd, int cascade) => Begin(cmd, (Target.LayerViews[cascade], Extent), AttachmentLoadOp.Load);
+
+    // Begins drawing into a depth view across all of it, cleared to the reversed-Z far plane or keeping what it holds.
+    private void Begin(CommandBuffer cmd, (ImageView View, Extent2D Extent) target, AttachmentLoadOp load)
+    {
         var depthAttachment = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
             ImageView = target.View,
             ImageLayout = ImageLayout.DepthAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Clear,
+            LoadOp = load,
             StoreOp = AttachmentStoreOp.Store,
-            ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(0f, 0)), // Reversed-Z far plane.
+            ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(0f, 0)),
         };
         var rendering = new RenderingInfo
         {
             SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, extent),
+            RenderArea = new Rect2D(default, target.Extent),
             LayerCount = 1,
             PDepthAttachment = &depthAttachment,
         };
 
-        api.CmdBeginRendering(cmd, &rendering);
-        api.SetFullViewport(cmd, extent);
-
-        var sets = stackalloc DescriptorSet[] { frameSet, _scene.Resources.Set };
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        SceneDraws.Record(new SceneTarget(api, cmd, _layout), _scene, casters, options);
-        Grass?.RecordShadow(cmd, frameSet, grassCascade);
-
-        api.CmdEndRendering(cmd);
+        _context.Api.CmdBeginRendering(cmd, &rendering);
+        _context.Api.SetFullViewport(cmd, target.Extent);
     }
 
     /// <summary>Which of a frame's draws belong to one atlas tile, and whether the tile is drawn again this frame.</summary>

@@ -7,16 +7,17 @@ namespace Super.Tests;
 /// <summary>Grass: the rings and squares it scatters over, the looks and maps it accepts, and how it reaches a view.</summary>
 public class GrassTests
 {
-    // The radii at a detail of 1: 16, 32, 64 and 120 metres.
+    // The radii at a detail of 1: 16, 36, 80 and 160 metres.
     private static readonly Vector4 Rings = GrassField.Radii(1f);
 
     [Theory]
     [InlineData(0f, 0)]
     [InlineData(15.9f, 0)]
     [InlineData(16f, 1)]
+    [InlineData(35.9f, 1)]
     [InlineData(50f, 2)]
-    [InlineData(119f, 3)]
-    [InlineData(120f, -1)]
+    [InlineData(159f, 3)]
+    [InlineData(160f, -1)]
     [InlineData(500f, -1)]
     public void A_square_keeps_the_finest_ring_it_is_inside(float nearest, int level)
     {
@@ -26,8 +27,16 @@ public class GrassTests
     [Fact]
     public void Half_the_detail_brings_every_ring_in_by_half()
     {
-        Assert.Equal(new Vector4(8f, 16f, 32f, 60f), GrassField.Radii(0.5f));
+        Assert.Equal(new Vector4(8f, 18f, 40f, 80f), GrassField.Radii(0.5f));
         Assert.Equal(1, GrassField.TileLevel(10f, GrassField.Radii(0.5f)));
+    }
+
+    [Fact]
+    public void Blades_are_drawn_in_full_over_most_of_the_first_ring_and_with_fewer_rows_out_to_the_second()
+    {
+        // Three quarters of 16 metres, then on to 36; at half the detail, half as far.
+        Assert.Equal(new Vector4(12f, 36f, 0f, 0f), GrassField.DetailDistances(Rings));
+        Assert.Equal(new Vector4(6f, 18f, 0f, 0f), GrassField.DetailDistances(GrassField.Radii(0.5f)));
     }
 
     [Fact]
@@ -69,15 +78,15 @@ public class GrassTests
     [Fact]
     public void The_ground_map_moves_in_whole_texels_round_the_camera()
     {
-        // It reaches a 4-metre square past the 120-metre ring each way, over 1024 texels: 248 / 1024 metres each.
-        const float texel = 248f / 1024f;
+        // It reaches a 4-metre square past the 160-metre ring each way, over 1024 texels: 328 / 1024 metres each.
+        const float texel = 328f / 1024f;
 
         var (still, stillTexel) = GrassField.CaptureArea(new Vector3(0.1f, 5f, -0.1f), Rings);
         var (moved, _) = GrassField.CaptureArea(new Vector3(0.2f, 5f, 0f), Rings);
 
         Assert.Equal(texel, stillTexel);
-        Assert.Equal(new Vector2(-124f), still);
-        Assert.Equal(new Vector2(-124f + texel, -124f), moved);
+        Assert.Equal(new Vector2(-164f), still);
+        Assert.Equal(new Vector2(-164f + texel, -164f), moved);
     }
 
     [Fact]

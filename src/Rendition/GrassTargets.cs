@@ -31,8 +31,9 @@ internal sealed unsafe class GrassTargets : IDisposable
                 context, (ulong)(GrassField.MaxTiles * sizeof(GrassTile)), BufferUsageFlags.StorageBufferBit);
         }
 
-        _blades = new GpuBuffer(context, (ulong)GrassStage.MaxBlades * BladeSize, BufferUsageFlags.StorageBufferBit, MemoryPropertyFlags.DeviceLocalBit);
-        Args = new GpuBuffer(context, 16,
+        ulong blades = (ulong)GrassField.DetailStart(GrassField.Details) * BladeSize;
+        _blades = new GpuBuffer(context, blades, BufferUsageFlags.StorageBufferBit, MemoryPropertyFlags.DeviceLocalBit);
+        Args = new GpuBuffer(context, GrassStage.ArgsSize,
             BufferUsageFlags.StorageBufferBit | BufferUsageFlags.IndirectBufferBit | BufferUsageFlags.TransferDstBit,
             MemoryPropertyFlags.DeviceLocalBit);
         var extent = new Extent2D(GrassField.CaptureSize, GrassField.CaptureSize);
@@ -41,7 +42,7 @@ internal sealed unsafe class GrassTargets : IDisposable
         WriteSets(nearest, sets);
     }
 
-    /// <summary>The indirect draw's arguments, which the scatter counts the blades into.</summary>
+    /// <summary>Each detail's indirect draw's arguments, which the scatter counts the blades into.</summary>
     public GpuBuffer Args { get; }
 
     /// <summary>The ground map's heights, as depth: 0 where there is no ground.</summary>

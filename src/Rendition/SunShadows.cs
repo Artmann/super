@@ -124,22 +124,45 @@ internal sealed unsafe class SunShadows
     }
 
     /// <summary>
-    /// Draws the sun's shadow cascades. Targets are shared between frames in flight, so each first use waits for the
-    /// previous frame's sampling to finish. Contents are discarded via Undefined. When no sun casts a shadow the maps
-    /// aren't drawn, or even cleared, and nothing reads them, but the lighting pass still binds them.
+    /// Draws the sun's shadow cascades, leaving them to <see cref="Finish"/>. Targets are shared between frames in
+    /// flight, so each first use waits for the previous frame's sampling to finish. Contents are discarded via
+    /// Undefined.
     /// </summary>
     public void Record(CommandBuffer cmd, DescriptorSet frameSet, InstanceBuffer instances)
+    {
+        if (!_drawn)
+        {
+            return;
+        }
+
+        _api.Transition(cmd, new ImageTransition(_pass.Target.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal) { LayerCount = ShadowPass.MaxCascades },
+            (ShadowReadStages, SampledAccess), (DepthStages, DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit));
+        for (int cascade = 0; cascade < _cascades; cascade++)
+        {
+            var casters = _draws[cascade].AsSpan(0, _counts[cascade]);
+            _pass.Record(cmd, frameSet, new SceneGeometry(casters, _meshes.MeshSlots, _meshes.DetailSlots, instances), cascade);
+        }
+    }
+
+    /// <summary>
+    /// Draws the grass's blades over the nearest cascades the casters were drawn into, timed as a pass of their own,
+    /// then leaves the maps ready to read. When no sun casts a shadow the maps aren't drawn, or even cleared, and
+    /// nothing reads them, but the lighting pass still binds them.
+    /// </summary>
+    public void Finish(CommandBuffer cmd, DescriptorSet frameSet, GrassStage grass)
     {
         var shadowMap = _pass.Target.Image;
         if (_drawn)
         {
-            _api.Transition(cmd, new ImageTransition(shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal) { LayerCount = ShadowPass.MaxCascades },
-                (ShadowReadStages, SampledAccess), (DepthStages, DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit));
-            for (int cascade = 0; cascade < _cascades; cascade++)
+            if (grass.Active)
             {
-                var casters = _draws[cascade].AsSpan(0, _counts[cascade]);
-                _pass.Record(cmd, frameSet, new SceneGeometry(casters, _meshes.MeshSlots, _meshes.DetailSlots, instances), cascade);
+                for (int cascade = 0; cascade < Math.Min(_cascades, GrassStage.ShadowCascades); cascade++)
+                {
+                    _pass.BeginOver(cmd, cascade);
+                    grass.RecordShadow(cmd, frameSet, cascade);
+                    _api.CmdEndRendering(cmd);
+                }
             }
 
             _api.Transition(cmd, new ImageTransition(shadowMap, ImageAspectFlags.DepthBit,

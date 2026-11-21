@@ -9,22 +9,47 @@ struct GrassKind {
     vec4 more;  // x: density; y: clump size in metres
 };
 
+// How many looks of grass a field can hold. Must match GrassField.MaxKinds.
+const int GRASS_KINDS = 8;
+
+// The squared distance from its middle, over its size, that a clump's blades fall within: a clump covers about a disc of
+// one square of its size, whose radius squared is 1 / pi.
+const float GRASS_CLUMP_DISC = 0.32;
+
 layout(std140, set = 2, binding = 0) uniform GrassField {
     vec4 planes[5];   // the camera's left, right, bottom, top and near planes, normals in and of unit length
     vec4 capture;     // xy: the ground map's corner with the least x and z; z: a texel's size in metres; w: texels across
     vec4 heights;     // x: the height the ground map's depth 0 stands for; y: the metres depth 1 is above it
     vec4 rings;       // how far each level of the lattice reaches, in metres
     vec4 camera;      // xyz: where the camera is; w: the share of each ring over which its blades shrink away
-    ivec4 counts;     // x: squares to scatter; y: the most blades the buffer holds
-    GrassKind kinds[8];
+    vec4 details;     // x: how far blades are drawn in full; y: how far in less; past that, as one triangle
+    ivec4 counts;     // x: squares to scatter
+    ivec4 regions;    // where each detail's blades start in the buffer, and w: the blades it holds in all
+    GrassKind kinds[GRASS_KINDS];
 } grass;
 
 // One blade, as the scatter pass leaves it.
 struct GrassBlade {
-    vec4 root;  // xyz: where it stands; w: its height
-    vec4 shape; // xy: the way it faces, across the ground; z: its width; w: how far it bends over
-    vec4 look;  // xy: the way out from its clump's middle, over the clump's size; z: its shade, -1 to 1; w: its look
+    vec4 root;       // xyz: where it stands; w: its height
+    vec4 shape;      // xy: the way it faces, across the ground; z: its width; w: how far it bends over
+    vec2 fromMiddle; // the way out from its clump's middle, over the clump's size
+    uint tint;       // packUnorm4x8 of its brightness, its yellowing, its dryness and how dense the grass round it is
+    uint kind;       // its look
 };
+
+// How many details blades are drawn at, each from its own part of the buffer with its own indirect draw: in full
+// near the camera, then with fewer rows, then as one triangle. See "Grass" in docs/design.md.
+const int GRASS_DETAILS = 3;
+
+// The rows of a blade at each detail, its vertices being 3 * (2 * rows - 1).
+int grassRows(int detail) {
+    return detail == 0 ? 3 : (detail == 1 ? 2 : 1);
+}
+
+// The detail a blade this far from the camera, across the ground, is drawn at.
+int grassDetailAt(float distance) {
+    return distance < grass.details.x ? 0 : (distance < grass.details.y ? 1 : 2);
+}
 
 #ifndef GRASS_SCATTER
 layout(std430, set = 2, binding = 2) readonly buffer GrassBlades {
@@ -38,7 +63,8 @@ const float GRASS_SPACING = 0.125;
 const int GRASS_TILE_POINTS = 32;
 const float GRASS_PI = 3.14159265359;
 
-// A blade's seven points: two at each of three heights up it, and the tip, joined into five triangles.
+// A blade's seven points in full: two at each of three rows up it, and the tip, joined into five triangles. A blade of
+// fewer rows takes the first of them, its last point being its tip: two rows make three triangles, and one row one.
 const int GRASS_INDICES[15] = int[15](0, 1, 2, 2, 1, 3, 2, 3, 4, 4, 3, 5, 4, 5, 6);
 const float GRASS_ROWS[4] = float[4](0.0, 0.4, 0.75, 1.0);
 
@@ -55,7 +81,7 @@ vec3 bladeTip(GrassBlade blade, vec3 forward, float time) {
     float angle = blade.shape.w * 0.5 * GRASS_PI;
     vec3 tip = forward * (sin(angle) * height) + vec3(0.0, cos(angle) * height, 0.0);
     if ((frame.off & OFF_WIND) == 0) {
-        float sway = grass.kinds[int(blade.look.w)].tip.a;
+        float sway = grass.kinds[blade.kind].tip.a;
         tip += windSwayAt(blade.root.xyz, height, sway, time);
     }
 
@@ -63,14 +89,17 @@ vec3 bladeTip(GrassBlade blade, vec3 forward, float time) {
     return normalize(tip) * height;
 }
 
-// Where the blade's vertex in [0, 15) stands at time, and how it faces. The blade is a ribbon along a curve from its
-// root, up, to its tip, narrowing to a point. Seen edge on it turns a little toward the camera, so it never thins to
-// nothing, and its normal is rounded across it and leans out from its clump's middle, so a clump shades as one tuft.
-BladePoint bladePoint(GrassBlade blade, int vertex, float time) {
+// Where a vertex of a blade drawn at detail stands at time, and how it faces. The blade is a ribbon along a curve from
+// its root, up, to its tip, narrowing to a point. Seen edge on it turns toward the camera and widens a little, so it
+// never thins to nothing, and further off it turns further, as a far blade stands for the ground round it. Its normal
+// is rounded across it and leans out from its clump's middle, so a clump shades as one tuft, and further off it leans
+// up, so far blades shade like a lawn rather than glinting one by one.
+BladePoint bladePoint(GrassBlade blade, int vertex, int detail, float time) {
+    int rows = grassRows(detail);
     int point = GRASS_INDICES[vertex];
     int row = point >> 1;
-    float t = GRASS_ROWS[row];
-    float across = point == 6 ? 0.0 : ((point & 1) == 0 ? -1.0 : 1.0);
+    float t = rows == 3 ? GRASS_ROWS[row] : float(row) / float(rows);
+    float across = point == 2 * rows ? 0.0 : ((point & 1) == 0 ? -1.0 : 1.0);
 
     vec3 root = blade.root.xyz;
     float height = blade.root.w;
@@ -84,7 +113,8 @@ BladePoint bladePoint(GrassBlade blade, int vertex, float time) {
     vec3 at = 2.0 * (1.0 - t) * t * middle + t * t * tip;
 
     vec3 toCamera = frame.cameraPosition.xyz - root;
-    vec3 view = normalize(toCamera);
+    float distance = length(toCamera);
+    vec3 view = toCamera / max(distance, 1e-4);
     vec3 face = normalize(cross(side, along));
     float edgeOn = 1.0 - abs(dot(face, view));
     vec3 facing = cross(vec3(0.0, 1.0, 0.0), view);
@@ -92,18 +122,19 @@ BladePoint bladePoint(GrassBlade blade, int vertex, float time) {
         facing = -facing;
     }
 
+    float far = smoothstep(0.5 * grass.rings.x, grass.rings.z, distance);
     if (dot(facing, facing) > 1e-6) {
-        side = normalize(mix(side, normalize(facing), 0.5 * edgeOn * edgeOn));
+        side = normalize(mix(side, normalize(facing), mix(0.5 * edgeOn * edgeOn, edgeOn, far)));
     }
 
-    float width = blade.shape.z * pow(1.0 - t, 0.7);
+    float width = blade.shape.z * pow(1.0 - t, 0.7) * (1.0 + 0.3 * edgeOn);
     BladePoint result;
     result.position = root + at + side * (0.5 * width * across);
     result.up = t;
 
     vec3 normal = face * (dot(face, view) < 0.0 ? -1.0 : 1.0);
     normal = normalize(normal + side * (0.4 * across));
-    vec3 clump = normalize(vec3(blade.look.x * 0.7, 1.0, blade.look.y * 0.7));
-    result.normal = normalize(mix(normal, clump, 0.45));
+    vec3 clump = normalize(vec3(blade.fromMiddle.x * 0.7, 1.0, blade.fromMiddle.y * 0.7));
+    result.normal = normalize(mix(normal, clump, mix(0.45, 0.85, far)));
     return result;
 }

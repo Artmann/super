@@ -19,6 +19,9 @@ public sealed class GrassGpuTests(GpuFixture gpu, ITestOutputHelper output)
     // Two captures of the same frame differ by a step or two at most.
     private const float SameTolerance = 4f;
 
+    // How many times its red and its blue the green of grass must be: the meadow's is about 1.3 times its red, grey's 1.
+    private const float Greener = 1.15f;
+
     // A few frames, so the scatter's counts and the history have settled.
     private const int Frames = 6;
 
@@ -40,8 +43,9 @@ public sealed class GrassGpuTests(GpuFixture gpu, ITestOutputHelper output)
 
             Assert.True(Brightness(bare) > 40f, $"The bare floor's centre is only {Show(bare)}, so the check proves nothing.");
             Assert.True(MathF.Abs(bare.Y - bare.X) < 8f, $"The bare grey floor's centre was {Show(bare)}, already coloured.");
+            // As a share, not a gap: dense grass is dark at its roots, so its channels are all low.
             Assert.True(
-                grown.Y > grown.X + 15f && grown.Y > grown.Z + 15f,
+                grown.Y > grown.X * Greener && grown.Y > grown.Z * Greener,
                 $"With grass the floor's centre was {Show(grown)}, not clearly greener than red and blue; bare it is {Show(bare)}.");
         });
     }
@@ -64,6 +68,93 @@ public sealed class GrassGpuTests(GpuFixture gpu, ITestOutputHelper output)
                 $"With grass at density 0 the floor's centre was {Show(none)}, but bare it is {Show(bare)}.");
         });
     }
+
+    [Fact]
+    public void Thicker_grass_covers_more_of_the_ground()
+    {
+        WithFloor(floor =>
+        {
+            float thin = Covered(Render(Above([new GrassDraw(floor, new GrassSettings { Density = 0.3f })]), floor));
+            float half = Covered(Render(Above([new GrassDraw(floor, new GrassSettings { Density = 0.6f })]), floor));
+            float full = Covered(Render(Above([new GrassDraw(floor, new GrassSettings { Density = 1f })]), floor));
+            output.WriteLine($"Ground covered from above: density 0.3 {thin:P0}, 0.6 {half:P0}, 1 {full:P0}.");
+
+            Assert.True(thin > 0.03f, $"Grass at density 0.3 covered only {thin:P0} of the ground, as if none stood.");
+            Assert.True(half > thin * 1.3f, $"Grass at density 0.6 covered {half:P0}, not clearly more than {thin:P0} at 0.3.");
+            Assert.True(full > half * 1.15f, $"Grass at density 1 covered {full:P0}, not clearly more than {half:P0} at 0.6.");
+        });
+    }
+
+    [Fact]
+    public void Thin_grass_grows_in_tufts_with_bare_ground_between()
+    {
+        WithFloor(floor =>
+        {
+            var pixels = Render(Above([new GrassDraw(floor, new GrassSettings { Density = 0.3f })]), floor);
+            float unevenness = BlockUnevenness(pixels);
+            output.WriteLine($"Thin grass from above covers {Covered(pixels):P0}, its blocks' coverage varying by {unevenness:F2} of the mean.");
+
+            Assert.True(Covered(pixels) > 0.03f, $"Thin grass covered only {Covered(pixels):P0} of the ground, so the check proves nothing.");
+            Assert.True(
+                unevenness > TuftUnevenness,
+                $"Thin grass's coverage varies by {unevenness:F2} of the mean from block to block, under {TuftUnevenness}: sprinkled evenly, not in tufts.");
+        });
+    }
+
+    // How much the share of ground covered in each block of the picture varies, over its mean, for grass in tufts at
+    // least: sprinkled evenly at the same density it varies by about 0.7, in tufts by about 1.1.
+    private const float TuftUnevenness = 0.9f;
+
+    // The block of the picture a coverage share is counted over: about 40 centimetres of ground from above.
+    private const int Block = 16;
+
+    // The share of the picture's pixels that are grass rather than the grey floor.
+    private static float Covered(byte[] pixels)
+    {
+        int covered = 0;
+        for (int i = 0; i < Size * Size; i++)
+        {
+            if (IsGrass(pixels, i))
+            {
+                covered++;
+            }
+        }
+
+        return covered / (float)(Size * Size);
+    }
+
+    // The spread of the share of grass pixels across the picture's blocks, over its mean.
+    private static float BlockUnevenness(byte[] pixels)
+    {
+        int blocks = Size / Block;
+        var shares = new float[blocks * blocks];
+        for (int by = 0; by < blocks; by++)
+        {
+            for (int bx = 0; bx < blocks; bx++)
+            {
+                int count = 0;
+                for (int y = 0; y < Block; y++)
+                {
+                    for (int x = 0; x < Block; x++)
+                    {
+                        if (IsGrass(pixels, (by * Block + y) * Size + bx * Block + x))
+                        {
+                            count++;
+                        }
+                    }
+                }
+
+                shares[by * blocks + bx] = count / (float)(Block * Block);
+            }
+        }
+
+        float mean = shares.Average();
+        float spread = MathF.Sqrt(shares.Select(share => (share - mean) * (share - mean)).Average());
+        return spread / mean;
+    }
+
+    // Grass, green or dry, is yellower than the grey floor: its green is well above its blue.
+    private static bool IsGrass(byte[] pixels, int index) => pixels[4 * index + 1] > pixels[4 * index + 2] + 12;
 
     // Runs the body with a level grey floor 40 metres across under the camera, then destroys it and checks the
     // validation errors did not grow.
@@ -98,6 +189,17 @@ public sealed class GrassGpuTests(GpuFixture gpu, ITestOutputHelper output)
             | RenderEffects.SunShadows | RenderEffects.AutoExposure | RenderEffects.Bloom;
         view.Lights = Sun;
         view.Extras.Grass = grass;
+        return view;
+    }
+
+    // The same view from six metres straight above the floor, with the wind still, so the blades are seen from their
+    // tips and none sway between frames.
+    private FrameView Above(GrassDraw[] grass)
+    {
+        var view = View(grass, RenderEffects.Wind);
+        var eye = new Vector3(0f, 6f, 0f);
+        view.View = Matrix4x4.CreateLookAt(eye, Vector3.Zero, -Vector3.UnitZ);
+        view.CameraPosition = eye;
         return view;
     }
 
