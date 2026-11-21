@@ -22,6 +22,12 @@ public sealed class RenderSettings
     /// <summary>The largest <see cref="RenderScale"/>: four times the window's pixels.</summary>
     public const float MaxRenderScale = 2f;
 
+    /// <summary>The smallest <see cref="GrassDetail"/>: grass reaches a quarter as far, with a sixteenth of the blades.</summary>
+    public const float MinGrassDetail = 0.25f;
+
+    /// <summary>The largest <see cref="GrassDetail"/>: grass reaches twice as far.</summary>
+    public const float MaxGrassDetail = 2f;
+
     internal RenderSettings(RendererOptions options)
     {
         Vsync = !options.DisableVsync;
@@ -111,6 +117,20 @@ public sealed class RenderSettings
             ? value
             : throw new ArgumentOutOfRangeException(nameof(value), value,
                 string.Create(CultureInfo.InvariantCulture, $"Mesh detail can be from {MinMeshDetail} to {MaxMeshDetail}."));
+    } = 1f;
+
+    /// <summary>
+    /// How far grass grows from the camera, from 0.25 to 2. At 1 its densest blades reach 16 metres and its last,
+    /// sparsest ones 120. Every ring's distance scales with it, so the ground it covers, and the blades, go as its
+    /// square: 0.5 draws about a quarter as many. Takes effect on the next frame.
+    /// </summary>
+    public float GrassDetail
+    {
+        get;
+        set => field = value is >= MinGrassDetail and <= MaxGrassDetail
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value,
+                string.Create(CultureInfo.InvariantCulture, $"Grass detail can be from {MinGrassDetail} to {MaxGrassDetail}."));
     } = 1f;
 
     /// <summary>

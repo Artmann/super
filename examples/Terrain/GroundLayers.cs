@@ -18,7 +18,7 @@ internal sealed record GroundLayers(TextureArrayRef Colors, TextureArrayRef Norm
         TextureRef[] colorLayers =
         [
             content.Texture(ColorLayer(looks, new Vector3(0.66f, 0.58f, 0.40f), 0.05f)),
-            content.Texture(ColorLayer(looks, new Vector3(0.28f, 0.46f, 0.17f), 0.08f)),
+            content.Texture(ColorLayer(looks, new Vector3(0.30f, 0.40f, 0.15f), 0.08f)),
             content.Texture(ColorLayer(looks, new Vector3(0.44f, 0.42f, 0.40f), 0.14f)),
             content.Texture(ColorLayer(looks, new Vector3(0.93f, 0.95f, 0.98f), 0.02f)),
         ];

@@ -32,6 +32,9 @@ internal sealed class FrameStages
         FinishStage = new FinishStage(context, kit, ring, GpuTimer, (windowFormat, resources));
         BlendStage = new BlendStage(context, kit, (ring, GpuTimer, meshes), (resources, map, lights.ReflectionProbes), stores.Switches);
         OpaqueStage = new OpaqueStage(context, kit, ring, meshes, (resources, stores.Switches));
+        Grass = new GrassStage(context, stores);
+        OpaqueStage.Pass.Grass = Grass;
+        lights.ShadowPass.Grass = Grass;
         FsrPass = new FsrPass(context, kit.NearestSampler, kit.FrameSetLayout, PostStage.Meter.SetLayout);
     }
 
@@ -71,6 +74,9 @@ internal sealed class FrameStages
     /// <summary>The G-buffer and the decals.</summary>
     public OpaqueStage OpaqueStage { get; }
 
+    /// <summary>The grass, grown over the ground before the shadows and the G-buffer draw it.</summary>
+    public GrassStage Grass { get; }
+
     /// <summary>FSR, while it draws the picture.</summary>
     public FsrPass FsrPass { get; }
 
@@ -85,5 +91,6 @@ internal sealed class FrameStages
         LightingStage.Dispose();
         OcclusionStage.Dispose();
         OpaqueStage.Dispose();
+        Grass.Dispose();
     }
 }

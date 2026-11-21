@@ -75,6 +75,7 @@ next frame follows, so it can back an options menu.
 | `Shadowing.ShadowResolution` | How many texels across each of the sun's shadow maps is: 1024, 2048 (the default) or 4096. Each step up sharpens shadow edges for four times the memory. A change rebuilds the maps before the next frame, which waits for the GPU once |
 | `Shadowing.ShadowCascades` | How many of the sun's shadow maps are drawn, from 1 to 4, the default. Each map covers three times the ground of the one before, and each draws the scene again, so fewer save GPU time. The sun casts no shadow past the last map drawn, so with 2 its shadows reach about a ninth as far as with 4. A frame that asks for fewer in [`Shadows`](#shadows) keeps its number |
 | `Drawing.MeshDetail` | How soon models switch to their simpler versions with distance, from 0.5 to 2. 1, the default, switches where the change is under a pixel. At 0.5 they switch twice as soon, which draws fewer triangles for a little blockiness far away, and at 2 half as soon. The sun's shadow maps follow it too |
+| `Drawing.GrassDetail` | How far [grass](#grass) reaches, from 0.25 to 2. At 1, the default, every blade grows within 16 metres and the sparsest reach 120. Every ring scales with it, so the blades drawn go as its square: 0.5 draws about a quarter as many. Anything else is refused |
 | `Screen.RenderScale` | How large the scene is drawn against the window, from 0.5 to 2 each way. 1, the default, draws it at the window's size with nothing resized. At 2 the scene has four times the pixels and is shrunk to fit, which smooths grass blades, railings and other thin things, for about four times the lighting and effects work. At 0.5 it has a quarter of the pixels and is stretched, which is much faster and softer. Below 1, meshes also switch to their simpler versions sooner, since they cover fewer scene pixels. A scene larger than the GPU can draw is shrunk to fit, keeping its shape. The interface, screenshots and recordings stay at the window's size. Anything else is refused. `--render-scale` sets it too. A change rebuilds the scene's targets before the next frame, which waits for the GPU once and restarts anti-aliasing |
 | `Screen.Upscaler` | What smooths edges when `AntiAliasing` is on: `Upscaler.Taa`, the default, or `Upscaler.Fsr`, which hands the frame to AMD FSR to rebuild at the window's size. See [upscaling](#upscaling). `--upscaler fsr` sets it too, and `Graphics.Fastest()` uses TAA |
 | `Shadowing.ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. [`Shadows`](#shadows)' `Contact` only changes [how far they look](#shadows) |
@@ -109,6 +110,7 @@ next frame follows, so it can back an options menu.
 | `Surfaces.Decals` | No [decals](#decals): surfaces show as they are, without the grime and stains `Decal` entities lay on them. It saves a copy of the normal target and a pass over the decals' pixels |
 | `Surfaces.Puddles` | Every surface is dry, whatever level a `Puddles` entity sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
 | `Surfaces.Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever a `Wind` entity sets, and so do their shadows |
+| `Surfaces.Grass` | No [grass](#grass) grows over models with a `Grass` component: the ground shows bare, and the scatter pass and the blades' drawing in the picture and the two nearest shadow cascades don't run. It saves about 1.2 ms of GPU time a frame in the Terrain example at 1920 by 1080 on an RTX 4060 Ti. `Graphics.Fastest()` turns it off |
 | `Baking.BakedLighting` | Every bake is ignored, so each [baked area](#baked-lighting) is lit live, as if it had never been baked: lights its bake holds are drawn again. It shows what a bake changes. A bake costs less than the live light it stands in for, so `Graphics.Fastest()` leaves it on |
 | `Baking.BakeOnArrival` | Areas with no bake, or a stale one, stay lit live instead of [baking as the game runs](#baking-without-a-build-step), and a running bake stops |
 | `Baking.BakeBudget` | Not a switch: the GPU milliseconds a [background bake](#baking-without-a-build-step) may take a frame, from 0.5 to 33. Null, the default, gives 4 from source and 2 in a published game |
@@ -164,9 +166,9 @@ itself, or offers it in an options menu.
 
 | Quality | What changes from `High` |
 |---|---|
-| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, the screen bounce, reflections, auto exposure, depth of field, paint, decals, volumetric fog, the marched clouds and height maps. Puddles, wind and the flat clouds with their shadows stay on, as they cost little |
-| `Medium` | Render scale 0.85, 3 cascades, `MeshDetail` 0.75, `ProbeQuality.Medium` and a 2 ms bake budget. Off: depth of field, volumetric fog and the marched clouds, so the [clouds](#clouds) are a flat layer |
-| `Ultra` | 4096 shadow maps, `MeshDetail` 1.5, `ReflectionResolution.Full`, `OcclusionResolution.Full` and 128 volumetric fog slices |
+| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `GrassDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, the screen bounce, reflections, auto exposure, depth of field, paint, decals, volumetric fog, the marched clouds and height maps. Puddles, wind and the flat clouds with their shadows stay on, as they cost little |
+| `Medium` | Render scale 0.85, 3 cascades, `MeshDetail` 0.75, `GrassDetail` 0.75, `ProbeQuality.Medium` and a 2 ms bake budget. Off: depth of field, volumetric fog and the marched clouds, so the [clouds](#clouds) are a flat layer |
+| `Ultra` | 4096 shadow maps, `MeshDetail` 1.5, `GrassDetail` 1.25, `ReflectionResolution.Full`, `OcclusionResolution.Full` and 128 volumetric fog slices |
 
 In the Courtyard at 1600 by 900 on an RTX 4060 Ti, a frame takes 8.5 ms of GPU at `High`, 6.5 at
 `Medium` and 4.3 at `Low`. `Ultra` costs about the same as `High` there. `Medium` loses a little
@@ -2166,6 +2168,78 @@ world.Get<Wind>(wind) = new Wind(surgeDirection * MathF.Sign(surge), 0.45f * Mat
 `Graphics.Fastest()` turns it off. The Courtyard blows a breeze of 0.35 across its grass, with
 a share of 0.08 for the ivy and 0.4 for the tree's crown.
 
+## Grass
+
+A `Grass` component next to a `Model` grows a field of grass blades over the model's top
+surface. It suits ground such as terrain chunks, where modelling every blade would be far too
+many triangles. The blades are made on the GPU each frame, so they cost no memory per blade and
+nothing on the CPU:
+
+```csharp
+world.Spawn(Transform.Identity, new Model(ground), new Grass());          // the default meadow, all over
+world.Spawn(Transform.Identity, new Model(ground), new Grass(new GrassSettings
+{
+    BaseColor = new Vector3(0.08f, 0.1f, 0.03f),
+    TipColor = new Vector3(0.45f, 0.4f, 0.12f),                           // dry, late-summer tips
+    Height = 0.7f,
+    Bend = 0.5f,
+}));
+```
+
+`GrassSettings` holds the look: the colour at the root and at the tip, the height and how much
+it varies, the width at the root, how thick the blades stand (`Density`, from 0 to 1, where 1 is
+about 64 blades a square metre near the camera), how far the tips droop (`Bend`), how much
+sunlight shines through a blade from behind (`Translucency`), how far the wind sways them
+(`Sway`) and how wide a clump is (`ClumpSize`). Blades grow in clumps that lean the same way and
+stand about as tall, so a field reads as tufts rather than an even carpet. Each blade is a
+curved strip that tapers to its tip, darker at its root where its neighbours shade it, and
+lit from both sides, so with the sun low behind it the grass glows. A look out of range, such
+as a height over 2 metres, is refused when the model is drawn, with a message that names it.
+
+A `GrassMap` says where the grass grows. It is a texture laid flat over the model from above,
+from `Min` to `Max` in x and z in the model's own space, and its `Channel` says how thick the
+grass stands, from 0 for bare to 1 for the full density. Outside the map nothing grows. The
+[Terrain example](../examples/Terrain) passes each chunk's splat map, whose red channel says how
+grassy the ground is, so blades grow in the damp lowlands and stop where the ground turns to
+sand. The splat's edge texels sit on the chunk's edges, so its area reaches half a texel past
+them:
+
+```csharp
+float texel = ChunkSize / (SplatSize - 1f);
+var origin = new Vector2(chunkX, chunkZ) * ChunkSize;
+var grass = new Grass { Density = new GrassMap(splat, origin - new Vector2(texel / 2f), origin + new Vector2(ChunkSize + texel / 2f)) };
+world.Spawn(Transform.Identity, new Model(chunkMesh), grass);
+```
+
+The blades stand on a lattice fixed to the world, so they never crawl as the camera moves. It
+has four rings round the camera: every blade grows within 16 metres, a quarter of them out to
+32, a sixteenth out to 64 and one in 64 out to 120, and blades shrink away over the last part
+of each ring rather than pop. The further rings' blades are wider, so the far ground doesn't
+look bare. Only the squares of the lattice in view are grown. The blades sway in the
+[wind](#wind), cast shadows in the sun's two nearest cascades, and give motion vectors, so
+anti-aliasing keeps them steady as they move.
+
+![Terrain's valley with grass off, the bare splat-painted ground, and on, with blades over the green layer](media/grass-terrain.webp)
+
+![Terrain at sunset, the low sun behind the grass lighting its blades from behind](media/grass-sunset.webp)
+
+`Graphics.Surfaces.Grass` turns it off, and so does `Graphics.Fastest()`: the ground shows bare
+and nothing is grown. `Graphics.Drawing.GrassDetail`, from 0.25 to 2, scales how far each ring
+reaches, so the blades drawn go as its square. `GraphicsQuality.Low` sets 0.5, `Medium` 0.75 and
+`Ultra` 1.25. In the Terrain example at 1920 by 1080 on an RTX 4060 Ti, grass costs about 1.2 ms
+of GPU time a frame at `High`, mostly in lighting the grassy pixels; growing the blades takes
+under 0.1 ms. Drawing by hand, `ModelOptions.Grass` does the same as the component, and with
+Rendition alone `FrameExtras.Grass` takes a `GrassDraw` for each ground draw.
+
+Grass can't yet:
+
+- Be pushed aside by things standing in it, unless the density map leaves a gap there.
+- Grow under overhangs or on walls: the blades follow the ground as seen from straight above.
+- Show in reflections, light probes or bakes, which see the bare ground.
+- Cast shadows past the sun's second cascade, or from blades out of view.
+- Have more than eight looks in a frame, or more than about 262,000 blades; the furthest squares
+  go bare past that.
+
 ## Decals
 
 A `Decal` entity lays a material onto whatever is already drawn inside a box: damp rising up a
@@ -3235,7 +3309,8 @@ var ground = content.Mesh(field.Chunk(chunk.X, chunk.Z, quads: 32, new Surface
 ground. Each chunk's second UV set, for lighting, is its vertices' places on the chunk's
 grid, from (0, 0) at its first corner to (1, 1) at the far one. The
 [Terrain example](../examples/Terrain) loads chunks around the camera and unloads the ones
-left behind.
+left behind, and grows [grass](#grass) over each chunk where its splat map says the ground is
+grassy, under a low evening sun that lights the blades from behind.
 
 ## Surface shaders
 
