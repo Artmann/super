@@ -95,7 +95,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 cloudAir;           // rgb: how much the air between the camera and the clouds dims per metre; w: unused
     vec4 cloudLean;          // xy: how far the clouds' tops lean along the wind, metres; zw: the clouds' picture's size in pixels
     mat4 mirrorViewProjection; // world to the planar reflection's mirrored clip space; see MirrorView.cs
-    vec4 mirrorPlane;        // x: the plane's height; y: 1 with a mirror picture; z: the camera's height above it; w: mirror pixels per unit tangent
+    vec4 mirrorPlane;        // x: the plane's height; y: 1 with a mirror picture; z: the camera's height above it, -1 when orthographic; w: mirror pixels per unit tangent, per metre when orthographic
     vec4 mirrorEye;          // xyz: the mirrored camera; w: the mirror picture's last mip
 } frame;
 

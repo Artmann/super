@@ -101,6 +101,47 @@ public class MirrorViewTests
         Assert.True(seen > 0, "No corner of the view rises above the water in the mirror, so nothing was checked.");
     }
 
+    // Straight down at 45 degrees, as a camera over a board game does, seeing 10 m from bottom to top and 60 m deep.
+    private static readonly Matrix4x4 FlatView = Matrix4x4.CreateLookAt(Eye, Eye + new Vector3(0f, -1f, -1f), Vector3.UnitY);
+
+    private static readonly Matrix4x4 FlatLens = Projection.OrthographicReversedZ(10f, 16f / 9f, 0.1f, 60f);
+
+    [Fact]
+    public void An_orthographic_camera_mirrors_points_where_it_sees_their_reflections()
+    {
+        Assert.True(MirrorView.TryMake(FlatView, FlatLens, Eye, Water, out var mirror), "The camera is above the water, so there is a mirror.");
+        var camera = FlatView * FlatLens;
+        foreach (var point in new[] { new Vector3(0f, 1.2f, -4f), new Vector3(3f, 0.6f, -10f), new Vector3(-2f, 4f, -8f) })
+        {
+            var inMirror = Clip(mirror.ViewProjection, point);
+            var below = Clip(camera, point with { Y = 2f * Water - point.Y });
+            Assert.Equal(-below.X / below.W, inMirror.X / inMirror.W, 4);
+            Assert.Equal(below.Y / below.W, inMirror.Y / inMirror.W, 4);
+        }
+    }
+
+    [Fact]
+    public void An_orthographic_mirror_keeps_the_highest_thing_it_sees_in_depth_and_cuts_what_is_under_the_water()
+    {
+        Assert.True(MirrorView.TryMake(FlatView, FlatLens, Eye, Water, out var mirror), "The camera is above the water, so there is a mirror.");
+
+        // The far top of the camera's box, turned over the water: the highest thing the mirror can show, about 44 m up.
+        Matrix4x4.Invert(FlatView * FlatLens, out var inverse);
+        var corner = Vector4.Transform(new Vector4(0f, 1f, 0f, 1f), inverse);
+        var highest = new Vector3(corner.X, 2f * Water - corner.Y, corner.Z) / corner.W;
+        Assert.True(highest.Y > Water + 10f, $"The view's far top corner mirrors to {highest}, not far over the water.");
+
+        float onWater = Depth(mirror, new Vector3(0f, Water, -6f));
+        float low = Depth(mirror, new Vector3(0f, Water + 2f, -6f));
+        float top = Depth(mirror, highest);
+        float under = Depth(mirror, new Vector3(0f, Water - 0.05f, -6f));
+
+        Assert.Equal(1f, onWater, 4);
+        Assert.InRange(top, 0f, 0.01f);
+        Assert.True(top < low && low < onWater, $"Depth should fall with height over the water: {onWater}, then {low}, then {top}.");
+        Assert.True(under > 1f, $"A point under the water has depth {under}, so it isn't cut away.");
+    }
+
     [Theory]
     [InlineData(0.5f)]
     [InlineData(0.505f)]
