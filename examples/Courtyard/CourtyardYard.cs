@@ -118,8 +118,7 @@ public static class CourtyardYard
     private static Finish GradePicture() =>
         new(new PostSettings
         {
-            FocusDistance = 11f,
-            Aperture = 8f,
+            Lens = new LensSettings { FocusDistance = 11f, Aperture = 8f, FocalLength = 35f },
             AutoExposure = true,
             Exposure = 1.15f,
             Temperature = 0.08f,
@@ -134,6 +133,5 @@ public static class CourtyardYard
                 Highlights = new Vector3(0.04f, 0.015f, 0f),
                 Midtones = new Vector3(0.02f, 0.01f, 0f),
             },
-            FocalLength = 35f,
         });
 }

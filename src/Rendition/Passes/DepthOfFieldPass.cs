@@ -37,21 +37,21 @@ internal struct DepthOfFieldConstants
     /// </summary>
     public static DepthOfFieldConstants? For(in PostSettings post, RenderEffects off, int sceneWidth)
     {
-        if (off.HasFlag(RenderEffects.DepthOfField) || post.Aperture == 0f || sceneWidth <= 0)
+        if (off.HasFlag(RenderEffects.DepthOfField) || post.Lens.Aperture == 0f || sceneWidth <= 0)
         {
             return null;
         }
 
-        float focalLength = ThinLens.FocalLength(post.FocalLength);
-        if (!ThinLens.IsValid(post.FocusDistance, post.Aperture, focalLength))
+        float focalLength = ThinLens.FocalLength(post.Lens.FocalLength);
+        if (!ThinLens.IsValid(post.Lens.FocusDistance, post.Lens.Aperture, focalLength))
         {
             return null;
         }
 
-        float circle = ThinLens.CircleOfConfusion(float.PositiveInfinity, post.FocusDistance, post.Aperture, focalLength);
+        float circle = ThinLens.CircleOfConfusion(float.PositiveInfinity, post.Lens.FocusDistance, post.Lens.Aperture, focalLength);
         return new DepthOfFieldConstants
         {
-            FocusDistance = post.FocusDistance,
+            FocusDistance = post.Lens.FocusDistance,
             PixelsAtInfinity = ThinLens.InPixels(circle, sceneWidth),
             MaxRadiusPixels = MaxRadius,
         };

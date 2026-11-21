@@ -156,7 +156,7 @@ public sealed class ViewEffects
         RefuseOutsideOne(settings.Tint, "tint");
         FinishChecks.Grade(settings);
         ThinLens.Check(
-            settings.FocusDistance, settings.Aperture, ThinLens.FocalLength(settings.FocalLength), nameof(settings));
+            settings.Lens.FocusDistance, settings.Lens.Aperture, ThinLens.FocalLength(settings.Lens.FocalLength), nameof(settings));
         FinishChecks.Screen(settings.Screen, nameof(settings));
         _finish = settings;
 
