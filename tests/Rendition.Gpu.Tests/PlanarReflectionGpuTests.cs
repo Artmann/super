@@ -77,6 +77,31 @@ public sealed class PlanarReflectionGpuTests(GpuFixture gpu, ITestOutputHelper o
         });
     }
 
+    // The same panel through an orthographic camera 4 m high. Its rays run parallel, so the panel's reflection, worked
+    // out by hand along them, lies on the floor 0.4 m in front of the origin, 0.63 m below the middle of the picture.
+    [Fact]
+    public void An_orthographic_camera_sees_the_panel_out_of_view_in_the_floor()
+    {
+        WithPanel(draws =>
+        {
+            var lens = Projection.OrthographicReversedZ(4f, 1f, 0.1f, 30f);
+            var on = Render(RenderEffects.None, draws, lens);
+            var off = Render(RenderEffects.PlanarReflections, draws, lens);
+            var reflectionOn = Around(on, Size, 0.5f, 0.66f);
+            var reflectionOff = Around(off, Size, 0.5f, 0.66f);
+            var topOn = Around(on, Size, 0.5f, 0.05f);
+            output.WriteLine($"Reflection: planar on {Show(reflectionOn)}, off {Show(reflectionOff)}; top of the picture {Show(topOn)}.");
+
+            Assert.True(topOn.X - topOn.Y < 10f, $"The top of the picture was {Show(topOn)}, so the camera sees the panel itself.");
+            Assert.True(
+                reflectionOn.X - reflectionOn.Y > 60f,
+                $"The floor under the panel's reflection was {Show(reflectionOn)} with planar reflections on, which is not the panel's red.");
+            Assert.True(
+                MathF.Abs(reflectionOff.X - reflectionOff.Y) < 10f,
+                $"With planar reflections off the floor was {Show(reflectionOff)}, where it should reflect the grey studio.");
+        });
+    }
+
     // A smooth floor and, facing the camera 2.2 m up and 4 m behind the origin, a panel above the top of its view.
     private void WithPanel(Action<DrawItem[]> body) =>
         WithScene(0.05f, Matrix4x4.CreateScale(3f, 1.5f, 1f) * Matrix4x4.CreateTranslation(0f, 2.2f, -4f), body);
@@ -118,9 +143,14 @@ public sealed class PlanarReflectionGpuTests(GpuFixture gpu, ITestOutputHelper o
 
     // No sun or probes, only the plain grey studio, and none of the effects that change the exposure or spread the
     // glow. Reflections are scaled by the environment's intensity, so it stays at 1.
-    private byte[] Render(RenderEffects off, DrawItem[] draws)
+    private byte[] Render(RenderEffects off, DrawItem[] draws, Matrix4x4? projection = null)
     {
         var view = gpu.View(DebugView.None);
+        if (projection is { } lens)
+        {
+            view.Projection = lens;
+        }
+
         view.View = Matrix4x4.CreateLookAt(Eye, Target, Vector3.UnitY);
         view.CameraPosition = Eye;
         view.Off = off | RenderEffects.AntiAliasing | RenderEffects.LightProbes | RenderEffects.AutoExposure | RenderEffects.Bloom;

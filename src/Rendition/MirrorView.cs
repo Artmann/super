@@ -41,8 +41,9 @@ internal readonly record struct MirrorView(Matrix4x4 ViewProjection, Vector3 Eye
             return false;
         }
 
+        // An orthographic camera's w is 1 everywhere, so its view ends at a far plane rather than at infinity.
         var w = new Vector3(plain.M14, plain.M24, plain.M34);
-        float steepest = Steepest(inverse, w);
+        float steepest = w == Vector3.Zero ? Highest(inverse, height) : Steepest(inverse, w);
         float lean = steepest > 1e-4f ? DepthReach / steepest : 1f;
 
         // Clip z becomes w less lean times the height above the plane, so depth is 1 - lean * above / w.
@@ -81,5 +82,22 @@ internal readonly record struct MirrorView(Matrix4x4 ViewProjection, Vector3 Eye
         }
 
         return steepest;
+    }
+
+    /// <summary>
+    /// How high over the plane the box an orthographic camera sees reaches, at most, through its eight corners: with w
+    /// 1 everywhere, depth falls with height alone, so the highest corner is where the most is.
+    /// </summary>
+    private static float Highest(in Matrix4x4 inverse, float height)
+    {
+        float highest = 0f;
+        for (int corner = 0; corner < 8; corner++)
+        {
+            var clip = new Vector4((corner & 1) == 0 ? -1f : 1f, (corner & 2) == 0 ? -1f : 1f, (corner & 4) == 0 ? 0f : 1f, 1f);
+            var point = Vector4.Transform(clip, inverse);
+            highest = MathF.Max(highest, point.Y / point.W - height);
+        }
+
+        return highest;
     }
 }

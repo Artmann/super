@@ -2232,14 +2232,16 @@ on surfaces that lie in the plane. `PlanarStage.PlaneHeight` picks the plane:
 fills `FrameExtras.ReflectionPlane` from `view.Surroundings.ReflectionPlane`, which the newest
 `MirrorPlane` component sets.
 
-`MirrorView.Create` (`src/Rendition/MirrorView.cs`) builds the mirror's matrices from the
+`MirrorView.TryMake` (`src/Rendition/MirrorView.cs`) builds the mirror's matrices from the
 camera's. The view is the camera's view times the reflection in the plane, and a flip of x
 afterwards keeps the triangles' winding, so the ordinary culled pipelines draw it. The near
 plane is then swapped for the mirror plane itself with Lengyel's oblique clip (Lengyel,
 "Oblique View Frustum Depth Projection and Clipping", 2005), in reversed-Z, so nothing below the
 water is drawn and no clip plane is needed in the shaders. Leaning the near plane squeezes depth,
 so the z row is scaled to keep the plane's farthest corner of the view in front of the far plane
-(`DepthReach`, 0.999). The camera must stand at least `MirrorView.LowestCamera`, 1 cm, above the
+(`DepthReach`, 0.999). Under an orthographic camera w is 1 everywhere and the view ends at its far
+plane, so depth falls with height alone and the z row is scaled to the highest of the eight corners of the box it
+sees instead (`Highest`). The camera must stand at least `MirrorView.LowestCamera`, 1 cm, above the
 plane, or the frame has no mirror; level with it, the oblique plane would hold the eye.
 
 The picture, `MirrorTargets`, is half the scene's size each way, in two layers of one
@@ -2267,7 +2269,9 @@ and the flat plane's, times `PLANAR_BEND`. The blur works the way contact harden
 soft shadow: a ray spreads by about the GGX alpha (roughness squared) for each metre it goes,
 and it goes as far past the plane as the thing it meets stands above it, so the spread on the
 mirror's picture is `w · alpha · h / (h + c)`, where `h` is that height, `c` the camera's height
-above the plane and `w` the picture's pixels per unit of tangent. That picks the mip. The height
+above the plane and `w` the picture's pixels per unit of tangent. An orthographic camera's rays are parallel, so
+the spread is `w · alpha · h` with `w` the picture's pixels per metre; `PlanarStage.Write` marks it by writing -1 for
+`c`. That picks the mip. The height
 is read from layer 1 at a mip as wide as the widest blur could reach, so a point beside a post,
 where nothing was drawn, still blurs it over; then read again only as wide as the blur that gave,
 so the post's foot comes back sharp. The colour is divided by its coverage, and by the

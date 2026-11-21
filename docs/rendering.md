@@ -1201,7 +1201,7 @@ depth of field or paint. Only one plane is mirrored in a frame. A surface that i
 as a ramp or a wall-mounted mirror, doesn't take it. Like every reflection it is scaled by the
 environment's intensity, so with `EnvironmentSettings.Intensity` at 0 it shows black, as the
 screen's own reflections do. The camera must stand at least 1 cm above the plane; below it
-nothing is mirrored.
+nothing is mirrored. Orthographic cameras, set with `Camera.Size`, are mirrored too.
 
 It costs about 1 ms of GPU time a frame on the Courtyard at 1600 by 900 on an RTX 4060 Ti,
 since the whole scene is drawn again. The mirror's pictures are made the first frame that has a
