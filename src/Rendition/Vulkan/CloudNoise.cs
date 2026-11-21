@@ -52,8 +52,8 @@ internal sealed unsafe class CloudNoise : IDisposable
         }
     }
 
-    /// <summary>Frees the shape and detail volumes. Only while no frame in flight reads them.</summary>
-    public void ReleaseVolumes()
+    // Frees the shape and detail volumes, with the noise. They are kept from when they are made until then.
+    private void ReleaseVolumes()
     {
         if (_volumes is { } made)
         {

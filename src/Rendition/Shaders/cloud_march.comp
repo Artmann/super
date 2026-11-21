@@ -135,7 +135,8 @@ void main() {
     }
 
     ivec2 pixel = texel * 2 + CLOUD_SUBPIXELS[int(frame.cloudFrame.x) & 3];
-    vec2 uv = (vec2(pixel) + 0.5) / vec2(size * 2);
+    // The picture is half the scene, rounded up, so for an odd one it is a pixel short of twice the march.
+    vec2 uv = (vec2(pixel) + 0.5) / frame.cloudLean.zw;
     vec3 origin;
     vec3 direction;
     cloudRay(uv, origin, direction);

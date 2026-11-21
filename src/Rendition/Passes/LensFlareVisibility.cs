@@ -24,6 +24,7 @@ internal sealed unsafe class LensFlareVisibility : IDisposable
 
     private const int HoldFlag = 1;
     private const int ResetFlag = 2;
+    private const int CloudsFlag = 4;
 
     private const ulong BufferSize = LensFlareSettings.MaxSources * SourceFloats * sizeof(float);
 
@@ -104,9 +105,10 @@ internal sealed unsafe class LensFlareVisibility : IDisposable
     /// <summary>
     /// Takes this frame's lights. <paramref name="hold"/> keeps the most of the last four frames, for anti-aliasing.
     /// The frames start afresh without a last picture, after a frame with no flare, when the number of lights changes
-    /// or when one jumps across the screen.
+    /// or when one jumps across the screen. <paramref name="clouds"/> says whether the frame draws clouds, which the sun
+    /// is then seen through.
     /// </summary>
-    public void Take(ReadOnlySpan<FlareSource> sources, bool hold, bool historyReady)
+    public void Take(ReadOnlySpan<FlareSource> sources, bool hold, bool historyReady, bool clouds)
     {
         bool reset = !historyReady || sources.Length != _lastCount;
         for (int i = 0; i < sources.Length && !reset; i++)
@@ -114,7 +116,7 @@ internal sealed unsafe class LensFlareVisibility : IDisposable
             reset = Vector2.Distance(sources[i].Uv, _lastUvs[i]) > JumpDistance;
         }
 
-        _flags = (hold ? HoldFlag : 0) | (reset ? ResetFlag : 0);
+        _flags = (hold ? HoldFlag : 0) | (reset ? ResetFlag : 0) | (clouds ? CloudsFlag : 0);
     }
 
     /// <summary>Records the taps for the lights <see cref="Take"/> was given, after the scene's depth is drawn.</summary>
