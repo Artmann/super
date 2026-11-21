@@ -3,12 +3,6 @@
   "findings": [
     {
       "kind": "large-type",
-      "name": "Rendition.PostSettings",
-      "file": "src/Rendition/PostSettings.cs",
-      "metric": 21
-    },
-    {
-      "kind": "large-type",
       "name": "Super.Cook.Models.MaterialRule",
       "file": "src/Super.Cook.Models/ImportSettings.cs",
       "metric": 45

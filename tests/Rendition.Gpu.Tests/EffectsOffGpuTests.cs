@@ -207,9 +207,7 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
                 {
                     Bloom = 0.1f,
                     AutoExposure = true,
-                    Aperture = 2.8f,
-                    FocalLength = 50f,
-                    FocusDistance = 2f,
+                    Lens = new LensSettings { Aperture = 2.8f, FocalLength = 50f, FocusDistance = 2f },
                 },
             },
             Extras = new FrameExtras { Decals = decals, Particles = Dust },

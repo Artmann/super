@@ -71,8 +71,8 @@ public enum RenderEffects : long
     AutoExposure = 1 << 12,
 
     /// <summary>
-    /// Blurring what's nearer or further than <see cref="PostSettings.FocusDistance"/>, as a camera lens
-    /// does once <see cref="PostSettings.Aperture"/> opens it. Without it everything is sharp.
+    /// Blurring what's nearer or further than <see cref="LensSettings.FocusDistance"/>, as a camera lens
+    /// does once <see cref="LensSettings.Aperture"/> opens it. Without it everything is sharp.
     /// </summary>
     DepthOfField = 1 << 13,
 

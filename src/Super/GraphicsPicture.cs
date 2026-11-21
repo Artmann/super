@@ -16,8 +16,8 @@ public sealed class GraphicsPicture
     public bool AutoExposure { get; set; } = true;
 
     /// <summary>
-    /// Blurring what's nearer or further than <see cref="PostSettings.FocusDistance"/>, as a camera lens does,
-    /// for views whose <see cref="PostSettings.Aperture"/> opens the lens. Off, everything is sharp, as for a
+    /// Blurring what's nearer or further than <see cref="LensSettings.FocusDistance"/>, as a camera lens does,
+    /// for views whose <see cref="LensSettings.Aperture"/> opens the lens. Off, everything is sharp, as for a
     /// view that never asked. It costs a few passes at half size, so <see cref="Graphics.Fastest"/> turns it off.
     /// </summary>
     public bool DepthOfField { get; set; } = true;

@@ -203,10 +203,10 @@ public class GradeTableTests
     public void Lerp_opens_a_lens_from_none_at_the_halfway_point()
     {
         var from = new PostSettings();
-        var to = new PostSettings { Aperture = 2f, FocusDistance = 5f };
+        var to = new PostSettings { Lens = new LensSettings { Aperture = 2f, FocusDistance = 5f } };
 
-        Assert.Equal(0f, PostSettings.Lerp(from, to, 0.4f).Aperture);
-        Assert.Equal(2f, PostSettings.Lerp(from, to, 0.6f).Aperture);
+        Assert.Equal(0f, PostSettings.Lerp(from, to, 0.4f).Lens.Aperture);
+        Assert.Equal(2f, PostSettings.Lerp(from, to, 0.6f).Lens.Aperture);
     }
 
     [Theory]

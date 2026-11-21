@@ -95,7 +95,7 @@ public class ThinLensTests
     [Fact]
     public void The_frame_is_told_the_circle_at_the_horizon_in_the_scene_s_pixels()
     {
-        var post = new PostSettings { FocusDistance = 10f, Aperture = 2.8f, FocalLength = 50f };
+        var post = new PostSettings { Lens = new LensSettings { FocusDistance = 10f, Aperture = 2.8f, FocalLength = 50f } };
 
         var lens = DepthOfFieldConstants.For(post, RenderEffects.None, sceneWidth: 1600);
 
@@ -108,7 +108,7 @@ public class ThinLensTests
     [Fact]
     public void Half_the_render_scale_halves_the_circle_in_pixels()
     {
-        var post = new PostSettings { FocusDistance = 10f, Aperture = 2.8f, FocalLength = 50f };
+        var post = new PostSettings { Lens = new LensSettings { FocusDistance = 10f, Aperture = 2.8f, FocalLength = 50f } };
 
         var full = DepthOfFieldConstants.For(post, RenderEffects.None, sceneWidth: 1600);
         var half = DepthOfFieldConstants.For(post, RenderEffects.None, sceneWidth: 800);
@@ -123,7 +123,7 @@ public class ThinLensTests
     {
         // f = 0.035 m, N = 8, S1 = 11 m: 0.004375 * 0.035 / 10.965 = 0.00001396 m, 0.01396 mm,
         // which is 0.6206 of 1600 pixels across 36 mm.
-        var lens = DepthOfFieldConstants.For(new PostSettings { FocusDistance = 11f, Aperture = 8f }, RenderEffects.None, 1600);
+        var lens = DepthOfFieldConstants.For(new PostSettings { Lens = new LensSettings { FocusDistance = 11f, Aperture = 8f } }, RenderEffects.None, 1600);
 
         Assert.NotNull(lens);
         Assert.Equal(0.6206f, lens.Value.PixelsAtInfinity, 0.001f);
@@ -132,13 +132,13 @@ public class ThinLensTests
     [Fact]
     public void Nothing_is_drawn_with_the_aperture_at_zero_the_switch_off_or_a_lens_a_view_would_refuse()
     {
-        var open = new PostSettings { FocusDistance = 10f, Aperture = 2.8f };
+        var open = new PostSettings { Lens = new LensSettings { FocusDistance = 10f, Aperture = 2.8f } };
 
         Assert.NotNull(DepthOfFieldConstants.For(open, RenderEffects.None, 1600));
-        Assert.Null(DepthOfFieldConstants.For(open with { Aperture = 0f }, RenderEffects.None, 1600));
+        Assert.Null(DepthOfFieldConstants.For(open with { Lens = open.Lens with { Aperture = 0f } }, RenderEffects.None, 1600));
         Assert.Null(DepthOfFieldConstants.For(open, RenderEffects.DepthOfField, 1600));
-        Assert.Null(DepthOfFieldConstants.For(open with { FocusDistance = -1f }, RenderEffects.None, 1600));
-        Assert.Null(DepthOfFieldConstants.For(open with { FocusDistance = 0f }, RenderEffects.None, 1600));
+        Assert.Null(DepthOfFieldConstants.For(open with { Lens = open.Lens with { FocusDistance = -1f } }, RenderEffects.None, 1600));
+        Assert.Null(DepthOfFieldConstants.For(open with { Lens = open.Lens with { FocusDistance = 0f } }, RenderEffects.None, 1600));
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public class ThinLensTests
             var view = new View();
 
             var error = Assert.Throws<ArgumentOutOfRangeException>(
-                () => view.Effects.Finish(new PostSettings { FocusDistance = 4f, Aperture = -1.4f }));
+                () => view.Effects.Finish(new PostSettings { Lens = new LensSettings { FocusDistance = 4f, Aperture = -1.4f } }));
 
             Assert.Equal(
                 "The aperture must be an f-number such as 2.8, or 0 for no depth of field, but it is -1.4. (Parameter 'settings')",
@@ -168,10 +168,10 @@ public class ThinLensTests
     {
         var view = new View();
 
-        var error = Record.Exception(() => view.Effects.Finish(new PostSettings { FocusDistance = 0f, Aperture = 0f }));
+        var error = Record.Exception(() => view.Effects.Finish(new PostSettings { Lens = new LensSettings { FocusDistance = 0f, Aperture = 0f } }));
 
         Assert.Null(error);
-        Assert.Equal(0f, view.Effects.Post.FocusDistance);
+        Assert.Equal(0f, view.Effects.Post.Lens.FocusDistance);
     }
 
     [Theory]
@@ -206,7 +206,7 @@ public class ThinLensTests
         var sun = new[] { new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(3f), CastsShadow = true } };
         var sharp = new FrameView { Lights = sun, Environment = new EnvironmentSettings { Intensity = 1f } };
         var blurred = sharp;
-        blurred.Picture.Post = new PostSettings { FocusDistance = 3f, Aperture = 1.4f, FocalLength = 85f };
+        blurred.Picture.Post = new PostSettings { Lens = new LensSettings { FocusDistance = 3f, Aperture = 1.4f, FocalLength = 85f } };
         blurred.Off = RenderEffects.DepthOfField;
 
         Assert.Equal(RendererReflections.LightingHash(sharp, 1), RendererReflections.LightingHash(blurred, 1));

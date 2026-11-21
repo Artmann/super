@@ -123,5 +123,5 @@ ffmpeg -i out/draft.mp4 -vf "scale=400:-1,tile=4x4" out/sheet-%02d.png
 ## Limits
 
 - The camera can't roll, so there are no dutch angles.
-- There's no motion blur yet. [Depth of field](rendering.md#focus) works, but a shot doesn't carry a focus of its own: set `FocusDistance` in the view's `Finish`, from the shot that's playing.
+- There's no motion blur yet. [Depth of field](rendering.md#focus) works, but a shot doesn't carry a focus of its own: set `Lens.FocusDistance` in the view's `Finish`, from the shot that's playing.
 - A cutscene is code. There's no timeline editor and no file format for one.

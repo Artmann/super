@@ -12,7 +12,7 @@ public static class ThinLens
     /// <summary>A full-frame camera's sensor, 36 mm across.</summary>
     public const float FullFrameMm = 36f;
 
-    /// <summary>The focal length used when <see cref="PostSettings.FocalLength"/> is left at 0: a 35 mm lens.</summary>
+    /// <summary>The focal length used when <see cref="LensSettings.FocalLength"/> is left at 0: a 35 mm lens.</summary>
     public const float DefaultFocalLengthMm = 35f;
 
     /// <summary>
@@ -102,6 +102,6 @@ public static class ThinLens
         && float.IsFinite(focalLengthMm) && focalLengthMm > 0f
         && !(aperture > 0f && focusDistance <= focalLengthMm / 1000f);
 
-    /// <summary>The focal length in millimetres for a <see cref="PostSettings.FocalLength"/>, where 0 means the default.</summary>
+    /// <summary>The focal length in millimetres for a <see cref="LensSettings.FocalLength"/>, where 0 means the default.</summary>
     public static float FocalLength(float requested) => requested == 0f ? DefaultFocalLengthMm : requested;
 }
