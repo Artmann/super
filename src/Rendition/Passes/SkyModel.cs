@@ -10,9 +10,24 @@ namespace Rendition.Passes;
 /// <param name="Image">The photographed sky drawn in place of the others, or none.</param>
 /// <param name="Rotation">How far <paramref name="Image"/> is turned about the up axis, in radians.</param>
 /// <param name="Scale">What <paramref name="Image"/> is multiplied by: two to the power of its exposure.</param>
+/// <param name="Clouds">The clouds over a physical sky, or none.</param>
 internal readonly record struct SkySun(
     float Turbidity, Vector3 Direction, Vector3 DiscRadiance, float DiscCosine,
-    SkyImageHandle? Image = null, float Rotation = 0f, float Scale = 0f);
+    SkyImageHandle? Image = null, float Rotation = 0f, float Scale = 0f, SkyClouds Clouds = default);
+
+/// <summary>
+/// The clouds the environment's captures draw over a physical sky, all zero for none. See
+/// <see cref="CloudModel.Capture"/>.
+/// </summary>
+/// <param name="Shape">Coverage, density, the base's height and the layer's depth, in metres.</param>
+/// <param name="Light">xyz: towards the light on them.</param>
+/// <param name="Radiance">rgb: that light, in the sky's units, before the environment's intensity; a: the cirrus.</param>
+/// <param name="Weather">
+/// Where the camera stands in the weather and in the cirrus, in metres, snapped to <see cref="CloudModel.CaptureStep"/>
+/// so the wind redraws the captures now and then rather than every frame.
+/// </param>
+/// <param name="Air">rgb: the air's haze over the clouds, per metre.</param>
+internal readonly record struct SkyClouds(Vector4 Shape, Vector4 Light, Vector4 Radiance, Vector4 Weather, Vector4 Air);
 
 /// <summary>The sun a cooked sky image holds, as it was photographed; see <see cref="SkyImageData"/>.</summary>
 internal readonly record struct SkyImageSun(Vector3 Direction, Vector3 Radiance, float Cosine);
@@ -120,7 +135,7 @@ internal static class SkyModel
     private static float Turbidity(in FrameView view) => Math.Clamp(view.Environment.Sky.Turbidity, MinTurbidity, MaxTurbidity);
 
     /// <summary>Whether the view draws the physical sky: a turbidity is set and no photographed sky takes over.</summary>
-    private static bool Physical(in FrameView view) => view.Environment.Sky.Turbidity > 0f && view.Environment.Sky.Image is null;
+    internal static bool Physical(in FrameView view) => view.Environment.Sky.Turbidity > 0f && view.Environment.Sky.Image is null;
 
     /// <summary>
     /// A photographed sky and its sun, turned by <paramref name="rotation"/> about the up axis and brightened by

@@ -63,8 +63,8 @@ internal sealed unsafe class LocalLightShadows
             cover: probes.Count > 0 ? (probes.NearDepth, probes.FarDepth) : null);
         ClustersNeeded = _lights.LightCount > 0 || probes.Count > 0;
         uniforms->CountBlock.LocalLightCount = _lights.LightCount;
-        uniforms->Clusters = new Vector4(_lights.NearDepth, _lights.FarDepth, _lights.Parallel ? 1f : 0f, 0f);
-        uniforms->Screen = new Vector4(scene.Width, scene.Height, 1f / scene.Width, 1f / scene.Height);
+        uniforms->ClusterBlock.Clusters = new Vector4(_lights.NearDepth, _lights.FarDepth, _lights.Parallel ? 1f : 0f, 0f);
+        uniforms->ClusterBlock.Screen = new Vector4(scene.Width, scene.Height, 1f / scene.Width, 1f / scene.Height);
     }
 
     /// <summary>

@@ -1642,8 +1642,10 @@ line up with the lights.
 both sides, so it can go in a frame without waiting for the GPU. `EnvironmentPrefilter`
 records the draws and filters, each through a `CubeShader`. `environment.comp` draws
 three levels analytically: a private 256² source cube (bands or clear sky, with panels,
-without the sun's disc), mip 0 of the reflection cube (with the disc), and the 64² `Sky`
-cube (no panels, no disc). The source and sky cubes get their mips by linear blits.
+without the sun's disc or the clouds), mip 0 of the reflection cube (with the disc and the
+clouds), and the 64² `Sky` cube (no panels, no disc, with the clouds, so the soft light
+greys under them). The rough reflections are filtered from the source cube, so they leave
+the clouds out (see "Clouds" below). The source and sky cubes get their mips by linear blits.
 `environment_filter.comp` then filters the rest from those mip chains by filtered
 importance sampling (Colbert and Křivánek): each sample reads its source at
 `lod = max(0.5 · log2(Ωs / Ωp), 0)`, where `Ωs = 1 / (N · pdf)` is the sample's share of the
@@ -1807,7 +1809,9 @@ of its texels, and frees them only when it is disposed. `SkyModel.Photographed` 
 clamped to 30000, and the image, rotation and scale; `EnvironmentUniforms` writes these to
 the Environment block's `image` (1, cos, sin, scale). The cube sits in binding 3 of every
 cube shader's layout; while no image is set, `EnvironmentPrefilter` binds `_noImage`, a
-one-texel black cube, so the layout never changes. Swapping the image rewrites that
+one-texel black cube, so the layout never changes. Binding 4 holds the clouds' weather map,
+which `SceneLighting` makes first, in a `CloudNoise`, and hands to `EnvironmentSky` (see "Clouds"
+below). Swapping the image rewrites that
 binding, so `EnvironmentSky.Follow` waits for the device to go idle first; turning or brightening it is an
 ordinary sky change. `photographed()` turns the direction, reads the mip whose texels are
 about as wide as the target's, and adds the disc only where `draw.disc` is 1, so the sun
@@ -1990,6 +1994,103 @@ across silhouettes, and a thin shaft narrower than a cell blurs into its neighbo
 history makes a moving light or a fast camera smear for a few frames. Inside the volume
 the sun's glow comes from the phase function, not `SunScatter`, so its shape changes at the
 reach unless the two roughly agree.
+
+### Clouds
+
+The clouds follow Schneider's Horizon Zero Dawn talk (2015) and Nubis (2017): a layer of cumulus
+over a curved planet, shaped from tiling noise and a weather map, marched at a fraction of the
+screen's size and filled out over frames. Their light is Beer's law with a two-lobed
+Henyey-Greenstein phase, Wrenninge's octaves of multiple scattering ("Oz: The Great and
+Volumetric", 2013) and Hillaire's energy-conserving step (Frostbite, 2016). The user guide is
+"Clouds" in rendering.md.
+
+`CloudModel` decides everything on the CPU. `Tier` gives 0 (no clouds) unless the sky is physical
+(`SkyModel.Physical`: a turbidity and no photograph), `Weather.Clouds` has some (`Any`: coverage or
+cirrus) and `RenderEffects.Clouds` is on; then 1, a flat layer, with `RenderEffects.VolumetricClouds`
+off, and 2, the march, with it on. `KeyLight` picks the light on them: the sun while it is above
+`SunSets` (the sine of -0.05) or there is no moon, then the light aimed at the moon (`SkyModel.IsMoon`),
+or none, when only the sky lights them. `Pack` fills the frame block's `FrameCloudBlock`: the rays
+relative to the camera and last frame's matrix for the reprojection, the shape (coverage, density,
+base, depth), the light, and where the camera stands in each noise texture once the wind has carried
+it. `Drifted` works that out in doubles and wraps it to the texture's period, so a game that runs for
+months keeps its precision; the cirrus drifts at twice the wind and the detail noise adds a churn of
+its own, so edges move even in still air.
+
+On the GPU, `CloudStage` keeps the clouds' resources and decides each frame whether they are drawn:
+`CloudNoise` holds the noise textures, `CloudTargets` the shadow map, the march, the picture and its
+two histories at one size, and `CloudPasses` the three compute passes and their sets (`CloudSets`).
+`KeepTargets` makes or frees the targets before a frame is recorded, so a resize remakes them there
+too.
+
+#### Noise
+
+`cloud_noise.glsl` holds periodic gradient and cellular noise hashed with PCG3D (Jarzynski and Olano,
+JCGT 2020), and `cloud_noise.comp` bakes it into three textures, each tiling across a period of the
+ground that `CloudModel` matches: a 128³ shape texture over 6000 m (a gradient noise carved by
+cellular noise into heaps, and three finer cellular octaves), a 32³ detail texture over 500 m to fray
+the edges, and a 512² weather map over 40960 m that says where the clouds gather and holds the
+cirrus's streaks, read four times finer. The weather map, 2 MB, is made with `CloudNoise`, before the sky, since the
+sky captures read it whether or not the clouds are drawn yet; the shape and detail are made the first
+time a frame draws clouds, with the targets. Switching the clouds off frees all but the weather map
+after a device wait.
+
+#### The march
+
+`cloud_march.comp` runs at a quarter of the screen's width and height, on one pixel of each 2×2 of
+the half-size picture per frame (`CloudFrame.x` turns through the four). Each ray finds where it
+enters and leaves the shell between the base and the top (`cloud_layer.glsl`, worked out from the
+difference of heights so the planet's radius doesn't swamp single precision), from below, above or
+inside, and takes `Steps` (64) steps straight up and up to 128 across, out to 80 km, with a jittered
+start. A step first reads the shape alone and reads the detail only where there is cloud; past 10 km
+the detail fades out, since it would only shimmer. Each sample's light is the sun through
+`cloudDepthTowardsLight` (a few lengthening steps towards the light, the far ones without detail),
+the scattering octaves and a powder term that darkens the edges facing the light, plus the sky around
+it from the physical sky's sky-view table, darker at the bottoms. The march stops once less than 1%
+shows through. It also keeps the light-weighted mean distance, and the air between the camera and the
+clouds hazes them over that distance with the sky's extinction at the ground times `AirThinning`, so
+far clouds melt into the horizon. On tier 1 a single layer at `FLAT_FRACTION` (0.15) of the way up
+stands in for the march: one density sample, lit the same way, with a thickness from the layer's depth.
+The cirrus is a sheet at 8000 m, behind the cumulus, on both tiers.
+
+`cloud_resolve.comp` fills the half-size picture. The pixel marched this frame keeps half the fresh
+value (`FRESH`) against last frame's; the other three take last frame's, reprojected where the
+clouds were (a ray that met no cloud is taken as 1000 km off, so only turning moves it) and clamped
+to the colours the march found around them, so they follow the view without smearing. Without a
+usable history they take the march blended between its texels. The picture is written twice, once
+for this frame's readers and once as the next frame's history. rgb is the clouds' light and a how
+much of what lies behind shows through.
+
+The frame set holds the shadow map at binding 14 and the picture at binding 15; until the clouds are
+drawn both are stand-in texels that let all the light through. `lighting.frag`'s `underClouds()`
+puts the picture over the sky, and over a surface farther than where its ray enters the layer, so
+mountains standing in the clouds are hidden by them. `GpuTimer` reports the shadow, march and resolve
+together as "Clouds"; at 1920×1080 in Hamlet the march costs about a tenth of a High frame and the
+flat layer about a twentieth of a Medium frame.
+
+#### Shadows
+
+`cloud_shadow.comp` draws a 512² map round the camera, ±5000 m, of how much of the key light reaches
+the ground through ten steps of the layer towards it, never less than 8%, since light the clouds
+scatter forwards still gets through. `Pack` snaps its centre to a texel so it doesn't crawl as the
+camera moves. `cloudShadowAt()` in `cloud_shadow.glsl` projects a point along the light to the
+ground and reads it, for the light in `CloudShadow.w` only (-1 when `RenderEffects.CloudShadows` is
+off, the coverage is 0 or there is no key light), and fades towards the clouds' average at the map's
+edge so distant hills don't show its border. `water.glsl`'s sun radiance multiplies by it, which
+reaches the lighting pass and the particles, and `volumetric_inject.comp` multiplies each sun's
+shadow in air by it, so the fog's shafts fall between the clouds.
+
+#### In the sky captures
+
+The environment's captures can't afford the march, so `environment.comp`'s `overClouds()` draws the
+cirrus and a single flat layer from the weather map's puffs, lit with the same `cloud_light.glsl`, on
+reflections mip 0 and the `Sky` cube (`Clouds = 1`). The `Sky` cube feeds the soft light, so an
+overcast sky greys and dims what it lights. The background leaves them out, since the lighting pass
+draws the real ones over it, and the source cube does too, so the rough reflections have no clouds.
+`CloudModel.Capture` gives the captures their clouds: none when the tier is 0, the light divided by
+the environment's intensity, since the captures are scaled by it later, and the weather position
+snapped to `CaptureStep` (250 m), so the wind moves the captures on in steps, about every half minute
+at a fair breeze, rather than redrawing them every frame. `EnvironmentSky` hashes the view's clouds
+whether or not they are drawn, so switching them off doesn't make a bake stale.
 
 ## Reflections
 
@@ -4036,8 +4137,11 @@ four frames in a small storage buffer, along with the value the flare is drawn w
 the four under TAA, or this frame's alone without it. The ring starts afresh when there is no
 history, after a frame with no flare, when the number of lights changes and when a light's uv
 moves more than 0.1 in a frame, as on a cut. The set (the buffer, which compute and vertex shaders
-read, and the depth) is made with `Descriptors.CreateStateSet`, which the exposure meter uses too.
-`skyTransmittance` in the shader is where clouds will dim the sun. It returns 1 for now.
+read, the depth and the clouds' picture) is made with `Descriptors.CreateStateSet`, which the exposure meter uses too.
+The set's binding 2 is the clouds' half-size picture (see "Clouds" above). For a light as far off
+as the sun, `skyTransmittance` counts each point of the disc that sees the sky as the picture's
+alpha there, so the clouds dim the flare as they cover the light and a thick one hides it; without
+clouds the stand-in texel lets everything through.
 
 `LensFlareDraw` copies the quads into the ring slot's buffer and draws them as instanced quads into
 a half-size target in the HDR format, adding onto black. `lens_flare.vert` reads the light's

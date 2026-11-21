@@ -4,6 +4,7 @@
 
 #include "water_absorption.glsl"
 #include "volumetric.glsl"
+#include "cloud_shadow.glsl"
 
 const float NOTHING_DRAWN_DISTANCE = 1000.0;
 
@@ -37,7 +38,7 @@ float causticAt(vec3 position, vec3 l, float scale) {
 
 // The sunlight left at a point after coming down through the water.
 vec3 sunlightReaching(vec3 position, vec3 l, int light) {
-    vec3 radiance = frame.lights[light].radiance.rgb;
+    vec3 radiance = frame.lights[light].radiance.rgb * cloudShadowAt(position, light);
     if (!isUnderwater()) {
         return radiance;
     }

@@ -109,6 +109,12 @@ internal sealed class FrameMaker
         return graded;
     }
 
+    /// <summary>
+    /// The clouds a view's sky draws: its own, or fair weather when it names none, so a physical sky has clouds
+    /// without asking. A view without a sky has none.
+    /// </summary>
+    internal static CloudSettings? FrameClouds(SkySettings? sky) => sky is { } settings ? settings.Clouds ?? CloudSettings.Fair : null;
+
     /// <summary>Which sun casts the shadows: the one marked to, or else the first.</summary>
     internal static int ShadowSun(ReadOnlySpan<Sun> suns)
     {
@@ -137,7 +143,7 @@ internal sealed class FrameMaker
         };
     }
 
-    /// <summary>The frame with the view's sky: the environment's brightness, the clear sky, the background and its haze, and the weather: fog, water, puddles and wind.</summary>
+    /// <summary>The frame with the view's sky: the environment's brightness, the clear sky, the background and its haze, and the weather: fog, water, puddles, wind and clouds.</summary>
     private FrameView WithSky(FrameView frame, View view, RenderEffects off)
     {
         var sky = view.Surroundings.SkySettings;
@@ -163,6 +169,7 @@ internal sealed class FrameMaker
                 Water = view.Surroundings.WaterSettings,
                 Puddles = view.Surroundings.PuddleSettings,
                 Wind = view.Surroundings.WindSettings,
+                Clouds = FrameClouds(sky),
             },
         };
     }

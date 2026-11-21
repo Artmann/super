@@ -1,0 +1,46 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "cloud_noise.glsl"
+
+// Fills one of the clouds' noise textures, once: the weather map when the renderer starts, since the sky
+// captures read it too, and the others when the clouds are first drawn. The shape
+// texture holds in r a gradient noise whose low parts the cellular noise carves into round
+// heaps, and in g, b and a cellular noise at three ever finer scales; the detail texture holds
+// finer cellular noise in r, g and b, to fray the heaps' edges; the weather map holds
+// cloudWeatherField. See "Clouds" in docs/design.md.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(rgba16f, set = 0, binding = 0) uniform writeonly image3D target;
+
+// Must match NoiseKind in CloudStage.cs.
+layout(push_constant) uniform Noise {
+    int kind; // 0: shape; 1: detail; 2: weather
+} noise;
+
+float remap(float value, float from, float to, float newFrom, float newTo) {
+    return newFrom + (value - from) / (to - from) * (newTo - newFrom);
+}
+
+void main() {
+    ivec3 size = imageSize(target);
+    ivec3 texel = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(texel, size))) {
+        return;
+    }
+
+    vec3 uvw = (vec3(texel) + 0.5) / vec3(size);
+    vec4 value;
+    if (noise.kind == 0) {
+        float soft = gradientOctaves(uvw, 4, 3, 1u);
+        float cells = cellularOctaves(uvw, 4, 5u);
+        float heaps = clamp(remap(soft, cells - 1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
+        value = vec4(heaps, cells, cellularOctaves(uvw, 8, 9u), cellularOctaves(uvw, 16, 13u));
+    } else if (noise.kind == 1) {
+        value = vec4(cellularOctaves(uvw, 2, 17u), cellularOctaves(uvw, 4, 19u), cellularOctaves(uvw, 8, 29u), 1.0);
+    } else {
+        value = cloudWeatherField(uvw.xy);
+    }
+
+    imageStore(target, texel, value);
+}

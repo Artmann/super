@@ -141,7 +141,7 @@ internal sealed class FrameDrawer
 
     /// <summary>
     /// Takes the effects the frame leaves out, and what follows from them: the wind's reach, the fade rules, the
-    /// volumetric fog's targets, depth of field and the grade's table.
+    /// volumetric fog's and the clouds' targets, depth of field and the grade's table.
     /// </summary>
     private void TakeEffects(in FrameView view, RenderEffects viewOff)
     {
@@ -149,6 +149,11 @@ internal sealed class FrameDrawer
         var settings = stores.Settings;
         stores.Switches.Take(view, viewOff, stores.Resources.Materials);
         if (_parts.SceneLighting.FogStage.KeepTargets(view, targets.GBuffer.Extent, (settings.VolumetricFogCellSize, settings.VolumetricFogSlices)))
+        {
+            targets.WriteDescriptors();
+        }
+
+        if (_parts.SceneLighting.CloudStage.KeepTargets(view, targets.GBuffer.Extent))
         {
             targets.WriteDescriptors();
         }
@@ -183,7 +188,7 @@ internal sealed class FrameDrawer
 
         // Worked out once, from the original view: a frame drawn again without its baked sun keeps the sky that sun
         // lights, and its disc.
-        _parts.SceneLighting.EnvironmentSky.Follow(view);
+        _parts.SceneLighting.EnvironmentSky.Follow(view, _parts.SceneStores.Switches.Off);
         bool relit = _baking.Frame.TryResolve(view, draws, _baking.Bakes, out var withoutBakedLights);
 
         // From the frame with every light, since a bake takes the lights a fresh bake would drop.

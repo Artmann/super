@@ -13,6 +13,7 @@
 #include "sky.glsl"
 #include "fog.glsl"
 #include "screen_trace.glsl"
+#include "cloud_layer.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -40,6 +41,28 @@ layout(set = 1, binding = 16) uniform sampler2D bounceTexture;
 // The environment without the sun's disc, at its sharpest: the sky shown where nothing was drawn, and what fog and
 // haze melt into.
 layout(set = 1, binding = 17) uniform samplerCube backgroundTexture;
+
+// The clouds' half-size picture from cloud_resolve.comp: their light in rgb, and how much of what lies past them
+// shows in a. A texel that shows no cloud while they're off.
+layout(set = 0, binding = 15) uniform sampler3D cloudPictureTexture;
+
+// The clouds laid over what lies along the pixel's ray: the sky, at no distance, or a surface this far off. They
+// were marched without the scene's depth, so they cover only what lies past where the ray enters their layer.
+vec3 underClouds(vec3 color, vec3 direction, float distance) {
+    if (frame.cloudLight.w < 0.5) {
+        return color;
+    }
+
+    if (distance > 0.0) {
+        vec2 span = cloudLayerSpan(direction);
+        if (span.x >= span.y || distance < span.x) {
+            return color;
+        }
+    }
+
+    vec4 cloud = textureLod(cloudPictureTexture, vec3(inUv, 0.5), 0.0);
+    return color * cloud.a + cloud.rgb;
+}
 
 // How much of the screen's occlusion a lightmapped pixel's soft light still takes. The bake already saw the creases it
 // could resolve, so taking all of it would darken them twice; the screen still adds the contact it is too coarse for.
@@ -542,7 +565,7 @@ void main() {
                 background += moon.rgb * moon.a + stars * (1.0 - moon.a);
             }
 
-            outColor = vec4(fogOverSky(background * frame.backgroundRadiance.a, inUv), 1.0);
+            outColor = vec4(fogOverSky(underClouds(background * frame.backgroundRadiance.a, direction, 0.0), inUv), 1.0);
             return;
         }
 
@@ -842,6 +865,11 @@ void main() {
             frame.skySun.xyz, ambient);
         scattered *= exp(-frame.airExtinction.rgb * distance);
     }
+
+    // Clouds between the camera and a far mountain hide it, haze and all.
+    vec3 away = position - frame.cameraPosition.xyz;
+    float far = length(away);
+    color = underClouds(color, away / max(far, 1e-4), max(far, 1e-4));
 
     outColor = vec4(color, 1.0);
     if (subsurface) {

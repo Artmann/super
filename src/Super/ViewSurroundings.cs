@@ -32,6 +32,7 @@ public sealed class ViewSurroundings
     {
         CheckSkyLight(settings);
         CheckSkyBodies(settings);
+        CheckClouds(settings);
         RefuseBadFog(settings.Fog, nameof(settings));
         SkySettings = settings;
     }
@@ -152,6 +153,29 @@ public sealed class ViewSurroundings
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"The sky image's rotation must be a number and its exposure from {-MaxSkyExposure} to {MaxSkyExposure} stops, but they are {settings.Rotation} and {settings.Exposure}."));
+        }
+    }
+
+    // The clouds' cover, thickness, height and wind.
+    private static void CheckClouds(in SkySettings settings)
+    {
+        if (settings.Clouds is not { } clouds)
+        {
+            return;
+        }
+
+        bool fractions = clouds.Coverage is >= 0f and <= 1f && clouds.Cirrus is >= 0f and <= 1f;
+        bool density = clouds.Density is >= 0f and <= CloudSettings.MaxDensity;
+        bool altitude = clouds.Altitude is >= 0f and <= CloudSettings.MaxAltitude;
+        bool thickness = clouds.Thickness == 0f || clouds.Thickness is >= CloudSettings.MinThickness and <= CloudSettings.MaxThickness;
+        bool wind = float.IsFinite(clouds.Wind.X) && float.IsFinite(clouds.Wind.Y);
+        if (!(fractions && density && altitude && thickness && wind))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"The clouds' coverage and cirrus must be from 0 to 1, their density from 0 to {CloudSettings.MaxDensity}, their altitude from 0 to {CloudSettings.MaxAltitude} metres, their thickness 0 or from {CloudSettings.MinThickness} to {CloudSettings.MaxThickness} metres and their wind a number, but they are {clouds.Coverage}, {clouds.Cirrus}, {clouds.Density}, {clouds.Altitude}, {clouds.Thickness} and {clouds.Wind}."));
         }
     }
 

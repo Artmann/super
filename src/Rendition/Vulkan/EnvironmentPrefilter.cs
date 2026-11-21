@@ -37,6 +37,7 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
     {
         public int Panels;
         public int Disc;
+        public int Clouds;
     }
 
     /// <summary>Must match the Filter block in Shaders/environment_filter.comp.</summary>
@@ -66,8 +67,9 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
     private readonly RoughSlices _slices = new();
 
     /// <param name="uniforms">The Environment block and the physical sky's sky-view table, which environment.comp reads.</param>
+    /// <param name="weather">The clouds' weather map and the repeating sampler it is read with, for the clouds the captures draw.</param>
     public EnvironmentPrefilter(VulkanContext context, EnvironmentUniforms uniforms, Sampler sampler,
-        (EnvironmentCube Reflections, EnvironmentCube Irradiance, EnvironmentCube Sky) targets)
+        (EnvironmentCube Reflections, EnvironmentCube Irradiance, EnvironmentCube Sky) targets, (Sampler Repeat, ImageView View) weather)
     {
         _targets = targets;
         _source = new EnvironmentCube(context, SourceSize, SourceMips);
@@ -80,10 +82,11 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
         _noImage = GpuTexture.Cube(context, [black, black, black, black, black, black]);
 
         _draw = new CubeShader<DrawConstants>(context, "environment.comp", DescriptorType.UniformBuffer, 3);
+        var reads = (uniforms.SkyView, _noImage.View);
         _drawSets = (
-            _draw.CreateSet(uniforms.Buffer, _source.Storage(0), sampler, uniforms.SkyView, _noImage.View),
-            _draw.CreateSet(uniforms.Buffer, _targets.Reflections.Storage(0), sampler, uniforms.SkyView, _noImage.View),
-            _draw.CreateSet(uniforms.Buffer, _targets.Sky.Storage(0), sampler, uniforms.SkyView, _noImage.View));
+            _draw.CreateSet(uniforms.Buffer, _source.Storage(0), sampler, reads, weather),
+            _draw.CreateSet(uniforms.Buffer, _targets.Reflections.Storage(0), sampler, reads, weather),
+            _draw.CreateSet(uniforms.Buffer, _targets.Sky.Storage(0), sampler, reads, weather));
 
         _filter = new CubeShader<FilterConstants>(context, "environment_filter.comp",
             DescriptorType.CombinedImageSampler, _targets.Reflections.MipCount);
@@ -109,9 +112,9 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
     public void SetImage(GpuTexture? image)
     {
         var view = image?.View ?? _noImage.View;
-        _draw.SetCube(_drawSets.Source, _sampler, view);
-        _draw.SetCube(_drawSets.Reflections, _sampler, view);
-        _draw.SetCube(_drawSets.Sky, _sampler, view);
+        _draw.SetSampled(_drawSets.Source, 3, _sampler, view, ImageLayout.ShaderReadOnlyOptimal);
+        _draw.SetSampled(_drawSets.Reflections, 3, _sampler, view, ImageLayout.ShaderReadOnlyOptimal);
+        _draw.SetSampled(_drawSets.Sky, 3, _sampler, view, ImageLayout.ShaderReadOnlyOptimal);
     }
 
     /// <summary>
@@ -150,10 +153,10 @@ internal sealed unsafe class EnvironmentPrefilter : IDisposable
         _draw.Record(cmd, _drawSets.Source, _source.Level(0), new DrawConstants { Panels = 1 });
         _source.BuildMips(cmd);
 
-        _draw.Record(cmd, _drawSets.Reflections, _targets.Reflections.Level(0), new DrawConstants { Panels = 1, Disc = 1 });
+        _draw.Record(cmd, _drawSets.Reflections, _targets.Reflections.Level(0), new DrawConstants { Panels = 1, Disc = 1, Clouds = 1 });
         _targets.Reflections.Ready(cmd, 0);
 
-        _draw.Record(cmd, _drawSets.Sky, _targets.Sky.Level(0), default);
+        _draw.Record(cmd, _drawSets.Sky, _targets.Sky.Level(0), new DrawConstants { Clouds = 1 });
         _targets.Sky.BuildMips(cmd);
         _filter.Record(cmd, _filterIrradiance, _targets.Irradiance.Level(0), new FilterConstants
         {
