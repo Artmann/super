@@ -41,7 +41,7 @@ internal static class TargetDescriptors
         stages.BlendStage.WriteTargets(gBuffer, lights.ShadowPass.Target.View, map);
     }
 
-    // From anti-aliasing to the window: anti-aliasing, tonemapping, the meter and the finish, and the volumetric fog.
+    // From anti-aliasing to the window: anti-aliasing, tonemapping, the meter and the finish, the volumetric fog and the clouds.
     private static void WriteDisplaySets(SceneStores stores, (SceneLighting Lights, FrameStages Stages) passes, FrameTargets targets)
     {
         var (lights, stages) = passes;
@@ -57,5 +57,9 @@ internal static class TargetDescriptors
             (new(kit.LinearSampler, lights.LightProbes.Volume.IrradianceView, ImageLayout.General),
             new(kit.LinearSampler, lights.LightProbes.Volume.DepthView, ImageLayout.General)));
         stores.Frames.WriteVolumetric(lights.FogStage.Result);
+
+        lights.CloudStage.SetSources(new(kit.LinearSampler, map.SkyView, ImageLayout.ShaderReadOnlyOptimal));
+        stores.Frames.WriteClouds(lights.CloudStage.Shadow, lights.CloudStage.Picture);
+        stages.PostStage.Flare.SetClouds(lights.CloudStage.Picture);
     }
 }

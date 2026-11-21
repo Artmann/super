@@ -17,18 +17,21 @@ internal sealed class EnvironmentSky
     // The photographed skies made with Create, by handle, each with its sun and a hash of what it holds.
     private readonly List<(GpuTexture Cube, SkyImageSun Sun, ulong Content)> _images = [];
 
-    // What the last Set gave, hashed, and the strength the last frame drew it at, for Hash.
+    // What the last Set gave, hashed, for Hash.
     private ulong _content;
-    private float _intensity;
+
+    // The environment intensity the last Follow drew at, and a hash of its view's clouds, drawn or not, for Hash.
+    private (float Intensity, ulong Clouds) _followed;
 
     /// <summary>The sky or the environment's description changed and its cubes aren't redrawn yet.</summary>
     private bool _pending;
 
-    public EnvironmentSky(VulkanContext context, FrameRing ring)
+    /// <param name="weather">The clouds' weather map and its repeating sampler, for the clouds the captures draw.</param>
+    public EnvironmentSky(VulkanContext context, FrameRing ring, (Sampler Repeat, ImageView View) weather)
     {
         _context = context;
         _ring = ring;
-        Map = new EnvironmentMap(context);
+        Map = new EnvironmentMap(context, weather);
         Set(new EnvironmentDescription
         {
             Ceiling = new Vector3(0.5f),
@@ -59,8 +62,8 @@ internal sealed class EnvironmentSky
 
     /// <summary>
     /// A hash of what a baked space's light comes from besides its draws and lights: the environment's bands and panels
-    /// from the last <see cref="Set"/>, and the clear sky's turbidity and the environment intensity of the last frame
-    /// drawn. It follows what they hold, so setting the same environment again gives the same hash.
+    /// from the last <see cref="Set"/>, and the clear sky's turbidity, the view's clouds and the environment intensity of
+    /// the last frame drawn. It follows what they hold, so setting the same environment again gives the same hash.
     /// </summary>
     public ulong Hash => StableHasher.ForThread()
         .Add(_content)
@@ -68,7 +71,8 @@ internal sealed class EnvironmentSky
         .Add(Baked.Image is { } image ? _images[image.Index].Content : 0UL)
         .Add(Baked.Rotation)
         .Add(Baked.Scale)
-        .Add(_intensity)
+        .Add(_followed.Intensity)
+        .Add(_followed.Clouds)
         .Finish();
 
     /// <summary>Replaces what surfaces reflect. The next frame redraws the environment before anything reads it.</summary>
@@ -123,16 +127,18 @@ internal sealed class EnvironmentSky
     }
 
     /// <summary>
-    /// Marks the environment for a redraw with the view's clear sky when it or its sun has changed. The next frame
-    /// records it, or <see cref="Flush"/> draws it now. A gradient sky gives the same empty
-    /// <see cref="SkySun"/> whatever the sun does, so that never redraws.
+    /// Marks the environment for a redraw with the view's clear sky when it, its sun or its clouds have changed. The
+    /// next frame records it, or <see cref="Flush"/> draws it now. A gradient sky gives the same empty
+    /// <see cref="SkySun"/> whatever the sun does, so that never redraws. <paramref name="off"/> decides whether the
+    /// clouds are drawn, through <see cref="RenderEffects.Clouds"/>; the hash follows the view's clouds either way, so
+    /// turning them off doesn't make a bake stale.
     /// </summary>
-    public void Follow(in FrameView view)
+    public void Follow(in FrameView view, RenderEffects off)
     {
-        _intensity = view.Environment.Intensity;
+        _followed = (view.Environment.Intensity, CloudModel.Hash(view));
         var sky = view.Environment.Sky.Image is { } image
             ? SkyModel.Photographed(image, Image(image).Sun, view.Environment.Sky.Rotation, view.Environment.Sky.Exposure)
-            : SkyModel.Sun(view);
+            : CloudModel.CapturedSky(view, off);
         if (sky == Baked)
         {
             return;

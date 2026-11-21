@@ -92,7 +92,7 @@ public sealed class Graphics
             MultiscatterSpecular = false,
             Reflections = false,
         },
-        Atmosphere = { Fog = false, VolumetricFog = false, FogVolumes = false },
+        Atmosphere = { Fog = false, VolumetricFog = false, FogVolumes = false, Clouds = false, VolumetricClouds = false, CloudShadows = false },
         Surfaces = { WearAndDirt = false, Decals = false, Puddles = false, Wind = false, HeightMaps = false, Subsurface = false },
         Picture =
         {
@@ -159,7 +159,7 @@ public sealed class Graphics
         Screen = { RenderScale = 0.75f },
         Shadowing = { ShadowResolution = 1024, ShadowCascades = 2, ContactShadows = false, LightShadows = false },
         Lighting = { LightProbes = false, ProbeQuality = ProbeQuality.Low, AmbientOcclusion = false, ScreenBounce = false, Reflections = false },
-        Atmosphere = { VolumetricFog = false },
+        Atmosphere = { VolumetricFog = false, VolumetricClouds = false },
 
         // Puddles and wind stay on: in the Courtyard each costs less than a frame's noise, and the water is part
         // of the place, not a finish on it.
@@ -174,7 +174,8 @@ public sealed class Graphics
         Screen = { RenderScale = 0.85f },
         Shadowing = { ShadowCascades = 3 },
         Lighting = { ProbeQuality = ProbeQuality.Medium },
-        Atmosphere = { VolumetricFog = false },
+        // The flat clouds and their shadow cost a few percent of a frame; the march costs about a tenth of one.
+        Atmosphere = { VolumetricFog = false, VolumetricClouds = false },
         Picture = { DepthOfField = false },
         Baking = { BakeBudget = 2f },
         Drawing = { MeshDetail = 0.75f },

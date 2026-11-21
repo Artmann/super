@@ -1,0 +1,70 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+#include "cloud_layer.glsl"
+#include "cloud_sets.glsl"
+
+// Fills out the clouds' picture, half the screen's width and height, from the quarter-size
+// march. The pixel the march took this frame blends its fresh value with last frame's; the
+// other three take last frame's, found where the clouds were then and kept within the colours
+// the march found round them, so they follow the view without smearing. Without a usable last
+// frame, they take the march blended between its texels. The picture is written twice, once
+// for the lighting pass and once as the next frame's history. See "Clouds" in docs/design.md.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// How much of the fresh march the pixel it took keeps, against last frame's: less is smoother and slower.
+const float FRESH = 0.5;
+
+// How far a point on a ray that meets no cloud is taken to be, for finding where it was last frame: far enough
+// that only the camera's turning moves it.
+const float FAR_AWAY = 1.0e6;
+
+void main() {
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(cloudPictureTarget).xy;
+    if (any(greaterThanEqual(texel, size))) {
+        return;
+    }
+
+    vec2 uv = (vec2(texel) + 0.5) / vec2(size);
+    ivec2 marchSize = textureSize(cloudMarchTexture, 0).xy;
+    ivec2 marched = min(texel / 2, marchSize - 1);
+    vec4 fresh = texelFetch(cloudMarchTexture, ivec3(marched, 0), 0);
+    bool taken = all(equal(texel - marched * 2, CLOUD_SUBPIXELS[int(frame.cloudFrame.x) & 3]));
+
+    // The colours the march found round this pixel, a little widened, which last frame's must keep within.
+    vec4 low = fresh;
+    vec4 high = fresh;
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            vec4 around = texelFetch(cloudMarchTexture, ivec3(clamp(marched + ivec2(x, y), ivec2(0), marchSize - 1), 0), 0);
+            low = min(low, around);
+            high = max(high, around);
+        }
+    }
+
+    vec4 widen = (high - low) * 0.1;
+    low -= widen;
+    high += widen;
+
+    vec4 result;
+    vec3 origin;
+    vec3 direction;
+    cloudRay(uv, origin, direction);
+    vec2 span = cloudLayerSpan(direction);
+    float distance = span.x < span.y ? max(span.x, 200.0) : FAR_AWAY;
+    vec4 previous = frame.cloudReprojection * vec4(origin + direction * distance, 1.0);
+    vec2 previousUv = previous.xy / max(previous.w, 1e-6) * 0.5 + 0.5;
+    bool known = frame.cloudFrame.y > 0.5 && previous.w > 0.0
+        && all(greaterThanEqual(previousUv, vec2(0.0))) && all(lessThanEqual(previousUv, vec2(1.0)));
+    if (known) {
+        vec4 history = clamp(textureLod(cloudHistoryTexture, vec3(previousUv, 0.5), 0.0), low, high);
+        result = taken ? mix(history, fresh, FRESH) : history;
+    } else {
+        result = taken ? fresh : textureLod(cloudMarchTexture, vec3(uv, 0.5), 0.0);
+    }
+
+    imageStore(cloudPictureTarget, ivec3(texel, 0), result);
+    imageStore(cloudNextHistoryTarget, ivec3(texel, 0), result);
+}

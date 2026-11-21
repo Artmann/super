@@ -2,11 +2,15 @@
 #extension GL_GOOGLE_include_directive : require
 #include "sky.glsl"
 #include "atmosphere.glsl"
+#include "cloud_noise.glsl"
+#include "cloud_shell.glsl"
+#include "cloud_light.glsl"
 
 // Draws one level of the studio environment straight from its description: the bands, or the
 // physical sky from its sky-view table in place of the ceiling and horizon when a turbidity is
-// set, or a photographed sky's cube in place of both, the panels and the sun's disc. The rough reflections and the soft light are filtered from these levels by
-// environment_filter.comp. See "Environment lighting" in docs/design.md.
+// set, or a photographed sky's cube in place of both, the panels, the sun's disc, and over the physical sky
+// its clouds, flat as the lower settings draw them. The rough reflections and the soft light are filtered from these
+// levels by environment_filter.comp. See "Environment lighting" and "Clouds" in docs/design.md.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -25,6 +29,11 @@ layout(std140, set = 0, binding = 0) uniform Environment {
     vec4 skySun;  // xyz: towards the sun; w: turbidity, 0 for the bands
     vec4 sunDisc; // rgb: how bright the sun's disc is; a: the cosine of its angular radius
     vec4 image;   // x: 1 to draw the photographed sky; y, z: the cosine and sine of its rotation; w: its scale
+    vec4 cloudShape;    // the clouds: x coverage; y density, 0 for no clouds; z the base's height; w the layer's depth, in metres
+    vec4 cloudLight;    // xyz: towards the light on them
+    vec4 cloudRadiance; // rgb: that light, in the sky's units; a: the cirrus
+    vec4 cloudWeather;  // xy: where the camera stands in the weather, in metres; zw: the same for the cirrus
+    vec4 cloudAir;      // rgb: the air's haze over the clouds, per metre
     int panelCount;
     Panel panels[8];
 } environment;
@@ -38,14 +47,76 @@ layout(set = 0, binding = 2) uniform sampler2D skyView;
 layout(set = 0, binding = 3) uniform samplerCube skyImage;
 const float SKY_IMAGE_SIZE = 256.0;
 
+// The clouds' weather map from cloud_noise.comp, repeating; one texel of no cloud until the renderer points it there.
+layout(set = 0, binding = 4) uniform sampler3D cloudWeather;
+
 // Must match DrawConstants in Vulkan/EnvironmentPrefilter.cs.
 layout(push_constant) uniform Draw {
     int panels; // 1: show the panels; the light probes' sky leaves them out, since direct lights give their light
     int disc;   // 1: show the sun's disc; only the sharp reflection does, since the direct light gives the rest
+    int clouds; // 1: show the clouds; the background leaves them out, since the lighting pass draws them over it
 } draw;
 
+// How far up the layer the captures put their single layer, as cloud_march.comp's FLAT_FRACTION does.
+const float CAPTURE_FRACTION = 0.15;
+
+// How far off the captures draw the clouds, in metres, as cloud_march.comp's CLOUD_REACH.
+const float CAPTURE_REACH = 80000.0;
+
+// Puts a cloud hiding cover of what lies behind it over color, seen through the air's haze from this far off, which
+// turns it towards the sky behind.
+vec3 hazed(vec3 color, vec3 lit, float cover, float distance) {
+    vec3 kept = exp(-environment.cloudAir.rgb * distance);
+    return mix(color, lit * kept + color * (1.0 - kept), cover);
+}
+
+// The clouds over the sky as seen from the ground: the cirrus, then a single layer of cumulus in front of it, its heaps
+// the weather map's puffs rather than the marched noise, which no capture could afford. Lit as the clouds on screen
+// are, so the light they give the scene matches them, and an overcast sky greys it.
+vec3 overClouds(vec3 color, vec3 direction, vec3 sun) {
+    if (draw.clouds == 0 || environment.cloudShape.y <= 0.0 || direction.y <= 0.0) {
+        return color;
+    }
+
+    vec3 zenith = physicalSky(skyView, vec3(0.0, 1.0, 0.0), sun);
+    vec3 level = normalize(vec3(direction.x, 0.0, direction.z) + vec3(1e-4, 0.0, 0.0));
+    vec3 horizon = physicalSky(skyView, normalize(level + vec3(0.0, 0.05, 0.0)), sun);
+    vec3 l = environment.cloudLight.xyz;
+    float cosine = dot(direction, l);
+    vec3 radiance = environment.cloudRadiance.rgb;
+
+    float high = cloudShellHits(0.0, CIRRUS_ALTITUDE, direction).y;
+    if (environment.cloudRadiance.a > 0.0 && high > 0.0) {
+        vec2 at = direction.xz * high + environment.cloudWeather.zw;
+        float streaks = textureLod(cloudWeather, vec3(at / (CLOUD_WEATHER_PERIOD * 0.25), 0.5), 0.0).b;
+        float cover = cloudCirrusCover(streaks, environment.cloudRadiance.a, high);
+        color = hazed(color, cloudCirrusLight(radiance, cosine, zenith), cover, high);
+    }
+
+    float middle = environment.cloudShape.z + environment.cloudShape.w * CAPTURE_FRACTION;
+    float t = cloudShellHits(0.0, middle, direction).y;
+    if (t <= 0.0 || t > CAPTURE_REACH) {
+        return color;
+    }
+
+    vec4 weather = textureLod(cloudWeather, vec3((direction.xz * t + environment.cloudWeather.xy) / CLOUD_WEATHER_PERIOD, 0.5), 0.0);
+    float coverage = cloudCoverage(environment.cloudShape.x, weather);
+    float puffs = clamp((weather.a - 0.45) / 0.4, 0.0, 1.0);
+    float cloud = clamp((puffs - (1.0 - coverage)) / max(coverage, 1e-3), 0.0, 1.0);
+    if (cloud <= 0.0) {
+        return color;
+    }
+
+    // Optical depth through the whole layer, a quarter of it in view as the lower settings' layer has.
+    float depth = cloud * environment.cloudShape.y * CLOUD_EXTINCTION * environment.cloudShape.w;
+    float cover = 1.0 - exp(-depth * 0.25 / max(direction.y, 0.2));
+    float towardsLight = depth * (1.0 - CAPTURE_FRACTION) * 0.35 / max(l.y, 0.15);
+    vec3 lit = radiance * cloudScattering(towardsLight, cosine) + cloudSkyAround(CAPTURE_FRACTION, zenith, horizon);
+    return hazed(color, lit, cover, t);
+}
+
 // The physical sky above the horizon and the floor below it, fading from the sky's own horizon.
-// The sun's disc sinks behind the horizon with the sun.
+// The sun's disc sinks behind the horizon with the sun, and hides behind the clouds.
 vec3 skyAndFloor(vec3 direction) {
     vec3 sun = normalize(environment.skySun.xyz);
     if (direction.y >= 0.0) {
@@ -54,7 +125,7 @@ vec3 skyAndFloor(vec3 direction) {
             color += sunDiscRadiance(direction, sun, environment.sunDisc);
         }
 
-        return color;
+        return overClouds(color, direction, sun);
     }
 
     vec2 across = direction.xz;

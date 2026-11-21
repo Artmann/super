@@ -90,6 +90,25 @@ internal sealed unsafe class FrameSlots
     }
 
     /// <summary>
+    /// The clouds' shadow map and their picture, or the texels that stand in until they're made, in every slot's set.
+    /// </summary>
+    public void WriteClouds(ImageView shadow, ImageView picture)
+    {
+        var infos = stackalloc DescriptorImageInfo[]
+        {
+            new(_kit.LinearSampler, shadow, ImageLayout.General),
+            new(_kit.LinearSampler, picture, ImageLayout.General),
+        };
+        var writes = stackalloc WriteDescriptorSet[2];
+        foreach (ref var frame in _slots.AsSpan())
+        {
+            writes[0] = Descriptors.ImageWrite(frame.Set, 14, DescriptorType.CombinedImageSampler, &infos[0]);
+            writes[1] = Descriptors.ImageWrite(frame.Set, 15, DescriptorType.CombinedImageSampler, &infos[1]);
+            _context.Api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
+        }
+    }
+
+    /// <summary>
     /// Empties this frame's model matrices for a frame of at most <paramref name="copies"/>
     /// draws, growing the buffer first if they won't fit. Must happen after the frame's
     /// fence and before its commands are recorded, since they bind the descriptor.

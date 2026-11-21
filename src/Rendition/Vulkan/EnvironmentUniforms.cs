@@ -47,6 +47,21 @@ internal sealed unsafe class EnvironmentUniforms : IDisposable
         /// <summary>x: 1 to draw the photographed sky; y, z: the cosine and sine of its rotation; w: its scale.</summary>
         public Vector4 Image;
 
+        /// <summary>The clouds: x coverage; y density, 0 for no clouds; z the base's height; w the layer's depth.</summary>
+        public Vector4 CloudShape;
+
+        /// <summary>xyz: towards the light on the clouds.</summary>
+        public Vector4 CloudLight;
+
+        /// <summary>rgb: that light, in the sky's units; a: the cirrus.</summary>
+        public Vector4 CloudRadiance;
+
+        /// <summary>xy: where the camera stands in the weather, in metres; zw: the same for the cirrus.</summary>
+        public Vector4 CloudWeather;
+
+        /// <summary>rgb: the air's haze over the clouds, per metre.</summary>
+        public Vector4 CloudAir;
+
         public int PanelCount;
         private readonly int _padding0;
         private readonly int _padding1;
@@ -109,6 +124,11 @@ internal sealed unsafe class EnvironmentUniforms : IDisposable
             ? Vector4.Zero
             : new Vector4(1f, MathF.Cos(sky.Rotation), MathF.Sin(sky.Rotation), sky.Scale);
         _description.Floor.W = sky.Turbidity > 0f ? Atmosphere.GroundLight(sky.Direction, sky.Turbidity) : 1f;
+        _description.CloudShape = sky.Clouds.Shape;
+        _description.CloudLight = sky.Clouds.Light;
+        _description.CloudRadiance = sky.Clouds.Radiance;
+        _description.CloudWeather = sky.Clouds.Weather;
+        _description.CloudAir = sky.Clouds.Air;
 
         api.MemoryBarrier(cmd, (PipelineStageFlags2.AllCommandsBit, AccessFlags2.TransferWriteBit),
             (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit));

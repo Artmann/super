@@ -56,6 +56,9 @@ internal static class GraphicsSwitches
         (graphics => graphics.Atmosphere.Stars, RenderEffects.Stars),
         (graphics => graphics.Atmosphere.Underwater, RenderEffects.Underwater),
         (graphics => graphics.Atmosphere.FogVolumes, RenderEffects.FogVolumes),
+        (graphics => graphics.Atmosphere.Clouds, RenderEffects.Clouds),
+        (graphics => graphics.Atmosphere.VolumetricClouds, RenderEffects.VolumetricClouds),
+        (graphics => graphics.Atmosphere.CloudShadows, RenderEffects.CloudShadows),
     ];
 
     /// <summary>The effects the renderer leaves out for these settings.</summary>

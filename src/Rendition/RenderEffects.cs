@@ -280,10 +280,25 @@ public enum RenderEffects : long
     /// </summary>
     Paint = 1L << 48,
 
+    /// <summary>
+    /// The clouds from <see cref="FrameView.Weather"/>'s <see cref="WeatherSettings.Clouds"/>: in the sky, in its
+    /// reflections and in the light it gives. Without it the sky is clear and none of the cloud passes run.
+    /// </summary>
+    Clouds = 1L << 49,
+
+    /// <summary>
+    /// The clouds raymarched as a volume, lit from inside by the sun and the moon. Without it they are a flat layer
+    /// painted on the sky, which costs almost nothing. Off when <see cref="Clouds"/> is.
+    /// </summary>
+    VolumetricClouds = 1L << 50,
+
+    /// <summary>The shadows the clouds cast on the ground, on the water and in the volumetric fog.</summary>
+    CloudShadows = 1L << 51,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
         | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
         | ScreenBounce | AerialPerspective | Stars | OcclusionHistory | ColorLut | ChromaticAberration | SpeedBlur | Flashes
-        | ScreenEffects | LensFlare | Paint,
+        | ScreenEffects | LensFlare | Paint | Clouds | VolumetricClouds | CloudShadows,
 }

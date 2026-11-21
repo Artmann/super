@@ -1,0 +1,166 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+#include "sampling.glsl"
+#include "atmosphere.glsl"
+#include "cloud_sets.glsl"
+#include "clouds.glsl"
+
+// Marches the clouds for one pixel of each 2 by 2 of the picture, a quarter of the screen's
+// width and height, which cloud_resolve.comp fills out over four frames. Each texel holds the
+// light the clouds send along its ray in rgb, with the air's haze over them, and how much of
+// what lies behind them shows in a. The marched layer comes with frame.cloudLight.w at 2; at 1 a
+// single layer a little above their base stands in for it. Cirrus lies high above either. See
+// "Clouds" in docs/design.md.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// How far the clouds are drawn, in metres: past it they're lost in the haze anyway.
+const float CLOUD_REACH = 80000.0;
+
+// The most steps a ray takes through the layer, low near the horizon, where the layer is long.
+const int MAX_STEPS = 128;
+
+// The marched layer: the light in rgb, what shows through in a, and in distance how far off the light came from
+// on average, for the haze.
+vec4 marchLayer(vec3 origin, vec3 direction, vec2 span, float jitter, vec3 zenith, vec3 horizon, out float distance) {
+    float start = span.x;
+    float end = min(span.y, CLOUD_REACH);
+    distance = start;
+    if (end <= start) {
+        return vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    // Rays across the layer take more steps than rays straight up, up to twice as many.
+    float slant = 1.0 - abs(direction.y);
+    int steps = min(int(frame.cloudFrame.z * (1.0 + slant)), MAX_STEPS);
+    float step = (end - start) / float(steps);
+    vec3 l = frame.cloudLight.xyz;
+    float cosine = dot(direction, l);
+    float density = frame.cloudShape.y;
+
+    vec3 light = vec3(0.0);
+    float through = 1.0;
+    float weighted = 0.0;
+    float weight = 0.0;
+    float t = start + step * jitter;
+    for (int i = 0; i < steps; i++) {
+        vec3 p = origin + direction * t;
+        // The shape alone is cheaper, and where it's empty the detail would only wear more away.
+        if (cloudDensity(p, 0.0) > 0.0) {
+            float detail = 1.0 - smoothstep(10000.0, 30000.0, t);
+            float cloud = cloudDensity(p, detail);
+            if (cloud > 0.0) {
+                float extinction = cloud * density * CLOUD_EXTINCTION;
+                float fraction = (cloudHeight(p) - frame.cloudShape.z) / frame.cloudShape.w;
+                vec3 sun = cloudSunlight(cloudDepthTowardsLight(p, l), cosine, cloud * density);
+                vec3 source = extinction * (sun + cloudSkyAround(fraction, zenith, horizon));
+                float kept = exp(-extinction * step);
+                // Hillaire's step: the light scattered in over the step, dimmed by the cloud along it.
+                light += through * (source - source * kept) / extinction;
+                weighted += through * (1.0 - kept) * t;
+                weight += through * (1.0 - kept);
+                through *= kept;
+                if (through < 0.01) {
+                    through = 0.0;
+                    break;
+                }
+            }
+        }
+
+        t += step;
+    }
+
+    distance = weight > 0.0 ? weighted / weight : start;
+    return vec4(light, through);
+}
+
+// How far up the layer the single layer of the lower settings lies: a little above the base, where flat heaps and
+// towers both fill out.
+const float FLAT_FRACTION = 0.15;
+
+// The single layer of the lower settings: the clouds' density at FLAT_FRACTION, as if that held all the way through,
+// lit through the cloud above it as the marched layer is.
+vec4 flatLayer(vec3 origin, vec3 direction, vec3 zenith, vec3 horizon, out float distance) {
+    float middle = frame.cloudShape.z + frame.cloudShape.w * FLAT_FRACTION;
+    float camera = frame.cameraPosition.y;
+    vec2 hits = cloudShellHits(camera, middle, direction);
+    float t = camera < middle ? hits.y : hits.x;
+    distance = t;
+    bool groundFirst = camera < middle && direction.y < 0.0;
+    if (t <= 0.0 || t > CLOUD_REACH || groundFirst) {
+        return vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    vec3 p = origin + direction * t;
+    float cloud = cloudDensity(p, 1.0 - smoothstep(10000.0, 30000.0, t));
+    if (cloud <= 0.0) {
+        return vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    float density = cloud * frame.cloudShape.y;
+    float slant = 1.0 / max(abs(direction.y), 0.2);
+    float shown = exp(-density * CLOUD_EXTINCTION * frame.cloudShape.w * 0.25 * slant);
+    vec3 l = frame.cloudLight.xyz;
+    vec3 sun = cloudSunlight(cloudDepthTowardsLight(p, l), dot(direction, l), density);
+    return vec4((sun + cloudSkyAround(FLAT_FRACTION, zenith, horizon)) * (1.0 - shown), shown);
+}
+
+// The thin ice cloud high above, streaks from the weather map, lit mostly forwards.
+vec4 cirrusLayer(vec3 direction, vec3 zenith, out float distance) {
+    distance = cloudShellHits(frame.cameraPosition.y, CIRRUS_ALTITUDE, direction).y;
+    if (frame.cloudRadiance.w <= 0.0 || distance <= 0.0 || frame.cameraPosition.y > CIRRUS_ALTITUDE) {
+        return vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    vec2 at = direction.xz * distance + frame.cloudWeather.zw;
+    float streaks = textureLod(cloudWeatherTexture, vec3(at / (CLOUD_WEATHER_PERIOD * 0.25), 0.5), 0.0).b;
+    float cover = cloudCirrusCover(streaks, frame.cloudRadiance.w, distance);
+    float cosine = dot(direction, frame.cloudLight.xyz);
+    vec3 lit = cloudCirrusLight(frame.cloudRadiance.rgb, cosine, zenith);
+    return vec4(lit * cover, 1.0 - cover);
+}
+
+// The haze of the air between the camera and the clouds, which turns far clouds towards the sky behind them.
+vec4 throughHaze(vec4 cloud, float distance, vec3 sky) {
+    vec3 kept = exp(-frame.cloudAir.rgb * max(distance, 0.0));
+    return vec4(cloud.rgb * kept + (1.0 - cloud.a) * sky * (1.0 - kept), cloud.a);
+}
+
+void main() {
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(cloudMarchTarget).xy;
+    if (any(greaterThanEqual(texel, size))) {
+        return;
+    }
+
+    ivec2 pixel = texel * 2 + CLOUD_SUBPIXELS[int(frame.cloudFrame.x) & 3];
+    vec2 uv = (vec2(pixel) + 0.5) / vec2(size * 2);
+    vec3 origin;
+    vec3 direction;
+    cloudRay(uv, origin, direction);
+
+    float intensity = frame.backgroundRadiance.a;
+    vec3 sunDirection = frame.skySun.xyz;
+    vec3 zenith = physicalSky(cloudSkyView, vec3(0.0, 1.0, 0.0), sunDirection) * intensity;
+    vec3 level = normalize(vec3(direction.x, 0.0, direction.z) + vec3(1e-4, 0.0, 0.0));
+    vec3 horizon = physicalSky(cloudSkyView, normalize(level + vec3(0.0, 0.05, 0.0)), sunDirection) * intensity;
+    vec3 sky = physicalSky(cloudSkyView, normalize(vec3(direction.x, max(direction.y, 0.0), direction.z) + vec3(0.0, 1e-4, 0.0)), sunDirection) * intensity;
+
+    float distance;
+    vec4 cloud;
+    if (frame.cloudLight.w > 1.5) {
+        float jitter = frameNoise(vec2(pixel), frame.frameNumber);
+        cloud = marchLayer(origin, direction, cloudLayerSpan(direction), jitter, zenith, horizon, distance);
+    } else {
+        cloud = flatLayer(origin, direction, zenith, horizon, distance);
+    }
+
+    cloud = throughHaze(cloud, distance, sky);
+
+    float cirrusDistance;
+    vec4 cirrus = throughHaze(cirrusLayer(direction, zenith, cirrusDistance), cirrusDistance, sky);
+    cloud = vec4(cloud.rgb + cloud.a * cirrus.rgb, cloud.a * cirrus.a);
+
+    imageStore(cloudMarchTarget, ivec3(texel, 0), vec4(max(cloud.rgb, vec3(0.0)), clamp(cloud.a, 0.0, 1.0)));
+}

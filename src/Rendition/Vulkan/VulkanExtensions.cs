@@ -72,6 +72,21 @@ internal static unsafe class VulkanExtensions
     }
 
     /// <summary>
+    /// Starts a compute pass that keeps a history: waits for last frame's compute and fragment work to finish reading
+    /// and writing, then binds the frame set and the pass's own set for this frame.
+    /// </summary>
+    public static void BeginHistoryCompute(this Vk api, CommandBuffer cmd, PipelineLayout layout, DescriptorSet frameSet, DescriptorSet own)
+    {
+        const AccessFlags2 used = AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderSampledReadBit;
+        api.MemoryBarrier(cmd,
+            (PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.FragmentShaderBit, used),
+            (PipelineStageFlags2.ComputeShaderBit, used));
+
+        var sets = stackalloc DescriptorSet[] { frameSet, own };
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, layout, 0, 2, sets, 0, null);
+    }
+
+    /// <summary>
     /// Readies an image for a pass to draw over all of it. Targets are shared between
     /// frames in flight, so this waits for the previous frame's sampling to finish.
     /// </summary>

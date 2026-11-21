@@ -83,6 +83,17 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 edgeTint;           // rgb: the first edge tint's display colour; a: its strength
     vec4 secondEdgeTint;     // rgb: the second edge tint's display colour; a: its strength
     vec4 screenCanvas;       // x: colour lost; y: how much paper shows; z: a tile's width in pixels, 0 for the texture's; w: its texture slot, -1 for none
+    mat4 cloudRays;          // Clip position to direction from the camera: the unshifted view and projection, inverted, camera at the origin
+    mat4 cloudReprojection;  // Relative to this frame's camera to last frame's unshifted clip space
+    vec4 cloudShape;         // x: coverage; y: density; z: base height, metres; w: depth, metres
+    vec4 cloudWeather;       // xy: the camera in the weather map, metres, wrapped; zw: the same for the cirrus
+    vec4 cloudNoise;         // xy: the camera in the shape noise, metres, wrapped; zw: in the detail noise
+    vec4 cloudShadow;        // xy: the shadow map's centre less the camera's xz; z: its half width, metres; w: the light casting it, -1 for none
+    vec4 cloudLight;         // xyz: towards the light on the clouds; w: 0 none, 1 flat, 2 marched
+    vec4 cloudRadiance;      // rgb: that light's radiance; w: how much cirrus
+    vec4 cloudFrame;         // x: the pixel of each 2x2 marched this frame; y: 1 with history; z: steps across the layer; w: unused
+    vec4 cloudAir;           // rgb: how much the air between the camera and the clouds dims per metre; w: unused
+    vec4 cloudLean;          // xy: how far the clouds' tops lean along the wind, metres; zw: unused
 } frame;
 
 // Bits of frame.off. Must match RenderEffects in Types.cs.

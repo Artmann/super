@@ -1,6 +1,6 @@
 namespace Super;
 
-/// <summary>The air: fog, haze, the physical sky's stars and air, water, fog volumes and the volumetric fog.</summary>
+/// <summary>The air: fog, haze, the physical sky's stars, air and clouds, water, fog volumes and the volumetric fog.</summary>
 public sealed class GraphicsAtmosphere
 {
     /// <summary>
@@ -28,6 +28,24 @@ public sealed class GraphicsAtmosphere
     /// costs almost nothing.
     /// </summary>
     public bool Stars { get; set; } = true;
+
+    /// <summary>
+    /// The clouds in a physical sky, from <see cref="SkySettings.Clouds"/>: in the sky, in its reflections and light,
+    /// and over far hills. Off, the sky is clear whatever the clouds say. <see cref="Graphics.Fastest"/> turns them off.
+    /// </summary>
+    public bool Clouds { get; set; } = true;
+
+    /// <summary>
+    /// Marching the clouds as heaped, lit volumes with bright edges and dark bellies. Off, a single flat layer painted
+    /// on the sky stands in for them, which costs a fraction as much. <see cref="GraphicsQuality.Low"/> turns it off.
+    /// </summary>
+    public bool VolumetricClouds { get; set; } = true;
+
+    /// <summary>
+    /// The clouds' shadows drifting over the ground and through the volumetric fog. Off, the sun shines everywhere
+    /// as if the sky were clear. It costs one small compute pass.
+    /// </summary>
+    public bool CloudShadows { get; set; } = true;
 
     /// <summary>
     /// The water set with <c>view.Surroundings.Water</c>. Off, the view is drawn as if the camera weren't under water:
@@ -84,6 +102,9 @@ public sealed class GraphicsAtmosphere
         Haze = other.Haze;
         AerialPerspective = other.AerialPerspective;
         Stars = other.Stars;
+        Clouds = other.Clouds;
+        VolumetricClouds = other.VolumetricClouds;
+        CloudShadows = other.CloudShadows;
         Underwater = other.Underwater;
         FogVolumes = other.FogVolumes;
         VolumetricFog = other.VolumetricFog;
