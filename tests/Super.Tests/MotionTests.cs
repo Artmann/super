@@ -230,12 +230,13 @@ public class MotionTests
     }
 
     // A point behind last frame's camera gets a made-up motion, written by two shaders: the scene's
-    // surfaces and the sky's FSR motion. If they drifted apart, or past what the 16-bit motion target
-    // holds (65504), one of them would land back on the picture and borrow history it doesn't have.
+    // surfaces and grass, through gbuffer_marks.glsl, and the sky's FSR motion. If they drifted apart, or past
+    // what the 16-bit motion target holds (65504), one of them would land back on the picture and borrow history
+    // it doesn't have.
     [Fact]
     public void Both_shaders_send_a_point_behind_last_frames_camera_off_the_widest_picture()
     {
-        float surface = ShaderConstant("surface.glsl", "MOTION_OFF_PICTURE");
+        float surface = ShaderConstant("gbuffer_marks.glsl", "MOTION_OFF_PICTURE");
         float sky = ShaderConstant("fsr_motion.frag", "OFF_PICTURE");
 
         Assert.Equal(surface, sky);
