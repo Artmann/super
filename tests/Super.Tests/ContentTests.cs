@@ -250,6 +250,22 @@ public class ContentTests
         Assert.NotEqual(texture, content.Texture("textures/splat.png"));
     }
 
+    [Fact]
+    public void Unloaded_colour_table_is_let_go_once_and_naming_it_again_makes_a_new_one()
+    {
+        // A neutral 2-cell table, red changing fastest.
+        string cube = "LUT_3D_SIZE 2\n" + string.Concat(Enumerable.Range(0, 8).Select(i => $"{i & 1} {(i >> 1) & 1} {i >> 2}\n"));
+        var content = new Content(new MemoryContent().Add("grades/dusk.cube", System.Text.Encoding.UTF8.GetBytes(cube)));
+        var lut = content.Lut("grades/dusk.cube");
+
+        content.Unload(lut);
+
+        Assert.Contains(lut.Index, content.Store.PendingUnloads.ToArray());
+        var again = Assert.Throws<ArgumentException>(() => content.Unload(lut));
+        Assert.Equal($"lut names {lut.Index}, which was unloaded. (Parameter 'lut')", again.Message);
+        Assert.NotEqual(lut, content.Lut("grades/dusk.cube"));
+    }
+
     [Theory]
     [InlineData("Height.Map")]
     [InlineData("Detail.ColorTexture")]

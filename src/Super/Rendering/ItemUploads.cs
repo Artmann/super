@@ -31,7 +31,7 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
         TextureData texture => new TextureOnGpu(renderer.Assets.CreateTexture(texture)),
         TextureData[] layers => new TextureArrayOnGpu(renderer.Assets.CreateTextureArray(layers)),
         SkyImageData sky => new SkyOnGpu(renderer.CreateSkyImage(sky)),
-        ColorLutData lut => new LutOnGpu(renderer.CreateColorLut(lut)),
+        ColorLutData lut => new LutOnGpu(renderer.Luts.Create(lut)),
         _ => throw new InvalidOperationException($"Content can't upload a {prepared.GetType().Name}."),
     };
 
@@ -187,6 +187,9 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
                 break;
             case TextureOnGpu texture:
                 renderer.Assets.DestroyTexture(texture.Handle);
+                break;
+            case LutOnGpu lut:
+                renderer.Luts.Destroy(lut.Handle);
                 break;
             case ItemLetGo:
                 break;

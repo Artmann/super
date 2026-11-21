@@ -19,7 +19,7 @@ public sealed class GradeLutGpuTests(GpuFixture gpu, ITestOutputHelper output)
     public void A_neutral_artist_table_leaves_the_picture_within_one_step()
     {
         int errors = gpu.ValidationErrors;
-        var neutral = gpu.Renderer.CreateColorLut(ColorLutData.Neutral(32));
+        var neutral = gpu.Renderer.Luts.Create(ColorLutData.Neutral(32));
 
         var plain = Render(new PostSettings());
         var through = Render(new PostSettings { Grade = new() { Lut = neutral, LutBlend = 1f } });
@@ -36,7 +36,7 @@ public sealed class GradeLutGpuTests(GpuFixture gpu, ITestOutputHelper output)
     public void An_artist_table_shows_by_its_blend_and_not_with_its_switch_off()
     {
         int errors = gpu.ValidationErrors;
-        var redOnly = gpu.Renderer.CreateColorLut(ColorLutData.From(16, color => color with { Y = 0f, Z = 0f }));
+        var redOnly = gpu.Renderer.Luts.Create(ColorLutData.From(16, color => color with { Y = 0f, Z = 0f }));
 
         var plain = TestPixels.Mean(Render(new PostSettings()), Size, Size / 2, Size / 4, 8);
         var half = TestPixels.Mean(Render(new PostSettings { Grade = new() { Lut = redOnly, LutBlend = 0.5f } }), Size, Size / 2, Size / 4, 8);
@@ -106,6 +106,36 @@ public sealed class GradeLutGpuTests(GpuFixture gpu, ITestOutputHelper output)
         Assert.True(Vector3.Distance(highlights, plain) < 1f, $"Red highlights moved the mid-tone sky to {TestPixels.Show(highlights)} from {TestPixels.Show(plain)}.");
         Assert.True(split.Y - split.X > plain.Y - plain.X + 4f, $"Green split toning gave {TestPixels.Show(split)} from {TestPixels.Show(plain)}.");
         Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_destroyed_table_is_let_go_and_its_slot_holds_the_next_one()
+    {
+        int errors = gpu.ValidationErrors;
+        var luts = gpu.Renderer.FrameParts.FrameStages.PostStage.Grade.Luts;
+        var plain = Mean(new PostSettings());
+        var redOnly = gpu.Renderer.Luts.Create(ColorLutData.From(8, color => color with { Y = 0f, Z = 0f }));
+        var red = Mean(new PostSettings { Grade = new() { Lut = redOnly, LutBlend = 1f } });
+        int live = luts.Live;
+
+        // Destroyed straight after a frame that read it, so its image must outlive the frames still in flight.
+        gpu.Renderer.Luts.Destroy(redOnly);
+        var afterwards = Mean(new PostSettings());
+        var gone = Assert.Throws<ArgumentException>(() => Render(new PostSettings { Grade = new() { Lut = redOnly, LutBlend = 1f } }));
+        var twice = Assert.Throws<ArgumentException>(() => gpu.Renderer.Luts.Destroy(redOnly));
+        int liveAfter = luts.Live;
+        var neutral = gpu.Renderer.Luts.Create(ColorLutData.Neutral(8));
+        var through = Mean(new PostSettings { Grade = new() { Lut = neutral, LutBlend = 1f } });
+        output.WriteLine($"Plain {TestPixels.Show(plain)}, red {TestPixels.Show(red)}, afterwards {TestPixels.Show(afterwards)}, the next table {TestPixels.Show(through)}.");
+
+        Assert.True(red.Z < 2f, $"The red-only table gave {TestPixels.Show(red)}, so it never showed.");
+        Assert.Equal(live - 1, liveAfter);
+        Assert.Equal($"Colour table {redOnly.Index} was destroyed. (Parameter 'lut')", gone.Message);
+        Assert.Equal($"Colour table {redOnly.Index} was destroyed. (Parameter 'lut')", twice.Message);
+        Assert.Equal(redOnly.Index, neutral.Index);
+        Assert.True(Vector3.Distance(plain, through) < 1.5f, $"The table in the freed slot gave {TestPixels.Show(through)}, not {TestPixels.Show(plain)}.");
+        Assert.Equal(errors, gpu.ValidationErrors);
+        gpu.Renderer.Luts.Destroy(neutral);
     }
 
     private Vector3 Mean(in PostSettings post) => TestPixels.Mean(Render(post), Size, Size / 2, Size / 4, 8);

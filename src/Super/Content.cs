@@ -191,6 +191,17 @@ public sealed class Content
     }
 
     /// <summary>
+    /// Lets go of a colour table. The window frees it once the frames that read it are done, and a picture whose
+    /// <see cref="ColorGrade.Lut"/> still names it afterwards throws. Naming the same file again later makes a new one.
+    /// </summary>
+    public void Unload(ColorLut lut)
+    {
+        var item = ItemChecks.Require<LutItem>(Store, lut.Index, nameof(lut), "colour table");
+        Store.MarkUnloaded(lut.Index);
+        Store.ForgetName<ColorLut>(item.Name);
+    }
+
+    /// <summary>
     /// Hands over a surface made by code. Anything its surface names must have been named
     /// first, which also means it's loaded first. A mesh that will be drawn static must be made
     /// with <paramref name="isStatic"/>, which gives it lightmap UVs once, here, through

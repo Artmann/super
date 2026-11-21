@@ -183,7 +183,7 @@ public enum Tonemapper
 
 /// <summary>
 /// An artist's colour lookup table, for <see cref="ColorGrade.Lut"/>. A Super game gets one from <c>Content.Lut</c>;
-/// with Rendition alone, from <see cref="Renderer.CreateColorLut"/>.
+/// with Rendition alone, from <see cref="RendererLuts.Create"/>.
 /// </summary>
 public readonly record struct ColorLut(int Index);
 
