@@ -31,7 +31,8 @@ internal sealed record GameArguments(
     Rendition.BakeQuality BakeQuality = Rendition.BakeQuality.Final,
     string? GraphicsProfile = null,
     bool Stats = false,
-    bool NeutralLut = false)
+    bool NeutralLut = false,
+    ArtLook? Look = null)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -56,6 +57,7 @@ internal sealed record GameArguments(
         ["--user-data"] = (parsed, reader) => parsed with { UserDataFolder = reader.Value() },
         ["--ui-scale"] = (parsed, reader) => parsed with { UiScale = PositiveScale(reader.Value()) },
         ["--render-scale"] = (parsed, reader) => parsed with { RenderScale = SceneScale(reader.Value()) },
+        ["--look"] = (parsed, reader) => parsed with { Look = LookName(reader.Value()) },
         ["--graphics"] = (parsed, reader) => parsed with { GraphicsProfile = GraphicsProfileName(reader.Value()) },
         ["--upscaler"] = (parsed, reader) => parsed with { Upscaler = UpscalerName(reader.Value()) },
         ["--debug-view"] = (parsed, reader) => parsed with { DebugView = DebugViewName(reader.Value()) },
@@ -246,6 +248,12 @@ internal sealed record GameArguments(
 
     /// <summary>The names <c>--graphics</c> takes besides a profile's path.</summary>
     internal const string AutoProfile = "auto";
+
+    private static ArtLook LookName(string text) =>
+        Looks.All.FirstOrDefault(look => Looks.ArgumentName(look.Name!) == text) is { Name: not null } found
+            ? found
+            : throw new ArgumentException(
+                $"--look needs one of {string.Join(", ", Looks.All.Select(look => Looks.ArgumentName(look.Name!)))}, not '{text}'.");
 
     private static string GraphicsProfileName(string text) =>
         text is "low" or "medium" or "high" or "ultra" or "fastest" or AutoProfile

@@ -65,7 +65,7 @@ Game.Run<MyGame>(new GameOptions
 
 `Graphics.Fastest()` turns every effect that costs GPU time off, except point and spot lights and particles, and sets `Drawing.MeshDetail` to 0.5, a start to turn back on only what
 the game needs. It keeps what costs nothing or saves time: the materials, the baked lighting, `Specular`,
-`EnvironmentLight`, `Emissive`, `ColorGrading`, `ColorLut`, `Culling`, `SimplerModels`, `DepthFirst` and `Fades`, whose small cost buys a picture without pops. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
+`EnvironmentLight`, `Emissive`, `ColorGrading`, `ColorLut`, `Retro`, `Culling`, `SimplerModels`, `DepthFirst` and `Fades`, whose small cost buys a picture without pops. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
 | Setting | Off, or set |
@@ -134,6 +134,7 @@ next frame follows, so it can back an options menu.
 | `Picture.ScreenEffects` | None of the [screen effects](#screen-effects) a game sets, but the fade: no fringes, blur, flash, edge tints, loss of colour or paper. The fade stays, since a game uses it to say something, such as that the player fell |
 | `Picture.LensFlare` | No [lens flare](#lens-flare) from the sun or the lights a game names, and its passes don't run. `Graphics.Fastest()` turns it off |
 | `Picture.Paint` | No [oil-paint look](#paint), whatever `PaintSettings` a game sets, and its passes don't run. It costs nothing while a game doesn't paint. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
+| `Picture.Retro` | No [retro pixels](#retro-pixels): the picture keeps every pixel and every shade, whatever a [look](#looks) asks for. They cost next to nothing, so `Graphics.Fastest()` leaves them on |
 | `Drawing.Culling` | Every model is drawn into the picture, each of the sun's cascades and each light's shadow tile, seen or not. It only costs time: it's there to check that culling hides nothing it shouldn't |
 | `Drawing.SimplerModels` | Every model is drawn at full detail at any distance, whatever `MeshDetail` says, in the picture and the shadows. It only costs time: it's there to see what the simpler versions change |
 | `Drawing.DepthFirst` | Large solid surfaces are no longer drawn twice, depth first and then shaded, so a surface drawn before the one that hides it is shaded for nothing. It only costs time: it's there to measure what drawing depth first saves. The picture is the same, but where two surfaces lie in the very same plane, where the other of the two may show |
@@ -1542,6 +1543,105 @@ ivy, bricks and barrel without and with the whole picture painted at an amount o
 default brush:
 
 ![Courtyard's ivy-covered brick wall without and with the whole picture painted, labelled](media/paint-courtyard.webp)
+
+### Looks
+
+A look sets the mood of the whole picture with one choice: a colour grade, screen effects, paint,
+retro pixels and nudges to the sun, the sky, the fog and the clouds. Ask for `ArtStyle` in your game's
+constructor and pick one of `Looks`:
+
+```csharp
+public sealed class MyGame(ArtStyle style) : IGame
+{
+    public void Load() => style.Use(Looks.GoldenHour);
+
+    public void Update(GameTime time)
+    {
+    }
+}
+```
+
+`style.Use(Looks.Noir, seconds: 1f)` eases from the look on screen into the new one over a second,
+and starting another blend partway through carries on from what is on screen. The blend runs on
+real ticks, so slow motion doesn't stretch it. `style.Current` is the look being shown or blended to,
+for a menu. [`--look`](command-line.md) picks the look a game starts with, over the one it picks
+itself. The [Hamlet example](../examples/Hamlet) steps through them with L. Here is each on the same
+frame of Hamlet:
+
+![Hamlet's village at midday in each built-in look, labelled: Natural; Painterly, with soft brush strokes and warm light; Candy, pastel and pinker; Golden hour, warm orange light with a flare and darker corners; Noir, black and white with hard contrast; Horror, dark and green in thick fog; VHS, a cool, washed picture with fringes and fine dots; PSX, big square pixels with a dither](media/looks.webp)
+
+| Look | What it does |
+| --- | --- |
+| `Looks.Natural` | Nothing: the game's own picture |
+| `Looks.Painterly` | An oil painting in warm light, with soft brush strokes and rich colour |
+| `Looks.Candy` | Bright and pastel, with pink light, teal shade and a glow |
+| `Looks.GoldenHour` | A low orange sun under a dimmer sky, teal shade, a brighter flare and darker corners |
+| `Looks.Noir` | Black and white with hard contrast, a brighter sun, deep corners and grain |
+| `Looks.Horror` | Dark and sickly green, the sun and sky dimmed under thick fog and cloud, grain and no flare |
+| `Looks.Vhs` | A worn home video: grey blacks, colour fringes, grain, slightly big pixels and fewer shades |
+| `Looks.Psx` | A 1990s console: big square pixels, few shades with a dither between them and no sharpening |
+
+A look is a plain value, so make your own or change one with `with`:
+
+```csharp
+var moody = Looks.Noir with { Finish = Looks.Noir.Finish with { Grain = 0f } };
+var dusk = new ArtLook
+{
+    Name = "Dusk",
+    Finish = new PostSettings { Temperature = 0.15f, Vignette = 0.2f },
+    Light = new LookLight { SunWarmth = 0.7f, Sky = -0.5f, Fog = 0.005f },
+};
+```
+
+Every number in a look is a change to what the game set, so the default look, `Looks.Natural`,
+leaves the picture as the game made it, and a game that grades its own picture keeps that grade
+under any look. The parts are:
+
+- `Finish` is a `PostSettings` [finish](#the-look-of-the-picture) added to the game's: a contrast
+  of 0.2 adds 0.2 to the game's own, and the result is held to its range. A colour table in it
+  replaces the game's, and a screen effect set in it wins over the game's. The exposure meter, the
+  tonemapper and the lens stay the game's.
+- `Paint` is [paint](#paint) that replaces the game's when its amount is above 0.
+- `Retro` is [retro pixels](#retro-pixels).
+- `Light` is a `LookLight`. `Sun` and `Sky` make the suns and the sky that many stops brighter.
+  `SunWarmth`, from -1 to 1, turns the suns' colour from a cold blue to a low orange sun and keeps
+  their brightness. `Fog` adds fog density, where 0.01 is a light haze. `Clouds` adds cloud cover,
+  and a [physical sky](#clouds) without clouds gets fair-weather ones. `Flare` makes the
+  [lens flare](#lens-flare) that many stops brighter, so -10 all but hides it.
+
+`ArtLook.Lerp(from, to, t)` gives the look part of the way between two, as a blend does. Numbers move
+evenly. The name and a colour table change halfway, and paint or retro pixels that only one side
+has grow in from none. A look out of range, such as a dither above 1, is refused with a message
+saying which part.
+
+Graphics switches still win. `Picture.Paint` turns off a look's paint, `Picture.Retro` its retro
+pixels, and `Atmosphere.Clouds` or `Atmosphere.Fog` the clouds and fog it adds.
+
+A look that changes the sun's colour or brightness makes the sun move as far as the baked lighting
+is concerned, so while it blends, a scene with a bake is lit live, and it goes back to its bake
+a second after the blend ends. A look that holds the sun steady is drawn from the bake as before,
+but the bake was made with the game's own sun, so the bounced light keeps the game's colour.
+
+### Retro pixels
+
+Retro pixels draw the picture in big square pixels, with fewer shades and a pattern of dots between
+them, as a 1990s console did. They come with a [look](#looks) as a `RetroSettings`:
+
+```csharp
+style.Use(Looks.Natural with { Retro = new RetroSettings { PixelSize = 4f, Levels = 32, Dither = 1f } });
+```
+
+- `PixelSize` is how big each pixel is, in pixels of a picture 1080 pixels tall, up to 32, so it
+  covers the same share of the screen at any size. 1 or less keeps every pixel.
+- `Levels` is how many shades each of red, green and blue keeps, from 2 to 256. 0, the default,
+  keeps them all.
+- `Dither`, from 0 to 1, mixes the two shades either side of a colour in a fixed pattern, so a
+  smooth slope shows as dots rather than bands.
+
+They are drawn in the last pass, after the grain and before the interface, so the interface stays
+sharp. They cost a few instructions a pixel and no pass of their own, and the `Picture.Retro`
+switch turns them off. With Rendition alone, set `PictureSettings.Retro` on the frame's `Picture`,
+and turn it off with `RenderEffects.Retro`.
 
 ### Auto exposure
 

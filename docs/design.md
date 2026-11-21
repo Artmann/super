@@ -4235,8 +4235,8 @@ have needed a target and a copy; these all fit into the two passes the picture a
 
 None of it reaches `GradeLut.Take`'s `BakeKey`, so changing the effects never bakes the table
 again, which the GPU test counts with `GradeLut.Bakes`. `FrameUniformWriter` packs them with
-`PostGrade.Screen` into `FrameScreenBlock`, six vec4s at the end of the frame block (`screenLens`,
-`screenFlash`, `screenFade`, `edgeTint`, `secondEdgeTint` and `screenCanvas` in `common.glsl`),
+`PostGrade.Screen` into `FrameScreenBlock`, seven vec4s at the end of the frame block (`screenLens`,
+`screenFlash`, `screenFade`, `edgeTint`, `secondEdgeTint`, `screenCanvas` and the retro pixels' `screenRetro` in `common.glsl`),
 with every amount clamped to 0 to 1 and a white flash for a zero colour. Field names across the
 `Frame*` blocks are unique, since the std140 offset test finds them by name.
 
@@ -4458,6 +4458,53 @@ which still holds the last frame, into `Held` before drawing the new one. `Held`
 to black when there is no last frame yet, such as on the first frame or after a resize.
 A blend never reaches the renderer: Super moves the camera between the last camera shown
 and the one `Draw` sets.
+
+### Looks
+
+A look never reaches Rendition as such. `ViewLook.Style` holds the `ArtLook` for one frame and is
+cleared with the rest of the view. `ArtStyle` is a singleton `IDrawHook` that `HostServices`
+registers, and its `AfterDraw` sets the style after the game's own `Draw`, so the game can still
+read it but a look set by hand in `Draw` is overwritten while `ArtStyle` is in use. A blend keeps
+three looks: the one it started from, the one it goes to and the one last shown. `Use` makes the
+last one shown the new start, so a blend begun partway through another carries on from the
+picture on screen with no jump. The blend's share is `view.SecondsSince(start) / seconds`, eased
+with a smoothstep, and `SecondsSince` counts real ticks plus the frame's blend between them, so
+slow motion doesn't stretch it and it moves smoothly between ticks. `ArtLook.Lerp` mixes each number
+and switches the name and the colour table at the halfway mark. Paint and retro pixels mix
+through `LookMix`, because their zeros mean none: paint mixed with none keeps the brush and grows
+only its amount, and retro pixels grow from 1 and thin from 256 shades, taking the dither of the
+side that has one.
+
+`FrameMaker.Create` lays the look over what the game set for the frame with `LookLayer`. Every
+number is added to the game's and held to its range, so `Looks.Natural`, whose numbers are all
+zero, is exactly the game's picture. The finish adds to `PostSettings` field by field and keeps
+the game's tonemapper and lens. Paint replaces the game's only when the look paints. A sun's
+colour is tinted towards warm or cold, divided by the tint's luminance so it keeps its brightness,
+then scaled by `2^Sun`. The sky's brightness and the flare's intensity are scaled in stops, the
+fog's density is added and the clouds' cover is added, with fair-weather clouds for a sky that has
+none and nothing for a view without a sky. Since these only change `FrameView`, the graphics
+switches still win: a look can't turn on fog, clouds, paint or a flare the player has switched
+off. Nothing here allocates; it copies structs.
+
+A changed sun colour changes the bake's key, so `AnimatedLights` lights the sun live while a
+blend moves it and goes back to the bake once it has held still for a second. A held look with a
+different sun keeps the sun live, and the bake's bounce keeps the game's colour.
+
+### Retro pixels
+
+Retro pixels cost a few instructions in `finish.frag` and no pass of their own.
+`RetroSettings.Pack` puts them in `screenRetro` in the frame's screen block: x is a pixel's height
+as a share of the picture's, from a size given for a picture 1080 tall and capped at
+`MaxPixelSize`, y is the number of steps between black and white (levels minus one), and z is the
+dither. It packs zero, which the shader reads as none, when `RenderEffects.Retro` is off.
+
+The shader snaps the UV to the centre of a square block before it samples, so the sharpening,
+the transition's fade and the vignette all see the block's colour; a dissolve's held picture is
+read unsnapped. After grain is added in display (square root) space, each channel snaps to
+`floor(display * steps + threshold) / steps`. The threshold is 0.5 without dither and a 4 x 4
+Bayer value per block with it, so the blocks, not the screen's pixels, carry the pattern. Doing it
+after grain lets the grain choose between neighbouring steps, which softens banding in VHS. A
+debug view skips both. The interface is drawn after the finish pass, so it stays sharp.
 
 ## Upscaling
 

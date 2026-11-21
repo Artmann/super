@@ -23,6 +23,11 @@ public static class Game
         host.Script = FindScript<TGame>(host, arguments.ScriptName);
         host.Ui.Scale = arguments.UiScale ?? options.UiScale;
         host.Stats.Shown = arguments.Stats;
+        if (arguments.Look is { } look)
+        {
+            // After the game's constructor, so it wins over the look the game starts with.
+            ((ArtStyle)host.GetService(typeof(ArtStyle))).Use(look);
+        }
 
         using var window = MakeWindow(options, arguments, host.Graphics);
         if (!PrepareWindow(host, window, arguments))

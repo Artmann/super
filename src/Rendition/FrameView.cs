@@ -214,6 +214,9 @@ public struct PictureSettings
 
     /// <summary>The oil-paint look, over the whole picture or its far part. The default paints nothing.</summary>
     public PaintSettings Paint;
+
+    /// <summary>Big pixels, fewer shades and a pattern of dots, as on an old console. The default changes nothing.</summary>
+    public RetroSettings Retro;
 }
 
 /// <summary>What a frame draws besides its draws, for <see cref="FrameView.Extras"/>.</summary>

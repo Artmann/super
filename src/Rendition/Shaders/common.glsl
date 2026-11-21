@@ -83,6 +83,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 edgeTint;           // rgb: the first edge tint's display colour; a: its strength
     vec4 secondEdgeTint;     // rgb: the second edge tint's display colour; a: its strength
     vec4 screenCanvas;       // x: colour lost; y: how much paper shows; z: a tile's width in pixels, 0 for the texture's; w: its texture slot, -1 for none
+    vec4 screenRetro;        // x: a pixel's height as a share of the picture's, 0 for none; y: steps between black and white, 0 for all; z: dither; w: unused
     mat4 cloudRays;          // Clip position to direction from the camera: the unshifted view and projection, inverted, camera at the origin
     mat4 cloudReprojection;  // Relative to this frame's camera to last frame's unshifted clip space
     vec4 cloudShape;         // x: coverage; y: density; z: base height, metres; w: depth, metres
