@@ -208,6 +208,21 @@ and shown from RGBA pixels, since an image's mips weigh each pixel by its alpha,
 compression saves space on disk but not memory. `ReadPixels` then gives the decoded pixels,
 close to the source's but not the same.
 
+## Fonts
+
+Fonts for the interface are named through `content.Fonts`, with the file of their bold weight
+if they have one:
+
+```csharp
+GameFont heading = content.Fonts.Font("fonts/pirata-one.ttf");
+GameFont body = content.Fonts.Font("fonts/figtree.ttf", bold: "fonts/figtree-bold.ttf");
+```
+
+Naming the same files again gives the same font. Put it on text with
+[`.Font(font)`](interfaces.md#fonts). A name that isn't in the cooked content, or that isn't a
+font, stops with a `ContentException`. The cook reads every font, so one that's cut off,
+isn't a single TrueType or OpenType font, or has no letters stops the build instead.
+
 ## Cooking
 
 A game never reads its sources. The build cooks every file under the content folder
@@ -243,6 +258,7 @@ Every file is an asset, chosen by its extension:
 | `.glb` `.gltf` `.fbx` `.obj` | model | `.rmodel`, through `Super.Cook.Models` |
 | `.hdr` | data | A photographed sky: a half-float cube 256 pixels a face with every mip, without its sun, whose direction and brightness it keeps; see [a photographed sky](rendering.md#a-photographed-sky) |
 | `.cube` `.lut.png` | data | A [colour table](rendering.md#a-colour-table) of half floats, from a grading tool's 3D `.cube` file or a strip of N squares of N pixels, such as 1024 by 32, cut from a `--neutral-lut` screenshot. Load it with `content.Lut` |
+| `.ttf` `.otf` | data | The file itself, once it reads as a font with letters. Load it with `content.Fonts` |
 | `.lightbake` | baked lighting | The same file with its pages block-compressed: BC6H irradiance, BC7 direction and mask; see [cooking a bake](#cooking-a-bake) |
 | `.material.cs` | material | A [material graph](materials.md), compiled and run into `#color`, `#normal`, `#surface` and `#height` textures and a `#material` data part |
 

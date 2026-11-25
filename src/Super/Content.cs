@@ -60,8 +60,8 @@ public sealed class Content
         Data = new ContentReader(this, Store, () => Store.Files is CookedFolder { Dev: { } dev } folder ? (folder.Folder, dev) : null);
         Sounds = new ContentSounds(Store.Files, AmbienceReader.Read);
         UiImages = new ContentUiImages(Store);
-        Models = new ContentModels(Store);
-        Animators = new AnimatorRunner(Sounds.Sound);
+        Fonts = new ContentFonts(Store.Files);
+        Models = new ContentModels(Store, new AnimatorRunner(Sounds.Sound));
     }
 
     /// <summary>Everything named, by index, and what was let go. The window reads and loads the items through it.</summary>
@@ -70,14 +70,14 @@ public sealed class Content
     /// <summary>The catalogs read with <see cref="LoadAll"/>, their schemas, and reading them again as the files change.</summary>
     internal ContentReader Data { get; }
 
-    /// <summary>The animators the game loop moves on each tick: every one started from a rig this content read.</summary>
-    internal AnimatorRunner Animators { get; }
-
     /// <summary>The sounds and ambiences the game named.</summary>
     public ContentSounds Sounds { get; }
 
     /// <summary>The pictures the game shows in its interface.</summary>
     public ContentUiImages UiImages { get; }
+
+    /// <summary>The typefaces the game's interface uses besides the built-in one.</summary>
+    public ContentFonts Fonts { get; }
 
     /// <summary>A named model's meshes by name, whether it's ready to draw, and letting it go.</summary>
     public ContentModels Models { get; }
@@ -146,7 +146,7 @@ public sealed class Content
         }
 
         // Hands the rig's animators to the game loop.
-        rig.Runner = Animators;
+        rig.Runner = Models.Animators;
         Store.Remember(name, rig);
         return rig;
     }

@@ -99,7 +99,7 @@ internal sealed class UiDrawList
     {
         if (!Nesting.Hides(frame))
         {
-            _shownText.Add(new ShownText(text, frame, style.Color with { A = style.Color.A * Nesting.Opacity }, style.Size, style.Bold));
+            _shownText.Add(new ShownText(text, frame, style.Color with { A = style.Color.A * Nesting.Opacity }, style.Size, style.Bold, style.Font));
         }
     }
 
