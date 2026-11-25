@@ -148,7 +148,7 @@ internal sealed class LoopTick
         _input.Readable = false;
 
         // After Update, so what the game set this tick plays, and Crossed sees each moment once.
-        _content.Animators.Advance(_time.DeltaSeconds);
+        _content.Models.Animators.Advance(_time.DeltaSeconds);
 
         // After Update, so a burst spawned this tick starts on it and one that has played is gone before Draw.
         WorldBursts.Advance(_scenes.World, _time.Tick, _time.TickSeconds);

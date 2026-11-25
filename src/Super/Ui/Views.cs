@@ -4,7 +4,7 @@ namespace Super.Ui;
 
 /// <summary>
 /// A line or paragraph of text. It wraps at spaces when it's offered too little width, unless
-/// a <see cref="UiExtensions.LineLimit"/> cuts it short with an ellipsis.
+/// a <see cref="TextExtensions.LineLimit"/> cuts it short with an ellipsis.
 /// </summary>
 public sealed record Text(string Content) : PrimitiveView
 {
@@ -389,9 +389,11 @@ internal sealed record BoxModifier(UiView Child) : Modifier(Child)
 }
 
 internal sealed record StyleModifier(
-    UiView Child, float? Size = null, bool? Bold = null, Color? Color = null, bool? MonospacedDigits = null, int? LineLimit = null)
+    UiView Child, float? Size = null, bool? Bold = null, Color? Color = null, bool? MonospacedDigits = null, int? LineLimit = null,
+    GameFont? Font = null)
     : Modifier(Child)
 {
     internal override TextStyle Inherit(TextStyle style) => new(
-        Size ?? style.Size, Bold ?? style.Bold, Color ?? style.Color, MonospacedDigits ?? style.MonospacedDigits, LineLimit ?? style.LineLimit);
+        Size ?? style.Size, Bold ?? style.Bold, Color ?? style.Color, MonospacedDigits ?? style.MonospacedDigits, LineLimit ?? style.LineLimit,
+        Font ?? style.Font);
 }

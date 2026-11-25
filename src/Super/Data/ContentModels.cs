@@ -12,7 +12,14 @@ public sealed class ContentModels
     private readonly ContentItems _items;
     private readonly Dictionary<int, string[]> _meshNames = [];
 
-    internal ContentModels(ContentItems items) => _items = items;
+    internal ContentModels(ContentItems items, AnimatorRunner animators)
+    {
+        _items = items;
+        Animators = animators;
+    }
+
+    /// <summary>The animators the game loop moves on each tick: every one started from a rig this content read.</summary>
+    internal AnimatorRunner Animators { get; }
 
     /// <summary>
     /// Picks the meshes of a cooked model that have these names, for a draw to show only those. A

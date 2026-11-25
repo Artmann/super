@@ -64,7 +64,7 @@ public class AnimationSoundTests
             var idle = TestRig.Idle();
             var rest = new AnimationClip("rest", idle.FrameRate, idle.JointCount, idle.Frames);
             var rig = new Rig(TestRig.Skeleton(), [new AnimationClip(idle.Name, idle.FrameRate, idle.JointCount, idle.Frames, setup.Cooked), rest, TestRig.Wave()]);
-            rig.Runner = content.Animators;
+            rig.Runner = content.Models.Animators;
             setup.Mark?.Invoke(rig, content);
             Controller = new AnimationController<Stance, Deed>(rig) { CrossFadeSeconds = setup.CrossFade, EventThreshold = setup.Threshold }
                 .State(Stance.Idle, rig.Clip("idle"))

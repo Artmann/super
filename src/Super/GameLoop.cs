@@ -31,7 +31,7 @@ internal abstract class GameLoop
         Input = services.GetRequiredService<Input>();
         Capture = services.GetRequiredService<GameCapture>();
         Audio = services.GetRequiredService<Audio>();
-        Content.Animators.Play = (sound, at, volume, pitchVariation) => Audio.Play(sound, at: at, volume: volume, pitchVariation: pitchVariation);
+        Content.Models.Animators.Play = (sound, at, volume, pitchVariation) => Audio.Play(sound, at: at, volume: volume, pitchVariation: pitchVariation);
         Graphics = services.GetRequiredService<Graphics>();
         Stats = services.GetRequiredService<GameStats>();
         LoopedGame = makeGame(services);

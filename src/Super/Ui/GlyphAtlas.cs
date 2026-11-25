@@ -14,7 +14,7 @@ internal sealed class GlyphAtlas
 
     private readonly StbTrueType.stbtt_fontinfo _regular = LoadFont("Inter-Regular.ttf");
     private readonly StbTrueType.stbtt_fontinfo _bold = LoadFont("Inter-Bold.ttf");
-    private readonly Dictionary<(bool Bold, int Size), UiFontFace> _faces = [];
+    private readonly Dictionary<(GameFont? Font, bool Bold, int Size), UiFontFace> _faces = [];
     private readonly UiGlyphSheet _sheet = new();
     private readonly UiLineBreaker _lines = new();
 
@@ -111,10 +111,11 @@ internal sealed class GlyphAtlas
     private UiFontFace FaceFor(in TextStyle style)
     {
         int size = Math.Max((int)MathF.Round(style.Size * Scale), 1);
-        if (!_faces.TryGetValue((style.Bold, size), out var face))
+        if (!_faces.TryGetValue((style.Font, style.Bold, size), out var face))
         {
-            face = new UiFontFace(style.Bold ? _bold : _regular, size, _sheet);
-            _faces.Add((style.Bold, size), face);
+            var font = style.Font is { } chosen ? (style.Bold ? chosen.Bold : chosen.Regular) : (style.Bold ? _bold : _regular);
+            face = new UiFontFace(font, size, _sheet);
+            _faces.Add((style.Font, style.Bold, size), face);
         }
 
         return face;

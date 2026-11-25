@@ -132,7 +132,8 @@ Assert.Equal(ShortColor, stone.Color);                   // the store is short o
 
 Each `ShownText` has the `Color` it's drawn in, including colours it inherits from
 `.Foreground` around it, with any `.Opacity` around it folded into the alpha. `Size` is
-the font size in pixels, and `Bold` its weight.
+the font size in pixels, `Bold` its weight, and `Font` the [font](interfaces.md#fonts) it's in,
+null for the built-in one.
 
 ### Finding a view
 

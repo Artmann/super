@@ -171,7 +171,8 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
 - Views draw into a `UiDrawList`, which holds the quads, the shown text and which quads are
   images. Its `UiDrawNesting` keeps the clips and opacities that wrap what's drawn now.
 - `GlyphAtlas` measures and draws text. `UiFontFace` is one font at one size and draws its
-  characters into the shared `UiGlyphSheet`, and `UiLineBreaker` wraps lines and cuts them
+  characters into the shared `UiGlyphSheet`. Faces are kept by font, weight and size, the built-in
+  Inter's under a null `GameFont`, so a game's fonts and Inter share the sheet, and `UiLineBreaker` wraps lines and cuts them
   at a line limit.
 - `UiPointer` routes mouse events between the interface and the game. `UiGestures` keeps
   what the buttons hold and drag, `UiHover` how things under the cursor look, and

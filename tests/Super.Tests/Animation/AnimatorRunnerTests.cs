@@ -23,7 +23,7 @@ public class AnimatorRunnerTests
         public void Load()
         {
             var rig = TestRig.Rig();
-            rig.Runner = content.Animators;
+            rig.Runner = content.Models.Animators;
             Animator = Start(rig);
         }
 
@@ -56,7 +56,7 @@ public class AnimatorRunnerTests
         {
             time.Scale = 0.5f;
             var rig = TestRig.Rig();
-            rig.Runner = content.Animators;
+            rig.Runner = content.Models.Animators;
             Animator = Start(rig);
         }
 

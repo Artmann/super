@@ -7,7 +7,7 @@ namespace Super.Ui;
 /// A piece of text on screen and where it landed, with its colour, size in pixels and
 /// weight. The colour is the one it's drawn in, faded by any <c>.Opacity</c> around it.
 /// </summary>
-public readonly record struct ShownText(string Text, UiRect Frame, Color Color, float Size, bool Bold);
+public readonly record struct ShownText(string Text, UiRect Frame, Color Color, float Size, bool Bold, GameFont? Font = null);
 
 /// <summary>
 /// Keeps an interface on screen: it reconciles each new description, lays out what

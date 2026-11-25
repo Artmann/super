@@ -77,7 +77,7 @@ Modifiers wrap a view, so their order usually matters.
 | `.Border(width, color)` | Draws a line inside the view's edge, following its corners |
 | `.CornerRadius(radius)` | Rounds the background, border and image, and clips what's inside |
 | `.Opacity(value)` | Fades the view and everything inside it |
-| `.Foreground(color)`, `.FontSize(pixels)`, `.Bold()` | Styles text here and everywhere inside |
+| `.Foreground(color)`, `.FontSize(pixels)`, `.Bold()`, `.Font(font)` | Styles text here and everywhere inside |
 | `.MonospacedDigit()` | Gives digits one width, so changing numbers don't jiggle |
 | `.LineLimit(lines)` | Keeps text here and everywhere inside to that many lines, ending cut text in "…" |
 | `.Id(key)` | Names a view among its siblings, and lets a test or script [find it on screen](testing.md#finding-a-view) |
@@ -295,8 +295,28 @@ layout. Each frame, the reconciler walks the new description against those nodes
   screen with a few hundred views that's fine. For something always on screen in a tight
   budget, keep the delegate in a field, so it stays equal.
 
+## Fonts
+
 The default font is [Inter](https://rsms.me/inter/), built into `Super.dll`, so text
-works with no files around.
+works with no files around. A game's own font is cooked from a `.ttf` or `.otf` file and
+named through [`content.Fonts`](content.md#fonts), and `.Font(font)` puts it on text here and
+everywhere inside, as `.Bold()` does:
+
+```csharp
+GameFont heading = content.Fonts.Font("fonts/pirata-one.ttf");
+GameFont body = content.Fonts.Font("fonts/figtree.ttf", bold: "fonts/figtree-bold.ttf");
+
+new VStack(
+    new Text("The Drowned Bell").Font(heading).FontSize(28f),
+    new Text("+3 Armor").Bold(),
+    new Text("Found on the third floor")
+).Font(body);
+```
+
+`.Bold()` draws text in the font's bold file. A font named without one has no bold, and bold
+text in it is drawn in the regular weight. Every font and size shares one 1024-pixel sheet of
+characters; a character drawn once there's no room left takes its place in the line but isn't
+seen, so keep to a few fonts and sizes.
 
 ## Showing how the game runs
 
