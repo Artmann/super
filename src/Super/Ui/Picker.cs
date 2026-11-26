@@ -33,7 +33,26 @@ public sealed record Picker<T>(string Label, T Selection, IReadOnlyList<PickerOp
             bool off = Disabled || environment.Disabled;
             var picked = Options.FirstOrDefault(IsPicked);
             UiView choices = Style == PickerStyle.Radio ? Radio(environment, off) : Segmented(environment, off);
-            return new SemanticsModifier(choices, new UiSemantics(UiRole.Picker, Label, picked?.Label) { Disabled = off });
+            var meaning = new SemanticsModifier(choices, new UiSemantics(UiRole.Picker, Label, picked?.Label) { Disabled = off });
+
+            // One stop for the whole picker: left and right pick the one beside, and Enter the next, round to the first.
+            var keys = new FocusKeys { Adjust = by => PickBeside(by, false), Activate = () => PickBeside(1, true), Disabled = off };
+            return new FocusModifier(meaning, keys);
+        }
+    }
+
+    private void PickBeside(int by, bool round)
+    {
+        if (Options.Count == 0)
+        {
+            return;
+        }
+
+        int at = Options.ToList().FindIndex(IsPicked);
+        int next = round ? (at + by + Options.Count) % Options.Count : Math.Clamp(at + by, 0, Options.Count - 1);
+        if (next != at)
+        {
+            OnChange?.Invoke(Options[next].Value);
         }
     }
 

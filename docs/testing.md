@@ -117,6 +117,22 @@ run.Input.Hold(Control.Move, new Vector2(1, 0));
 run.Ticks(1);
 ```
 
+To test a menu without the mouse, press the keys a player would and read `Focused`:
+
+```csharp
+run.Input.Press(Key.Tab);                                // the first control
+run.Ticks(2);
+run.Input.Press(Key.Tab);                                // the next one
+run.Ticks(2);
+Assert.True(run.Element("options").Focused);
+
+run.Input.Click("name");                                 // focus a text field
+run.Ticks(2);
+run.Input.Type("Ada");
+run.Ticks(2);
+Assert.Equal("Ada", run.Element("name").Value);
+```
+
 ## Checking the screen
 
 Layout and fonts are real in a headless run, so a test can check the interface the
@@ -178,8 +194,10 @@ Assert.False(music.Disabled);
 ```
 
 Each `UiElement` has a `Role` (`Button`, `Switch`, `Checkbox`, `Slider`, `Stepper`,
-`Picker`, `Option`, `ProgressBar` or `Gauge`), a `Label`, a `Value`, `Checked` for a
-switch, checkbox or a picker's option, `Disabled`, and the `Frame` it shows in. A button
+`Picker`, `Option`, `ProgressBar`, `Gauge` or `TextField`), a `Label`, a `Value`, `Checked` for a
+switch, checkbox or a picker's option, `Disabled`, `Focused` for the one focus is on, and the
+`Frame` it shows in. A text field's label is its prompt and its value the text, or dots for a
+secure field. A button
 with only an icon is named after its icon, such as "Close". A stepper's minus and plus are
 buttons of their own, and a picker lists each choice as an `Option`.
 

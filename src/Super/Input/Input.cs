@@ -1,5 +1,4 @@
 using System.Numerics;
-using System.Text;
 
 namespace Super;
 
@@ -23,8 +22,6 @@ public sealed class Input
     internal const int GamepadAxisCount = GamepadInput.AxisCount;
 
     private readonly InputTick _tick = new();
-    private readonly ButtonSet _keys = new(KeyCount);
-    private readonly StringBuilder _typing = new();
 
     public Input()
     {
@@ -51,13 +48,13 @@ public sealed class Input
     internal bool Readable { get => _tick.Readable; set => _tick.Readable = value; }
 
     /// <summary>Whether the key is held during this tick.</summary>
-    public bool Down(Key key) => _tick.Read(_keys.Down((int)key));
+    public bool Down(Key key) => _tick.Read(Keys.Buttons.Down((int)key));
 
     /// <summary>Whether the key went down since the last tick.</summary>
-    public bool Pressed(Key key) => _tick.Read(_keys.Pressed((int)key));
+    public bool Pressed(Key key) => _tick.Read(Keys.Buttons.Pressed((int)key));
 
     /// <summary>Whether the key went up since the last tick.</summary>
-    public bool Released(Key key) => _tick.Read(_keys.Released((int)key));
+    public bool Released(Key key) => _tick.Read(Keys.Buttons.Released((int)key));
 
     public bool Down(MouseButton button) => _tick.Read(Mouse.Feed.Buttons.Down((int)button));
 
@@ -76,24 +73,21 @@ public sealed class Input
     /// <summary>What hears each tick roll over: every <see cref="Actions{TControl}"/> adds itself.</summary>
     internal List<IInputListener> Listeners { get; } = [];
 
-    /// <summary>Whether the key is down right now, between ticks, for the interface to read as a press happens.</summary>
-    internal bool Held(Key key) => _keys.Physical((int)key);
+    /// <summary>The keyboard as it's fed, before a tick reads it.</summary>
+    internal KeyFeed Keys { get; } = new();
 
-    internal void KeyDown(Key key) => _keys.Press((int)key);
+    internal void KeyDown(Key key) => Keys.Down(key);
 
-    internal void KeyUp(Key key) => _keys.Release((int)key);
+    internal void KeyUp(Key key) => Keys.Up(key);
 
-    internal void TypedCharacter(char character) => _typing.Append(character);
+    internal void TypedCharacter(char character) => Keys.Typed(character);
 
     /// <summary>Turns everything that happened since the last tick into this tick's snapshot.</summary>
     internal void Roll()
     {
-        _keys.Roll();
+        Typed = Keys.Roll();
         Mouse.Roll();
         Gamepad.Roll();
-
-        Typed = _typing.Length == 0 ? string.Empty : _typing.ToString();
-        _typing.Clear();
 
         foreach (var listener in Listeners)
         {

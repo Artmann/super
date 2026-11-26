@@ -210,6 +210,31 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   `UiTree.Elements` lists, folding in the `Disabled` around them. An element's id is the
   first `.Id` on it or on the views around it that hold only it. `UiIdSearch` is the walk
   `FrameOf` uses to find a view by id.
+- Focus lives in `UiFocus`, which `UiPointer` owns. A stop is a `FocusModifier` with its
+  `FocusKeys` (what Enter does, what left and right do, and a `UiTextInput` for a text field).
+  Every control wraps itself in one, `.Focusable(...)` adds one, and `UiFocusStops` lists the
+  ones that are mounted, turned on and of some size, in layout order, skipping stops inside a
+  stop. `UiFocusMark` holds the focused node and whether its ring shows; the ring is drawn
+  round the node's frame, always for a text field and otherwise once a key has moved focus.
+  Tab walks the list. An arrow picks a stop whose middle lies that way. Stops in line, overlapping it sideways,
+  always win over the rest, so an arrow follows a row past a locked control rather than
+  stepping into the next row. Among them it scores the gap plus twice how far a stop misses
+  sideways, with a hundredth of the sideways drift to break ties.
+- Keys reach the game through `KeyFeed`. `GameLoop` turns `Routes` on, so the window's key
+  downs, ups, repeats and typed characters wait in `Events` in order. Once a tick, before
+  the clicks, `UiFocus.PumpKeys` reads them: a key it uses is taken, and the key's up is
+  taken with it, so the game sees no part of a press; everything else is applied to the
+  `ButtonSet` as it would have been without routing. Repeats only ever re-press a taken key.
+  The gamepad can't be queued that way, as it's polled, so `UiFocus` reads its buttons
+  before the tick rolls and calls `ButtonSet.Take` on the ones it uses, which hides the press
+  until the button is let go. The left stick and d-pad go through `UiPadRepeat`, which moves
+  at once, after 0.4 s and then every 0.1 s, counted in ticks so it replays exactly, and
+  `GamepadInput.LeftStickTaken` centres the stick for the game while focus is on.
+- A text field keeps a `UiTextEdit` (the text, caret and anchor, in UTF-16 indexes kept off the
+  middle of a surrogate pair) in its `TextFieldMemory` state. `UiTextKeys` turns a key into a
+  new edit, and `UiTextInput.Apply` queues one `OnChange` a tick with the text as it ends up.
+  Copy and paste go through `KeyFeed.Clipboard`, which only holds the text in a headless run,
+  so tests never touch the system's clipboard.
 
 ## Audio mixer
 

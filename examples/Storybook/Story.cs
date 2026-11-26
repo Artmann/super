@@ -67,6 +67,8 @@ public static class Stories
         new("Controls", "Pickers", "One choice from several, segmented or as radio buttons.", Controls.Pickers),
         new("Controls", "Progress", "How far along a task is, as a bar or a ring.", Controls.Progress),
         new("Controls", "Gauges", "A reading on a scale, as a ring or a bar.", Controls.Gauges),
+        new("Keyboard and gamepad", "Text fields", "A line of text to type, plain or secure.", Typing.TextFields),
+        new("Keyboard and gamepad", "Focus", "Moving between controls with the keys, the d-pad or the stick.", Typing.Focus),
     ];
 
     /// <summary>The story with this id. An unknown id throws, listing the ones there are.</summary>

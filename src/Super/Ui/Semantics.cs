@@ -19,6 +19,9 @@ public enum UiRole
 
     ProgressBar,
     Gauge,
+
+    /// <summary>A text field. Its label is the prompt and its value the text, or dots for a secure field.</summary>
+    TextField,
 }
 
 /// <summary>
@@ -58,6 +61,9 @@ public sealed record UiElement
 
     /// <summary>Where it shows, in interface units.</summary>
     public UiRect Frame { get; init; }
+
+    /// <summary>Whether it has focus, so Enter, the arrows and the gamepad act on it.</summary>
+    public bool Focused { get; init; }
 }
 
 internal sealed record SemanticsModifier(UiView Child, UiSemantics Meaning) : Modifier(Child);
@@ -65,7 +71,8 @@ internal sealed record SemanticsModifier(UiView Child, UiSemantics Meaning) : Mo
 /// <summary>Reads the controls on screen from the tree.</summary>
 internal static class UiElements
 {
-    public static void Collect(UiNode node, List<UiElement> found)
+    /// <summary>Adds the controls at and below this node. <paramref name="focused"/> is the one focus is on, from <see cref="FocusedOf"/>.</summary>
+    public static void Collect(UiNode node, List<UiElement> found, UiNode? focused)
     {
         if (node.View is SemanticsModifier { Meaning: var meaning })
         {
@@ -78,6 +85,7 @@ internal static class UiElements
                 Checked = meaning.Checked,
                 Disabled = meaning.Disabled || node.Environment.Disabled,
                 Frame = PrimitiveView.ShownArea(node),
+                Focused = node == focused,
             });
         }
 
@@ -85,10 +93,17 @@ internal static class UiElements
         {
             if (child is not null)
             {
-                Collect(child, found);
+                Collect(child, found, focused);
             }
         }
     }
+
+    /// <summary>
+    /// The control focus is on: the first one described inside the focused view, as a picker holds its options, or
+    /// else the nearest one round it, as a button is described round what it presses.
+    /// </summary>
+    public static UiNode? FocusedOf(UiNode? focus) =>
+        focus is null ? null : UiFocusStops.Below<SemanticsModifier>(focus) ?? UiPointerSearch.Find<SemanticsModifier>(focus);
 
     /// <summary>The control with this id. It throws if none has it, listing the ids there are, or if more than one has it.</summary>
     public static UiElement Find(IReadOnlyList<UiElement> elements, object id)
