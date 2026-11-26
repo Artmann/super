@@ -127,6 +127,8 @@ public readonly record struct Cell(int X, int Z) : IGridCell<Cell>
 
     static Cell IGridCell<Cell>.FromPair(int a, int b) => new(a, b);
 
+    static int IGridCell<Cell>.Steps(Cell a, Cell b) => Chebyshev(a, b);
+
     private static int Nearest(int from, int to, float t, float nudge) =>
         (int)MathF.Round(from + (to - from) * t + nudge, MidpointRounding.AwayFromZero);
 }

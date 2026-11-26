@@ -145,4 +145,6 @@ public readonly record struct Hex(int Q, int R) : IGridCell<Hex>
     (int A, int B) IGridCell<Hex>.Pair => (Q, R);
 
     static Hex IGridCell<Hex>.FromPair(int a, int b) => new(a, b);
+
+    static int IGridCell<Hex>.Steps(Hex a, Hex b) => Distance(a, b);
 }

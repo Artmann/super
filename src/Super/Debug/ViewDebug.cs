@@ -53,7 +53,7 @@ public sealed class ViewDebug : DebugCanvas
         _draws.Clear();
     }
 
-    private protected override bool Showing(string? channel) => channel is null || Channels?.Shows(channel) == true;
+    internal override bool Showing(string? channel) => channel is null || Channels?.Shows(channel) == true;
 
     private protected override void Add(in DebugLine line)
     {

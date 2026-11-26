@@ -106,7 +106,7 @@ public sealed class DebugDraw : DebugCanvas, ITickHook
         }
     }
 
-    private protected override bool Showing(string? channel) => channel is null || _shown.Contains(channel);
+    internal override bool Showing(string? channel) => channel is null || _shown.Contains(channel);
 
     private protected override void Add(in DebugLine line) => _lines.Add((line, _time.Tick + 1));
 
@@ -115,7 +115,7 @@ public sealed class DebugDraw : DebugCanvas, ITickHook
     /// <summary>A canvas that keeps its shapes for some ticks.</summary>
     private sealed class Kept(DebugDraw owner, long ticks) : DebugCanvas
     {
-        private protected override bool Showing(string? channel) => owner.Showing(channel);
+        internal override bool Showing(string? channel) => owner.Showing(channel);
 
         private protected override void Add(in DebugLine line) => owner._lines.Add((line, owner._time.Tick + ticks));
 

@@ -114,6 +114,7 @@ those with none for `null`. Shapes in hidden channels aren't there. Labels also 
 
 - Shapes are lines: there are no filled shapes, and spheres and capsules are outlines.
 - Labels are always 13 points in the interface's default font; there's no size or font of their own.
-- There's no grid shape yet.
+- Grids have their own overlays, `Grid`, `GridLabels`, `GridHeat` and `Cells`, described
+  in [grids](grids.md#seeing-a-grid-while-you-work).
 - Debug shapes have no switch in the graphics settings. They're off until a channel is shown,
   and shapes with no channel always draw.

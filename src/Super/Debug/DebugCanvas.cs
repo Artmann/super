@@ -190,7 +190,7 @@ public abstract class DebugCanvas
     }
 
     /// <summary>Whether shapes in this channel are drawn. Shapes with no channel always are.</summary>
-    private protected abstract bool Showing(string? channel);
+    internal abstract bool Showing(string? channel);
 
     private protected abstract void Add(in DebugLine line);
 

@@ -32,6 +32,7 @@
     <Project Path="examples/Skylark/Skylark.csproj" />
     <Project Path="examples/Reef/Reef.csproj" />
     <Project Path="examples/Rooms/Rooms.csproj" />
+    <Project Path="examples/Plots/Plots.csproj" />
     <Project Path="examples/Shapes/Shapes.csproj" />
     <Project Path="examples/Terrain/Terrain.csproj" />
     <Project Path="examples/Toon/Toon.csproj" />
