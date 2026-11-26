@@ -22,7 +22,7 @@ public sealed class LineGpuTests(GpuFixture gpu, ITestOutputHelper output)
     public void A_line_shows_in_full_over_the_sky_and_a_quarter_of_it_behind_a_wall()
     {
         int errors = gpu.ValidationErrors;
-        using var wall = Wall();
+        using var wall = TestWall.RightHalf(gpu);
 
         // Ten metres away, so behind the wall on the right. At y = 0 it crosses the middle of the picture.
         LineDraw[] lines = [Line(new Vector3(-6f, 0f, -10f), new Vector3(6f, 0f, -10f), hidden: 0.25f)];
@@ -34,10 +34,10 @@ public sealed class LineGpuTests(GpuFixture gpu, ITestOutputHelper output)
         var bare = At(plain, 0.8f, 0.5f);
         output.WriteLine($"Over the sky {TestPixels.Show(sky)}, behind the wall {TestPixels.Show(behind)}, the wall alone {TestPixels.Show(bare)}.");
 
-        AssertNear(new Vector3(255f, 0f, 0f), sky, 2f, "a red line over the sky");
+        TestPixels.AssertNear(new Vector3(255f, 0f, 0f), sky, 2f, "a red line over the sky");
         // A quarter of red laid over the wall in linear light.
         var expected = ToScreen((ToLinear(bare) * 0.75f) + new Vector3(0.25f, 0f, 0f));
-        AssertNear(expected, behind, 4f, "a red line behind the wall");
+        TestPixels.AssertNear(expected, behind, 4f, "a red line behind the wall");
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -45,7 +45,7 @@ public sealed class LineGpuTests(GpuFixture gpu, ITestOutputHelper output)
     public void A_line_in_front_of_the_wall_and_one_on_top_show_in_full()
     {
         int errors = gpu.ValidationErrors;
-        using var wall = Wall();
+        using var wall = TestWall.RightHalf(gpu);
 
         // One three metres away, in front of the wall, along the middle; one behind it but on top, lower down.
         LineDraw[] lines =
@@ -60,8 +60,8 @@ public sealed class LineGpuTests(GpuFixture gpu, ITestOutputHelper output)
         var onTop = At(drawn, 0.8f, 0.75f);
         output.WriteLine($"In front {TestPixels.Show(inFront)}, on top {TestPixels.Show(onTop)}.");
 
-        AssertNear(new Vector3(255f, 0f, 0f), inFront, 2f, "a line in front of the wall");
-        AssertNear(new Vector3(255f, 0f, 0f), onTop, 2f, "a line on top behind the wall");
+        TestPixels.AssertNear(new Vector3(255f, 0f, 0f), inFront, 2f, "a line in front of the wall");
+        TestPixels.AssertNear(new Vector3(255f, 0f, 0f), onTop, 2f, "a line on top behind the wall");
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -77,7 +77,7 @@ public sealed class LineGpuTests(GpuFixture gpu, ITestOutputHelper output)
 
         var onLine = At(drawn, 0.283f, 0.608f);
         output.WriteLine($"On the line {TestPixels.Show(onLine)}.");
-        AssertNear(new Vector3(255f, 0f, 0f), onLine, 2f, "the line four metres in front");
+        TestPixels.AssertNear(new Vector3(255f, 0f, 0f), onLine, 2f, "the line four metres in front");
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -85,12 +85,6 @@ public sealed class LineGpuTests(GpuFixture gpu, ITestOutputHelper output)
         new() { From = from, To = to, Width = Thick, Color = Red, Hidden = hidden };
 
     private Vector3 At(byte[] pixels, float across, float down) => TestPixels.Around(pixels, _wide, across, down);
-
-    private static void AssertNear(Vector3 expected, Vector3 actual, float steps, string what)
-    {
-        float most = MathF.Max(MathF.Abs(expected.X - actual.X), MathF.Max(MathF.Abs(expected.Y - actual.Y), MathF.Abs(expected.Z - actual.Z)));
-        Assert.True(most <= steps, $"For {what} expected {TestPixels.Show(expected)} but got {TestPixels.Show(actual)}.");
-    }
 
     // A screen colour of 0 to 255 in the sRGB curve, as linear light from 0 to 1, and back.
     private static Vector3 ToLinear(Vector3 screen) => new(Linear(screen.X / 255f), Linear(screen.Y / 255f), Linear(screen.Z / 255f));
@@ -104,11 +98,8 @@ public sealed class LineGpuTests(GpuFixture gpu, ITestOutputHelper output)
     // A couple of frames first, then the one read back, with every effect off so nothing moves the lines' colour.
     private byte[] Render(DrawItem[] draws, LineDraw[] lines)
     {
-        var view = TestSky.View(Size, -Vector3.UnitZ, Vector3.Normalize(new Vector3(0.3f, 0.5f, 0.8f))) with { Off = RenderEffects.All };
+        var view = TestSky.Bare(Size);
         view.Extras.Lines = lines;
         return TestSky.Capture(gpu, view, draws, 2, out _wide);
     }
-
-    // A grey wall from x = 0 to 8, five metres away, covering the right half of the picture.
-    private TestWall Wall() => new(gpu, Matrix4x4.CreateScale(8f, 40f, 0.1f) * Matrix4x4.CreateTranslation(4f, 0f, -5f));
 }

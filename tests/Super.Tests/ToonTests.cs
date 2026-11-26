@@ -81,11 +81,11 @@ public class ToonTests
         var view = new View();
         view.Begin(0f);
         view.Effects.Outlines(new Vector3(1f, 0f, 0f), thickness: 3f, fadeStart: 5f, fadeEnd: 8f);
-        Assert.Equal(new OutlineSettings(new Vector3(1f, 0f, 0f), 3f, 5f, 8f), view.Effects.OutlineSettings);
+        Assert.Equal(new OutlineSettings(new Vector3(1f, 0f, 0f), 3f, 5f, 8f), view.Effects.Look.Outlines);
 
         view.Begin(0.1f);
 
-        Assert.Equal(new OutlineSettings(Vector3.Zero, 1.5f, 30f, 60f), view.Effects.OutlineSettings);
+        Assert.Equal(new OutlineSettings(Vector3.Zero, 1.5f, 30f, 60f), view.Effects.Look.Outlines);
     }
 
     [Fact]

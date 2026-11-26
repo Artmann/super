@@ -291,17 +291,84 @@ of its channel, and a shown one allocates nothing once its labels have been seen
 
 ![The same scene with only the outlines, then with the coordinates and the heat map too](media/grid-debug-channels.webp)
 
-The [Plots](../examples/Plots) example has a building grid, a farm grid, a raised and
-turned deck and a hex field. The mouse picks a cell on whichever grid it's over, and G,
-L and H show and hide the three channels.
+The [Plots](../examples/Plots) example has a building grid over a mound, a farm grid, a
+raised and turned deck and a hex field. The mouse picks a cell on whichever grid it's
+over, and G, L and H show and hide the three channels, which start hidden.
 
 Like the rest of debug drawing these are lines, so a heat map's colour is drawn as
-rings inside each cell, not a solid fill.
+rings inside each cell, not a solid fill. For a fill the player sees, use the overlays
+below.
+
+## Showing a grid to the player
+
+`view.Overlays` lays grid lines and filled cells onto the ground, as a building game
+shows its grid, the cell under the mouse or where a unit can walk. They're part of the
+game's look, not debug shapes: there are no channels, and they show until you stop
+drawing them. Like everything in `Draw`, they last for one frame.
+
+```csharp
+public void Draw(View view)
+{
+    // Lines round the 25 cells near the middle, strongest round the mouse.
+    view.Overlays.Grid(build, new Cell(2, 2), 2, new GridLines(new Color(1f, 1f, 1f, 0.75f))
+    {
+        Focus = mousePoint,
+        FocusRadius = 7f,
+    });
+
+    // Where a walker can go, filled in with a border round the edge.
+    view.Overlays.Cells(field, reachable.Keys, new CellFill(new Color(0.3f, 0.8f, 1f, 0.3f)));
+
+    // The cell under the mouse.
+    view.Overlays.Cell(build, hovered, new CellFill(Color.Yellow with { A = 0.35f }));
+}
+```
+
+`Grid` draws the lines of every cell within some steps of a centre, a square of them on
+a square grid and a big hexagon on a hex grid. `GridLines` sets their colour and
+`Width` in metres, 4 cm by default. With a `Focus`, a point in the world, the lines are
+strongest there and fade out over `FocusRadius` metres, so a big grid shows only round
+the mouse. Leave the focus null for lines all over.
+
+`Cells` fills any cells, such as a path, a footprint or the keys of a `Reachable`
+answer, and `Cell` fills one. `CellFill` fades the fill in over `Softness` metres from
+the edge of the cells and runs a `Border` that wide inside it, in `BorderColor`, which
+is the fill's colour made solid unless you set it. Cells next to each other fill as one
+shape, with no lines between them.
+
+![The Plots example with debug outlines, then with grid lines, the walker's reach and the hovered cell drawn for the player](media/grid-overlays.webp)
+
+An overlay isn't a flat sheet at the grid's height. It reads where the scene's surfaces
+are and draws on them, so it lies over hills and steps, like the build grid on the mound
+above, and moves with a grid that moves. `Depth` sets how far above and below the grid
+it reaches, a metre by default. Lower it where something else stands close over the
+grid, as the Plots deck does so its grid doesn't reach the ground under it. Surfaces
+that turn away from the grid's up, such as walls, take less of it and none past 60
+degrees. Colours are written as you'd pick them on screen and aren't lit, so they read
+the same in any light.
+
+Overlays work on a `SquareGrid` or a `HexGrid`, and a `LayeredGrid`'s layers are
+those. A frame can draw 64 of them, so put cells that look the same in one call. All
+the cells of a frame's overlays fit in about two million, counting the gaps between
+each one's farthest cells, since each one covers the rectangle round its cells. Drawing
+them each frame allocates nothing once the lists have grown.
+
+In the Plots example the grids are drawn this way, the hovered cell is filled, and O
+shows and hides them.
+
+Some things to know about how they look:
+
+- They draw over glass and water, which the depth doesn't see.
+- A character standing in the overlay's depth gets the overlay on it too. Lower the
+  depth to keep it off them.
+- Below render scale 1 their edges are as blocky as the scene's depth.
+- The edge of a raised thing, such as a step, can show a one-pixel staircase in the
+  lines.
 
 ## What's not here yet
 
-- Overlays for players, such as a filled cell under the mouse or a build preview, which
-  is issue #33.
+- A build preview of the model itself. Draw it with `view.Model` and a `Ghost`, and fill
+  its footprint's cells with `Cells`.
 - Tile maps of modular pieces on a grid, which is issue #32.
 - `GridMap` has no dense form for small bounded maps. The chunked one does both.
 - `Reachable` has no rule against cutting a corner past a wall when it steps across

@@ -16,7 +16,7 @@ that doesn't exist yet; everything else works today.
 | [Transitions](transitions.md) | Fades, dissolves, wipes, irises and camera blends, in play and between shots |
 | [Tweens and curves](tweens.md) | Easings, curves drawn by key or in JSON, tweens, sequences and groups |
 | [Splines](splines.md) | Paths for rails, roads and patrols: asking where, following, camera rails and meshes along them |
-| [Grids](grids.md) | Square and hex grids: cells under a point or the mouse, neighbours, distances, lines, ranges, rings and turning |
+| [Grids](grids.md) | Square and hex grids: cells under a point or the mouse, neighbours, distances, lines, ranges, rings and turning, and drawing them for the player |
 | [Interfaces](interfaces.md) | `Super.Ui`: views, modifiers, layout, colours, state and the mouse |
 | [Input](input.md) | Actions, bindings and the raw `Input` service |
 | [Audio](audio.md) | Sounds, music, channel volumes and ambiences |

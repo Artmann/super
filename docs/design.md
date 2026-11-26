@@ -1188,6 +1188,7 @@ BloomPass     fullscreen x 9   -> glow, by shrinking and regrowing the image
 exposure_*.comp compute x 2     -> with auto exposure, a histogram of the lit frame, then the adapted exposure in a buffer
 TonemapPass   fullscreen       -> display colour (white balance, colour grade, AgX or ACES)
 FinishPass    fullscreen       -> swapchain, with sharpening, a transition, vignette, grain and dither
+GridOverlayPass 36 x overlays -> grid lines and filled cells laid on the scene over the swapchain; see "Grid overlays"
 LinePass      6 x lines        -> debug lines over the swapchain, faint where the scene hides them; see "Debug lines"
 ```
 
@@ -1264,6 +1265,49 @@ fully with `OnTop`. A little slack (0.4% of the depth with perspective, about 2 
 orthographic) keeps a line drawn along a surface, and the half-pixel jitter TAA left in the
 depth, from flickering behind it. Colours are sRGB as written and turned linear in the shader,
 then blended premultiplied like the overlay.
+
+### Grid overlays
+
+Grids drawn for the player ([grids.md](grids.md)) reach the renderer as
+`FrameExtras.GridOverlays`, a span of `GridOverlayDraw`s, and `FrameExtras.GridCells`, the
+bits of the cells they cover. Each overlay names a window of cells, `Columns` by `Rows` from
+its `First` cell, whose bits run row by row, 32 to a word, from word `Start`. A frame holds
+at most 64 overlays (`GridOverlayBatch.MaxOverlays`) and 65,536 words, about two million
+cells (`MaxCellWords`). Super's `ViewOverlays` builds both from the cells a game names, with
+each window the smallest one round its cells, so a far-flung pair of cells costs the whole
+rectangle between them.
+
+`GridOverlayPass` draws them in the finish stage after `FinishPass`, under the debug lines,
+so like them they skip grading, TAA and the tonemap, and they stay unlit. `GridOverlayBatch`
+checks each overlay and works out a box on the grid round its window's cells, with a margin
+for the lines on their outer edges, reaching `Depth` above and below the grid. Each overlay is
+one instance of a 36-vertex cube stretched over that box, drawn with front faces culled, so
+it still covers the screen when the camera is inside it. `grid_overlay.frag` reads the
+scene's depth at its pixel, takes the point back onto the grid through `FromClip`, and
+discards sky, points outside the box and anything beyond the depth. It finds the point's
+cell and how far it lies in from each edge as `SquareGrid` and `HexGrid` do, with a hex
+rounded in cube coordinates like `Hex.Round`, and reads the bits of the cell and of each
+neighbour across an edge. Lines run along every edge of a covered cell; the fill fades in
+over `Softness` from edges where the covered cells end, and the border runs inside those
+edges. A square checks its four corners too, so lines meeting at a corner are capped and an
+inside corner of the fill turns square.
+
+The surface's facing and how much of the grid one pixel covers come from the depth of the
+neighbouring pixels, not from screen derivatives. For each axis the shader takes the nearer
+of the pixel before and the one after, since at the edge of something the other is whatever
+lies behind it, and derivatives there leave a dotted rim. A surface facing more than 45
+degrees from the grid's up fades the overlay out by 60, and the last fifth of the depth
+fades too. A pixel's footprint softens every edge by one pixel, held to at most 16 times
+the footprint on a surface facing the camera, so a surface seen almost edge on keeps its
+lines. Colours are sRGB as written, made linear in the shader and blended premultiplied.
+
+Because they read the scene's depth, overlays lie on anything in their box: the ground,
+a raised deck, a character standing in it. They draw over glass and water, which write no
+depth. The depth is at the scene size, so below render scale 1 their edges are as blocky
+as the scene's, and the unantialiased edge of a raised thing leaves a one-pixel staircase.
+The pass has its own descriptor pool and per-frame buffers for the overlays and the cell
+words. `SceneMarks` holds it with `LinePass` and gives both the one depth set they read,
+from the shared `DescriptorKit` pool.
 
 ### Motion vectors
 

@@ -25,11 +25,11 @@ internal sealed unsafe class LinePass : IDisposable
     private (int Frame, int Lines) _drawn;
     private Matrix4x4 _viewProjection;
 
-    public LinePass(VulkanContext context, DescriptorKit kit, Format targetFormat, int framesInFlight)
+    /// <summary>Lines that read the scene's depth through <paramref name="depth"/>, which <see cref="SceneMarks"/> keeps pointed at it.</summary>
+    public LinePass(VulkanContext context, (DescriptorSetLayout Layout, DescriptorSet Set) depth, Format targetFormat, int framesInFlight)
     {
         _context = context;
-        var depthLayout = kit.OneTextureLayout;
-        _depth = kit.NewSet(depthLayout);
+        _depth = depth.Set;
         _buffers = new GpuBuffer[framesInFlight];
         _capacities = new int[framesInFlight];
         for (int i = 0; i < framesInFlight; i++)
@@ -39,7 +39,7 @@ internal sealed unsafe class LinePass : IDisposable
         }
 
         _layout = context.CreatePipelineLayout(
-            [depthLayout], new PushConstantRange(ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit, 0, (uint)sizeof(LineConstants)));
+            [depth.Layout], new PushConstantRange(ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit, 0, (uint)sizeof(LineConstants)));
         _pipeline = CreatePipeline(context, _layout, targetFormat);
     }
 
@@ -68,10 +68,6 @@ internal sealed unsafe class LinePass : IDisposable
 
         lines.CopyTo(new Span<LineDraw>(_buffers[frameIndex].Mapped, _capacities[frameIndex]));
     }
-
-    /// <summary>Points the lines at the scene's depth, which they read to show faintly behind it.</summary>
-    public void WriteSet(Sampler nearest, ImageView depth) =>
-        ImageSets.Write(_context, _depth, [new(nearest, depth, ImageLayout.DepthReadOnlyOptimal)]);
 
     /// <summary>
     /// Draws the lines uploaded last over <paramref name="target"/>, a picture already in the colour attachment

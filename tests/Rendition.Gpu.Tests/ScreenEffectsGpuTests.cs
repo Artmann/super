@@ -58,9 +58,9 @@ public sealed class ScreenEffectsGpuTests(GpuFixture gpu, ITestOutputHelper outp
 
         // Worked in linear light: half a white flash takes each channel c to 1 - (1 - c) / 2, half a fade to black to c / 2.
         var linear = ToLinear(plain);
-        AssertNear(ToScreen(Vector3.One - ((Vector3.One - linear) * 0.5f)), flashed, 3f, "half a white flash");
-        AssertNear(ToScreen(linear * 0.5f), faded, 3f, "half a fade to black");
-        AssertNear(new Vector3(255f, 0f, 0f), red, 2f, "a full fade to red");
+        TestPixels.AssertNear(ToScreen(Vector3.One - ((Vector3.One - linear) * 0.5f)), flashed, 3f, "half a white flash");
+        TestPixels.AssertNear(ToScreen(linear * 0.5f), faded, 3f, "half a fade to black");
+        TestPixels.AssertNear(new Vector3(255f, 0f, 0f), red, 2f, "a full fade to red");
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -94,9 +94,9 @@ public sealed class ScreenEffectsGpuTests(GpuFixture gpu, ITestOutputHelper outp
 
         // An edge tint shows half as much again at the very corners as at the edges' middles, so half of green there
         // covers three quarters of the red under it: (0.25, 0.75, 0) in linear light.
-        AssertNear(new Vector3(255f, 0f, 0f), redCorner, 3f, "a full red edge's corner");
-        AssertNear(ToScreen(new Vector3(0.25f, 0.75f, 0f)), bothCorner, 3f, "half a green edge over a full red one");
-        AssertNear(Middle(plainPicture), Middle(bothPicture), 1f, "the middle under two edge tints");
+        TestPixels.AssertNear(new Vector3(255f, 0f, 0f), redCorner, 3f, "a full red edge's corner");
+        TestPixels.AssertNear(ToScreen(new Vector3(0.25f, 0.75f, 0f)), bothCorner, 3f, "half a green edge over a full red one");
+        TestPixels.AssertNear(Middle(plainPicture), Middle(bothPicture), 1f, "the middle under two edge tints");
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -120,7 +120,7 @@ public sealed class ScreenEffectsGpuTests(GpuFixture gpu, ITestOutputHelper outp
         Assert.True(blue > 8f, $"Fringes moved a square's blue by only {blue:F2} steps.");
         // Green is read in place: what's left is the wall's edge stepping a little between frames.
         Assert.True(green <= 3f, $"Fringes moved a square's green by {green:F2} steps.");
-        AssertNear(Middle(plain), Middle(fringed), 1f, "the middle under fringes");
+        TestPixels.AssertNear(Middle(plain), Middle(fringed), 1f, "the middle under fringes");
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -145,10 +145,10 @@ public sealed class ScreenEffectsGpuTests(GpuFixture gpu, ITestOutputHelper outp
         var middle = Middle(plain);
         Assert.True(Vector3.Distance(blurredTop, middle) < Vector3.Distance(plainTop, middle) - 2f,
             $"Blur from the middle took the top from {TestPixels.Show(plainTop)} to {TestPixels.Show(blurredTop)}, not towards {TestPixels.Show(middle)}.");
-        AssertNear(middle, Middle(blurred), 1f, "the middle under a blur from the middle");
+        TestPixels.AssertNear(middle, Middle(blurred), 1f, "the middle under a blur from the middle");
 
         // From the top, the top stays and the bottom smears up the picture instead of towards its middle.
-        AssertNear(plainTop, fromTopTop, 1f, "the top under a blur from the top");
+        TestPixels.AssertNear(plainTop, fromTopTop, 1f, "the top under a blur from the top");
         Assert.True(Vector3.Distance(fromTopBottom, plainBottom) > 3f, $"Blur from the top left the bottom at {TestPixels.Show(fromTopBottom)}.");
         Assert.True(Vector3.Distance(fromTopBottom, blurredBottom) > 3f,
             $"Blur from the top and from the middle both left the bottom at {TestPixels.Show(fromTopBottom)}.");
@@ -174,12 +174,12 @@ public sealed class ScreenEffectsGpuTests(GpuFixture gpu, ITestOutputHelper outp
         output.WriteLine($"Plain {TestPixels.Show(Pixel(plain, x, y))}; full {TestPixels.Show(Pixel(full, x, y))} {TestPixels.Show(Pixel(full, x + 2, y))}; "
             + $"half {TestPixels.Show(Pixel(half, x + 2, y))}; wide {TestPixels.Show(Pixel(wide, 16, y))} {TestPixels.Show(Pixel(wide, 48, y))}.");
 
-        AssertNear(Pixel(plain, x, y), Pixel(full, x, y), 2f, "a white column of the paper");
+        TestPixels.AssertNear(Pixel(plain, x, y), Pixel(full, x, y), 2f, "a white column of the paper");
         Assert.True(TestPixels.Brightness(Pixel(full, x + 2, y)) < 2f, $"A black column at full strength is {TestPixels.Show(Pixel(full, x + 2, y))}.");
-        AssertNear(ToScreen(ToLinear(Pixel(plain, x + 2, y)) * 0.5f), Pixel(half, x + 2, y), 3f, "a black column at half strength");
+        TestPixels.AssertNear(ToScreen(ToLinear(Pixel(plain, x + 2, y)) * 0.5f), Pixel(half, x + 2, y), 3f, "a black column at half strength");
 
         // 64 pixels a tile: the first 32 are white and the next 32 black.
-        AssertNear(Pixel(plain, 16, y), Pixel(wide, 16, y), 2f, "the white half of a 64 pixel tile");
+        TestPixels.AssertNear(Pixel(plain, 16, y), Pixel(wide, 16, y), 2f, "the white half of a 64 pixel tile");
         Assert.True(TestPixels.Brightness(Pixel(wide, 48, y)) < 2f, $"The black half of a 64 pixel tile is {TestPixels.Show(Pixel(wide, 48, y))}.");
         Assert.Equal(errors, gpu.ValidationErrors);
     }
@@ -212,7 +212,7 @@ public sealed class ScreenEffectsGpuTests(GpuFixture gpu, ITestOutputHelper outp
         // Up to 3 steps is the wall's edge stepping a little between frames.
         Assert.True(group <= 3f, $"With the group switch off the screen effects still moved a square by {group:F2} steps.");
         Assert.True(each <= 3f, $"With their own switches off the fringes, blur and flash still moved a square by {each:F2} steps.");
-        AssertNear(new Vector3(0f, 0f, 255f), fadeKept, 2f, "a full blue fade with the group switch off");
+        TestPixels.AssertNear(new Vector3(0f, 0f, 255f), fadeKept, 2f, "a full blue fade with the group switch off");
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -240,12 +240,6 @@ public sealed class ScreenEffectsGpuTests(GpuFixture gpu, ITestOutputHelper outp
     {
         int at = (y * _wide + x) * 4;
         return new Vector3(pixels[at], pixels[at + 1], pixels[at + 2]);
-    }
-
-    private static void AssertNear(Vector3 expected, Vector3 actual, float steps, string what)
-    {
-        float most = MathF.Max(MathF.Abs(expected.X - actual.X), MathF.Max(MathF.Abs(expected.Y - actual.Y), MathF.Abs(expected.Z - actual.Z)));
-        Assert.True(most <= steps, $"For {what} expected {TestPixels.Show(expected)} but got {TestPixels.Show(actual)}.");
     }
 
     // A screen colour of 0 to 255 in the sRGB curve, as linear light from 0 to 1, and back.

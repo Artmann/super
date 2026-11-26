@@ -28,5 +28,9 @@ internal sealed class TestWall : IDisposable
 
     public DrawItem[] Draws { get; }
 
+    // A wall from x = 0 to 8, five metres away, covering the right half of a picture looking down -Z.
+    public static TestWall RightHalf(GpuFixture gpu) =>
+        new(gpu, Matrix4x4.CreateScale(8f, 40f, 0.1f) * Matrix4x4.CreateTranslation(4f, 0f, -5f));
+
     public void Dispose() => _gpu.Renderer.Assets.DestroyMesh(_cube);
 }

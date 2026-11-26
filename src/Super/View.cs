@@ -22,8 +22,6 @@ public sealed class View
 
     internal Camera Shot { get; private set; }
 
-    internal UiTree? Ui { get; set; }
-
     /// <summary>
     /// What the game named, so drawing something it unloaded fails where the mistake is, and the world this view
     /// draws, so <see cref="ViewPlacement.TransformOf"/> can find an entity.
@@ -53,6 +51,9 @@ public sealed class View
 
     /// <summary>Lines, shapes and labels for seeing what the game thinks, for this frame only. See docs/debugging.md.</summary>
     public ViewDebug Debug { get; } = new();
+
+    /// <summary>Grids and cells laid onto the ground for the player, such as a build grid or a selection. See docs/grids.md.</summary>
+    public ViewOverlays Overlays { get; } = new();
 
     /// <summary>Everything drawn so far this frame.</summary>
     public ReadOnlySpan<ModelDraw> Drawn => CollectionsMarshal.AsSpan(_models);
@@ -235,6 +236,7 @@ public sealed class View
         Surroundings.Clear();
         Effects.Clear();
         Debug.Clear();
+        Overlays.Clear();
         Camera(new Vector3(0f, 0f, 5f), Vector3.Zero);
     }
 }
