@@ -111,9 +111,13 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view) : IUiReco
             primitive.Emit(this, draw);
         }
 
+        // A popup is drawn above the whole tree, not in its place.
         foreach (var child in Children)
         {
-            child?.Emit(draw);
+            if (child is { View: not LayerView })
+            {
+                child.Emit(draw);
+            }
         }
 
         (View as PrimitiveView)?.EmitAfter(this, draw);

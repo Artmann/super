@@ -1,6 +1,7 @@
 using System.Numerics;
 using Super.Testing;
 using Super.Ui;
+using static Super.Tests.Ui.PointerGame;
 
 namespace Super.Tests.Ui;
 
@@ -11,18 +12,6 @@ public sealed class FocusTests
 
     private static UiView Corner(UiView view) =>
         view.Frame(width: 300f).Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);
-
-    private static void Press(HeadlessRun<PointerGame> run, Key key)
-    {
-        run.Input.Press(key);
-        run.Ticks(2);
-    }
-
-    private static void Press(HeadlessRun<PointerGame> run, GamepadButton button)
-    {
-        run.Input.Press(button);
-        run.Ticks(2);
-    }
 
     private static object? FocusedId(HeadlessRun<PointerGame> run) => run.Elements.SingleOrDefault(element => element.Focused)?.Id;
 

@@ -261,11 +261,11 @@ around it.
 
 | Control | Choices |
 | --- | --- |
-| `Button` | `Style`: `Default` (filled with the primary colour, for the main action), `Secondary`, `Outline`, `Ghost`, `Destructive` and `Link`. `Icon` puts an icon before the label, and with an empty label it's a square icon button |
+| `Button` | `Style`: `Default` (filled with the primary colour, for the main action), `Secondary`, `Outline`, `Ghost`, `Destructive` and `Link`. `Icon` puts an icon before the label, and with an empty label it's a square icon button. `FullWidth` stretches it across its row with the label in the middle |
 | `Toggle` | `Style`: `Switch`, which fills its row with the label at the start, or `Checkbox`, a box before the label. Clicking the label toggles it too |
 | `Slider` | `Min`, `Max` and `Step`. A press on the track jumps there, and dragging follows the cursor even off the track. `Label` names it for tests |
 | `Stepper` | `Min`, `Max` and `Step`. Each button turns off at its end of the range |
-| `Picker<T>` | `Style`: `Segmented`, side by side with the picked one raised, or `Radio`, one under the other |
+| `Picker<T>` | `Style`: `Segmented`, side by side with the picked one raised, `Radio`, one under the other, or `Menu`, a button showing the picked one that opens a menu with it checked |
 | `ProgressView` | `Style`: `Linear` or `Circular`. A bar with a label shows the percentage beside it, and a ring shows it inside |
 | `Gauge` | `Style`: `Circular` or `Linear`, `Tint` for its own colour, and `ValueLabel` for the reading shown in place of the number |
 
@@ -375,6 +375,66 @@ and Escape leave it, and Enter calls `OnSubmit` first. Inside the field:
 Characters below a space are dropped. A field that's `Disabled`, or inside `.Disabled()`,
 fades and can't be focused.
 
+## Popups
+
+Menus, popovers, sheets, alerts and confirmation dialogs open over everything else. Each is
+declared on the view it belongs to, so it reads the state round it and takes its theme. Keep
+whether it's open in your game, as with a control's value, and set it back when it closes:
+
+```csharp
+new Button("Delete save", () => asking = true) { Style = ButtonStyle.Destructive }
+    .Alert(asking, () => asking = false, new Dialog("Delete this save?", "You can't undo this.")
+    {
+        Buttons =
+        [
+            new DialogButton("Cancel", null, DialogRole.Cancel),
+            new DialogButton("Delete", () => saves.Delete(slot), DialogRole.Destructive),
+        ],
+    })
+```
+
+| Popup | What it is | Closes with |
+| --- | --- | --- |
+| `Menu` | A button that opens a list of `MenuItem`s under it | Picking a row, a click outside, Escape or East |
+| `.ContextMenu(items)` | The same list, where the player right-clicks the view or holds a finger on it | The same |
+| `.Popover(open, onDismiss, content)` | A small card under the view, or above it when there's no room below | A click outside, Escape or East |
+| `.Sheet(open, onDismiss, content)` | A card in the middle of the screen over a scrim, for a form | A click on the scrim, Escape or East |
+| `.Alert(open, onDismiss, dialog)` | A question in the middle of the screen, with its buttons in a row | Only its buttons. Escape and East press Cancel, or the only button |
+| `.ConfirmationDialog(open, onDismiss, dialog)` | A choice of actions at the bottom of the screen, one under the other, with Cancel apart | Its buttons, and a click outside, Escape and East press Cancel |
+
+A `MenuItem` has an `Icon`, a `Shortcut` shown at its trailing edge (the game still handles the
+key), and can be `Destructive`, `Disabled` or `Checked`. `MenuItem.Divider` draws a line between
+groups. A `DialogButton` is `Default`, `Cancel` or `Destructive`, and an alert with no buttons has
+an OK. Picking a row or a button runs its action and then `onDismiss`, on the tick like a click.
+
+While a popup is open, it takes the pointer: a click outside it closes it, or does nothing for an
+alert, and never reaches what's under it. Tab, the arrows and the d-pad stay inside it. It opens
+with focus on its `.DefaultFocus()`, the checked row of a menu, or a dialog's last ordinary button
+(Cancel when the only other one is destructive), and when it closes, focus goes back to the
+control that opened it.
+
+Toasts are short notes in the bottom corner that leave on their own. Make one `Toasts`, put it on
+the root of the interface, and show a toast from anywhere in the game:
+
+```csharp
+var toasts = new Toasts();
+
+UiView Ui => new GameScreen(world).Toasts(toasts);
+
+void Saved(int slot) => toasts.Show(new Toast("Game saved", $"Slot {slot}") { Icon = IconName.Check });
+```
+
+Each shows for four seconds, or the seconds you pass, and a click or tap takes it away sooner.
+`MaxShown`, three by default, is how many show at once, and another one lets the oldest go.
+Toasts don't take the pointer or focus, so the game under them keeps working. Their time only runs
+while the interface updates.
+
+Tests find popups in `run.Elements` like any control: a menu's rows have `UiRole.MenuItem`, a
+dialog `UiRole.Dialog` with its message as its `Value`, and a toast `UiRole.Toast`. A `Menu` is
+`Checked` while it's open.
+
+![The storybook's menu, open under its button](media/ui-popups.webp)
+
 ## The storybook
 
 The [Storybook example](../examples/Storybook) shows every element on its own and in its
@@ -383,7 +443,8 @@ to open one page. The `buttons`, `toggles`, `sliders`, `steppers`, `pickers`, `p
 and `gauges` stories keep their values, so you can try each control, and `text-fields` and
 `focus` show typing and moving with the keys. The `focus` and `typing` input scripts play
 those for a shot, with `--story focus --script focus`. The `touch` story and script show taps,
-long presses and flings.
+long presses and flings. The `menus`, `dialogs`, `sheets` and `toasts` stories have every popup,
+and the `menu`, `context`, `alert`, `confirm`, `sheet`, `popover` and `toasts` scripts open them.
 
 ![The storybook's shapes page in the dark theme](media/storybook.webp)
 
@@ -526,7 +587,7 @@ needs to change to support it:
 | A tap | Clicks what's under it, as a click would. A text field it lands on takes focus |
 | A drag on a `ScrollView` | Moves it with the finger, and a quick one flings it on until it slows |
 | A drag on a slider | Follows the finger |
-| Holding still for half a second | Runs `.OnLongPress(...)` |
+| Holding still for half a second | Runs `.OnLongPress(...)`, or opens a `.ContextMenu(...)` where the finger is |
 
 A finger shows what it holds as pressed while it stays on it, and lifting it off there is no tap,
 just as with a button. Once a finger has moved more than a few pixels, the drag goes to the
@@ -717,4 +778,6 @@ stops repeating.
 
 Touch is read on Windows only, and only tried with scripts so far, not on a real touch screen.
 A finger can't drag and drop, there's no pinch or rotate, and a long press is for fingers only.
-Text fields are one line only, and menus, sheets and dialogs aren't built in yet.
+Text fields are one line only. Menus have no submenus, a context menu has no key to open it from
+the keyboard or the gamepad, toasts have no buttons of their own, and popups appear and leave at
+once, with no animation.

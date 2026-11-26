@@ -163,8 +163,21 @@ sample or per draw keeps an enum on the object and decides once per block, not p
 
 The interface code in `src/Super/Ui` splits into small parts with one job each:
 
-- `UiTree` keeps the root node and the two overlay nodes (the drag preview and the
-  tooltip), and runs layout when something changed.
+- `UiTree` keeps the root node and its `UiLayers`, and runs layout when something changed.
+  `UiLayers` holds the two overlay nodes (the drag preview and the tooltip) and the popups
+  open this layout.
+- A popup is a `PopupModifier` with a `LayerView` child node, mounted like any other child
+  so its state lives with the view that opened it. While the tree is placed, the modifier
+  hands that node to `UiLayers.Open`, and once the tree is placed `UiLayers.Show` places each
+  popup on the whole screen (a popup opened inside one joins the end of the list) and draws
+  them above the tree, trapping ones first and toasts last. `UiNode.Emit` skips `LayerView`
+  children, so a popup isn't drawn twice. `LayerView` answers `PassesPointer`, so the tree's
+  own hit test passes over it; `UiLayers.Hit` tries the toasts, then the top trapping popup
+  through `LayerView.HitInside`, which tries the popup's content and then its backdrop (the
+  scrim, or the clear screen round a menu, whose click dismisses it), and only reaches the tree when nothing traps.
+  `UiPointerSearch.Up` stops at a `LayerView`, so a click inside a popup never runs a handler
+  of the view it hangs off. Toasts age in `UiLayers.Tick`, which `UiPointer` calls once a
+  tick with the tick's length, so a run replays.
 - `UiNode` is one place in the tree. `UiChildren` pairs a node's new child views with its
   old children. `UiBodyHooks` holds a component's states and the states its last Body
   read: a `State<T>` tells each reader's hooks when it changes. A scroll view's position
@@ -214,7 +227,11 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   `FocusKeys` (what Enter does, what left and right do, and a `UiTextInput` for a text field).
   Every control wraps itself in one, `.Focusable(...)` adds one, and `UiFocusStops` lists the
   ones that are mounted, turned on and of some size, in layout order, skipping stops inside a
-  stop. `UiFocusMark` holds the focused node and whether its ring shows; the ring is drawn
+  stop. While a popup traps, the list holds only the stops inside it. `UiFocusTrap` notes
+  which node had focus when each trapping popup opened, moves focus into the popup (onto its
+  `DefaultFocus`, which a dialog puts on its Cancel button, or else its first stop), and hands
+  focus back to that node when the popup closes, if it's still there. Escape and East go to
+  `UiFocusTrap.Back`, which runs the top popup's dismiss. `UiFocusMark` holds the focused node and whether its ring shows; the ring is drawn
   round the node's frame, always for a text field and otherwise once a key has moved focus.
   Tab walks the list. An arrow picks a stop whose middle lies that way. Stops in line, overlapping it sideways,
   always win over the rest, so an arrow follows a row past a locked control rather than

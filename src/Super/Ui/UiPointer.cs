@@ -37,6 +37,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
         }
 
         _hover.Tick();
+        tree.Layers.Tick(1f / ticksPerSecond);
         input.Mouse.Feed.PendingMouseOverUi = _uiHeld != 0 || (_gameHeld == 0 && !input.Mouse.Locked && Hit() is not null);
     }
 
@@ -110,7 +111,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     /// <summary>Draws the drag preview and the tooltip, above everything.</summary>
     public void ShowOverlays() => tree.ShowOverlays(_gestures.Preview, _hover.Tooltip(_uiHeld != 0), _position);
 
-    private UiNode? Hit() => _inWindow ? tree.Root?.Hit(_position.X, _position.Y) : null;
+    private UiNode? Hit() => _inWindow ? tree.Hit(_position.X, _position.Y) : null;
 
     private void Moved(Vector2 position)
     {
@@ -136,6 +137,13 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
 
         _uiHeld |= bit;
         _hover.HideTip();
+        // A right press opens a context menu where it is, as it does on a desktop.
+        if (button == MouseButton.Right && UiPointerSearch.Find<ContextModifier>(hit) is { View: ContextModifier menu, Environment.Disabled: false })
+        {
+            var at = _position;
+            _callbacks.Add(() => menu.Open(at));
+        }
+
         _gestures.Press(hit, button, _position);
     }
 

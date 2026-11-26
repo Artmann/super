@@ -56,6 +56,9 @@ public sealed record Button(string Label, Action? OnClick = null, bool Disabled 
 
     public IconName? Icon { get; init; }
 
+    /// <summary>Whether it stretches across the width it's offered, as the buttons of a dialog do, with its label in the middle.</summary>
+    public bool FullWidth { get; init; }
+
     public override UiView Body
     {
         get
@@ -66,7 +69,7 @@ public sealed record Button(string Label, Action? OnClick = null, bool Disabled 
             bool off = Disabled || environment.Disabled;
             var button = new Pressable(
                 look => Face(look, theme, metrics)
-                    .Frame(minWidth: Label.Length == 0 ? metrics.Height : null, minHeight: Style == ButtonStyle.Link ? null : metrics.Height)
+                    .Frame(maxWidth: FullWidth ? UiExtensions.Infinity : null, minWidth: Label.Length == 0 ? metrics.Height : null, minHeight: Style == ButtonStyle.Link ? null : metrics.Height)
                     .Background(Fill(theme.Colors, look))
                     .Border(Style == ButtonStyle.Outline ? 1f : 0f, theme.Colors.Input)
                     .CornerRadius(theme.Radius)

@@ -22,6 +22,18 @@ public enum UiRole
 
     /// <summary>A text field. Its label is the prompt and its value the text, or dots for a secure field.</summary>
     TextField,
+
+    /// <summary>A button that opens a menu. It's checked while the menu is open.</summary>
+    Menu,
+
+    /// <summary>One item in an open menu. It's checked when it shows a check, as the picked one in a picker's menu does.</summary>
+    MenuItem,
+
+    /// <summary>An alert or a confirmation dialog. Its label is the title and its value the message.</summary>
+    Dialog,
+
+    /// <summary>A toast. Its label is the title and its value the message.</summary>
+    Toast,
 }
 
 /// <summary>
@@ -133,7 +145,8 @@ internal static class UiElements
                 return identity;
             }
 
-            if (at.Parent is { Children.Count: > 1 })
+            // A popup isn't more of the control it hangs off.
+            if (at.Parent is { Children.Count: > 1, View: not PopupModifier })
             {
                 return null;
             }

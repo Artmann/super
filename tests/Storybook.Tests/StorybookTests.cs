@@ -126,7 +126,7 @@ public sealed class StorybookTests
         var error = Assert.Throws<ArgumentException>(() => Stories.Find("tables"));
 
         Assert.StartsWith("There's no story \"tables\". The stories are typography, colours,", error.Message);
-        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus, touch.", error.Message);
+        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus, touch, menus, dialogs, sheets, toasts.", error.Message);
     }
 
     /// <summary>Clicks a control this far across it, halfway down, and lets the click land.</summary>
@@ -247,5 +247,62 @@ public sealed class StorybookTests
 
         Assert.True(run.FrameOf("quest-1").Y < top - 400f, $"The swipe should fling the list well on, but quest 1 went from {top} to {run.FrameOf("quest-1").Y}.");
         Assert.True(Shows(run, "Picked: Ravens over the keep. Pinned: A crown of reeds."));
+    }
+
+    [Theory]
+    [InlineData("menus", "menu", "Ctrl+S")]
+    [InlineData("menus", "context", "Compare")]
+    [InlineData("dialogs", "alert", "Delete this save?")]
+    [InlineData("dialogs", "confirm", "Quit to the title screen?")]
+    [InlineData("sheets", "sheet", "Hardcore")]
+    [InlineData("sheets", "popover", "Running and blocking use it.")]
+    [InlineData("toasts", "toasts", "The drowned bell: find the diver.")]
+    public void Each_popup_script_opens_its_popup(string story, string script, string onlyInThePopup)
+    {
+        using var run = Open(new StoryChoice(story));
+        Assert.False(Shows(run, onlyInThePopup), $"\"{onlyInThePopup}\" shouldn't show before the script runs.");
+
+        run.Play(run.Game.Scripts[script]);
+        run.Ticks(20);
+
+        Assert.True(Shows(run, onlyInThePopup), $"The {script} script should open a popup showing \"{onlyInThePopup}\".");
+    }
+
+    [Fact]
+    public void The_menus_story_picks_from_its_menu_with_the_keys()
+    {
+        using var run = Open(new StoryChoice("menus"));
+        Click(run, "game-menu");
+
+        Press(run, Key.Down);
+        Press(run, Key.Down);
+        Press(run, Key.Enter);
+
+        Assert.True(Shows(run, "Picked: save."));
+    }
+
+    [Fact]
+    public void The_dialogs_story_keeps_the_save_when_escape_cancels()
+    {
+        using var run = Open(new StoryChoice("dialogs"));
+        Click(run, "delete-save");
+
+        Press(run, Key.Escape);
+
+        Assert.True(Shows(run, "The save was kept."));
+        Assert.DoesNotContain(run.Elements, element => element.Role == UiRole.Dialog);
+    }
+
+    [Fact]
+    public void The_toasts_story_counts_its_saves_and_lets_them_go_after_four_seconds()
+    {
+        using var run = Open(new StoryChoice("toasts"));
+        Click(run, "save-toast");
+        Click(run, "save-toast");
+        Assert.Equal(["Slot 1 · save 1", "Slot 1 · save 2"], run.Elements.Where(element => element.Role == UiRole.Toast).Select(element => element.Value));
+
+        run.Ticks(4 * 30);
+
+        Assert.DoesNotContain(run.Elements, element => element.Role == UiRole.Toast);
     }
 }

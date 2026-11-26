@@ -17,9 +17,6 @@ public readonly record struct ShownText(string Text, UiRect Frame, Color Color, 
 public sealed class UiTree
 {
     private readonly UiDrawList _draw = new();
-
-    // The drag preview and the tooltip, which float above everything.
-    private readonly UiNode?[] _overlays = new UiNode?[2];
     private (int Width, int Height) _screen;
     private bool _layoutWanted;
 
@@ -34,6 +31,9 @@ public sealed class UiTree
 
     /// <summary>The view on screen, as the last update left it.</summary>
     internal UiNode? Root { get; private set; }
+
+    /// <summary>The popups open above the tree, and the drag preview and tooltip above those.</summary>
+    internal UiLayers Layers => field ??= new UiLayers(this);
 
     /// <summary>
     /// How many pixels one unit of the interface covers. At 2, text, padding and frames are
@@ -68,7 +68,7 @@ public sealed class UiTree
     public void Update(UiView? view, int width, int height)
     {
         var root = Root;
-        bool changed = Mount(ref root, view) | (width, height) != _screen | _layoutWanted;
+        bool changed = UiLayers.Mount(this, ref root, view) | (width, height) != _screen | _layoutWanted;
         Root = root;
         _screen = (width, height);
         if (changed)
@@ -93,8 +93,8 @@ public sealed class UiTree
             UiIdSearch.Collect(Root, id, found, ids);
         }
 
-        // The drag preview and the tooltip, as the last frame showed them.
-        foreach (var overlay in _overlays)
+        // The drag preview and the tooltip, as the last frame showed them. Popups are in the tree already.
+        foreach (var overlay in Layers.Overlays)
         {
             if (overlay is not null)
             {
@@ -137,13 +137,13 @@ public sealed class UiTree
     internal void ShowOverlays(UiView? dragged, UiView? tooltip, Vector2 cursor)
     {
         _draw.TrimToTree();
-        if (Overlay(0, dragged) is { } preview)
+        if (Layers.Overlay(0, dragged) is { } preview)
         {
             preview.Place(UiOverlaySpots.Centered(preview.Measure(default), cursor));
             preview.Emit(_draw);
         }
 
-        if (Overlay(1, tooltip) is { } tip)
+        if (Layers.Overlay(1, tooltip) is { } tip)
         {
             var screen = new UiSize(_screen.Width / Scale, _screen.Height / Scale);
             tip.Place(UiOverlaySpots.Beside(tip.Measure(default), cursor, screen));
@@ -164,42 +164,13 @@ public sealed class UiTree
     /// <summary>Writes the texture of each image quad, which only the renderer knows.</summary>
     internal void BindImages(Func<GameImage, int> textureIndex) => _draw.BindImages(textureIndex);
 
-    /// <summary>
-    /// Brings the node in a slot up to date with a view: the same node when the view's type
-    /// is the same, a new one when it isn't, and none for no view. Returns whether anything changed.
-    /// </summary>
-    private bool Mount(ref UiNode? node, UiView? view)
-    {
-        if (view is null)
-        {
-            bool had = node is not null;
-            node?.Unmount();
-            node = null;
-            return had;
-        }
-
-        if (node is not null && node.View.GetType() == view.GetType())
-        {
-            return node.Update(view, UiEnvironment.Default);
-        }
-
-        node?.Unmount();
-        node = new UiNode(this, null, view);
-        node.Update(view, UiEnvironment.Default);
-        return true;
-    }
-
-    private UiNode? Overlay(int slot, UiView? view)
-    {
-        Mount(ref _overlays[slot], view);
-        var node = _overlays[slot];
-        node?.ForgetLayout();
-        return node;
-    }
+    /// <summary>What the pointer touches at this point, in interface units: an open popup first, then the tree.</summary>
+    internal UiNode? Hit(float x, float y) => Layers.Hit(x, y);
 
     private void Layout()
     {
         _draw.Clear();
+        Layers.Clear();
         if (Root is null)
         {
             return;
@@ -211,6 +182,7 @@ public sealed class UiTree
         var screen = new UiRect(0f, 0f, wide, high);
         Root.Place(screen.Align(Root.Measure(new Proposal(wide, high)), Alignment.Center));
         Root.Emit(_draw);
+        Layers.Show(_draw, screen);
         _draw.EndTree();
     }
 }
