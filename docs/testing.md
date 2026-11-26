@@ -133,6 +133,20 @@ run.Ticks(2);
 Assert.Equal("Ada", run.Element("name").Value);
 ```
 
+Fingers work the same way. Give each finger a number to have two down at once:
+
+```csharp
+run.Input.Tap("quest-3");                                // down and up in one tick
+run.Ticks(2);
+
+run.Input.TouchDown(new Vector2(40, 90));                // a drag in a list
+run.Ticks(1);
+run.Input.TouchMove(new Vector2(40, 30));
+run.Ticks(1);
+run.Input.TouchUp();                                     // or TouchCancel(), which never taps
+run.Ticks(1);
+```
+
 ## Checking the screen
 
 Layout and fonts are real in a headless run, so a test can check the interface the

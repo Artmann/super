@@ -126,7 +126,7 @@ public sealed class StorybookTests
         var error = Assert.Throws<ArgumentException>(() => Stories.Find("tables"));
 
         Assert.StartsWith("There's no story \"tables\". The stories are typography, colours,", error.Message);
-        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus.", error.Message);
+        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus, touch.", error.Message);
     }
 
     /// <summary>Clicks a control this far across it, halfway down, and lets the click land.</summary>
@@ -234,5 +234,18 @@ public sealed class StorybookTests
         typing.Ticks(30);
         Assert.Equal("Ada Lovelace", typing.Element("name").Value);
         Assert.Equal(new string('•', 7), typing.Element("password").Value);
+    }
+
+    [Fact]
+    public void The_touch_script_flings_the_quests_then_picks_one_and_pins_another()
+    {
+        using var run = Open(new StoryChoice("touch"));
+        float top = run.FrameOf("quest-1").Y;
+
+        run.Play(run.Game.Scripts["touch"]);
+        run.Ticks(80);
+
+        Assert.True(run.FrameOf("quest-1").Y < top - 400f, $"The swipe should fling the list well on, but quest 1 went from {top} to {run.FrameOf("quest-1").Y}.");
+        Assert.True(Shows(run, "Picked: Ravens over the keep. Pinned: A crown of reeds."));
     }
 }

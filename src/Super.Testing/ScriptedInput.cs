@@ -101,6 +101,31 @@ public sealed class ScriptedInput
         Press(MouseButton.Left);
     }
 
+    /// <summary>Puts a finger down here, in the pixels the interface lays itself out in, until <see cref="TouchUp"/>.</summary>
+    public void TouchDown(Vector2 position, int finger = 0) => Queue(input => input.Touches.Feed.Down(finger, position));
+
+    /// <summary>Moves a finger that's down to here.</summary>
+    public void TouchMove(Vector2 position, int finger = 0) => Queue(input => input.Touches.Feed.Moved(finger, position));
+
+    public void TouchUp(int finger = 0) => Queue(input => input.Touches.Feed.Up(finger));
+
+    /// <summary>The system taking a finger away, as when a system gesture starts. It lifts without tapping.</summary>
+    public void TouchCancel(int finger = 0) => Queue(input => input.Touches.Feed.Cancelled(finger));
+
+    /// <summary>A finger down here and up again before the next tick.</summary>
+    public void Tap(Vector2 position)
+    {
+        TouchDown(position);
+        TouchUp();
+    }
+
+    /// <summary>Taps the middle of the view given this id with <see cref="UiExtensions.Id"/>, looked up on the next tick.</summary>
+    public void Tap(object id)
+    {
+        Queue((input, ui) => input.Touches.Feed.Down(0, ui.ScreenMiddle(id)));
+        TouchUp();
+    }
+
     public void Scroll(float notches) => Queue(input => input.Mouse.Feed.Scrolled(notches));
 
     public void Type(string text) => Queue(input =>
