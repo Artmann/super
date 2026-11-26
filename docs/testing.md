@@ -48,6 +48,7 @@ in parallel, because Super keeps no global state, so this fits in a pull request
 | `run.ShownText` | Every piece of text the interface showed, with where it landed, its colour, size and weight. Text cut by a [line limit](interfaces.md#text-that-doesnt-fit) ends in "…" |
 | `run.Debug` | The [debug shapes](debugging.md#in-tests) the last frame drew, as lines and labels, with `Count(channel)` |
 | `run.FrameOf(id)` | Where the view given `.Id(id)` was laid out, so a test can [find it](#finding-a-view) |
+| `run.Elements`, `run.Element(id)` | The [controls on screen](#reading-controls), with what each is, its label, the state it shows and where it is |
 | `run.Play(script)` | Plays an [`InputScript`](command-line.md#scripted-input), such as one of the game's own, from the next tick |
 | `run.ScreenSize` | The size the interface was laid out for |
 | `run.States<T>()` | The [game states](states.md), to read or jump to |
@@ -158,6 +159,34 @@ views share, throws and says which ids are on screen. Ids inside a tooltip or a 
 preview are found too, while it shows. Hover long enough for the tooltip to appear,
 about half a second of ticks, before asking. The same `.Id` also keeps a view's
 state when its siblings move, so give each one a different id among its siblings.
+
+### Reading controls
+
+Every built-in control says what it is, so a test can read the interface by meaning
+instead of by pixels. `run.Elements` lists the controls on screen, in the order they're
+laid out, and `run.Element(id)` finds the one given `.Id(id)`:
+
+```csharp
+run.Ticks(1);
+var volume = run.Element("volume");
+Assert.Equal(UiRole.Slider, volume.Role);
+Assert.Equal("0.7", volume.Value);                       // numbers in invariant text
+
+var music = Assert.Single(run.Elements, element => element.Role == UiRole.Switch && element.Label == "Music");
+Assert.True(music.Checked);
+Assert.False(music.Disabled);
+```
+
+Each `UiElement` has a `Role` (`Button`, `Switch`, `Checkbox`, `Slider`, `Stepper`,
+`Picker`, `Option`, `ProgressBar` or `Gauge`), a `Label`, a `Value`, `Checked` for a
+switch, checkbox or a picker's option, `Disabled`, and the `Frame` it shows in. A button
+with only an icon is named after its icon, such as "Close". A stepper's minus and plus are
+buttons of their own, and a picker lists each choice as an `Option`.
+
+`Element` throws when no control has the id, listing the ids there are, and when more than
+one has it. The id belongs to a control when it's on the control or on views that hold
+only it, such as its `.Frame(...)`. An id on a stack of several controls belongs to none of
+them. Your own views join the list with [`.Semantics(...)`](interfaces.md#controls-of-your-own).
 
 To check the 3D world, look through `run.Drawn`:
 

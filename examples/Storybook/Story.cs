@@ -56,11 +56,17 @@ public static class Stories
         new("Foundations", "Shapes", "Shapes fill the space they're offered, filled or stroked.", Foundations.Shapes),
         new("Foundations", "Gradients", "Linear and radial gradients, for backgrounds and shapes.", Foundations.Gradients),
         new("Foundations", "Icons", "Line icons that take the size and colour of the text around them.", Foundations.Icons),
-        new("Elements", "Buttons", "A button in each control size, turned off, and in a group turned off.", Elements.Buttons),
         new("Elements", "Badges", "Short tags for counts, statuses and rarities.", Elements.Badges),
         new("Elements", "Labels", "Text with an icon before it.", Elements.Labels),
         new("Elements", "Dividers", "A line across a stack, either way.", Elements.Dividers),
         new("Elements", "Key hints", "Keycaps for prompts and shortcuts.", Elements.KeyHints),
+        new("Controls", "Buttons", "Six styles, icons, control sizes, and turned off alone or in a group.", Controls.Buttons),
+        new("Controls", "Toggles", "Switches and checkboxes for settings that are on or off.", Controls.Toggles),
+        new("Controls", "Sliders", "A number picked by dragging, smoothly or in steps.", Controls.Sliders),
+        new("Controls", "Steppers", "A whole number with minus and plus.", Controls.Steppers),
+        new("Controls", "Pickers", "One choice from several, segmented or as radio buttons.", Controls.Pickers),
+        new("Controls", "Progress", "How far along a task is, as a bar or a ring.", Controls.Progress),
+        new("Controls", "Gauges", "A reading on a scale, as a ring or a bar.", Controls.Gauges),
     ];
 
     /// <summary>The story with this id. An unknown id throws, listing the ones there are.</summary>

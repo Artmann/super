@@ -119,6 +119,12 @@ public sealed class HeadlessRun<TGame> : IDisposable
     /// </summary>
     public UiRect FrameOf(object id) => _host.Ui.FrameOf(id);
 
+    /// <summary>Every control on screen, by what it means. See <see cref="UiTree.Elements"/>.</summary>
+    public IReadOnlyList<UiElement> Elements => _host.Ui.Elements;
+
+    /// <summary>The control with this id. It throws if none has it, listing the ids there are, or if more than one has it.</summary>
+    public UiElement Element(object id) => UiElements.Find(_host.Ui.Elements, id);
+
     /// <summary>
     /// Plays a script, such as one from the game's <see cref="IGame.Scripts"/>, as
     /// <c>--script</c> does, starting on the next tick. It replaces any script still playing.

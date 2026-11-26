@@ -15,6 +15,7 @@ internal sealed class UiGestures(UiTree tree, Input input)
 
     private LeftHold? _hold;
     private PointerDrag? _drag;
+    private Action? _slide;
 
     /// <summary>What a moving drag shows under the cursor.</summary>
     public UiView? Preview => (_drag as MovingDrag)?.Floating;
@@ -39,6 +40,13 @@ internal sealed class UiGestures(UiTree tree, Input input)
             return;
         }
 
+        if (button == MouseButton.Left && UiPointerSearch.Slidable(hit) is { } slider)
+        {
+            _hold = new SlideHold(slider);
+            OweSlide(slider, position);
+            return;
+        }
+
         // What's under the cursor now is what counts, whatever the tree turns into while it's held.
         if (button == MouseButton.Left)
         {
@@ -54,6 +62,12 @@ internal sealed class UiGestures(UiTree tree, Input input)
         if (_hold is ThumbHold { Bar: { View: ScrollView view } thumb } held)
         {
             return UiScrolling.ScrollTo(tree, thumb, view.BarOf(thumb).OffsetFor(position, held.Grab));
+        }
+
+        if (_hold is SlideHold { Slider: var slider })
+        {
+            OweSlide(slider, position);
+            return false;
         }
 
         if (_drag is ArmedDrag armed && Vector2.Distance(position, armed.DownAt) >= DragThreshold)
@@ -100,7 +114,7 @@ internal sealed class UiGestures(UiTree tree, Input input)
     /// <summary>Lets go of what left the tree. What a drag carried may be gone too, so a drag doesn't outlive where it came from.</summary>
     public void ForgetUnmounted()
     {
-        if (_hold is ClickHold { Node.Mounted: false } or ThumbHold { Bar.Mounted: false })
+        if (_hold is ClickHold { Node.Mounted: false } or ThumbHold { Bar.Mounted: false } or SlideHold { Slider.Mounted: false })
         {
             _hold = null;
         }
@@ -130,6 +144,26 @@ internal sealed class UiGestures(UiTree tree, Input input)
         }
 
         return (leftHeld ? null : UiPointerSearch.Clickable(hit), false);
+    }
+
+    /// <summary>
+    /// Takes the slide owed since the last tick. Only the latest counts, so a slider moved through many
+    /// places between ticks is told once, where it ended up.
+    /// </summary>
+    public Action? TakeSlide()
+    {
+        var slide = _slide;
+        _slide = null;
+        return slide;
+    }
+
+    private void OweSlide(UiNode slider, Vector2 position)
+    {
+        if (slider.View is SlideModifier view)
+        {
+            float fraction = view.Fraction(slider, position.X);
+            _slide = () => view.Slide(fraction);
+        }
     }
 
     /// <summary>What a drag carries is settled at the press, by the button and the keys held then.</summary>
@@ -165,6 +199,9 @@ internal sealed class UiGestures(UiTree tree, Input input)
 
     /// <summary>A press on something clickable. Its click is kept from the press, so it stays with what was pressed.</summary>
     private sealed record ClickHold(UiNode Node, Action? Click) : LeftHold;
+
+    /// <summary>A slider, which follows the cursor until the button lets go.</summary>
+    private sealed record SlideHold(UiNode Slider) : LeftHold;
 
     /// <summary>A scroll bar's thumb, held this far from its top.</summary>
     private sealed record ThumbHold(UiNode Bar, float Grab) : LeftHold;

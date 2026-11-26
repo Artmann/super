@@ -3,27 +3,9 @@ using static StorybookExample.Layout;
 
 namespace StorybookExample;
 
-/// <summary>The stories for the small elements: buttons, badges, labels, dividers and key hints.</summary>
+/// <summary>The stories for the small elements: badges, labels, dividers and key hints.</summary>
 internal static class Elements
 {
-    public static UiView Buttons() => Page(
-        new Specimen(
-            "Control sizes",
-            "Small, regular and large, set for everything inside with .ControlSize(...).",
-            Row(
-                16f,
-                new Button("Small", Clicked).ControlSize(ControlSize.Small),
-                new Button("Regular", Clicked),
-                new Button("Large", Clicked).ControlSize(ControlSize.Large))),
-        new Specimen(
-            "Turned off",
-            "A button turned off fades and lets nothing happen, but still blocks the mouse.",
-            Row(16f, new Button("Save"), new Button("Save", Disabled: true))),
-        new Specimen(
-            "A group turned off",
-            ".Disabled() turns off every control inside it, and further in can't turn them back on.",
-            Row(12f, new Button("Back"), new Button("Next"), new Button("Finish").Disabled(false)).Disabled()));
-
     public static UiView Badges() => Page(
         new Specimen(
             "Styles",
@@ -105,8 +87,4 @@ internal static class Elements
                 Row(6f, new Text("Save"), new Spacer().Frame(width: 4f), new KeyHint("Ctrl"), new Text("+").Foreground(Tone.Muted), new KeyHint("S")),
                 Row(8f, new Text("Hold"), new KeyHint("Shift"), new Text("to run")),
             }));
-
-    private static void Clicked()
-    {
-    }
 }

@@ -61,7 +61,13 @@ Interface code runs on the CPU only. Layout and text are real in headless runs, 
 | `ListView<T>(items, row, selected, onSelect)` | A scrolling list of rows you can hover and pick |
 | `Grid(columns, columnGap, rowGap)` | Children in equal columns, wrapping onto new rows |
 | `Pressable(look => view, onClick)` | Anything clickable, drawn from whether it's hovered or pressed |
-| `Button("Craft", onClick, Disabled: true)` | A ready-made `Pressable` with a label |
+| `Button("Craft", onClick, Disabled: true)` | A ready-made `Pressable` with a label. See [Controls](#controls) |
+| `Toggle("Music", on, set)` | A switch, or a checkbox with `Style = ToggleStyle.Checkbox` |
+| `Slider(value, set, min, max)` | Picks a number by dragging, smoothly or in `Step`s |
+| `Stepper("Players", count, set, min, max)` | A whole number with minus and plus buttons |
+| `Picker<T>("Difficulty", picked, options, set)` | One of a few `PickerOption`s, segmented or as radio buttons |
+| `ProgressView("Loading", done, total)` | How far along something is, as a bar or a ring |
+| `Gauge("Health", value, min, max)` | A reading on a scale, as a ring open at the bottom or a bar |
 | `Rectangle`, `RoundedRectangle(radius)`, `Capsule`, `Circle`, `Ellipse` | A shape that fills the space it's offered. See [Shapes](#shapes) |
 | `Arc(start, sweep, thickness)` | Part of a ring, for progress rings, cooldowns and gauges |
 | `new Icon(IconName.Search)` | A line icon, sized and coloured like the text around it |
@@ -100,6 +106,8 @@ Modifiers wrap a view, so their order usually matters.
 | `.Draggable(payload, preview)`, `.DropTarget<T>(onDrop, canDrop)` | Lets the mouse carry a value from one view to another |
 | `.Draggable(start => payload, payload => preview)` | Chooses what to carry at the press, from the button and the Shift, Control and Alt keys held (`DragStart`), or null not to drag. On a Mac, Cmd counts as Control, since Ctrl with a click means a right-click there |
 | `.IgnoresPointer()` | Lets the mouse through, like CSS's `pointer-events: none` |
+| `.OnSlide(fraction => ..., inset)` | Follows the left button held on the view, with how far across it the cursor is, for [controls of your own](#controls-of-your-own) |
+| `.Semantics(role, label, value, isChecked)` | Says what a view of your own means, so tests [read it like a built-in control](testing.md#reading-controls) |
 
 ### The box
 
@@ -161,7 +169,7 @@ The colours are in `theme.Colors`, and the shadows in `theme.Shadows`:
 | `Surface`, `Raised` | Panels and cards, and what floats above them, such as menus |
 | `Muted`, `MutedForeground` | Quiet fills such as a slider's track, and text that matters less |
 | `Hover` | A row or quiet button under the pointer |
-| `Primary`, `Secondary`, `Destructive`, each with a `...Foreground` | Buttons and badges, and the text on them |
+| `Primary`, `Secondary`, `Destructive`, each with a `...Foreground` | Buttons and badges, and the text on them. `Primary` also fills a switch that's on, the filled part of a slider, and progress |
 | `Success`, `Warning` | Statuses |
 | `Border`, `Input`, `Ring` | Lines between things, the edge of a field, and the focus ring |
 | `Scrim` | Laid over the game behind a dialog |
@@ -230,11 +238,66 @@ new Arc(Start: 0f, Sweep: cooldown, Thickness: 3f).Frame(width: 32f, height: 32f
 An `Arc` runs clockwise from the top. Its start and sweep are fractions of a turn, so
 `new Arc(0f, 0.25f)` is the top right quarter.
 
+## Controls
+
+The controls show the value they're given and tell you when the player changes it, as
+React's controlled inputs do. Keep the value in your game, pass it in, and store what
+`OnChange` hands back. The change runs on the next tick, just before `Update`, like a click:
+
+```csharp
+new VStack(HorizontalAlignment.Leading, 12f)
+{
+    new Toggle("Subtitles", settings.Subtitles, on => settings.Subtitles = on),
+    new Slider(settings.Volume, volume => settings.Volume = volume) { Label = "Volume" },
+    new Slider(settings.Fov, fov => settings.Fov = fov, 60f, 120f) { Step = 5f, Label = "Field of view" },
+    new Stepper("Players", lobby.Players, players => lobby.Players = players, 1, 4),
+    new Picker<Difficulty>("Difficulty", game.Difficulty, Difficulties, picked => game.Difficulty = picked),
+}
+```
+
+A control without an `OnChange` only shows its value. Every control fades and ignores the
+pointer when it's `Disabled` or inside `.Disabled()`, and follows the `.ControlSize(...)`
+around it.
+
+| Control | Choices |
+| --- | --- |
+| `Button` | `Style`: `Default` (filled with the primary colour, for the main action), `Secondary`, `Outline`, `Ghost`, `Destructive` and `Link`. `Icon` puts an icon before the label, and with an empty label it's a square icon button |
+| `Toggle` | `Style`: `Switch`, which fills its row with the label at the start, or `Checkbox`, a box before the label. Clicking the label toggles it too |
+| `Slider` | `Min`, `Max` and `Step`. A press on the track jumps there, and dragging follows the cursor even off the track. `Label` names it for tests |
+| `Stepper` | `Min`, `Max` and `Step`. Each button turns off at its end of the range |
+| `Picker<T>` | `Style`: `Segmented`, side by side with the picked one raised, or `Radio`, one under the other |
+| `ProgressView` | `Style`: `Linear` or `Circular`. A bar with a label shows the percentage beside it, and a ring shows it inside |
+| `Gauge` | `Style`: `Circular` or `Linear`, `Tint` for its own colour, and `ValueLabel` for the reading shown in place of the number |
+
+![Button styles, toggles, sliders and pickers in the storybook](media/ui-controls.webp)
+
+A `Button` without a `Style` is the main action, filled with the theme's primary colour.
+It used to be a quiet grey, so give the buttons beside the main one `ButtonStyle.Secondary`
+or `Outline`:
+
+![The Crafting example's Craft button, grey before and filled with the primary colour after](media/ui-button-default.webp)
+
+### Controls of your own
+
+`.OnSlide(...)` and `.Semantics(...)` are what the built-in controls are made with. A
+volume knob or a colour wheel can use them too:
+
+```csharp
+new Knob(level)
+    .OnSlide(across => SetLevel(across), inset: 8f)
+    .Semantics(UiRole.Slider, "Level", UiSemantics.Number(level));
+```
+
+`OnSlide` hands over how far across the view the cursor is, from 0 to 1, once a tick for
+as long as the left button stays down. `inset` keeps that much of each end out of the
+range, for a thumb whose middle stops short of the edge.
+
 ## The storybook
 
 The [Storybook example](../examples/Storybook) shows every element on its own and in its
 variations, in both themes. Run it to see what's there, or with `--story badges --theme light`
-to open one page.
+to open one page. The `buttons`, `toggles`, `sliders`, `steppers`, `pickers`, `progress`
+and `gauges` stories keep their values, so you can try each control.
 
 ![The storybook's shapes page in the dark theme](media/storybook.webp)
 
