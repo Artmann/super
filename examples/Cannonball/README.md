@@ -13,12 +13,13 @@ flashes red at the hit.
 dotnet run -c Release --project examples/Cannonball
 ```
 
-R loads the cannon again. D draws the ragdoll's bodies over the stuntman, orange while
-simulated:
+R loads the cannon again. D draws the ragdoll's bodies over the stuntman as
+[debug wireframes](../../docs/debugging.md) in the `bodies` channel, orange while
+simulated and blue while animated, faint where the world hides them:
 
-![The stuntman lying still, and the same moment with the ragdoll's boxes and capsules drawn over them](../../docs/media/cannonball-bodies.webp)
+![The stuntman, and the same moment with the ragdoll's boxes, balls and capsules drawn as wireframes over them](../../docs/media/cannonball-bodies.webp)
 
-`--script bodies` presses D, for a screenshot of the bodies.
+`--debug bodies` starts with them shown, and `--script bodies` presses D.
 
 ## Getting the assets
 
@@ -36,7 +37,8 @@ doesn't have them, leaves them out.
 - `physics.Contacts` finding the first hit harder than 4 m/s, which drops `Strength` to 0.
 - `physics.Ragdolls.IsFaceUp` to pick a get-up clip, played in the same Update as switching to
   `Off`, so the clip is laid over where the body lies.
-- `physics.Ragdolls.Shapes` to draw the bodies.
+- `physics.Ragdolls.Shapes` to draw the bodies, with `view.Debug` in a channel that
+  `DebugDraw.Toggle` turns on and off.
 - A `ScreenEffects` component, in `CrashEffects`, driven every tick: a
   [speed blur](../../docs/rendering.md#screen-effects) that grows with how fast they fly, and on
   the hit a white flash, a red edge and colour fringes, each eased back to 0.

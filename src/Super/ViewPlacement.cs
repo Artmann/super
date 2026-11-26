@@ -18,7 +18,7 @@ public static class ViewPlacement
     /// </summary>
     public static Matrix4x4 TransformOf(this View view, Entity entity)
     {
-        var world = view.World ?? throw new InvalidOperationException("This view draws no world.");
+        var world = view.Sources.World ?? throw new InvalidOperationException("This view draws no world.");
         if (!world.IsAlive(entity) || !world.Has<Transform>(entity))
         {
             throw new InvalidOperationException($"Entity {entity.Id} has no Transform.");

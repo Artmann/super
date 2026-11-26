@@ -1,3 +1,4 @@
+using System.Numerics;
 using Silk.NET.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
@@ -19,8 +20,7 @@ internal sealed unsafe class FinishStage
     private readonly DescriptorSet _finishSet;
     private readonly ResourceTable _resources;
     private readonly OverlayPass _overlayPass;
-    private readonly DescriptorSet _overlaySet;
-    private GpuTexture? _overlayAtlas;
+    private readonly LinePass _linePass;
 
     public FinishStage(VulkanContext context, DescriptorKit kit, FrameRing ring, GpuTimer timer, (Format Format, ResourceTable Resources) window)
     {
@@ -29,11 +29,11 @@ internal sealed unsafe class FinishStage
         _ring = ring;
         _timer = timer;
         _finishSet = kit.NewSet(kit.TwoTextureLayout);
-        _overlaySet = kit.NewSet(kit.OneTextureLayout);
         _resources = window.Resources;
         _finishPass = new FullscreenPass(
             context, "finish.frag", window.Format, [kit.FrameSetLayout, kit.TwoTextureLayout, window.Resources.Layout], TransitionConstants.Size);
-        _overlayPass = new OverlayPass(context, window.Format, kit.OneTextureLayout, window.Resources, FrameRing.Count);
+        _overlayPass = new OverlayPass(context, kit, window.Format, window.Resources, FrameRing.Count);
+        _linePass = new LinePass(context, kit, window.Format, FrameRing.Count);
     }
 
     /// <summary>Where the frame being drawn copies its picture for a capture, or null when it isn't one.</summary>
@@ -43,19 +43,16 @@ internal sealed unsafe class FinishStage
     public bool CaptureRecorded { get; set; }
 
     /// <summary>Uploads the frame's overlay quads, and returns how many it draws: none before an atlas is set.</summary>
-    public int UploadOverlay(ReadOnlySpan<OverlayQuad> quads) => _overlayAtlas is null ? 0 : _overlayPass.Upload(_ring.Index, quads);
+    public int UploadOverlay(ReadOnlySpan<OverlayQuad> quads) => _overlayPass.Upload(_ring.Index, quads);
+
+    /// <summary>Uploads the frame's debug lines, with the camera they're seen through.</summary>
+    public void UploadLines(in FrameView view) => _linePass.Upload(_ring.Index, view);
 
     /// <summary>
     /// Replaces the image that the overlay's quads read from. Only its alpha is used. Waits for the GPU, so it isn't
     /// for every frame.
     /// </summary>
-    public void SetOverlayAtlas(TextureData data)
-    {
-        _context.WaitIdle();
-        _overlayAtlas?.Dispose();
-        _overlayAtlas = new GpuTexture(_context, data);
-        ImageSets.Write(_context, _overlaySet, [new(_kit.LinearSampler, _overlayAtlas.View, ImageLayout.ShaderReadOnlyOptimal)]);
-    }
+    public void SetOverlayAtlas(TextureData data) => _overlayPass.SetAtlas(_kit.LinearSampler, data);
 
     /// <summary>Points the finish pass at the targets' finished picture and the held one.</summary>
     public void WriteSet(GBuffer targets)
@@ -65,6 +62,7 @@ internal sealed unsafe class FinishStage
             new(_kit.LinearSampler, targets.Picture.Ldr.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_kit.LinearSampler, targets.Picture.Held.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
+        _linePass.WriteSet(_kit.NearestSampler, targets.Depth.View);
     }
 
     /// <summary>
@@ -94,9 +92,11 @@ internal sealed unsafe class FinishStage
         picture.Targets.Picture.LdrReady = true;
         _timer.Mark(cmd);
 
+        // Timed with the overlay: both are drawn over the finished picture.
+        _linePass.Record(cmd, (swapchain.Views[imageIndex], size));
         if (overlayQuads > 0)
         {
-            _overlayPass.Record(cmd, (swapchain.Views[imageIndex], size), _overlaySet, _ring.Index, overlayQuads);
+            _overlayPass.Record(cmd, (swapchain.Views[imageIndex], size), _ring.Index, overlayQuads);
         }
 
         _timer.Mark(cmd);
@@ -115,7 +115,7 @@ internal sealed unsafe class FinishStage
     public void Dispose()
     {
         _overlayPass.Dispose();
-        _overlayAtlas?.Dispose();
+        _linePass.Dispose();
         _finishPass.Dispose();
     }
 

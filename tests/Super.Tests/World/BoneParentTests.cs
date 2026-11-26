@@ -12,7 +12,7 @@ public class BoneParentTests
 
     public BoneParentTests()
     {
-        _view.World = _world;
+        _view.Sources = (null, _world);
     }
 
     // The rig's Move clip slides the root 2 units a second along x, with the child joint one unit above it.

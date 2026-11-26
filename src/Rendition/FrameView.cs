@@ -226,6 +226,12 @@ public ref struct FrameExtras
     public ReadOnlySpan<OverlayQuad> Overlay;
 
     /// <summary>
+    /// Lines in the world, drawn after the grade and before <see cref="Overlay"/>, each tested against the scene's
+    /// depth. Any number may be drawn; the buffer that holds them grows to fit.
+    /// </summary>
+    public ReadOnlySpan<LineDraw> Lines;
+
+    /// <summary>
     /// Soft puffs of dust, smoke or spray, blended over the lit scene in any order. At most
     /// <see cref="Particle.MaxPerFrame"/> are drawn; the rest are dropped.
     /// </summary>

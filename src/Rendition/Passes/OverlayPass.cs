@@ -21,11 +21,15 @@ internal sealed unsafe class OverlayPass : IDisposable
     private readonly PipelineLayout _layout;
     private readonly LivePipeline _pipeline;
     private readonly GpuBuffer[] _buffers;
+    private readonly DescriptorSet _atlasSet;
+    private GpuTexture? _atlas;
 
-    public OverlayPass(VulkanContext context, Format targetFormat, DescriptorSetLayout atlasLayout, ResourceTable resources, int framesInFlight)
+    public OverlayPass(VulkanContext context, DescriptorKit kit, Format targetFormat, ResourceTable resources, int framesInFlight)
     {
         _context = context;
         _resources = resources;
+        var atlasLayout = kit.OneTextureLayout;
+        _atlasSet = kit.NewSet(atlasLayout);
         _buffers = new GpuBuffer[framesInFlight];
         for (int i = 0; i < framesInFlight; i++)
         {
@@ -71,40 +75,39 @@ internal sealed unsafe class OverlayPass : IDisposable
         });
     }
 
-    /// <summary>Copies this frame's quads to the GPU and returns how many fit.</summary>
+    /// <summary>
+    /// Replaces the image that the quads read from. Only its alpha is used. Waits for the GPU, so it isn't for every
+    /// frame.
+    /// </summary>
+    public void SetAtlas(Sampler linear, TextureData data)
+    {
+        _context.WaitIdle();
+        _atlas?.Dispose();
+        _atlas = new GpuTexture(_context, data);
+        ImageSets.Write(_context, _atlasSet, [new(linear, _atlas.View, ImageLayout.ShaderReadOnlyOptimal)]);
+    }
+
+    /// <summary>Copies this frame's quads to the GPU and returns how many it draws: none before an atlas is set.</summary>
     public int Upload(int frameIndex, ReadOnlySpan<OverlayQuad> quads)
     {
+        if (_atlas is null)
+        {
+            return 0;
+        }
+
         var fitting = quads[..Math.Min(quads.Length, MaxQuads)];
         fitting.CopyTo(new Span<OverlayQuad>(_buffers[frameIndex].Mapped, MaxQuads));
         return fitting.Length;
     }
 
     /// <summary>Draws the frame's quads over <paramref name="target"/>, a picture already in the colour attachment layout.</summary>
-    public void Record(CommandBuffer cmd, (ImageView View, Extent2D Extent) target, DescriptorSet atlas, int frameIndex, int quadCount)
+    public void Record(CommandBuffer cmd, (ImageView View, Extent2D Extent) target, int frameIndex, int quadCount)
     {
         var api = _context.Api;
         var extent = target.Extent;
-        var attachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = target.View,
-            ImageLayout = ImageLayout.ColorAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Load, // The picture is already there.
-            StoreOp = AttachmentStoreOp.Store,
-        };
-        var rendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, extent),
-            LayerCount = 1,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &attachment,
-        };
-
-        api.CmdBeginRendering(cmd, &rendering);
+        api.BeginOver(cmd, target);
         api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
-        api.SetFullViewport(cmd, extent);
-        var sets = stackalloc DescriptorSet[] { atlas, _resources.Set };
+        var sets = stackalloc DescriptorSet[] { _atlasSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
 
         var screen = stackalloc float[] { extent.Width, extent.Height };
@@ -124,6 +127,7 @@ internal sealed unsafe class OverlayPass : IDisposable
             buffer.Dispose();
         }
 
+        _atlas?.Dispose();
         _pipeline.Destroy();
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
     }

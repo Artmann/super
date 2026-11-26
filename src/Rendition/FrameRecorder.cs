@@ -32,6 +32,7 @@ internal sealed unsafe class FrameRecorder(
         }
 
         int overlayQuads = stages.FinishStage.UploadOverlay(view.Extras.Overlay);
+        stages.FinishStage.UploadLines(view);
         stages.BlendStage.Upload(view);
 
         stages.OpaqueStage.UploadDecals();

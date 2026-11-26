@@ -166,7 +166,7 @@ public class DecalTests
     public void A_decal_with_a_surface_shader_is_refused()
     {
         var content = new Content(new MemoryContent());
-        var view = new View { Content = content };
+        var view = new View { Sources = (content, null) };
         var shaded = new Surface { Shader = new SurfaceShader(content.Shader("ripples")) };
 
         var error = Assert.Throws<ArgumentException>(() => view.Effects.Decal(1, Matrix4x4.Identity, shaded));
@@ -177,7 +177,7 @@ public class DecalTests
     [Fact]
     public void A_decal_naming_a_texture_the_content_never_named_is_refused()
     {
-        var view = new View { Content = new Content(new MemoryContent()) };
+        var view = new View { Sources = (new Content(new MemoryContent()), null) };
         var surface = new Surface { NormalTexture = new TextureRef(40) };
 
         var error = Assert.Throws<ArgumentException>(() => view.Effects.Decal(1, Matrix4x4.Identity, surface));

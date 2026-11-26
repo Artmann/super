@@ -77,6 +77,25 @@ public readonly record struct Camera(Vector3 Position, Vector3 Target, float Fie
             : new Ray(Position, Vector3.Normalize(forward + sideways));
     }
 
+    /// <summary>
+    /// Where a point in the world shows on a screen of this size, in pixels with the top left at zero, or null when
+    /// it's behind the camera. It's the other way round from <see cref="Ray"/>. A point off the sides still has a
+    /// place, outside the screen.
+    /// </summary>
+    public Vector2? Pixel(Vector3 point, Vector2 screen)
+    {
+        var seen = Matrix4x4.CreateLookAt(Position, Target, Up) * Matrix(screen.X / screen.Y);
+        var clip = Vector4.Transform(new Vector4(point, 1f), seen);
+        // With reversed depth, a point nearer than the near plane has a depth past its w.
+        if (clip.W <= 0f || clip.Z > clip.W)
+        {
+            return null;
+        }
+
+        // The projection already turns y downwards, as the screen counts it.
+        return new Vector2((clip.X / clip.W + 1f) * 0.5f * screen.X, (clip.Y / clip.W + 1f) * 0.5f * screen.Y);
+    }
+
     /// <summary>A camera part way between two others. Between kinds, it's whichever is nearer.</summary>
     public static Camera Lerp(in Camera from, in Camera to, float amount)
     {

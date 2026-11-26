@@ -46,6 +46,7 @@ in parallel, because Super keeps no global state, so this fits in a pull request
 | `run.Screen` | The [screen effects](rendering.md#screen-effects) the last frame showed, such as a hit's flash or a blur at speed: the finish's own with a `ScreenEffects` component's laid over them |
 | `run.Sounds` | What the mixer is playing: each sound's clip, channel, gain, pan and position in the clip. See [Audio in tests](audio.md#in-tests) |
 | `run.ShownText` | Every piece of text the interface showed, with where it landed, its colour, size and weight. Text cut by a [line limit](interfaces.md#text-that-doesnt-fit) ends in "…" |
+| `run.Debug` | The [debug shapes](debugging.md#in-tests) the last frame drew, as lines and labels, with `Count(channel)` |
 | `run.FrameOf(id)` | Where the view given `.Id(id)` was laid out, so a test can [find it](#finding-a-view) |
 | `run.Play(script)` | Plays an [`InputScript`](command-line.md#scripted-input), such as one of the game's own, from the next tick |
 | `run.ScreenSize` | The size the interface was laid out for |

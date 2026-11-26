@@ -21,6 +21,7 @@ internal sealed class LoopDraw
     private readonly IDrawHook[] _hooks;
     private readonly StateChanges _changes;
     private readonly World _world;
+    private readonly DebugDraw _debug;
 
     public LoopDraw(IServiceProvider services, IGame looped, GameTime time, UiPointer pointer, LoopHalts halts)
     {
@@ -36,6 +37,7 @@ internal sealed class LoopDraw
         _hooks = services.GetServices<IDrawHook>().ToArray();
         _changes = services.GetRequiredService<StateChanges>();
         _world = services.GetRequiredService<World>();
+        _debug = services.GetRequiredService<DebugDraw>();
     }
 
     /// <summary>Whether the interface shows what bakes in the background, over the game's own. Only play does.</summary>
@@ -91,6 +93,9 @@ internal sealed class LoopDraw
             hook.AfterDraw(view);
         }
 
+        // After the hooks, which may draw debug shapes of their own.
+        _debug.CopyTo(view.Debug);
+
         // Last of the frame's own work, so the listener is the camera the frame showed and the hooks' changes go too.
         _audio.EndFrame(view.Shot, _time.Scale, view.Clock.Now);
 
@@ -105,6 +110,7 @@ internal sealed class LoopDraw
         }
 
         _pointer.ShowOverlays();
+        ui.ShowDebugLabels(view.Debug.Labels, view.Shot);
         view.Ui = ui;
         _stats.Resume();
         _changes.Open = true;

@@ -181,6 +181,7 @@ internal sealed class FrameMaker
     private FrameExtras Extras(View view, RenderEffects off) => new()
     {
         Overlay = view.Ui is { } ui ? ui.Quads : [],
+        Lines = view.Debug.Draws,
         Particles = view.Effects.DrawnParticles,
         Decals = _decals.Drawn,
         FogVolumes = off.HasFlag(RenderEffects.FogVolumes) || off.HasFlag(RenderEffects.VolumetricFog) ? default : view.Effects.DrawnFogVolumes,

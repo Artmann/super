@@ -13,6 +13,14 @@ public readonly record struct Color(float R, float G, float B, float A = 1f)
 
     public static Color Black { get; } = new(0f, 0f, 0f);
 
+    public static Color Red { get; } = new(1f, 0f, 0f);
+
+    public static Color Green { get; } = new(0f, 1f, 0f);
+
+    public static Color Blue { get; } = new(0f, 0f, 1f);
+
+    public static Color Yellow { get; } = new(1f, 1f, 0f);
+
     /// <summary>Reads a color written as 0xRRGGBB.</summary>
     public static Color Hex(int rgb, float alpha = 1f) =>
         Rgb((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, alpha);

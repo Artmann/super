@@ -32,7 +32,8 @@ internal sealed record GameArguments(
     string? GraphicsProfile = null,
     bool Stats = false,
     bool NeutralLut = false,
-    ArtLook? Look = null)
+    ArtLook? Look = null,
+    IReadOnlyList<string>? DebugChannels = null)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -63,6 +64,7 @@ internal sealed record GameArguments(
         ["--debug-view"] = (parsed, reader) => parsed with { DebugView = DebugViewName(reader.Value()) },
         ["--vsync"] = (parsed, _) => parsed with { Vsync = true },
         ["--stats"] = (parsed, _) => parsed with { Stats = true },
+        ["--debug"] = (parsed, reader) => parsed with { DebugChannels = DebugDraw.ChannelNames(reader.Value()) },
         ["--no-materials"] = (parsed, _) => parsed with { NoMaterials = true },
         ["--neutral-lut"] = (parsed, _) => parsed with { NeutralLut = true },
         ["--no-trace"] = (parsed, _) => parsed with { NoTrace = true },

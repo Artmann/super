@@ -153,6 +153,13 @@ public sealed class UiTree
         }
     }
 
+    /// <summary>
+    /// Draws each debug label over its place in the world as <paramref name="camera"/> sees it, centred just above it
+    /// on a dark backing, and leaves out those behind the camera. Over the overlays, and gone the next frame with them.
+    /// </summary>
+    internal void ShowDebugLabels(ReadOnlySpan<DebugLabel> labels, in Camera camera) =>
+        DebugLabels.Draw(labels, camera, (_draw, Atlas, Scale), new Vector2(_screen.Width, _screen.Height));
+
     /// <summary>Asks for layout on the next update, for what changes without a new description.</summary>
     internal void RequestLayout() => _layoutWanted = true;
 

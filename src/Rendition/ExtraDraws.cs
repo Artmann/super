@@ -102,3 +102,31 @@ public struct OverlayQuad
     /// <summary>The value of <see cref="TextureIndex"/> that draws this texture.</summary>
     public static int For(TextureHandle texture) => texture.Index + 1;
 }
+
+/// <summary>
+/// A straight line in the world, drawn over the finished picture a set number of pixels thick, for seeing what a
+/// game is doing: a path, a trigger area, a ray. It comes after the grade, so its colour is exactly the one asked
+/// for, in sRGB as written in an image editor. Where something stands in front of it, it shows faintly, as
+/// <see cref="Hidden"/> says.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct LineDraw
+{
+    /// <summary>Where the line starts, in the world.</summary>
+    public Vector3 From;
+
+    /// <summary>How thick the line is, in pixels of the window.</summary>
+    public float Width;
+
+    /// <summary>Where the line ends, in the world.</summary>
+    public Vector3 To;
+
+    /// <summary>
+    /// How much of the line shows where the scene is in front of it, from 0, none, to 1, all of it, so a line at 1 is
+    /// drawn over everything.
+    /// </summary>
+    public float Hidden;
+
+    /// <summary>Red, green and blue in sRGB, and how solid it is, each from 0 to 1.</summary>
+    public Vector4 Color;
+}

@@ -136,6 +136,21 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void Reads_debug_channels_split_by_commas()
+    {
+        Assert.Equal(["ai", "physics"], GameArguments.Parse(["--debug", "ai, physics,"]).DebugChannels);
+        Assert.Null(GameArguments.Parse([]).DebugChannels);
+    }
+
+    [Fact]
+    public void Debug_with_no_channels_says_how_to_name_them()
+    {
+        Assert.Equal(
+            "--debug needs the debug channels to show, split by commas, such as ai,physics, not ' , '.",
+            Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--debug", " , "])).Message);
+    }
+
+    [Fact]
     public void Stats_cant_run_with_a_profile()
     {
         Assert.Equal(
