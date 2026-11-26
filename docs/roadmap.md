@@ -10,8 +10,9 @@ Super is early. These are the known gaps, so you can plan around them.
   shots and [depth of field](rendering.md#focus), but there's no motion blur yet, and no transitions that move
   both pictures, such as a push or a slide.
 - **More from audio.** [Audio](audio.md) plays stereo sound with no echo or reverb, walls
-  that muffle sound, or surround. There is no ducking (music dipping under
-  speech), and no ambience that blends by where the camera stands.
+  that muffle sound, or surround. [Ducking](audio.md#ducking) follows whether a
+  channel is playing, not how loud it is, and there's no ambience that blends by where
+  the camera stands.
 - **Picking by shape.** Clicks are tested against balls, boxes, capsules and the ground,
   not a model's triangles.
 - **Some camera moves.** A camera can't roll, and asymmetric views are a shift, so head

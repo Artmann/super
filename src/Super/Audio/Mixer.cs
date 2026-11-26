@@ -120,6 +120,7 @@ internal sealed class Mixer
         Span<float> block = stereo[..(frames * 2)];
         stereo.Clear();
         _ambiences.Update(frames, _clock);
+        Listening.Ducks.Update(_voices.ChannelsPlaying(), frames, _clock);
         _voices.MixInto(block, Failures);
         Volatile.Write(ref _clock, _clock + frames);
     }

@@ -125,11 +125,7 @@ internal sealed class AudioLoops
     /// <summary>See <see cref="Audio.Music"/>.</summary>
     public void PlayMusic(SoundRef? clip, float fadeSeconds)
     {
-        if (!(fadeSeconds >= 0) || !float.IsFinite(fadeSeconds))
-        {
-            throw new ArgumentOutOfRangeException(nameof(fadeSeconds), fadeSeconds, "fadeSeconds must be a number of at least zero.");
-        }
-
+        AudioChecks.CheckSeconds(fadeSeconds, nameof(fadeSeconds));
         if (clip == _music)
         {
             return;

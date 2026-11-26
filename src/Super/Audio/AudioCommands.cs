@@ -40,6 +40,19 @@ internal enum AudioCommandKind : byte
 
     /// <summary>Scales every voice's Doppler amount by <see cref="AudioCommand.Value"/>.</summary>
     DopplerScale,
+
+    /// <summary>
+    /// Ducks <see cref="AudioCommand.Channel"/> by <see cref="AudioCommand.Value"/> dB while a sound plays on
+    /// <see cref="AudioCommand.By"/>, with <see cref="AudioCommand.FadeSeconds"/> to go down and
+    /// <see cref="AudioCommand.ReleaseSeconds"/> to come back.
+    /// </summary>
+    DuckRule,
+
+    /// <summary>
+    /// Ducks <see cref="AudioCommand.Channel"/> by <see cref="AudioCommand.Value"/> dB for
+    /// <see cref="AudioCommand.HoldSeconds"/>, with the same fades as <see cref="DuckRule"/>.
+    /// </summary>
+    DuckFor,
 }
 
 /// <summary>One change the game thread asks of the mixer. Which fields count depends on <see cref="Kind"/>.</summary>
@@ -58,6 +71,12 @@ internal struct AudioCommand
     public Vector3 Position;
     public Vector3 Forward;
     public Vector3 Velocity;
+
+    /// <summary>The channel that sets off a duck.</summary>
+    public Channel By;
+
+    public float ReleaseSeconds;
+    public float HoldSeconds;
 }
 
 /// <summary>

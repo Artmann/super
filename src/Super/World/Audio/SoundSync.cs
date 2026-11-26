@@ -141,7 +141,7 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
     private static void Check(Entity entity, Sound sound, bool placed, Vector3 at)
     {
         CheckLevels(entity, sound);
-        if ((uint)sound.Channel > (uint)Channel.Interface)
+        if (!AudioChecks.IsChannel(sound.Channel))
         {
             throw new ArgumentOutOfRangeException(nameof(sound), sound.Channel, $"Entity {entity.Id}'s Sound has Channel {sound.Channel}; it must be one of the Channel values.");
         }

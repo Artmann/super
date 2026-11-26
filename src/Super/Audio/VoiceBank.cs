@@ -47,6 +47,25 @@ internal sealed class VoiceBank
         }
     }
 
+    /// <summary>
+    /// The channels with a sound playing that isn't stopping, as bit <c>1 &lt;&lt; channel</c> for each, for
+    /// <see cref="Ducking"/>.
+    /// </summary>
+    public int ChannelsPlaying()
+    {
+        int playing = 0;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            Voice voice = _voices[i];
+            if (voice.Active && !voice.Stopping)
+            {
+                playing |= 1 << (int)voice.Setup.Channel;
+            }
+        }
+
+        return playing;
+    }
+
     /// <summary>See <see cref="Mixer.Start"/>.</summary>
     public int Start(in VoiceStart start)
     {

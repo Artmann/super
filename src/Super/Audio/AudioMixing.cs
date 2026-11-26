@@ -174,6 +174,12 @@ internal sealed class MixCommandApplier
             case AudioCommandKind.DopplerScale:
                 _mixer.Listening.SetDopplerScale(command.Value);
                 break;
+            case AudioCommandKind.DuckRule:
+                _mixer.Listening.Ducks.SetRule(command.Channel, command.By, command.Value, command.FadeSeconds, command.ReleaseSeconds);
+                break;
+            case AudioCommandKind.DuckFor:
+                _mixer.Listening.Ducks.DuckFor(command.Channel, command.Value, command.HoldSeconds, command.FadeSeconds, command.ReleaseSeconds);
+                break;
         }
     }
 

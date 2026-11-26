@@ -8,4 +8,7 @@ public enum Channel
     Ambience,
     Effects,
     Interface,
+
+    /// <summary>Speech. Music and Ambience dip under it, unless <see cref="Audio.Duck"/> says otherwise.</summary>
+    Dialogue,
 }
