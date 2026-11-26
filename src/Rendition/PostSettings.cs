@@ -22,10 +22,17 @@ public struct PostSettings
     public bool AutoExposure;
 
     /// <summary>
-    /// How fast <see cref="AutoExposure"/> follows a change, in stops a second, which must be above 0. 0
-    /// means the default of 2, so stepping from a sunny yard into a room four stops darker settles in about two seconds.
+    /// How fast <see cref="AutoExposure"/> follows the scene getting brighter, in stops a second, which must be above
+    /// 0. 0 means the default of 2, so stepping out of a room into a yard four stops brighter settles in about two
+    /// seconds. Getting darker follows <see cref="MeteringSettings.DarkSpeed"/>.
     /// </summary>
     public float AdaptationSpeed;
+
+    /// <summary>
+    /// How <see cref="AutoExposure"/> meters: its speed into the dark, the darkest and brightest scenes it
+    /// adapts to, and how much the middle of the screen counts.
+    /// </summary>
+    public MeteringSettings Metering;
 
     /// <summary>Added contrast. 0.1 is a gentle boost; negative values flatten the picture.</summary>
     public float Contrast;
@@ -131,6 +138,7 @@ public struct PostSettings
             Exposure = Mix(from.Exposure, to.Exposure, t),
             AutoExposure = near.AutoExposure,
             AdaptationSpeed = Mix(Or(from.AdaptationSpeed, 2f), Or(to.AdaptationSpeed, 2f), t),
+            Metering = MeteringSettings.Lerp(from.Metering, to.Metering, t),
             Contrast = Mix(from.Contrast, to.Contrast, t),
             Saturation = Mix(from.Saturation, to.Saturation, t),
             Vignette = Mix(from.Vignette, to.Vignette, t),

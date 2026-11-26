@@ -16,10 +16,14 @@ internal sealed unsafe class ExposureMeter : IDisposable
 
     private const uint GroupSize = 16;
 
-    /// <summary>Must match Adapt in exposure_adapt.comp.</summary>
-    private struct AdaptConstants
+    /// <summary>Must match Metering in exposure.glsl. Both passes push the same.</summary>
+    private struct MeteringConstants
     {
-        public float MaxStep;
+        public float Rise;
+        public float Fall;
+        public float Darkest;
+        public float Brightest;
+        public float Centre;
         public int Snap;
     }
 
@@ -50,7 +54,7 @@ internal sealed unsafe class ExposureMeter : IDisposable
 
         _pipelineLayout = context.CreatePipelineLayout(
             [SetLayout],
-            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(AdaptConstants)));
+            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(MeteringConstants)));
 
         _histogram = PipelineFactory.CreateCompute(context, "exposure_histogram.comp", _pipelineLayout);
         _adapt = PipelineFactory.CreateCompute(context, "exposure_adapt.comp", _pipelineLayout);
@@ -100,16 +104,26 @@ internal sealed unsafe class ExposureMeter : IDisposable
             AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
 
         var set = Set;
+        var aim = step.Aim;
+        var constants = new MeteringConstants
+        {
+            Rise = step.Rise,
+            Fall = step.Fall,
+            Darkest = aim.Darkest,
+            Brightest = aim.Brightest,
+            Centre = aim.Centre,
+            Snap = step.Snap ? 1 : 0,
+        };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
+        api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(MeteringConstants), &constants);
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _histogram);
         api.CmdDispatch(cmd, (_sourceSize.Width + GroupSize - 1) / GroupSize, (_sourceSize.Height + GroupSize - 1) / GroupSize, 1);
 
         Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
             PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
 
-        var constants = new AdaptConstants { MaxStep = step.MaxStep, Snap = step.Snap ? 1 : 0 };
+        // Push constants stay bound across a pipeline change with the same layout.
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _adapt);
-        api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(AdaptConstants), &constants);
         api.CmdDispatch(cmd, 1, 1, 1);
 
         Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,

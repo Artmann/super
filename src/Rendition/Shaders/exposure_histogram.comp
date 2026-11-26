@@ -1,8 +1,10 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
+#define EXPOSURE_METERING
 #include "exposure.glsl"
 
-// Counts the lit frame's pixels by brightness, before bloom, into the bins of exposure.glsl.
+// Counts the lit frame's pixels by brightness, before bloom, into the bins of exposure.glsl, each
+// counted more the nearer the middle it is when the metering asks.
 // Each group counts into shared memory first, so the buffer sees one add per bin per group.
 // Every pixel lands in a bin, however bright or broken, so a sun disc of 30000 can't spill out.
 
@@ -23,6 +25,13 @@ uint binOf(vec3 rgb) {
     return uint(clamp(position, 0.0, float(EXPOSURE_BINS - 1)));
 }
 
+// The same sums as Exposure.Weight: 1 at the corners, up to 16 in the very middle at a centre weight of 1.
+uint weightOf(ivec2 pixel, ivec2 size) {
+    vec2 fromMiddle = (vec2(pixel) + 0.5) / vec2(size) - 0.5;
+    float near = max(0.0, 1.0 - dot(fromMiddle, fromMiddle) * 2.0);
+    return 1u + uint(floor(metering.centre * 15.0 * near + 0.5));
+}
+
 void main() {
     if (gl_LocalInvocationIndex < EXPOSURE_BINS) {
         groupBins[gl_LocalInvocationIndex] = 0u;
@@ -33,7 +42,7 @@ void main() {
     ivec2 size = textureSize(hdrTexture, 0);
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     if (pixel.x < size.x && pixel.y < size.y) {
-        atomicAdd(groupBins[binOf(texelFetch(hdrTexture, pixel, 0).rgb)], 1u);
+        atomicAdd(groupBins[binOf(texelFetch(hdrTexture, pixel, 0).rgb)], weightOf(pixel, size));
     }
 
     barrier();

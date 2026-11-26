@@ -4441,12 +4441,18 @@ copies `ViewLook.Paint` into `FrameView.Picture.Paint`.
 Auto exposure meters the frame on the GPU and never reads it back. Before the tonemap,
 `exposure_histogram.comp` reads the image the tonemap and bloom read (resolved, or HDR
 without anti-aliasing), so it sees the lit frame before bloom. It puts each pixel's
-luminance into one of 64 bins spanning -8 to +16 EV. Each 16 x 16 group counts into shared
+luminance into one of 64 bins spanning -8 to +16 EV. A pixel adds a whole-number weight
+rather than 1, so the bins stay exact integers: `1 + round(centre * 15 * (1 - 2|uv - 0.5|^2))`,
+which is 1 at the corners and anywhere at a centre weight of 0, and up to 16 in the middle.
+At 4K that is at most 133 million a bin, well inside a `uint`. Each 16 x 16 group counts into shared
 memory first, then adds its bins to a storage buffer. Black, negative and NaN pixels go to
 the first bin and anything past the top, such as a sun disc of 30000, to the last, so
 nothing overflows or falls outside. `exposure_adapt.comp` then runs as one group of 64.
 It reads and empties the bins, takes the mean bin centre of the 40th to 95th percentile,
-and moves the stored EV towards it by at most a step it is pushed. The tonemap reads the EV
+clamps it to `MeteringSettings.Darkest` and `Brightest`, and moves the stored EV towards it by
+at most the rise or fall it is pushed. Both passes share one pipeline layout and one push constant
+block (`Metering` in `exposure.glsl`, `MeteringConstants` in `ExposureMeter`), pushed once before
+the histogram, since push constants stay bound across a pipeline change with the same layout. The tonemap reads the EV
 from the same buffer as a third descriptor set (`ExposureMeter.Set`) and multiplies by
 `0.18 * 2^-EV`, which puts the metered brightness at middle grey, on top of
 `PostSettings.Exposure`, which then works as compensation. The buffer is
@@ -4454,11 +4460,15 @@ from the same buffer as a third descriptor set (`ExposureMeter.Set`) and multipl
 `Passes/Exposure.cs` does the same sums on the CPU for the tests. The time the two passes
 take counts towards the tonemap's in `GpuTimer`.
 
-The CPU only keeps time (`ExposureClock`). The step is `AdaptationSpeed` times the change in
-`FrameView.Time` since the last metered frame. `Exposure.Speed` turns a speed of 0, and any
-speed that isn't finite and above 0, into the default of 2, because a negative step would
-flip the shader's clamp. `view.Effects.Finish` refuses those instead, so only Rendition used alone
-relies on the fallback. The first metered frame snaps to the target,
+The CPU only keeps time (`ExposureClock`). `Exposure.Aim` turns the settings into an
+`ExposureAim`, and each frame's `ExposureStep` carries it with the change in `FrameView.Time`
+since the last metered frame: the rise is `AdaptationSpeed` times that and the fall
+`Metering.DarkSpeed` times it. `Exposure.Speed` turns a speed of 0, and any speed that isn't
+finite and above 0, into the default (2 into the light, 1 into the dark), because a negative step
+would flip the shader's clamp. `Aim` also holds the centre weight to 0 to 1 and drops a limit
+that isn't a number or a darkest past the brightest, which would make GLSL's `clamp` undefined;
+missing limits are `±float.MaxValue`. `view.Effects.Finish` refuses all of those instead, in
+`FinishChecks.Metering`, so only Rendition used alone relies on the fallbacks. The first metered frame snaps to the target,
 as does the first after metering was off and the first after time went backwards, such as
 a restart. Super's screenshots and recordings step `Time` by a fixed tick and settle at a
 fixed moment, where the step is 0, so the same seed and ticks give the same bytes. The

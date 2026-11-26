@@ -1653,7 +1653,14 @@ world.Spawn(new Finish(new PostSettings
 {
     AutoExposure = true,
     Exposure = -0.3f,        // now compensation: a third of a stop darker than metered
-    AdaptationSpeed = 2f,    // stops a second; 0 means the default of 2
+    AdaptationSpeed = 2f,    // stops a second into the light; 0 means the default of 2
+    Metering = new MeteringSettings
+    {
+        DarkSpeed = 1f,      // stops a second into the dark; 0 means the default of 1
+        Darkest = -3f,       // don't brighten a scene darker than 1/8 any further
+        Brightest = 2f,      // don't darken a scene brighter than 4 any further
+        Centre = 0.5f,       // the middle of the screen counts more than the edges
+    },
 }));
 ```
 
@@ -1664,12 +1671,29 @@ cent, and puts the average of the rest at middle grey. Deep shade and the sun's 
 pull the picture one way or the other. `Exposure` then shifts that, in stops, for a
 brighter or darker picture than the meter picks.
 
-When the scene gets brighter or darker the exposure follows at `AdaptationSpeed` stops a second,
-the way eyes adjust walking out of a cellar. The first frame starts at the metered brightness,
+When the scene gets brighter the exposure follows at `AdaptationSpeed` stops a second, the
+way eyes adjust walking out of a cellar. When it gets darker it follows at
+`Metering.DarkSpeed`, which is slower by default, 1 stop a second against 2, since eyes take
+longer to get used to the dark. The first frame starts at the metered brightness,
 not from black, and so does the first after `AutoExposure` or [`Graphics.Picture.AutoExposure`](#graphics-settings)
 is turned back on, or after time goes backwards, as when the game restarts. A speed must be above 0, or 0 for the
 default. A view refuses anything else; Rendition used on its own takes the default instead. The meter sees from about 1/256 to 65000 times a white of 1. Anything darker or
 brighter counts as the darkest or brightest it sees.
+
+Left alone, the meter makes a cave as bright as a field. `Metering.Darkest` and
+`Metering.Brightest` stop that. They are the metered brightness in stops from 1, the same
+scale the meter uses, and the camera adapts only as far as a scene at the limit. With
+`Darkest = -3`, a cave whose middle tones are darker than 1/8 comes out darker than the field,
+the way it would to a player standing in it. Either can be left null for no limit, and the
+darkest can't be past the brightest.
+
+`Metering.Centre`, from 0 to 1, makes the middle of the screen count for more, so what the
+player looks at sets the brightness rather than a dark wall at the edge. At 1 the very middle
+counts 16 times as much as the corners, falling off smoothly towards them. At 0, the default,
+every pixel counts the same. A view refuses a centre weight outside 0 to 1 and a limit that
+isn't a number; Rendition used alone holds the weight to 0 to 1 and ignores such a limit.
+
+![The Courtyard with auto exposure counting every pixel the same on the left, and with a centre weight of 1 on the right, where the sunlit wall in the middle counts most and the picture comes out a little darker](media/exposure-centre.webp)
 
 Screenshots and recordings step time a tick at a fixed rate, so the same `--seed` and `--ticks`
 give the same exposure and the same picture every run. Reflection and light probes don't
