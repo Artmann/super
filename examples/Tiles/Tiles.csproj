@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Super\Super.csproj" />
+  </ItemGroup>
+
+  <Import Project="..\..\src\Super.Build\Super.targets" />
+  <ItemGroup>
+    <SuperContent Include="content" />
+  </ItemGroup>
+
+</Project>

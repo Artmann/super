@@ -32,6 +32,9 @@ public sealed class GridMap<TCell, T> : IEnumerable<KeyValuePair<TCell, T>>
     /// <summary>The blocks that hold at least one cell.</summary>
     public IEnumerable<GridChunk> Chunks => _blocks.Keys;
 
+    /// <summary>The blocks that hold at least one cell, walked without allocating.</summary>
+    internal Dictionary<GridChunk, Block>.KeyCollection ChunkKeys => _blocks.Keys;
+
     /// <summary>What a cell holds. Reading a cell that holds nothing throws; use <see cref="TryGet"/> for that.</summary>
     public T this[TCell cell]
     {
@@ -150,7 +153,7 @@ public sealed class GridMap<TCell, T> : IEnumerable<KeyValuePair<TCell, T>>
         return (new GridChunk(a >> ChunkShift, b >> ChunkShift), (a & (ChunkSize - 1)) + (b & (ChunkSize - 1)) * ChunkSize);
     }
 
-    private sealed class Block
+    internal sealed class Block
     {
         public readonly T[] Values = new T[ChunkSize * ChunkSize];
         public readonly bool[] Filled = new bool[ChunkSize * ChunkSize];
