@@ -5,9 +5,9 @@ namespace Super.Ui;
 
 /// <summary>
 /// A piece of text on screen and where it landed, with its colour, size in pixels and
-/// weight. The colour is the one it's drawn in, faded by any <c>.Opacity</c> around it.
+/// weight. Bold is true from SemiBold up. The colour is the one it's drawn in, faded by any <c>.Opacity</c> around it.
 /// </summary>
-public readonly record struct ShownText(string Text, UiRect Frame, Color Color, float Size, bool Bold, GameFont? Font = null);
+public readonly record struct ShownText(string Text, UiRect Frame, Color Color, float Size, bool Bold, GameFont? Font = null, FontWeight Weight = FontWeight.Regular, bool Italic = false);
 
 /// <summary>
 /// Keeps an interface on screen: it reconciles each new description, lays out what
@@ -182,12 +182,12 @@ public sealed class UiTree
 
         if (node is not null && node.View.GetType() == view.GetType())
         {
-            return node.Update(view, TextStyle.Default);
+            return node.Update(view, UiEnvironment.Default);
         }
 
         node?.Unmount();
         node = new UiNode(this, null, view);
-        node.Update(view, TextStyle.Default);
+        node.Update(view, UiEnvironment.Default);
         return true;
     }
 

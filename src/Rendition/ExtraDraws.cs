@@ -67,10 +67,11 @@ public struct Particle
 }
 
 /// <summary>
-/// A rectangle on the screen, in pixels from the top left, which can be rounded, bordered
-/// and clipped. The atlas gives each pixel's alpha and color gives the rest, in sRGB as
-/// written in an image editor. With <see cref="TextureIndex"/> set, a texture gives the
-/// pixels and color tints them. A default value for any of these changes nothing.
+/// A shape on the screen, in pixels from the top left, which can be rounded, bordered, shaded
+/// and clipped. For a box, the atlas gives each pixel's alpha and color gives the rest, in sRGB
+/// as written in an image editor. With <see cref="TextureIndex"/> set, a texture gives the pixels
+/// and color tints them. <see cref="Kind"/> draws an ellipse, an arc, a line or a soft shadow in
+/// place of the box. A default value for any of these changes nothing.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct OverlayQuad
@@ -84,23 +85,77 @@ public struct OverlayQuad
     public Vector2 UvMax;
     public Vector4 Color;
 
+    /// <summary>Where a gradient ends, in sRGB. Needs <see cref="Gradient"/>.</summary>
+    public Vector4 Color2;
+
     /// <summary>The line drawn inside the edge, in sRGB. Needs <see cref="BorderWidth"/>.</summary>
     public Vector4 BorderColor;
 
     /// <summary>Only what's inside this is drawn: x, y, width, height in pixels. No width means no clip.</summary>
     public Vector4 Clip;
 
-    public float CornerRadius;
+    /// <summary>How round each corner is, in pixels: top left, top right, bottom right, bottom left.</summary>
+    public Vector4 Radii;
+
+    /// <summary>Rounds the corners of <see cref="Clip"/>, in the same order as <see cref="Radii"/>.</summary>
+    public Vector4 ClipRadii;
+
+    /// <summary>
+    /// Where <see cref="Color"/> turns into <see cref="Color2"/>, in pixels from <see cref="Position"/>. A
+    /// linear gradient runs from (x, y) to (z, w); a radial one spreads from (x, y) out to z.
+    /// </summary>
+    public Vector4 GradientPoints;
+
+    /// <summary>
+    /// What the shape needs. An arc's start and sweep in radians, clockwise from the top; a line's two ends
+    /// in pixels from <see cref="Position"/>; a shadow's box as x, y, width, height in pixels.
+    /// </summary>
+    public Vector4 Params;
+
     public float BorderWidth;
 
-    /// <summary>Rounds the corners of <see cref="Clip"/>.</summary>
-    public float ClipRadius;
+    /// <summary>How thick an arc or a line is, or how far a shadow blurs, in pixels.</summary>
+    public float Thickness;
 
     /// <summary>Zero reads the atlas. Anything else comes from <see cref="For"/>.</summary>
     public int TextureIndex;
 
+    public OverlayKind Kind;
+
+    public OverlayGradient Gradient;
+
     /// <summary>The value of <see cref="TextureIndex"/> that draws this texture.</summary>
     public static int For(TextureHandle texture) => texture.Index + 1;
+}
+
+/// <summary>What an <see cref="OverlayQuad"/> draws inside its rectangle.</summary>
+public enum OverlayKind
+{
+    /// <summary>A rounded box, a character from the atlas, or an image.</summary>
+    Box,
+
+    /// <summary>An ellipse filling the rectangle, which can have a border.</summary>
+    Ellipse,
+
+    /// <summary>Part of a ring with round ends, as thick as <see cref="OverlayQuad.Thickness"/>, touching the rectangle's shorter sides.</summary>
+    Arc,
+
+    /// <summary>A line with round ends between the two points in <see cref="OverlayQuad.Params"/>.</summary>
+    Segment,
+
+    /// <summary>
+    /// The soft shadow of the rounded box in <see cref="OverlayQuad.Params"/>, blurred by
+    /// <see cref="OverlayQuad.Thickness"/>. It isn't drawn inside the box, so it doesn't show through one that's see-through.
+    /// </summary>
+    Shadow,
+}
+
+/// <summary>How a box or an ellipse goes from <see cref="OverlayQuad.Color"/> to <see cref="OverlayQuad.Color2"/>.</summary>
+public enum OverlayGradient
+{
+    None,
+    Linear,
+    Radial,
 }
 
 /// <summary>

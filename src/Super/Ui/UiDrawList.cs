@@ -53,22 +53,6 @@ internal sealed class UiDrawList
         _shownText.RemoveRange(_treeEnd.Texts, _shownText.Count - _treeEnd.Texts);
     }
 
-    /// <summary>Draws a filled rectangle, rounded and bordered if asked to be.</summary>
-    public void AddBox(UiRect frame, Color? fill, float radius, float borderWidth, Color border)
-    {
-        var uv = UiGlyphSheet.SolidUv;
-        var color = fill ?? default;
-        Add(frame, new OverlayQuad
-        {
-            UvMin = uv,
-            UvMax = uv,
-            Color = Nesting.Fade(color),
-            BorderColor = Nesting.Fade(border),
-            BorderWidth = borderWidth,
-            CornerRadius = radius,
-        });
-    }
-
     public void AddQuad(UiRect frame, Vector2 uvMin, Vector2 uvMax, Color color)
     {
         Add(frame, new OverlayQuad { UvMin = uvMin, UvMax = uvMax, Color = Nesting.Fade(color) });
@@ -95,15 +79,16 @@ internal sealed class UiDrawList
         }
     }
 
-    public void AddText(string text, UiRect frame, in TextStyle style)
+    public void AddText(string text, UiRect frame, in TextLook style)
     {
         if (!Nesting.Hides(frame))
         {
-            _shownText.Add(new ShownText(text, frame, style.Color with { A = style.Color.A * Nesting.Opacity }, style.Size, style.Bold, style.Font));
+            _shownText.Add(new ShownText(text, frame, style.Color with { A = style.Color.A * Nesting.Opacity }, style.Size, style.Bold, style.Font, style.Weight, style.Italic));
         }
     }
 
-    private void Add(UiRect frame, OverlayQuad quad)
+    /// <summary>Adds a quad laid out in interface units, unless it's out of sight, faded already by the caller.</summary>
+    public void Add(UiRect frame, OverlayQuad quad)
     {
         // Rows out of sight are still laid out, but they cost the renderer nothing.
         if (Nesting.Hides(frame))
@@ -120,12 +105,21 @@ internal sealed class UiDrawList
         // Laid out in interface units, drawn in pixels.
         quad.Position = new Vector2(frame.X, frame.Y) * Scale;
         quad.Size = new Vector2(frame.Width, frame.Height) * Scale;
-        quad.CornerRadius *= Scale;
+        quad.Radii *= Scale;
         quad.BorderWidth *= Scale;
+        quad.Thickness *= Scale;
+        quad.GradientPoints *= Scale;
+
+        // An arc's are angles. Everything else's are lengths.
+        if (quad.Kind != OverlayKind.Arc)
+        {
+            quad.Params *= Scale;
+        }
+
         if (Nesting.Clip is { } active)
         {
             quad.Clip = new Vector4(active.Rect.X, active.Rect.Y, active.Rect.Width, active.Rect.Height) * Scale;
-            quad.ClipRadius = active.Radius * Scale;
+            quad.ClipRadii = active.Radius.ToVector() * Scale;
         }
 
         _quads.Add(quad);

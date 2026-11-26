@@ -62,6 +62,13 @@ Interface code runs on the CPU only. Layout and text are real in headless runs, 
 | `Grid(columns, columnGap, rowGap)` | Children in equal columns, wrapping onto new rows |
 | `Pressable(look => view, onClick)` | Anything clickable, drawn from whether it's hovered or pressed |
 | `Button("Craft", onClick, Disabled: true)` | A ready-made `Pressable` with a label |
+| `Rectangle`, `RoundedRectangle(radius)`, `Capsule`, `Circle`, `Ellipse` | A shape that fills the space it's offered. See [Shapes](#shapes) |
+| `Arc(start, sweep, thickness)` | Part of a ring, for progress rings, cooldowns and gauges |
+| `new Icon(IconName.Search)` | A line icon, sized and coloured like the text around it |
+| `Divider()` | A thin line across a stack, either way |
+| `Badge("Rare", BadgeStyle.Secondary)` | A short tag for a count, a status or a rarity |
+| `Label("Settings", new Icon(IconName.Menu))` | Text with an icon before it |
+| `KeyHint("E")` | A keycap, for prompts such as "Press E to open" |
 
 ## Modifiers
 
@@ -73,11 +80,18 @@ Modifiers wrap a view, so their order usually matters.
 | `.Margin(...)` | The same, but outside the view's background |
 | `.Frame(width, height, maxWidth, maxHeight, alignment, minWidth, minHeight)` | Fixes the size, or lets the view stretch |
 | `.FixedSize()` | Uses the size the view would like, whatever it's offered |
-| `.Background(color)` | Fills the view's area |
+| `.Background(color)`, `.Background(Paint.Linear(...))` | Fills the view's area with a colour or a [gradient](#gradients) |
 | `.Border(width, color)` | Draws a line inside the view's edge, following its corners |
-| `.CornerRadius(radius)` | Rounds the background, border and image, and clips what's inside |
+| `.CornerRadius(radius)`, `.CornerRadius(new CornerRadii(...))` | Rounds the background, border and image, and clips what's inside. `CornerRadii` rounds each corner on its own |
+| `.Shadow(ShadowSize.Medium)`, `.Shadow(color, blur, x, y, spread)` | Casts a soft [shadow](#shadows) under the box |
 | `.Opacity(value)` | Fades the view and everything inside it |
-| `.Foreground(color)`, `.FontSize(pixels)`, `.Bold()`, `.Font(font)` | Styles text here and everywhere inside |
+| `.Foreground(color)`, `.Foreground(Tone.Muted)`, `.FontSize(pixels)`, `.Font(font)` | Styles text here and everywhere inside. A `Tone` takes its colour from the theme |
+| `.TextStyle(TextStyle.Headline)` | Sets the size and weight from the theme's [text styles](#text-styles) |
+| `.Bold()`, `.Weight(FontWeight.Medium)`, `.Italic()` | Sets how heavy text is, or slants it |
+| `.TextAlign(TextAlignment.Center)` | Lines up each line of text inside its frame |
+| `.Theme(theme)` | Gives everything inside [a theme](#themes) |
+| `.Disabled()` | Turns off every control inside: they fade and ignore clicks. `.Disabled(false)` further in can't turn them back on |
+| `.ControlSize(ControlSize.Small)` | Makes the controls inside smaller or larger |
 | `.MonospacedDigit()` | Gives digits one width, so changing numbers don't jiggle |
 | `.LineLimit(lines)` | Keeps text here and everywhere inside to that many lines, ending cut text in "…" |
 | `.Id(key)` | Names a view among its siblings, and lets a test or script [find it on screen](testing.md#finding-a-view) |
@@ -122,6 +136,108 @@ look equally bright. A color too vivid for a screen gets clipped.
 `Color` is for interfaces. 3D colors and lights stay as `Vector3`, because they're
 linear and a bright light can go well past 1.
 
+## Themes
+
+The built-in elements take their look from a `Theme`: its colours, corners, shadows, text
+styles and control sizes. `Theme.Dark` is the default and `Theme.Light` is the other. Both
+are neutral greys, so they fit most games. Change what you need with `with` and put it on
+any view, and everything inside takes it:
+
+```csharp
+var theme = Theme.Dark with
+{
+    Colors = Theme.Dark.Colors with { Primary = Color.Hex("#3B82F6") },
+    Radius = 2f,
+};
+
+new VStack(new Text("Paused"), new Button("Resume", Resume)).Theme(theme);
+```
+
+The colours are in `theme.Colors`, and the shadows in `theme.Shadows`:
+
+| Colour | Used for |
+| --- | --- |
+| `Background`, `Foreground` | Behind everything, and the text on it |
+| `Surface`, `Raised` | Panels and cards, and what floats above them, such as menus |
+| `Muted`, `MutedForeground` | Quiet fills such as a slider's track, and text that matters less |
+| `Hover` | A row or quiet button under the pointer |
+| `Primary`, `Secondary`, `Destructive`, each with a `...Foreground` | Buttons and badges, and the text on them |
+| `Success`, `Warning` | Statuses |
+| `Border`, `Input`, `Ring` | Lines between things, the edge of a field, and the focus ring |
+| `Scrim` | Laid over the game behind a dialog |
+
+Your own views can use the same colours through a `Tone`, so they change with the theme:
+`.Foreground(Tone.Muted)` is the theme's `Colors.MutedForeground`. Corners are `RadiusSmall` (4),
+`Radius` (6) and `RadiusLarge` (10).
+
+`.Disabled()` and `.ControlSize(...)` also reach everything inside them. A control turned off
+fades and ignores the mouse, and `ControlSize.Small`, `Regular` and `Large` set how tall
+controls are, their padding and their text size, from the theme's `Small`, `Regular` and
+`Large` metrics.
+
+### Text styles
+
+`.TextStyle(...)` sets text's size and weight by what it is, as SwiftUI does, from the
+theme's `Typography`:
+
+| Style | Size | Weight |
+| --- | --- | --- |
+| `LargeTitle` | 30 | Bold |
+| `Title` | 24 | SemiBold |
+| `Title2` | 20 | SemiBold |
+| `Title3` | 17 | SemiBold |
+| `Headline` | 14 | SemiBold |
+| `Body` | 14 | Regular |
+| `Callout` | 13 | Regular |
+| `Subheadline` | 13 | Medium |
+| `Footnote` | 12 | Regular |
+| `Caption` | 11 | Medium |
+
+Change one with `Theme.Dark with { Typography = Typography.Default with { Title = new(28f, FontWeight.Bold) } }`.
+
+### Gradients
+
+`.Background(...)` and a shape's `.Fill(...)` take a `Paint`, which is a colour or a
+gradient. A colour turns into a `Paint` by itself.
+
+```csharp
+Paint.Linear(top, bottom);                                       // top to bottom
+Paint.Linear(from, to, angle: 90f);                              // left to right, as CSS's angles go
+Paint.Linear(from, to, Alignment.TopLeading, Alignment.BottomTrailing);
+Paint.Radial(center, edge, at: Alignment.Top, radius: 200f);     // the radius reaches the farthest corner unless given
+```
+
+Gradients mix in sRGB, as CSS does, and fade into a clear colour without turning grey.
+
+### Shadows
+
+`.Shadow(ShadowSize.Small)`, `Medium` and `Large` cast the theme's shadows. For one of your
+own, give its colour, blur and offset: `.Shadow(Color.Black with { A = 0.4f }, blur: 16f, y: 6f)`.
+A shadow follows the box's corners and isn't seen through a see-through background.
+
+### Shapes
+
+Shapes fill the space they're offered, so give one a size with `.Frame(...)` or let a stack
+stretch it. A shape takes the text colour around it unless it's given `.Fill(paint)`, and
+`.Stroke(color, width)` draws its outline inside the edge:
+
+```csharp
+new Circle().Fill(Color.Hex("#22C55E")).Frame(width: 10f, height: 10f);
+new RoundedRectangle(8f).Stroke(Color.White, 2f).Frame(width: 120f, height: 40f);
+new Arc(Start: 0f, Sweep: cooldown, Thickness: 3f).Frame(width: 32f, height: 32f);
+```
+
+An `Arc` runs clockwise from the top. Its start and sweep are fractions of a turn, so
+`new Arc(0f, 0.25f)` is the top right quarter.
+
+## The storybook
+
+The [Storybook example](../examples/Storybook) shows every element on its own and in its
+variations, in both themes. Run it to see what's there, or with `--story badges --theme light`
+to open one page.
+
+![The storybook's shapes page in the dark theme](media/storybook.webp)
+
 ## Layout
 
 Layout works like SwiftUI's, and does what flexbox does:
@@ -131,7 +247,8 @@ Layout works like SwiftUI's, and does what flexbox does:
 3. The parent places the child, using its alignment.
 
 Stacks share their space out starting with the least flexible child, and spacers go
-last. To make something grow like `flex-grow`, give it
+last. When there's room for every child at its ideal size, each gets at least that, so
+nothing wraps in a row that fits it. To make something grow like `flex-grow`, give it
 `.Frame(maxWidth: UiExtensions.Infinity)`. To pin something to a corner, wrap it in a
 frame that fills the screen, as `MyColony` does above. The top of the tree is centered
 otherwise.
@@ -313,8 +430,10 @@ new VStack(
 ).Font(body);
 ```
 
-`.Bold()` draws text in the font's bold file. A font named without one has no bold, and bold
-text in it is drawn in the regular weight. Every font and size shares one 1024-pixel sheet of
+The built-in Inter has Regular, Medium, SemiBold and Bold weights, and an italic. A font of your
+own has a regular and a bold file: `.Bold()`, `SemiBold` and the text styles that use them
+draw in the bold file, and `Medium` in the regular one. A font named without a bold file has
+no bold, and bold text in it is drawn in the regular weight. Italic is only built in. Every font and size shares one 1024-pixel sheet of
 characters; a character drawn once there's no room left takes its place in the line but isn't
 seen, so keep to a few fonts and sizes.
 
@@ -389,4 +508,4 @@ stops repeating.
 
 ## Not yet
 
-There are no text inputs, and the interface can't be driven by keyboard or gamepad yet.
+There are no text inputs, and the interface can't be driven by keyboard, gamepad or touch yet. Toggles, sliders, pickers, menus and dialogs aren't built in yet either.

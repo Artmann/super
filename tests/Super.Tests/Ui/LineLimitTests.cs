@@ -30,6 +30,18 @@ public sealed class LineLimitTests
     }
 
     [Fact]
+    public void Text_beside_a_line_limited_text_stays_on_one_line_in_a_row_that_fits_them()
+    {
+        // The row hugs the two, so it's placed at just the length they asked for. Shared out equally again,
+        // the text that can wrap got half of that and broke under the cut one.
+        var tree = Show(new HStack(Spacing: 8f) { new Text("Ember Blade").Id("name"), new Text("Legendary").LineLimit(1).Id("tag") });
+
+        Assert.Equal(WidthOf("Ember Blade"), tree.FrameOf("name").Width, 0.01f);
+        Assert.Equal(LineHeight, tree.FrameOf("name").Height);
+        Assert.Equal(WidthOf("Legendary"), tree.FrameOf("tag").Width, 0.01f);
+    }
+
+    [Fact]
     public void A_row_with_a_line_limit_of_one_keeps_every_label_on_one_line()
     {
         var tree = Show(new HStack(Spacing: 8f) { new Text("Wood 16"), new Text("Stone 6"), new Text("Thatch 8") }

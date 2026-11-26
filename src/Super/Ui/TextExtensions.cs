@@ -9,10 +9,31 @@ public static class TextExtensions
     /// <summary>Colors the text in this view, and in everything inside it.</summary>
     public static UiView Foreground(this UiView view, Color color) => new StyleModifier(view, Color: color);
 
+    /// <summary>Colors the text in this view, and in everything inside it, with a colour from the theme.</summary>
+    public static UiView Foreground(this UiView view, Tone tone) => new StyleModifier(view, Tone: tone);
+
     /// <summary>Sets the size of the text in this view, and in everything inside it, in pixels.</summary>
     public static UiView FontSize(this UiView view, float size) => new StyleModifier(view, Size: size);
 
-    public static UiView Bold(this UiView view) => new StyleModifier(view, Bold: true);
+    public static UiView Bold(this UiView view) => new StyleModifier(view, Weight: FontWeight.Bold);
+
+    /// <summary>Sets how heavy the text in this view is, and in everything inside it.</summary>
+    public static UiView Weight(this UiView view, FontWeight weight) => new StyleModifier(view, Weight: weight);
+
+    /// <summary>
+    /// Slants the text in this view, and in everything inside it. The built-in font has an italic; a
+    /// font of your own is drawn upright.
+    /// </summary>
+    public static UiView Italic(this UiView view) => new StyleModifier(view, Italic: true);
+
+    /// <summary>
+    /// Gives the text in this view, and in everything inside it, the theme's size and weight for this
+    /// kind of text, such as <see cref="Super.Ui.TextStyle.Title"/> or <see cref="Super.Ui.TextStyle.Caption"/>.
+    /// </summary>
+    public static UiView TextStyle(this UiView view, TextStyle style) => new StyleModifier(view, Style: style);
+
+    /// <summary>Lines text of more than one line up on the left, the middle or the right of its frame.</summary>
+    public static UiView TextAlign(this UiView view, TextAlignment alignment) => new StyleModifier(view, Alignment: alignment);
 
     /// <summary>
     /// Sets the typeface of the text in this view, and in everything inside it, in place of the

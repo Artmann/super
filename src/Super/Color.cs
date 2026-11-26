@@ -53,6 +53,16 @@ public readonly record struct Color(float R, float G, float B, float A = 1f)
         return new Color(Channel(0), Channel(1), Channel(2), alpha ?? (channels == 4 ? Channel(3) : 1f));
     }
 
+    /// <summary>
+    /// This colour moved <paramref name="amount"/> of the way to <paramref name="other"/>, from 0 (this) to 1
+    /// (the other), alpha too. Good for a button a shade lighter when hovered.
+    /// </summary>
+    public Color Mix(Color other, float amount) => new(
+        R + (other.R - R) * amount,
+        G + (other.G - G) * amount,
+        B + (other.B - B) * amount,
+        A + (other.A - A) * amount);
+
     /// <summary>Red, green and blue from 0 to 255, as in CSS.</summary>
     public static Color Rgb(int red, int green, int blue, float alpha = 1f) =>
         new(red / 255f, green / 255f, blue / 255f, alpha);

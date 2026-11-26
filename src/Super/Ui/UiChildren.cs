@@ -12,7 +12,7 @@ internal static class UiChildren
     /// Children left without a view are unmounted, and views left without a child get one
     /// from <paramref name="make"/>. Returns the new children.
     /// </summary>
-    public static List<TNode?> Reconcile<TNode>(TNode parent, List<TNode?> previous, IReadOnlyList<UiView?> views, TextStyle style, Func<TNode, UiView, TNode> make)
+    public static List<TNode?> Reconcile<TNode>(TNode parent, List<TNode?> previous, IReadOnlyList<UiView?> views, UiEnvironment style, Func<TNode, UiView, TNode> make)
         where TNode : class, IUiReconciled
     {
         var next = new List<TNode?>(views.Count);
@@ -38,7 +38,7 @@ internal static class UiChildren
     }
 
     /// <summary>Nothing about the parent changed, but something further down did. Returns whether anything changed.</summary>
-    public static bool UpdateInPlace<TNode>(List<TNode?> children, TextStyle style)
+    public static bool UpdateInPlace<TNode>(List<TNode?> children, UiEnvironment style)
         where TNode : class, IUiReconciled
     {
         bool changed = false;
@@ -95,7 +95,7 @@ internal interface IUiReconciled
     /// <summary>The view the node shows now.</summary>
     UiView ShownView { get; }
 
-    bool Update(UiView view, TextStyle style);
+    bool Update(UiView view, UiEnvironment style);
 
     void Unmount();
 }

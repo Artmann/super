@@ -63,7 +63,7 @@ internal sealed unsafe class UiFontFace
         previous == '\0' ? 0f : StbTrueType.stbtt_GetCodepointKernAdvance(Font, previous, character) * Scale;
 
     /// <summary>How far this character moves the pen after the one before it.</summary>
-    public float Advance(in TextStyle style, char previous, char character)
+    public float Advance(in TextLook style, char previous, char character)
     {
         if (style.MonospacedDigits && char.IsAsciiDigit(character))
         {

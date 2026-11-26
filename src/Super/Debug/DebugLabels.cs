@@ -29,11 +29,11 @@ internal static class DebugLabels
                 continue;
             }
 
-            var style = TextStyle.Default with { Size = 13f, Color = label.Color };
+            var style = TextLook.Default with { Size = 13f, Color = label.Color };
             var size = ui.Atlas.Measure(label.Text, style, null);
             var at = pixel / ui.Scale;
             var frame = new UiRect(MathF.Round(at.X - size.Width / 2f), MathF.Round(at.Y - size.Height - 6f), size.Width, size.Height);
-            ui.List.AddBox(new UiRect(frame.X - 4f, frame.Y - 2f, frame.Width + 8f, frame.Height + 4f), Backing, 3f, 0f, default);
+            ui.List.AddBox(new UiRect(frame.X - 4f, frame.Y - 2f, frame.Width + 8f, frame.Height + 4f), Backing, 3f);
             ui.Atlas.Draw(ui.List, label.Text, style, frame);
             ui.List.AddText(label.Text, frame, style);
         }

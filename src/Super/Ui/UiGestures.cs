@@ -78,7 +78,7 @@ internal sealed class UiGestures(UiTree tree, Input input)
             callback = () => target.Drop(payload);
         }
         else if (button == MouseButton.Left
-            && _hold is ClickHold { Node: { View: ClickModifier { Disabled: false } } node, Click: { } click }
+            && _hold is ClickHold { Node: { View: ClickModifier { Disabled: false }, Environment.Disabled: false } node, Click: { } click }
             && UiPointerSearch.Inside(hit, node))
         {
             callback = click;

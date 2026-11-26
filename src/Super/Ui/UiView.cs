@@ -27,6 +27,13 @@ public abstract record UiView
     protected static State<T> UseState<T>(T initial) =>
         UiBodyHooks.Running?.UseSlot(initial, static value => new State<T>(value))
         ?? throw new InvalidOperationException("UseState only works while Body runs.");
+
+    /// <summary>
+    /// What this component sits in: the theme, whether controls are turned off, and how big they are.
+    /// Read it in Body. When it changes, Body runs again.
+    /// </summary>
+    protected static UiEnvironment Environment =>
+        UiBodyHooks.Running?.Environment ?? throw new InvalidOperationException("Environment only works while Body runs.");
 }
 
 /// <summary>A view Super draws itself, which makes it the end of the line for Body.</summary>
@@ -66,8 +73,8 @@ public abstract record PrimitiveView : UiView
     /// <summary>Whether this takes the mouse here ahead of its children.</summary>
     internal virtual bool HitsFirst(UiNode node, float x, float y) => false;
 
-    /// <summary>Changes the text style for everything inside this view.</summary>
-    internal virtual TextStyle Inherit(TextStyle style) => style;
+    /// <summary>Changes the environment, such as the text style, for everything inside this view.</summary>
+    internal virtual UiEnvironment Inherit(UiEnvironment environment) => environment;
 
     /// <summary>
     /// Where a node shows: a component is where its body is, and a box is where it shows,
@@ -174,14 +181,64 @@ internal readonly record struct Edges(float Top, float Trailing, float Bottom, f
 /// </summary>
 internal readonly record struct Proposal(float? Width, float? Height);
 
-/// <summary>How text looks. It flows down the tree, so a style set on a stack reaches all the text inside.</summary>
 /// <summary>
-/// How text looks. A line limit of null lets text wrap onto as many lines as it needs, and a null font is
-/// the built-in one.
+/// How text looks. It flows down the tree, so a style set on a stack reaches all the text inside. A line
+/// limit of null lets text wrap onto as many lines as it needs, and a null font is the built-in one.
 /// </summary>
-internal readonly record struct TextStyle(float Size, bool Bold, Color Color, bool MonospacedDigits, int? LineLimit = null, GameFont? Font = null)
+internal readonly record struct TextLook(
+    float Size,
+    FontWeight Weight,
+    Color Color,
+    bool MonospacedDigits,
+    int? LineLimit = null,
+    GameFont? Font = null,
+    bool Italic = false,
+    TextAlignment Alignment = TextAlignment.Leading)
 {
-    public static TextStyle Default { get; } = new(14f, false, Color.White, false);
+    public static TextLook Default { get; } = new(14f, FontWeight.Regular, Color.White, false);
+
+    public bool Bold => Weight >= FontWeight.SemiBold;
+}
+
+/// <summary>
+/// What flows down the tree to every view inside: how text looks, the theme, whether controls are turned
+/// off, and how big they are. A component reads it in Body through <see cref="UiView.Environment"/>.
+/// </summary>
+public readonly record struct UiEnvironment
+{
+    internal UiEnvironment(TextLook text, Theme theme, bool disabled, ControlSize controlSize)
+    {
+        Text = text;
+        Theme = theme;
+        Disabled = disabled;
+        ControlSize = controlSize;
+    }
+
+    /// <summary>The theme in force, <see cref="Theme.Dark"/> unless a view set another.</summary>
+    public Theme Theme { get; }
+
+    /// <summary>Whether a <c>.Disabled()</c> around this turned controls off.</summary>
+    public bool Disabled { get; }
+
+    /// <summary>How big controls are here, set with <c>.ControlSize(...)</c>.</summary>
+    public ControlSize ControlSize { get; }
+
+    /// <summary>The size of the theme's controls at <see cref="ControlSize"/>.</summary>
+    public ControlMetrics Metrics => Theme.Metrics(ControlSize);
+
+    /// <summary>The size in pixels text has here.</summary>
+    public float FontSize => Text.Size;
+
+    internal TextLook Text { get; init; }
+
+    internal static UiEnvironment Default { get; } = For(Theme.Dark);
+
+    /// <summary>Text starts in the theme's body style and colour.</summary>
+    internal static UiEnvironment For(Theme theme) =>
+        new(TextLook.Default with { Size = theme.Typography.Body.Size, Weight = theme.Typography.Body.Weight, Color = theme.Colors.Foreground }, theme, false, ControlSize.Regular);
+
+    internal UiEnvironment With(Theme? theme = null, bool? disabled = null, ControlSize? controlSize = null) =>
+        new(Text, theme ?? Theme, disabled ?? Disabled, controlSize ?? ControlSize);
 }
 
 internal static class AlignmentFractions

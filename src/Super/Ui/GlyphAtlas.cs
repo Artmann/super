@@ -14,7 +14,12 @@ internal sealed class GlyphAtlas
 
     private readonly StbTrueType.stbtt_fontinfo _regular = LoadFont("Inter-Regular.ttf");
     private readonly StbTrueType.stbtt_fontinfo _bold = LoadFont("Inter-Bold.ttf");
-    private readonly Dictionary<(GameFont? Font, bool Bold, int Size), UiFontFace> _faces = [];
+
+    // Read the first time text asks for them, so a game that never uses them doesn't pay for them.
+    private readonly Lazy<StbTrueType.stbtt_fontinfo> _medium = new(() => LoadFont("Inter-Medium.ttf"));
+    private readonly Lazy<StbTrueType.stbtt_fontinfo> _semiBold = new(() => LoadFont("Inter-SemiBold.ttf"));
+    private readonly Lazy<StbTrueType.stbtt_fontinfo> _italic = new(() => LoadFont("Inter-Italic.ttf"));
+    private readonly Dictionary<(GameFont? Font, FontWeight Weight, bool Italic, int Size), UiFontFace> _faces = [];
     private readonly UiGlyphSheet _sheet = new();
     private readonly UiLineBreaker _lines = new();
 
@@ -30,7 +35,7 @@ internal sealed class GlyphAtlas
     /// </summary>
     public float Scale { get; set; } = 1f;
 
-    public UiSize Measure(string text, in TextStyle style, float? maxWidth)
+    public UiSize Measure(string text, in TextLook style, float? maxWidth)
     {
         var face = FaceFor(style);
         _lines.Wrap(text, face, style, maxWidth * Scale);
@@ -47,7 +52,7 @@ internal sealed class GlyphAtlas
     /// The text as it shows at this width: all of it, or, when a line limit cut it, the
     /// part that shows followed by an ellipsis.
     /// </summary>
-    public string Shown(string text, in TextStyle style, float width)
+    public string Shown(string text, in TextLook style, float width)
     {
         if (style.LineLimit is null)
         {
@@ -59,15 +64,17 @@ internal sealed class GlyphAtlas
         return last.Cut ? string.Concat(text.AsSpan(0, last.End), UiLineBreaker.Ellipsis.ToString()) : text;
     }
 
-    public void Draw(UiDrawList list, string text, in TextStyle style, UiRect frame)
+    public void Draw(UiDrawList list, string text, in TextLook style, UiRect frame)
     {
         // Worked out in pixels, so characters land on whole pixels, then handed back in interface units.
         var face = FaceFor(style);
         _lines.Wrap(text, face, style, frame.Width * Scale);
         float baseline = MathF.Round(frame.Y * Scale) + face.Ascent;
+        float fraction = (float)style.Alignment / 2f;
         foreach (var line in _lines.Lines)
         {
-            float pen = MathF.Round(frame.X * Scale);
+            float room = Math.Max(frame.Width * Scale - line.Width, 0f);
+            float pen = MathF.Round(frame.X * Scale + room * fraction);
             char previous = '\0';
             for (int i = line.Start; i < line.End; i++)
             {
@@ -108,16 +115,51 @@ internal sealed class GlyphAtlas
         return StbTrueType.CreateFont(data, 0) ?? throw new InvalidOperationException($"{name} could not be read.");
     }
 
-    private UiFontFace FaceFor(in TextStyle style)
+    private UiFontFace FaceFor(in TextLook style)
     {
         int size = Math.Max((int)MathF.Round(style.Size * Scale), 1);
-        if (!_faces.TryGetValue((style.Font, style.Bold, size), out var face))
+        var key = KeyFor(style, size);
+        if (!_faces.TryGetValue(key, out var face))
         {
-            var font = style.Font is { } chosen ? (style.Bold ? chosen.Bold : chosen.Regular) : (style.Bold ? _bold : _regular);
-            face = new UiFontFace(font, size, _sheet);
-            _faces.Add((style.Font, style.Bold, size), face);
+            face = new UiFontFace(FontFor(key), size, _sheet);
+            _faces.Add(key, face);
         }
 
         return face;
+    }
+
+    /// <summary>
+    /// The face that draws this style. A font of your own has only regular and bold, and the built-in
+    /// italic only a regular weight, so styles that would look the same share a face.
+    /// </summary>
+    private static (GameFont? Font, FontWeight Weight, bool Italic, int Size) KeyFor(in TextLook style, int size)
+    {
+        if (style.Font is { } chosen)
+        {
+            return (chosen, style.Bold ? FontWeight.Bold : FontWeight.Regular, false, size);
+        }
+
+        return style.Italic ? (null, FontWeight.Regular, true, size) : (null, style.Weight, false, size);
+    }
+
+    private StbTrueType.stbtt_fontinfo FontFor((GameFont? Font, FontWeight Weight, bool Italic, int Size) key)
+    {
+        if (key.Font is { } chosen)
+        {
+            return key.Weight == FontWeight.Bold ? chosen.Bold : chosen.Regular;
+        }
+
+        if (key.Italic)
+        {
+            return _italic.Value;
+        }
+
+        return key.Weight switch
+        {
+            FontWeight.Medium => _medium.Value,
+            FontWeight.SemiBold => _semiBold.Value,
+            FontWeight.Bold => _bold,
+            _ => _regular,
+        };
     }
 }

@@ -21,7 +21,7 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view) : IUiReco
 
     UiView IUiReconciled.ShownView => View;
 
-    public TextStyle Style { get; private set; }
+    public UiEnvironment Environment { get; private set; } = UiEnvironment.Default;
 
     public List<UiNode?> Children { get; private set; } = [];
 
@@ -37,16 +37,16 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view) : IUiReco
     /// Brings this node up to date with a view. Equal views stop here, which is what makes
     /// redescribing the whole interface cheap. Returns whether anything changed.
     /// </summary>
-    public bool Update(UiView view, TextStyle style)
+    public bool Update(UiView view, UiEnvironment style)
     {
-        bool changed = _changes.HasFlag(UiNodeChanges.Self) || style != Style || (!ReferenceEquals(view, View) && !view.Equals(View));
+        bool changed = _changes.HasFlag(UiNodeChanges.Self) || style != Environment || (!ReferenceEquals(view, View) && !view.Equals(View));
         if (!changed && !_changes.HasFlag(UiNodeChanges.Below))
         {
             return false;
         }
 
         View = view;
-        Style = style;
+        Environment = style;
         _changes = UiNodeChanges.None;
         if (!changed)
         {
@@ -62,7 +62,7 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view) : IUiReco
         {
             // A component's one child is what its Body describes, run with its hooks.
             _hooks ??= new UiBodyHooks(MarkDirty);
-            var body = _hooks.Run(view, static component => component.Body);
+            var body = _hooks.Run(view, style, static component => component.Body);
             Children = UiChildren.Reconcile(this, Children, [body], style, static (parent, child) => new UiNode(parent.Tree, parent, child));
         }
 
