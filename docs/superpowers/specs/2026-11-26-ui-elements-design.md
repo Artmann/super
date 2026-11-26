@@ -127,7 +127,9 @@ that isn't meant to be cut, and clashing ids.
 6. Containers and layout, in two parts. The layout part is done: overlay, background view,
    offset, hidden, layout priority, aspect ratio, `Grid`/`GridRow`, `FlowStack`,
    `ViewThatFits` and `LazyVStack`. A lazy stack's rows share one height, and`.SafeAreaPadding`
-   waits until the window knows its safe area. The containers part is `Card`, `Section`/`Form`,
-   `LabeledContent`, `DisclosureGroup`, `TabView` and `NavigationStack`.
+   waits until the window knows its safe area. The containers part is done too: `Card`,
+   `Section`/`Form`, `LabeledContent`, `DisclosureGroup`, `TabView` and `NavigationStack`,
+   with Escape and East going back and the bumpers switching tabs. Going back forgets the
+   page underneath's state.
 7. Animation and transitions, including the spinning `ProgressView` and the switch's and
    slider's moving knobs; showcase screens; polish passes.

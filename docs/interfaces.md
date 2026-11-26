@@ -78,6 +78,12 @@ Interface code runs on the CPU only. Layout and text are real in headless runs, 
 | `Badge("Rare", BadgeStyle.Secondary)` | A short tag for a count, a status or a rarity |
 | `Label("Settings", new Icon(IconName.Menu))` | Text with an icon before it |
 | `KeyHint("E")` | A keycap, for prompts such as "Press E to open" |
+| `Card { ... }` | A raised panel for views that belong together. See [Containers](#containers) |
+| `LabeledContent("Gold", "1,250")` | A label with a value or a control at the end of the row |
+| `Form { new Section("Audio") { ... } }` | A settings screen of sections, with a line between each row |
+| `DisclosureGroup("Advanced") { ... }` | A heading with a chevron that shows or hides what's under it |
+| `TabView { new Tab("Video", page) }` | Pages a bar of tabs switches between |
+| `NavigationStack<T>(path, title, root, destination)` | Pages that go deeper, with a bar and a way back |
 
 ## Modifiers
 
@@ -453,7 +459,8 @@ and `gauges` stories keep their values, so you can try each control, and `text-f
 those for a shot, with `--story focus --script focus`. The `touch` story and script show taps,
 long presses and flings. The `menus`, `dialogs`, `sheets` and `toasts` stories have every popup,
 and the `menu`, `context`, `alert`, `confirm`, `sheet`, `popover` and `toasts` scripts open them.
-The `layers`, `grids`, `flows` and `lazy-lists` stories show the [layout](#layout) views.
+The `layers`, `grids`, `flows` and `lazy-lists` stories show the [layout](#layout) views, and
+`cards`, `forms`, `tabs` and `navigation` show the [containers](#containers).
 
 ![The storybook's shapes page in the dark theme](media/storybook.webp)
 
@@ -526,6 +533,97 @@ a screen's worth of rows made above and below what shows, so scrolling and movin
 find their rows ready. Items name their rows, so they should differ from each other. Hand it
 a new list when the items change, since a list changed in place looks the same as the last.
 Outside a scroll view it makes every row.
+
+## Containers
+
+Containers hold other views and give them a shape a game screen often needs. You fill each
+one with collection syntax, as you would a stack, and `null` leaves a spot empty.
+
+![A card, a form with a disclosure group, a tab view and a navigation stack in the storybook](media/ui-containers.webp)
+
+A `Card` is a raised panel on the theme's surface colour, for a quest, a character's stats
+or a shop item. Its views stack down the leading edge, `Spacing` apart, `Inset` from its
+edge. A `LabeledContent` puts a label at the start of a row and a value or a control at the
+end, and text given as the value is muted:
+
+```csharp
+new Card
+{
+    new Text("Arin, the ranger").TextStyle(TextStyle.Headline),
+    new LabeledContent("Health", $"{health} / {maxHealth}"),
+    new LabeledContent("Difficulty", new Badge("Hard", BadgeStyle.Destructive)),
+}
+```
+
+### Forms
+
+A `Form` is a settings screen made of `Section`s, one under the other, filling the width it's
+offered. A section draws its rows on a rounded panel with a line between each, under an
+optional header and over an optional note. A row left out with `null` adds no line, and the
+rows after it keep their state. Put the form in a `ScrollView` when it may be taller than the
+screen.
+
+```csharp
+new Form
+{
+    new Section("Display")
+    {
+        new Toggle("Fullscreen", fullscreen, setFullscreen),
+        new LabeledContent("Resolution", "2560 × 1440"),
+    },
+    new Section("Audio", "Music fades out in menus.")
+    {
+        new LabeledContent("Music", new Slider(music, setMusic).Frame(width: 180f)),
+        new DisclosureGroup("Advanced") { new Toggle("Mono", mono, setMono) },
+    },
+}
+```
+
+A `DisclosureGroup` is a heading with a chevron that shows or hides the views under it. Left
+alone it keeps whether it's open itself, starting closed. Give it `IsExpanded` and `OnChange`
+to keep that in the game instead: it then shows what you pass and only asks to change. Tests
+find its heading as `UiRole.Disclosure`, `Checked` while it's open.
+
+### Tab views
+
+A `TabView` shows one of its `Tab`s under a bar of tabs. Left alone it keeps the tab picked
+itself, or give it `Selection` and `OnChange` to keep it in the game. The bar is one focus
+stop, whose left and right switch tabs, and the gamepad's bumpers switch them from anywhere
+on the screen, in the innermost tab view, without the game seeing the press. Under a popup
+that traps, the bumpers only reach a tab view inside it. Tests find each tab as
+`UiRole.Tab`, `Checked` when it's shown.
+
+```csharp
+new TabView
+{
+    new Tab("Video", videoSettings) { Icon = IconName.Info },
+    new Tab("Audio", audioSettings),
+}
+```
+
+### Navigation stacks
+
+A `NavigationStack<T>` shows the page on top of a `NavigationPath<T>`, or its root when the
+path is empty, under a bar with the page's title and a button back, named after the page
+underneath. Escape and the gamepad's East button go back too, and at the root they're left to
+the game. A stack inside a sheet goes back before the sheet closes, and a menu open over a
+stack closes before the stack goes back. Keep the path in a field or a state so it lives
+across frames:
+
+```csharp
+private readonly NavigationPath<SettingsPage> _path = new();
+
+new NavigationStack<SettingsPage>(_path, "Settings", mainMenu, page => page switch
+{
+    SettingsPage.Graphics => graphicsPage,
+    _ => audioPage,
+})
+```
+
+`Push` opens a page, `Back` goes back one and says whether there was one, and `BackToRoot`
+empties the path. A page's title is its `ToString`, or what `TitleOf` gives. Tests find the
+stack as `UiRole.Navigation`, with the title shown as its `Label` and the depth as its
+`Value`.
 
 ### Text that doesn't fit
 
@@ -846,3 +944,6 @@ Text fields are one line only. Menus have no submenus, a context menu has no key
 the keyboard or the gamepad, toasts have no buttons of their own, and popups appear and leave at
 once, with no animation. A lazy stack's rows all have one height, there's no lazy row or lazy
 grid, and when a lazy list scrolls far in one frame the new rows show a frame later.
+Going back in a navigation stack forgets the state of the page that was under it, and a tab
+view or a navigation stack under `.Hidden()` still takes the bumpers and Escape. There's no
+key on the keyboard that switches tabs from anywhere, as the bumpers do.

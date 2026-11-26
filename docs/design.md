@@ -251,7 +251,15 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   which node had focus when each trapping popup opened, moves focus into the popup (onto its
   `DefaultFocus`, which a dialog puts on its Cancel button, or else its first stop), and hands
   focus back to that node when the popup closes, if it's still there. Escape and East go to
-  `UiFocusTrap.Back`, which runs the top popup's dismiss. `UiFocusMark` holds the focused node and whether its ring shows; the ring is drawn
+  `UiFocusTrap.Back`, which first goes back in a navigation stack and otherwise runs the top
+  popup's dismiss. A `NavigationStack` with pages to go back through, and a `TabView`, wrap
+  their view in a `SignUpModifier`, which signs the way back or the tab switch up with
+  `UiLayers.CanGoBack` and `UiLayers.SwitchesTabs` while the tree is placed. Parents place
+  before their children, so the innermost one wins. `UiLayers.Clear` forgets both before
+  each layout, and `GoBack` and `SwitchTab` only hand one out when its node is mounted and,
+  while a popup traps, inside that popup. So a stack in a sheet goes back first, but a menu
+  over a stack closes first. `TabKeys.Bumpers` takes the gamepad's bumpers for the tab
+  switch at the end of `UiFocus.Pad`, so the game doesn't see them. `UiFocusMark` holds the focused node and whether its ring shows; the ring is drawn
   round the node's frame, always for a text field and otherwise once a key has moved focus.
   Tab walks the list. An arrow picks a stop whose middle lies that way. Stops in line, overlapping it sideways,
   always win over the rest, so an arrow follows a row past a locked control rather than

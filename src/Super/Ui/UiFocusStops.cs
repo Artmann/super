@@ -230,11 +230,19 @@ internal sealed class UiFocusTrap(UiTree tree)
     }
 
     /// <summary>
-    /// Escape or the gamepad's East button, outside a text field: closes the popup on top as it says. Returns
-    /// whether a popup is open, which takes the key even when it can't be closed that way.
+    /// Escape or the gamepad's East button, outside a text field: goes back in a navigation stack, or closes
+    /// the popup on top as it says. Returns whether either took it: an open popup takes the key even when it
+    /// can't be closed that way.
     /// </summary>
     public bool Back(List<Action> callbacks)
     {
+        // A stack inside the popup on top goes back before the popup closes.
+        if (tree.Layers.GoBack is { } back)
+        {
+            callbacks.Add(back);
+            return true;
+        }
+
         if (tree.Layers.Trapping is not { View: LayerView layer })
         {
             return false;

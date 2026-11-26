@@ -126,7 +126,7 @@ public sealed class StorybookTests
         var error = Assert.Throws<ArgumentException>(() => Stories.Find("tables"));
 
         Assert.StartsWith("There's no story \"tables\". The stories are typography, colours,", error.Message);
-        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists.", error.Message);
+        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists, cards, forms, tabs, navigation.", error.Message);
     }
 
     /// <summary>Clicks a control this far across it, halfway down, and lets the click land.</summary>
@@ -340,5 +340,45 @@ public sealed class StorybookTests
         var shown = run.ShownText.Where(text => text.Text.StartsWith("Player ", StringComparison.Ordinal)).ToArray();
         Assert.NotEmpty(shown);
         Assert.InRange(run.Elements.Count(element => element.Label.StartsWith("Player ", StringComparison.Ordinal)), 8, 100);
+    }
+
+    private static UiElement Role(HeadlessRun<StorybookGame> run, UiRole role, string label) =>
+        run.Elements.Single(element => element.Role == role && element.Label == label);
+
+    [Fact]
+    public void The_forms_story_opens_its_advanced_audio_settings()
+    {
+        using var run = Open(new StoryChoice("forms"));
+        Assert.False(Shows(run, "Mono"));
+
+        ClickAt(run, Role(run, UiRole.Disclosure, "Advanced").Frame);
+
+        Assert.True(Shows(run, "Mono"));
+        Assert.Equal(true, Role(run, UiRole.Disclosure, "Advanced").Checked);
+    }
+
+    [Fact]
+    public void The_tabs_story_shows_the_tab_clicked()
+    {
+        using var run = Open(new StoryChoice("tabs"));
+        Assert.False(Shows(run, "Speakers"));
+
+        ClickAt(run, Role(run, UiRole.Tab, "Audio").Frame);
+
+        Assert.True(Shows(run, "Speakers"));
+    }
+
+    [Fact]
+    public void The_navigation_story_goes_two_pages_deep_and_escape_comes_back_one()
+    {
+        using var run = Open(new StoryChoice("navigation"));
+        ClickControl(run, "graphics");
+        ClickControl(run, "advanced");
+        Assert.True(Shows(run, "Shadow cascades"));
+
+        Press(run, Key.Escape);
+
+        Assert.True(Shows(run, "Quality"));
+        Assert.Equal("Graphics", run.Elements.Single(element => element.Role == UiRole.Navigation).Label);
     }
 }
