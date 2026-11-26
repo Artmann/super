@@ -26,8 +26,8 @@ internal abstract class GameLoop
     {
         Time = time;
         Content = services.GetRequiredService<Content>();
-        View.Content = Content;
-        View.World = services.GetRequiredService<World>();
+        View.Sources = (Content, services.GetRequiredService<World>());
+        View.Debug.Channels = services.GetRequiredService<DebugDraw>();
         Input = services.GetRequiredService<Input>();
         Capture = services.GetRequiredService<GameCapture>();
         Audio = services.GetRequiredService<Audio>();

@@ -24,19 +24,20 @@ public sealed class View
 
     internal UiTree? Ui { get; set; }
 
-    /// <summary>What the game named, so drawing something it unloaded fails where the mistake is.</summary>
-    internal Content? Content
+    /// <summary>
+    /// What the game named, so drawing something it unloaded fails where the mistake is, and the world this view
+    /// draws, so <see cref="ViewPlacement.TransformOf"/> can find an entity.
+    /// </summary>
+    internal (Content? Content, World? World) Sources
     {
         get;
         set
         {
             field = value;
-            Effects.SurfaceCheck = value is null ? null : surface => ItemChecks.RequireSurface(value.Store, surface);
+            var content = value.Content;
+            Effects.SurfaceCheck = content is null ? null : surface => ItemChecks.RequireSurface(content.Store, surface);
         }
     }
-
-    /// <summary>The world this view draws, so <see cref="ViewPlacement.TransformOf"/> can find an entity.</summary>
-    internal World? World { get; set; }
 
     /// <summary>The suns, the point and spot lights, and the shadows they cast.</summary>
     public ViewLights Lights { get; } = new();
@@ -49,6 +50,9 @@ public sealed class View
 
     /// <summary>Particles, decals and fog volumes, and the finish, outlines and transition of the picture.</summary>
     public ViewEffects Effects { get; } = new();
+
+    /// <summary>Lines, shapes and labels for seeing what the game thinks, for this frame only. See docs/debugging.md.</summary>
+    public ViewDebug Debug { get; } = new();
 
     /// <summary>Everything drawn so far this frame.</summary>
     public ReadOnlySpan<ModelDraw> Drawn => CollectionsMarshal.AsSpan(_models);
@@ -129,7 +133,7 @@ public sealed class View
             throw new ArgumentException($"Model {model.Index} is not a built-in shape. Use ModelRef.Sphere and the others, or a model from Content.", nameof(model));
         }
 
-        if (Content is { } content && content.Store.IsUnloaded(model.Index))
+        if (Sources.Content is { } content && content.Store.IsUnloaded(model.Index))
         {
             throw new InvalidOperationException($"Model {model.Index} was unloaded, so it can't be drawn.");
         }
@@ -230,6 +234,7 @@ public sealed class View
         Indirect.Clear();
         Surroundings.Clear();
         Effects.Clear();
+        Debug.Clear();
         Camera(new Vector3(0f, 0f, 5f), Vector3.Zero);
     }
 }

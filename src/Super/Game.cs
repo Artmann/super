@@ -23,6 +23,7 @@ public static class Game
         host.Script = FindScript<TGame>(host, arguments.ScriptName);
         host.Ui.Scale = arguments.UiScale ?? options.UiScale;
         host.Stats.Shown = arguments.Stats;
+        ShowDebugChannels(host, arguments.DebugChannels);
         if (arguments.Look is { } look)
         {
             // After the game's constructor, so it wins over the look the game starts with.
@@ -38,6 +39,17 @@ public static class Game
         if (!RunHidden(host, window, options, arguments))
         {
             PlayLive(host, window, gameId, arguments);
+        }
+    }
+
+    /// <summary>Shows the debug channels named with --debug, on top of any the game showed itself.</summary>
+    private static void ShowDebugChannels<TGame>(GameHost<TGame> host, IReadOnlyList<string>? channels)
+        where TGame : class, IGame
+    {
+        var debug = (DebugDraw)host.GetService(typeof(DebugDraw));
+        foreach (string channel in channels ?? [])
+        {
+            debug.Show(channel);
         }
     }
 

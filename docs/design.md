@@ -1188,6 +1188,7 @@ BloomPass     fullscreen x 9   -> glow, by shrinking and regrowing the image
 exposure_*.comp compute x 2     -> with auto exposure, a histogram of the lit frame, then the adapted exposure in a buffer
 TonemapPass   fullscreen       -> display colour (white balance, colour grade, AgX or ACES)
 FinishPass    fullscreen       -> swapchain, with sharpening, a transition, vignette, grain and dither
+LinePass      6 x lines        -> debug lines over the swapchain, faint where the scene hides them; see "Debug lines"
 ```
 
 Everything before `FinishPass` draws at the scene size, and the finish pass, the overlay and
@@ -1241,6 +1242,28 @@ compiles both discards in `materialSurface` away and lets the depth test run fir
 `SceneDraws.Draw` picks the solid pair for a material with no cut-out texture and neither the
 `Transparent` nor the `Dithered` flag, the same test that picks the shadow pass's depth-only
 pipeline. In the Courtyard this took the G-buffer pass from 3.15 to 2.89 ms at 1080p.
+
+### Debug lines
+
+Debug shapes ([debugging.md](debugging.md)) reach the renderer as `FrameExtras.Lines`, a span
+of 48-byte `LineDraw`s: two ends, a width in window pixels, a colour and how much shows behind
+the scene. `DebugCanvas` breaks every shape into lines on the CPU, so a sphere is 96 of them,
+and the renderer only ever draws lines. Labels never reach it: `UiTree.ShowDebugLabels` places
+them with `Camera.Pixel` and draws them into the interface's own draw list, after the overlays.
+
+`LinePass` draws them in the finish stage, after `FinishPass` and before the interface
+overlay, so they are never graded, blurred, tonemapped or smeared by TAA, and they stay sharp
+at any render scale. Each line is one instance of six vertices, read from a per-frame vertex
+buffer that starts at 4,096 lines and doubles whenever a frame needs more. `line.vert`
+projects both ends with the unjittered view-projection, clips the line against the near
+plane, and widens it into a quad in pixel space, one pixel wider than asked for antialiasing,
+with ends pushed out by half the width so corners meet. `line.frag` reads the scene's depth
+itself rather than depth testing, because the depth buffer is at the scene size and the
+window may not be. Where the scene is nearer, the line shows at its hidden share, 0.25, or
+fully with `OnTop`. A little slack (0.4% of the depth with perspective, about 2 cm
+orthographic) keeps a line drawn along a surface, and the half-pixel jitter TAA left in the
+depth, from flickering behind it. Colours are sRGB as written and turned linear in the shader,
+then blended premultiplied like the overlay.
 
 ### Motion vectors
 

@@ -28,6 +28,7 @@ that doesn't exist yet; everything else works today.
 | [Random numbers](random.md) | `GameRandom` and named streams |
 | [Testing](testing.md) | Headless runs, seeds, invariants, played input and checking the screen |
 | [The command line](command-line.md) | `--screenshot`, `--record`, `--script` and capturing from code |
+| [Debug drawing](debugging.md) | Lines, shapes and labels drawn into the world from `Draw` or `Update`, channels and `--debug` |
 | [Profiling](profiling.md) | `--profile` and reading its report |
 | [Drawing by hand](views.md) | `Draw` for what isn't an entity: keys, view memory, smoothing, `Cached`, particles, decals and fog volumes |
 | [Physics](physics.md) | `Super.Physics`: bodies that fall and collide, characters, trigger areas, rays and shape casts |

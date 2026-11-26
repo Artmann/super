@@ -402,10 +402,10 @@ facing the way a body lying there would get up.
 
 `physics.Ragdolls.Shapes(entity, shapes)` lists each part's shape where it is now, as a
 `RagdollShapeView` with its joint, shape, transform, size and whether it's simulated.
-Draw them over the character while tuning a `RagdollBody`; the
-[Cannonball](../examples/Cannonball) example does this on D.
+Draw them over the character with [debug drawing](debugging.md) while tuning a
+`RagdollBody`; the [Cannonball](../examples/Cannonball) example does this on D.
 
-![The stuntman lying still, and the same moment with the ragdoll's boxes and capsules drawn over them](media/cannonball-bodies.webp)
+![The stuntman, and the same moment with the ragdoll's boxes, balls and capsules drawn as wireframes over them](media/cannonball-bodies.webp)
 
 ## Queries
 

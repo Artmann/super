@@ -224,7 +224,7 @@ public class ContentTests
     public void Unloaded_model_cannot_be_drawn()
     {
         var content = new Content(new MemoryContent());
-        var view = new View { Content = content };
+        var view = new View { Sources = (content, null) };
         var model = content.Mesh(Mesh(new Surface()));
         view.Begin(0f);
         view.Model(1, model, Matrix4x4.Identity);

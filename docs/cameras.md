@@ -80,6 +80,7 @@ public void Update(GameTime time)
 | `ray.HitsBall(center, radius)` | The distance along the ray, or `null` on a miss |
 | `ray.HitsBox(min, max)` | The distance along the ray to an axis-aligned box, or `null` |
 | `camera.Ray(pixel, screen)` | A ray through any pixel, without `Input` |
+| `camera.Pixel(point, screen)` | The other way round: where a point in the world shows on the screen, in pixels from the top left, or `null` when it's behind the camera. A point off the sides still gets a pixel, outside the screen. Use it to pin a marker over something, as [debug labels](debugging.md) do |
 
 Super doesn't go through your things for you, since only your game knows what can be
 clicked, and it tests these simple shapes, not a model's triangles. With the ECS, give

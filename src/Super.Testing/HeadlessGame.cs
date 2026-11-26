@@ -108,6 +108,12 @@ public sealed class HeadlessRun<TGame> : IDisposable
     public IReadOnlyList<ShownText> ShownText => _host.Ui.ShownText;
 
     /// <summary>
+    /// The debug lines and labels the last frame showed, the kept ones from <see cref="DebugDraw"/> among them. Call
+    /// <see cref="Frame"/> first.
+    /// </summary>
+    public ViewDebug Debug => _host.View.Debug;
+
+    /// <summary>
     /// Where the view given this id with <see cref="UiExtensions.Id"/> was laid out in the
     /// last Draw, without its margin. It throws if no view or more than one has the id.
     /// </summary>

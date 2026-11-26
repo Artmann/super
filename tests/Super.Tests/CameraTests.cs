@@ -22,6 +22,47 @@ public class CameraTests
     }
 
     [Fact]
+    public void The_target_shows_in_the_middle_of_the_screen()
+    {
+        var camera = new Camera(new Vector3(0f, 5f, 5f), Vector3.Zero);
+        var pixel = camera.Pixel(Vector3.Zero, Screen)!.Value;
+        Assert.Equal(640f, pixel.X, 0.01f);
+        Assert.Equal(360f, pixel.Y, 0.01f);
+    }
+
+    [Fact]
+    public void A_point_above_the_target_shows_above_the_middle()
+    {
+        // Looking down the z axis with a quarter turn of view: a point one up at one away shows half a screen up.
+        var camera = new Camera(new Vector3(0f, 0f, 1f), Vector3.Zero, MathF.PI / 2f);
+        var pixel = camera.Pixel(new Vector3(0f, 1f, 0f), Screen)!.Value;
+        Assert.Equal(640f, pixel.X, 0.01f);
+        Assert.Equal(0f, pixel.Y, 0.01f);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_point_along_a_pixels_ray_shows_at_that_pixel(bool orthographic)
+    {
+        var camera = new Camera(new Vector3(3f, 4f, 6f), new Vector3(0f, 1f, 0f)) { Size = orthographic ? 8f : 0f };
+        var asked = new Vector2(200f, 500f);
+        var ray = camera.Ray(asked, Screen);
+        var pixel = camera.Pixel(ray.Origin + ray.Direction * 7f, Screen)!.Value;
+        Assert.Equal(asked.X, pixel.X, 0.05f);
+        Assert.Equal(asked.Y, pixel.Y, 0.05f);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_point_behind_the_camera_has_no_pixel(bool orthographic)
+    {
+        var camera = new Camera(new Vector3(0f, 0f, 5f), Vector3.Zero) { Size = orthographic ? 8f : 0f };
+        Assert.Null(camera.Pixel(new Vector3(0f, 0f, 6f), Screen));
+    }
+
+    [Fact]
     public void A_ray_finds_the_ground()
     {
         var ray = new Ray(new Vector3(1f, 4f, 1f), -Vector3.UnitY);

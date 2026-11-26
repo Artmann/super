@@ -49,7 +49,7 @@ public enum Move
 /// when he hits something, tumbles to a stop and gets up, and then the cannon fires again. R fires at once, and D shows
 /// the ragdoll's bodies.
 /// </summary>
-public sealed class CannonballGame(World world, Content content, Physics physics, Input input, GameRandom random) : IGame
+public sealed class CannonballGame(World world, Content content, Physics physics, Input input, GameRandom random, DebugDraw debug) : IGame
 {
     private readonly CannonballField _field = new(world);
     private readonly StuntFlight _flight = new(world, physics, random.Stream("shots"));
@@ -57,7 +57,6 @@ public sealed class CannonballGame(World world, Content content, Physics physics
     private readonly CrashEffects _effects = new(world, physics);
     private AnimationController<Stance, Move> _controller = null!;
     private RagdollBody _body = null!;
-    private bool _showBodies;
 
     public Stage Stage => _flight.Stage;
 
@@ -78,7 +77,7 @@ public sealed class CannonballGame(World world, Content content, Physics physics
     /// <summary>Follows the stuntman from behind, to the side and above, so the whole flight crosses the screen and the camera looks over the wall at where they land.</summary>
     public FollowCamera Camera { get; } = new() { Offset = new Vector3(-8f, 11f, -8f), Lag = 0.35f, FieldOfView = 0.8f, WideAs = 16f / 9f };
 
-    /// <summary>For <c>--script bodies</c>: shows the ragdoll's bodies, so a screenshot can show them.</summary>
+    /// <summary>For <c>--script bodies</c>: shows the ragdoll's bodies, as <c>--debug bodies</c> does.</summary>
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
     {
         ["bodies"] = new InputScript().Press(Key.D),
@@ -130,7 +129,7 @@ public sealed class CannonballGame(World world, Content content, Physics physics
         float seconds = time.TickSeconds;
         if (input.Pressed(Key.D))
         {
-            _showBodies = !_showBodies;
+            debug.Toggle(RagdollOverlay.Channel);
         }
 
         if (input.Pressed(Key.R) || _flight.Update(seconds))
@@ -142,10 +141,10 @@ public sealed class CannonballGame(World world, Content content, Physics physics
         Camera.Update(Hips, seconds);
     }
 
-    // Only the ragdoll's bodies are drawn here, when D shows them: they're a look inside the physics, not part of the world.
+    // Only the ragdoll's bodies are drawn here, as debug shapes in their own channel, which D or --debug bodies shows.
     public void Draw(View view)
     {
-        if (_showBodies)
+        if (debug.Shows(RagdollOverlay.Channel))
         {
             _overlay.Draw(view, Stuntman);
         }
