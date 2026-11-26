@@ -22,4 +22,7 @@ public interface IGridCell<TSelf> : IEquatable<TSelf>
 
     /// <summary>The cell with these two coordinates.</summary>
     internal static abstract TSelf FromPair(int a, int b);
+
+    /// <summary>How many steps apart two cells are, counting corners as steps for squares.</summary>
+    internal static abstract int Steps(TSelf a, TSelf b);
 }

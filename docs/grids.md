@@ -257,9 +257,51 @@ or below a point. A point a centimetre under a floor still counts as on it, so f
 that sink a little don't drop a floor. To pick on one floor with the mouse, use that
 layer's grid: `floors[current].CellAt(ray)`.
 
+## Seeing a grid while you work
+
+[Debug drawing](debugging.md) can draw a grid's cells, their coordinates and a number
+for each cell, in channels you show and hide like any other debug shape:
+
+```csharp
+public void Draw(View view)
+{
+    view.Debug.Grid(buildGrid, new Cell(2, 2), 2);
+    view.Debug.GridLabels(buildGrid, new Cell(2, 2), 2);
+    view.Debug.GridHeat(field, default, 3, hex => cost.TryGetValue(hex, out float c) ? c : null,
+        new HeatScale(0f, 5f), "grid.heat:walk");
+    view.Debug.Cells(field, path, Color.Yellow, "path");
+}
+```
+
+Each call draws the cells within some steps of a centre, a square of them on a square
+grid and a big hexagon on a hex grid. `Grid` draws outlines in the `grid` channel,
+`GridLabels` writes each cell's coordinates in `grid.labels`, and `GridHeat` colours
+each cell by a number on a `HeatScale`, from `Cold` at its low end to `Hot` at its high
+end, with a legend just past the area. Leave out the scale and it runs from the lowest
+number in the area to the highest. Cells whose number is null or not a number are
+left out. Name each heat map's channel, such as `grid.heat:walk`, so you can show one at
+a time. `Cells` highlights any cells, such as a path, a footprint or the keys of a
+`Reachable` answer, in the channel you give it.
+
+![The Plots example with outlines, coordinates and a walking heat map on four grids](media/grid-debug.webp)
+
+Named channels start hidden. Show them with `DebugDraw.Show`, or from the command line
+with `--debug grid,grid.labels,grid.heat:walk`. A hidden overlay costs only the check
+of its channel, and a shown one allocates nothing once its labels have been seen.
+
+![The same scene with only the outlines, then with the coordinates and the heat map too](media/grid-debug-channels.webp)
+
+The [Plots](../examples/Plots) example has a building grid, a farm grid, a raised and
+turned deck and a hex field. The mouse picks a cell on whichever grid it's over, and G,
+L and H show and hide the three channels.
+
+Like the rest of debug drawing these are lines, so a heat map's colour is drawn as
+rings inside each cell, not a solid fill.
+
 ## What's not here yet
 
-- Drawing the grid on screen, which is issue #33.
+- Overlays for players, such as a filled cell under the mouse or a build preview, which
+  is issue #33.
 - Tile maps of modular pieces on a grid, which is issue #32.
 - `GridMap` has no dense form for small bounded maps. The chunked one does both.
 - `Reachable` has no rule against cutting a corner past a wall when it steps across
