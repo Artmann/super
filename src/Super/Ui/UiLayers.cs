@@ -10,6 +10,8 @@ internal sealed class UiLayers(UiTree tree)
     // The drag preview and the tooltip.
     private readonly UiNode?[] _overlays = new UiNode?[2];
     private readonly List<UiNode> _open = [];
+    private (UiNode Node, Action Run)? _back;
+    private (UiNode Node, Action<int> Run)? _tabs;
 
     /// <summary>The drag preview and the tooltip, as the last frame showed them.</summary>
     public IReadOnlyList<UiNode?> Overlays => _overlays;
@@ -40,8 +42,48 @@ internal sealed class UiLayers(UiTree tree)
         }
     }
 
-    /// <summary>Forgets the popups, before a layout signs them up again.</summary>
-    public void Clear() => _open.Clear();
+    /// <summary>
+    /// What Escape or the gamepad's East button does when no popup takes it: go back in the innermost
+    /// navigation stack that can, if focus may reach it.
+    /// </summary>
+    public Action? GoBack => _back is { } back && Reaches(back.Node) ? back.Run : null;
+
+    /// <summary>What the gamepad's bumpers do: switch tabs, by -1 or 1, in the innermost tab view focus may reach.</summary>
+    public Action<int>? SwitchTab => _tabs is { } tabs && Reaches(tabs.Node) ? tabs.Run : null;
+
+    /// <summary>A navigation stack that can go back was placed. The last one placed, the innermost, wins.</summary>
+    public void CanGoBack(UiNode node, Action back) => _back = (node, back);
+
+    /// <summary>A tab view was placed. The last one placed, the innermost, wins.</summary>
+    public void SwitchesTabs(UiNode node, Action<int> by) => _tabs = (node, by);
+
+    /// <summary>Forgets the popups, the way back and the tabs, before a layout signs them up again.</summary>
+    public void Clear()
+    {
+        _open.Clear();
+        _back = null;
+        _tabs = null;
+    }
+
+    /// <summary>Whether focus may reach this node: it's in the tree and no popup is open, or it's inside the one on top.</summary>
+    private bool Reaches(UiNode node)
+    {
+        if (!node.Mounted)
+        {
+            return false;
+        }
+
+        var top = Trapping;
+        for (var at = node; at is not null && top is not null; at = at.Parent)
+        {
+            if (at == top)
+            {
+                return true;
+            }
+        }
+
+        return top is null;
+    }
 
     /// <summary>
     /// Lays out each popup on the whole screen, along with the popups opened inside them, and draws them above

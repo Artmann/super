@@ -325,6 +325,8 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
         {
             buttons.Take(East);
         }
+
+        TabKeys.Bumpers(buttons, tree.Layers, callbacks);
     }
 }
 

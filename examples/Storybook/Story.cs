@@ -78,6 +78,10 @@ public static class Stories
         new("Layout", "Grids", "Rows whose columns line up, and equal columns.", Arranging.Grids),
         new("Layout", "Flows", "Rows that wrap, views that fit, and which view gets its room first.", Arranging.Flows),
         new("Layout", "Lazy lists", "Long lists that only make the rows near the screen.", Arranging.LazyLists),
+        new("Containers", "Cards", "Raised panels, and labels with a value at the end of the row.", Containing.Cards),
+        new("Containers", "Forms", "Sections of settings with lines between, and groups that open.", Containing.Forms),
+        new("Containers", "Tabs", "Pages a bar of tabs switches between.", Containing.Tabs),
+        new("Containers", "Navigation", "Pages that go deeper, with a way back.", Containing.Navigation),
     ];
 
     /// <summary>The story with this id. An unknown id throws, listing the ones there are.</summary>

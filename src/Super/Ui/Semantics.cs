@@ -34,6 +34,15 @@ public enum UiRole
 
     /// <summary>A toast. Its label is the title and its value the message.</summary>
     Toast,
+
+    /// <summary>The heading of a disclosure group. It's checked while the group is open.</summary>
+    Disclosure,
+
+    /// <summary>One tab of a tab view. It's checked when it's the one shown.</summary>
+    Tab,
+
+    /// <summary>A navigation stack. Its label is the title of the page on top, and its value how deep it is.</summary>
+    Navigation,
 }
 
 /// <summary>

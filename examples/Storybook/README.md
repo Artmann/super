@@ -33,3 +33,4 @@ dotnet run -c Release --project examples/Storybook -- --story badges --theme lig
 | `Touching.cs` | The touch page: a quest list to tap, hold, drag and fling, and a strip that scrolls sideways |
 | `Popping.cs` | Pages for menus, context menus, alerts, confirmation dialogs, sheets, popovers and toasts |
 | `Arranging.cs` | Pages for overlays, offsets, hiding, aspect ratios, grids, flows, views that fit and lazy lists |
+| `Containing.cs` | Pages for cards, labelled content, forms, disclosure groups, tab views and navigation stacks |
