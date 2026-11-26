@@ -15,11 +15,11 @@ public sealed class ShownTextTests
     }
 
     [Fact]
-    public void Text_is_white_14_pixel_and_regular_unless_styled()
+    public void Text_takes_the_dark_themes_foreground_at_14_pixels_and_regular_unless_styled()
     {
         var shown = Find(new Text("plain"), "plain");
 
-        Assert.Equal(Color.White, shown.Color);
+        Assert.Equal(Color.Hex("#FAFAFA"), shown.Color);
         Assert.Equal(14f, shown.Size);
         Assert.False(shown.Bold);
     }

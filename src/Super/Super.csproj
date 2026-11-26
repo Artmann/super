@@ -25,6 +25,9 @@
   <ItemGroup>
     <EmbeddedResource Include="Ui\Fonts\Inter-Regular.ttf" LogicalName="Inter-Regular.ttf" />
     <EmbeddedResource Include="Ui\Fonts\Inter-Bold.ttf" LogicalName="Inter-Bold.ttf" />
+    <EmbeddedResource Include="Ui\Fonts\Inter-Medium.ttf" LogicalName="Inter-Medium.ttf" />
+    <EmbeddedResource Include="Ui\Fonts\Inter-SemiBold.ttf" LogicalName="Inter-SemiBold.ttf" />
+    <EmbeddedResource Include="Ui\Fonts\Inter-Italic.ttf" LogicalName="Inter-Italic.ttf" />
   </ItemGroup>
 
   <ItemGroup>

@@ -11,7 +11,7 @@ public sealed record Text(string Content) : PrimitiveView
     internal override IReadOnlyList<UiView?> Children => [];
 
     internal override UiSize Measure(UiNode node, Proposal proposal) =>
-        node.Tree.Atlas.Measure(Content, node.Style, proposal.Width);
+        node.Tree.Atlas.Measure(Content, node.Environment.Text, proposal.Width);
 
     internal override void Place(UiNode node, UiRect frame)
     {
@@ -20,8 +20,8 @@ public sealed record Text(string Content) : PrimitiveView
     internal override void Emit(UiNode node, UiDrawList draw)
     {
         var atlas = node.Tree.Atlas;
-        draw.AddText(atlas.Shown(Content, node.Style, node.Frame.Width), node.Frame, node.Style);
-        atlas.Draw(draw, Content, node.Style, node.Frame);
+        draw.AddText(atlas.Shown(Content, node.Environment.Text, node.Frame.Width), node.Frame, node.Environment.Text);
+        atlas.Draw(draw, Content, node.Environment.Text, node.Frame);
     }
 }
 
@@ -79,6 +79,9 @@ public abstract record Container : PrimitiveView, IEnumerable<UiView?>
 /// <summary>Stacks its children along one direction, in the way of SwiftUI and flexbox.</summary>
 public abstract record Stack(float Spacing) : Container
 {
+    /// <summary>How far sums of lengths may drift and still count as fitting.</summary>
+    private const float WidthTolerance = 0.01f;
+
     private protected abstract bool IsHorizontal { get; }
 
     private protected abstract float CrossFraction { get; }
@@ -123,7 +126,7 @@ public abstract record Stack(float Spacing) : Container
 
     private float Cross(UiSize size) => IsHorizontal ? size.Height : size.Width;
 
-    private float? CrossOf(Proposal proposal) => IsHorizontal ? proposal.Height : proposal.Width;
+    internal float? CrossOf(Proposal proposal) => IsHorizontal ? proposal.Height : proposal.Width;
 
     private float TotalSpacing(int count) => Spacing * Math.Max(count - 1, 0);
 
@@ -150,11 +153,13 @@ public abstract record Stack(float Spacing) : Container
         }
 
         var flexibility = new float[children.Length];
+        var ideal = new float[children.Length];
         for (int i = 0; i < children.Length; i++)
         {
             float smallest = Main(children[i].Measure(Propose(0f, cross)));
             float largest = Main(children[i].Measure(Propose(float.PositiveInfinity, cross)));
             flexibility[i] = largest - smallest;
+            ideal[i] = Main(children[i].Measure(Propose(null, cross)));
         }
 
         // Spacers wait until everything else is served, holding on to only their minimum.
@@ -164,28 +169,40 @@ public abstract record Stack(float Spacing) : Container
         int[] others = order.Where(index => children[index].View is not Spacer).ToArray();
         float held = spacers.Sum(index => Main(children[index].Measure(Propose(0f, cross))));
         float available = offered - TotalSpacing(children.Length);
-        float left = Allot(children, sizes, others, available - held, cross);
-        Allot(children, sizes, spacers, left + held, cross);
+        var line = new StackLine(children, sizes, ideal, cross);
+        float left = Allot(line, others, available - held);
+        Allot(line, spacers, left + held);
         return sizes;
     }
 
-    /// <summary>Offers each child an equal share of what's left, and returns what nobody took.</summary>
-    private float Allot(UiNode[] children, UiSize[] sizes, int[] order, float remaining, float? cross)
+    /// <summary>
+    /// Offers each child an equal share of what's left, and returns what nobody took. While everything left
+    /// still fits at its ideal length, a child is offered at least that: a stack placed at the length it
+    /// asked for then lays out as it measured, rather than halving it for text that would wrap.
+    /// </summary>
+    private float Allot(StackLine line, int[] order, float remaining)
     {
         remaining = Math.Max(remaining, 0f);
+        float wanted = order.Sum(index => line.Ideal[index]);
         for (int i = 0; i < order.Length; i++)
         {
             int child = order[i];
-            sizes[child] = children[child].Measure(Propose(remaining / (order.Length - i), cross));
+            float share = remaining / (order.Length - i);
+            float offer = wanted <= remaining + WidthTolerance ? Math.Max(share, line.Ideal[child]) : share;
+            wanted -= line.Ideal[child];
+            line.Sizes[child] = line.Children[child].Measure(Propose(offer, line.Cross));
             if (!float.IsInfinity(remaining))
             {
-                remaining = Math.Max(remaining - Main(sizes[child]), 0f);
+                remaining = Math.Max(remaining - Main(line.Sizes[child]), 0f);
             }
         }
 
         return remaining;
     }
 }
+
+/// <summary>A stack's children as it shares out its length: their sizes so far, each one's ideal length, and the cross length offered.</summary>
+internal readonly record struct StackLine(UiNode[] Children, UiSize[] Sizes, float[] Ideal, float? Cross);
 
 /// <summary>Stacks its children from top to bottom.</summary>
 public sealed record VStack(HorizontalAlignment Alignment = HorizontalAlignment.Center, float Spacing = 8f) : Stack(Spacing)
@@ -336,13 +353,18 @@ internal sealed record BoxModifier(UiView Child) : Modifier(Child)
 {
     public Edges Margin { get; init; }
 
-    public Color? Fill { get; init; }
+    public Paint? Fill { get; init; }
 
     public float BorderWidth { get; init; }
 
     public Color BorderColor { get; init; }
 
-    public float Radius { get; init; }
+    public CornerRadii Radius { get; init; }
+
+    public Shadow? Shadow { get; init; }
+
+    /// <summary>One of the theme's shadows, looked up where it's drawn.</summary>
+    public ShadowSize? ThemeShadow { get; init; }
 
     public float Alpha { get; init; } = 1f;
 
@@ -354,7 +376,7 @@ internal sealed record BoxModifier(UiView Child) : Modifier(Child)
 
     internal override void Place(UiNode node, UiRect frame) => Inner(node).Place(Margin.Shrink(frame));
 
-    private bool Clips => Radius > 0f;
+    private bool Clips => Radius.Any;
 
     internal override bool Blocks => Fill is not null || BorderWidth > 0f;
 
@@ -366,9 +388,14 @@ internal sealed record BoxModifier(UiView Child) : Modifier(Child)
     {
         draw.Nesting.PushOpacity(Alpha);
         var box = BoxOf(node);
+        if ((Shadow ?? (ThemeShadow is { } size ? node.Environment.Theme.Shadows[size] : null)) is { } shadow && shadow.Color.A > 0f)
+        {
+            draw.AddShadow(box, Radius, shadow);
+        }
+
         if (Fill is not null || BorderWidth > 0f)
         {
-            draw.AddBox(box, Fill, Radius, BorderWidth, BorderColor);
+            draw.AddBox(box, Fill, Radius, new UiStroke(BorderWidth, BorderColor));
         }
 
         if (Clips)
@@ -389,11 +416,44 @@ internal sealed record BoxModifier(UiView Child) : Modifier(Child)
 }
 
 internal sealed record StyleModifier(
-    UiView Child, float? Size = null, bool? Bold = null, Color? Color = null, bool? MonospacedDigits = null, int? LineLimit = null,
-    GameFont? Font = null)
+    UiView Child, float? Size = null, FontWeight? Weight = null, Color? Color = null, bool? MonospacedDigits = null, int? LineLimit = null,
+    GameFont? Font = null, bool? Italic = null, TextAlignment? Alignment = null, TextStyle? Style = null, Tone? Tone = null)
     : Modifier(Child)
 {
-    internal override TextStyle Inherit(TextStyle style) => new(
-        Size ?? style.Size, Bold ?? style.Bold, Color ?? style.Color, MonospacedDigits ?? style.MonospacedDigits, LineLimit ?? style.LineLimit,
-        Font ?? style.Font);
+    internal override UiEnvironment Inherit(UiEnvironment environment)
+    {
+        var text = environment.Text;
+        var theme = environment.Theme;
+
+        // A text style sets both size and weight, and a size or weight written with it wins.
+        if (Style is { } role)
+        {
+            var face = theme.Typography[role];
+            text = text with { Size = face.Size, Weight = face.Weight };
+        }
+
+        var color = Color ?? (Tone is { } tone ? theme.Colors[tone] : text.Color);
+        text = new TextLook(
+            Size ?? text.Size, Weight ?? text.Weight, color, MonospacedDigits ?? text.MonospacedDigits, LineLimit ?? text.LineLimit,
+            Font ?? text.Font, Italic ?? text.Italic, Alignment ?? text.Alignment);
+        return environment with { Text = text };
+    }
+}
+
+/// <summary>Changes the theme, whether controls are turned off, or their size, for everything inside.</summary>
+internal sealed record EnvironmentModifier(UiView Child, Theme? Theme = null, bool? Disabled = null, ControlSize? ControlSize = null) : Modifier(Child)
+{
+    internal override UiEnvironment Inherit(UiEnvironment environment)
+    {
+        // A new theme brings its own text colour, unless one was set inside an older theme on purpose.
+        if (Theme is { } theme && theme != environment.Theme)
+        {
+            var text = environment.Text.Color == environment.Theme.Colors.Foreground ? environment.Text with { Color = theme.Colors.Foreground } : environment.Text;
+            environment = environment with { Text = text };
+        }
+
+        // Once turned off, everything inside stays off.
+        bool disabled = environment.Disabled || Disabled == true;
+        return environment.With(Theme, disabled, ControlSize);
+    }
 }

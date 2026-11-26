@@ -30,7 +30,7 @@ internal static class UiPointerSearch
         return false;
     }
 
-    public static UiNode? Clickable(UiNode? node) => Find<ClickModifier>(node) is { View: ClickModifier { Disabled: false } } found ? found : null;
+    public static UiNode? Clickable(UiNode? node) => Find<ClickModifier>(node) is { View: ClickModifier { Disabled: false }, Environment.Disabled: false } found ? found : null;
 
     /// <summary>The nearest drop target that takes this payload, as long as the node isn't inside the drag's own source.</summary>
     public static UiNode? DropTargetUnder(UiNode? node, UiNode source, object payload)

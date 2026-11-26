@@ -168,13 +168,35 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
 - `UiNode` is one place in the tree. `UiChildren` pairs a node's new child views with its
   old children. `UiBodyHooks` holds a component's states and the states its last Body
   read: a `State<T>` tells each reader's hooks when it changes. A scroll view's position
-  is a `UiScrollState` on its node, and `UiSizeMemo` keeps a node's last few measurements.
+  is a `UiScrollState` on its node, and `UiSizeMemo` keeps a node's last six measurements,
+  oldest out: a stack asks each child about four proposals (none, zero, infinity and its
+  share) and a wrapping text in a row is asked about two more widths as the row is placed.
+- Stacks share their room by flexibility, least flexible first. `Stack.Share` also asks each
+  child its ideal size, and while the ideal sizes of the children left still fit in the room
+  left, each is offered at least its ideal. Without that floor, a row placed at the width it
+  measured would offer a wrapping text only an even share and wrap it.
+- `UiEnvironment` carries the text style (`TextLook`), the `Theme`, `Disabled` and the
+  `ControlSize` down the tree. `StyleModifier` and `EnvironmentModifier` change them for
+  everything inside. A `Tone` becomes a colour where `.Foreground(tone)` is, from the theme in
+  force there, so a `.Theme(...)` further in doesn't recolour it.
 - Views draw into a `UiDrawList`, which holds the quads, the shown text and which quads are
-  images. Its `UiDrawNesting` keeps the clips and opacities that wrap what's drawn now.
+  images. Its `UiDrawNesting` keeps the clips and opacities that wrap what's drawn now. The
+  shapes (`AddBox`, `AddEllipse`, `AddArc`, `AddSegment`, `AddShadow`) are extensions in
+  `UiShapeDrawing`, which build one `OverlayQuad` each and hand it to `UiDrawList.Add`.
 - `GlyphAtlas` measures and draws text. `UiFontFace` is one font at one size and draws its
   characters into the shared `UiGlyphSheet`. Faces are kept by font, weight and size, the built-in
   Inter's under a null `GameFont`, so a game's fonts and Inter share the sheet, and `UiLineBreaker` wraps lines and cuts them
-  at a line limit.
+  at a line limit. Inter's Medium, SemiBold and Italic files are read the first time text asks
+  for them. A game's font has only regular and bold, so its weights fold onto those two.
+- Rendition's `OverlayQuad` is one shape: `Kind` picks a box (rounded, a character or an
+  image), an ellipse, an arc, a line (`Segment`) or a shadow, and `Gradient` fills it with a
+  linear or radial gradient from `Color` to `Color2` along `GradientPoints`. Each corner has
+  its own radius in `Radii`, and the clip's in `ClipRadii`. `overlay.frag` draws every kind
+  from a signed distance with one pixel of antialiasing, so the whole interface stays one
+  draw call. A shadow is a rounded box blurred through the error function, with its caster
+  cut out a pixel inside the caster's edge: cutting right at the edge left a dark seam where
+  the caster only partly covers a pixel. Text blends in linear light, which draws dark text on
+  a light ground thin, so `glyphCoverage` gives dark text the coverage sRGB blending would.
 - `UiPointer` routes mouse events between the interface and the game. `UiGestures` keeps
   what the buttons hold and drag, `UiHover` how things under the cursor look, and
   `UiScrolling` moves scroll views. `UiScrollBar` is where a scroll view's bar and thumb are.

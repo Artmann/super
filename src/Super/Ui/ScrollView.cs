@@ -87,8 +87,8 @@ public sealed record ScrollView(Axis Axis = Axis.Vertical) : Container
         {
             float radius = UiScrollBar.Thickness / 2f;
             var bar = BarOf(node);
-            draw.AddBox(bar.Track, TrackColor, radius, 0f, default);
-            draw.AddBox(bar.Thumb, node.Scroll.BarLit ? ThumbLitColor : ThumbColor, radius, 0f, default);
+            draw.AddBox(bar.Track, TrackColor, radius);
+            draw.AddBox(bar.Thumb, node.Scroll.BarLit ? ThumbLitColor : ThumbColor, radius);
         }
     }
 

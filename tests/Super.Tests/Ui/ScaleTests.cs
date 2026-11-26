@@ -36,7 +36,7 @@ public sealed class ScaleTests
     {
         var tree = Show(Corner(new Text("").Frame(100f, 40f).Background(Solid).CornerRadius(6f).Border(2f, Color.White)), 1.5f);
 
-        Assert.Equal(9f, tree.Quads[0].CornerRadius);
+        Assert.Equal(new Vector4(9f), tree.Quads[0].Radii);
         Assert.Equal(3f, tree.Quads[0].BorderWidth);
     }
 

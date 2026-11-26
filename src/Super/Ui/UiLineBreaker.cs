@@ -18,7 +18,7 @@ internal sealed class UiLineBreaker
     /// <summary>The lines the last <see cref="Wrap"/> made.</summary>
     public IReadOnlyList<UiTextLine> Lines => _lines;
 
-    public void Wrap(string text, UiFontFace face, in TextStyle style, float? maxWidth)
+    public void Wrap(string text, UiFontFace face, in TextLook style, float? maxWidth)
     {
         _lines.Clear();
         float limit = (maxWidth ?? float.PositiveInfinity) + WidthTolerance;
@@ -38,7 +38,7 @@ internal sealed class UiLineBreaker
     /// The line that begins at start: up to the next newline, or up to the last space before
     /// the text stops fitting. A word too long for a line of its own still gets one.
     /// </summary>
-    private static UiTextLine NextLine(string text, int start, UiFontFace face, in TextStyle style, float limit)
+    private static UiTextLine NextLine(string text, int start, UiFontFace face, in TextLook style, float limit)
     {
         int lastSpace = -1;
         float width = 0f;
@@ -75,7 +75,7 @@ internal sealed class UiLineBreaker
     /// Keeps the first lines, and cuts the last one kept where the text and an ellipsis
     /// still fit, when lines were left out or one word is too long for it.
     /// </summary>
-    private void Cut(string text, UiFontFace face, in TextStyle style, int most, float limit)
+    private void Cut(string text, UiFontFace face, in TextLook style, int most, float limit)
     {
         bool leftOut = _lines.Count > most;
         var last = _lines[Math.Min(most, _lines.Count) - 1];
@@ -115,7 +115,7 @@ internal sealed class UiLineBreaker
         _lines[^1] = new UiTextLine(last.Start, end, Width(text, face, style, last.Start, end) + ellipsis, Cut: true);
     }
 
-    private static float Width(string text, UiFontFace face, in TextStyle style, int start, int end)
+    private static float Width(string text, UiFontFace face, in TextLook style, int start, int end)
     {
         float width = 0f;
         char previous = '\0';

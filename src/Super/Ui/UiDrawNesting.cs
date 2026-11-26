@@ -2,8 +2,8 @@ using System.Numerics;
 
 namespace Super.Ui;
 
-/// <summary>A rectangle drawing is cut to, with rounded corners when the radius is above zero.</summary>
-internal readonly record struct UiClip(UiRect Rect, float Radius);
+/// <summary>A rectangle drawing is cut to, with the corners rounded that have a radius.</summary>
+internal readonly record struct UiClip(UiRect Rect, CornerRadii Radius);
 
 /// <summary>
 /// The clips and opacities that wrap what's drawn now. Each push lasts until its pop, so
@@ -25,11 +25,11 @@ internal sealed class UiDrawNesting
     /// A quad has room for one clip, so nested ones intersect and keep the innermost
     /// radius that's set.
     /// </summary>
-    public void PushClip(UiRect rectangle, float radius)
+    public void PushClip(UiRect rectangle, CornerRadii radius)
     {
         _clips.Add(Clip);
         Clip = Clip is { } outer
-            ? new UiClip(outer.Rect.Intersect(rectangle), radius > 0f ? radius : outer.Radius)
+            ? new UiClip(outer.Rect.Intersect(rectangle), radius.Any ? radius : outer.Radius)
             : new UiClip(rectangle, radius);
     }
 

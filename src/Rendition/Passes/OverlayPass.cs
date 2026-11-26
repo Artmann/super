@@ -57,10 +57,15 @@ internal sealed unsafe class OverlayPass : IDisposable
             new(2, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.UvMin))),
             new(3, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.UvMax))),
             new(4, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Color))),
-            new(5, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.BorderColor))),
-            new(6, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Clip))),
-            new(7, 0, Format.R32G32B32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.CornerRadius))),
-            new(8, 0, Format.R32Sint, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.TextureIndex))),
+            new(5, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Color2))),
+            new(6, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.BorderColor))),
+            new(7, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Clip))),
+            new(8, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Radii))),
+            new(9, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.ClipRadii))),
+            new(10, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.GradientPoints))),
+            new(11, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Params))),
+            new(12, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.BorderWidth))),
+            new(13, 0, Format.R32G32B32Sint, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.TextureIndex))),
         ];
         return PipelineFactory.Create(context, new PipelineDescription
         {

@@ -22,7 +22,7 @@ public class DrawingTests
     public void A_box_writes_its_radius_and_border_on_one_quad()
     {
         var quad = Assert.Single(Show(Block().Background(Red).CornerRadius(8f).Border(2f, Blue)));
-        Assert.Equal(8f, quad.CornerRadius);
+        Assert.Equal(new Vector4(8f), quad.Radii);
         Assert.Equal(2f, quad.BorderWidth);
         Assert.Equal(new Vector4(0f, 0f, 1f, 1f), quad.BorderColor);
     }
@@ -41,7 +41,7 @@ public class DrawingTests
         var quads = Show(Block().Background(Blue).CornerRadius(8f).Background(Red));
         var inner = Show(Block().Background(Blue).Padding(1f).CornerRadius(8f).Background(Red))[1];
         Assert.Single(quads);
-        Assert.Equal(8f, inner.ClipRadius);
+        Assert.Equal(new Vector4(8f), inner.ClipRadii);
         Assert.Equal(new Vector4(349f, 249f, 102f, 102f), inner.Clip);
     }
 
@@ -70,7 +70,7 @@ public class DrawingTests
             .Padding(0f).CornerRadius(4f).Frame(100f, 100f, alignment: Alignment.TopLeading)
             .Padding(0f).CornerRadius(10f).Background(Red);
         var inner = Show(view)[1];
-        Assert.Equal(4f, inner.ClipRadius);
+        Assert.Equal(new Vector4(4f), inner.ClipRadii);
         Assert.Equal(new Vector4(350f, 250f, 100f, 100f), inner.Clip);
     }
 
@@ -79,7 +79,7 @@ public class DrawingTests
     {
         var clipped = new ScrollView { Block(100f, 100f).Background(Blue) }.Frame(50f, 50f);
         var inner = Show(clipped.Padding(0f).CornerRadius(10f))[0];
-        Assert.Equal(10f, inner.ClipRadius);
+        Assert.Equal(new Vector4(10f), inner.ClipRadii);
     }
 
     [Fact]

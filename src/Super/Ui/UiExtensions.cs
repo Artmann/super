@@ -50,10 +50,30 @@ public static class UiExtensions
     public static UiView FixedSize(this UiView view) => new FixedSizeModifier(view);
 
     /// <summary>Fills the view's whole area behind it.</summary>
-    public static UiView Background(this UiView view, Color color) => Box(view) with { Fill = color };
+    /// <remarks>A colour is a paint, and so is a gradient: <c>.Background(Paint.Linear(top, bottom))</c>.</remarks>
+    public static UiView Background(this UiView view, Paint paint) => Box(view) with { Fill = paint };
 
     /// <summary>Rounds this view's background, border and image, and clips what's inside it.</summary>
     public static UiView CornerRadius(this UiView view, float radius) => Box(view) with { Radius = radius };
+
+    /// <summary>
+    /// Rounds each corner by its own amount, such as only the top ones of a tab:
+    /// <c>.CornerRadius(new CornerRadii(8f, 8f, 0f, 0f))</c>.
+    /// </summary>
+    public static UiView CornerRadius(this UiView view, CornerRadii radii) => Box(view) with { Radius = radii };
+
+    /// <summary>
+    /// Casts a soft shadow under this view's box, which follows its corners. It sits behind the box, so
+    /// a see-through background doesn't show it.
+    /// </summary>
+    public static UiView Shadow(this UiView view, Shadow shadow) => Box(view) with { Shadow = shadow, ThemeShadow = null };
+
+    /// <summary>Casts the theme's small, medium or large shadow, so it follows a change of theme.</summary>
+    public static UiView Shadow(this UiView view, ShadowSize size) => Box(view) with { Shadow = null, ThemeShadow = size };
+
+    /// <summary>Casts a shadow of this colour, blurred this far and moved this far down and to the right.</summary>
+    public static UiView Shadow(this UiView view, Color color, float blur, float x = 0f, float y = 0f, float spread = 0f) =>
+        view.Shadow(new Shadow(color, blur, y, x, spread));
 
     /// <summary>A line inside the view's edge, following its corners.</summary>
     public static UiView Border(this UiView view, float width, Color color) =>
@@ -94,6 +114,21 @@ public static class UiExtensions
 
     /// <summary>Shows <paramref name="content"/> near the cursor after a short hover.</summary>
     public static UiView Tooltip(this UiView view, UiView content) => new TooltipModifier(view, content);
+
+    /// <summary>
+    /// Gives this view, and everything inside it, a theme: the colours, corners and sizes that built-in
+    /// controls take. Text that had the old theme's foreground takes the new one's.
+    /// </summary>
+    public static UiView Theme(this UiView view, Theme theme) => new EnvironmentModifier(view, Theme: theme);
+
+    /// <summary>
+    /// Turns off the controls in this view, and in everything inside it: they fade, and clicks, keys and
+    /// touches pass them by. Turning off can't be undone further in.
+    /// </summary>
+    public static UiView Disabled(this UiView view, bool disabled = true) => new EnvironmentModifier(view, Disabled: disabled);
+
+    /// <summary>Makes the built-in controls in this view, and in everything inside it, small, regular or large.</summary>
+    public static UiView ControlSize(this UiView view, ControlSize size) => new EnvironmentModifier(view, ControlSize: size);
 
     /// <summary>Continues the box this view already is, so neighbouring box modifiers make one box.</summary>
     private static BoxModifier Box(UiView view) => view as BoxModifier ?? new BoxModifier(view);

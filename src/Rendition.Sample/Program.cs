@@ -400,7 +400,7 @@ static OverlayQuad[] OverlayQuads(int image)
             Color = panel,
             BorderColor = gold,
             BorderWidth = 2f,
-            CornerRadius = 16f,
+            Radii = new Vector4(16f),
         },
 
         // An image, rounded, inside a clip.
@@ -410,7 +410,7 @@ static OverlayQuad[] OverlayQuads(int image)
             Size = new Vector2(100f, 100f),
             UvMax = Vector2.One,
             Color = Vector4.One,
-            CornerRadius = 12f,
+            Radii = new Vector4(12f),
             Clip = clip,
             TextureIndex = image,
         },
@@ -423,7 +423,7 @@ static OverlayQuad[] OverlayQuads(int image)
             UvMax = Vector2.One,
             Color = new Vector4(0.6f, 0.9f, 1f, 1f),
             Clip = clip,
-            ClipRadius = 24f,
+            ClipRadii = new Vector4(24f),
             TextureIndex = image,
         },
 

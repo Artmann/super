@@ -18,14 +18,18 @@ internal sealed class UiBodyHooks(Action changed)
     /// <summary>The hooks of the component whose Body is running, which is who reads of state belong to.</summary>
     public static UiBodyHooks? Running => _running;
 
+    /// <summary>What the component sits in, as it was for this run of Body.</summary>
+    public UiEnvironment Environment { get; private set; } = UiEnvironment.Default;
+
     /// <summary>
     /// Runs a component's Body with these hooks. What it read last run is forgotten first,
     /// so only what this run reads counts.
     /// </summary>
-    public TView Run<TView>(TView component, Func<TView, TView> body)
+    public TView Run<TView>(TView component, UiEnvironment environment, Func<TView, TView> body)
         where TView : notnull
     {
         StopReading();
+        Environment = environment;
         _nextSlot = 0;
         _component = component.GetType();
         var outer = _running;

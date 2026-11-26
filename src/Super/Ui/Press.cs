@@ -15,26 +15,45 @@ public sealed record Pressable(Func<PressState, UiView> Content, Action? OnClick
         get
         {
             var look = UseState(default(PressState));
-            return new ClickModifier(Content(Disabled ? default : look.Value), OnClick, look, Disabled);
+            bool off = Disabled || Environment.Disabled;
+            return new ClickModifier(Content(off ? default : look.Value), OnClick, look, off);
         }
     }
 }
 
-/// <summary>A labeled button. A disabled one is dimmed and doesn't react, but still blocks the mouse.</summary>
+/// <summary>
+/// A labeled button in the theme's colours and the control size around it. A disabled one, or one inside
+/// <c>.Disabled()</c>, is faded and doesn't react, but still blocks the mouse.
+/// </summary>
 public sealed record Button(string Label, Action? OnClick = null, bool Disabled = false) : UiView
 {
-    private static readonly Color Resting = new(0.24f, 0.27f, 0.33f);
-    private static readonly Color Hovered = new(0.31f, 0.36f, 0.45f);
-    private static readonly Color Held = new(0.18f, 0.21f, 0.27f);
+    public override UiView Body
+    {
+        get
+        {
+            var environment = Environment;
+            var theme = environment.Theme;
+            var metrics = environment.Metrics;
+            bool off = Disabled || environment.Disabled;
+            return new Pressable(
+                look => new Text(Label)
+                    .FontSize(metrics.FontSize)
+                    .Weight(FontWeight.Medium)
+                    .Foreground(theme.Colors.SecondaryForeground)
+                    .LineLimit(1)
+                    .Padding(metrics.Padding, 0f)
+                    .Frame(minHeight: metrics.Height)
+                    .Background(Shade(theme.Colors.Secondary, theme, look))
+                    .CornerRadius(theme.Radius)
+                    .Opacity(off ? 0.5f : 1f),
+                OnClick,
+                off);
+        }
+    }
 
-    public override UiView Body => new Pressable(
-        look => new Text(Label)
-            .Padding(14f, 8f)
-            .Background(look.Pressed ? Held : look.Hovered ? Hovered : Resting)
-            .CornerRadius(6f)
-            .Opacity(Disabled ? 0.45f : 1f),
-        OnClick,
-        Disabled);
+    /// <summary>A fill a shade towards the text colour when hovered, and towards the background when held.</summary>
+    internal static Color Shade(Color fill, Theme theme, PressState look) =>
+        look.Pressed ? fill.Mix(theme.Colors.Background, 0.25f) : look.Hovered ? fill.Mix(theme.Colors.Foreground, 0.08f) : fill;
 }
 
 /// <summary>A modifier the mouse can touch. It covers what its view draws, so a margin stays out of reach.</summary>

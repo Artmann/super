@@ -35,6 +35,7 @@
     <Project Path="examples/Plots/Plots.csproj" />
     <Project Path="examples/Tiles/Tiles.csproj" />
     <Project Path="examples/Shapes/Shapes.csproj" />
+    <Project Path="examples/Storybook/Storybook.csproj" />
     <Project Path="examples/Terrain/Terrain.csproj" />
     <Project Path="examples/Toon/Toon.csproj" />
     <Project Path="examples/Transitions/Transitions.csproj" />
@@ -51,6 +52,7 @@
     <Project Path="tests/Rendition.Gpu.Tests/Rendition.Gpu.Tests.csproj" />
     <Project Path="tests/Outpost.Tests/Outpost.Tests.csproj" />
     <Project Path="tests/Skylark.Tests/Skylark.Tests.csproj" />
+    <Project Path="tests/Storybook.Tests/Storybook.Tests.csproj" />
     <Project Path="tests/Reef.Tests/Reef.Tests.csproj" />
     <Project Path="tests/Rooms.Tests/Rooms.Tests.csproj" />
     <Project Path="tests/Super.Build.Tests/Super.Build.Tests.csproj" />
