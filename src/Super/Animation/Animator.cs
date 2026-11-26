@@ -21,11 +21,12 @@ public sealed class Animator
         _controller = controller;
         _clock = new AnimatorClock { StateNumber = state, Speed = 1f };
         _events = new EventTracker(controller);
-        Moves = new AnimatorActions(controller.ActionType, controller.ActionCount, controller.Timing, _events.SweepAction, Rebuild);
         Pose = new AnimationPose(controller.Rig);
         Joints = new AnimatorJoints(controller.Rig.Skeleton, Pose);
+        // The actions lay the pose out again when one starts or stops, which is only ever after this constructor.
+        Moves = new AnimatorActions(controller.ActionType, controller.ActionCount, controller.Timing, _events.SweepAction, () => _clock.LayOut(_controller, Pose, Joints, Moves!.Plays));
         controller.GetState(state);
-        Rebuild();
+        _clock.LayOut(_controller, Pose, Joints, Moves.Plays);
         controller.Rig.Runner?.Add(this);
     }
 
@@ -52,7 +53,7 @@ public sealed class Animator
             }
 
             _clock.Speed = value;
-            Rebuild();
+            _clock.LayOut(_controller, Pose, Joints, Moves.Plays);
         }
     }
 
@@ -77,9 +78,19 @@ public sealed class Animator
     /// <summary>
     /// How far the clips carried the character over the ground on the last tick, in the
     /// model's space, once the rig has <see cref="Rig.RootMotion"/>. Turn it by the
-    /// character's own rotation and scale, then add it to where the character is.
+    /// character's own rotation and scale, then add it to where the character is. With
+    /// turning clips it's in the facing the character had before <see cref="RootTurn"/>, so
+    /// turn it by the facing before adding the turn.
     /// </summary>
     public Vector3 RootMotion { get; private set; }
+
+    /// <summary>
+    /// How far the clips <see cref="Rig.RootMotion"/> named as turning turned the character
+    /// about the up axis on the last tick, in radians, the way
+    /// <see cref="Matrix4x4.CreateRotationY(float)"/> turns. Add it to the character's facing
+    /// after moving them by <see cref="RootMotion"/>. Zero while no turning clip plays.
+    /// </summary>
+    public float RootTurn { get; private set; }
 
     /// <summary>
     /// What the clips passed on the last tick: moments, and windows opening and closing, in
@@ -137,7 +148,7 @@ public sealed class Animator
         _controller.GetState(index);
         _clock.FadeOut = _controller.CrossFadeSeconds > 0f ? new StateFadeOut(_clock.StateNumber, _clock.Parameter, _clock.Phase, Seconds: 0f) : null;
         _clock.StateNumber = index;
-        Rebuild();
+        _clock.LayOut(_controller, Pose, Joints, Moves.Plays);
     }
 
     /// <summary>
@@ -152,7 +163,7 @@ public sealed class Animator
             throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "Time can't go backwards.");
         }
 
-        RootMotion = Pose.TravelOver(seconds);
+        (RootMotion, RootTurn) = Pose.StepOver(seconds);
         seconds *= _clock.Speed;
         _events.SweepStates(_clock.StateNumber, _clock.Parameter, _clock.Phase, _clock.FadeOut, seconds);
         _clock.Phase = _controller.GetState(_clock.StateNumber).Advance(_clock.Parameter, _clock.Phase, seconds);
@@ -165,39 +176,7 @@ public sealed class Animator
         }
 
         Moves.Advance(seconds);
-        Rebuild();
+        _clock.LayOut(_controller, Pose, Joints, Moves.Plays);
         _events.Finish(this, play);
-    }
-
-    /// <summary>Lays the pose out again: the state, or the old state with the new one blending in over it, then the actions.</summary>
-    private void Rebuild()
-    {
-        Joints.Invalidate();
-        Pose.Clear();
-        var state = _controller.GetState(_clock.StateNumber);
-        if (_clock.FadeOut is { } outgoing)
-        {
-            float f = Math.Clamp(outgoing.Seconds / _controller.CrossFadeSeconds, 0f, 1f);
-            var (first, second, w) = state.Motion.Pick(_clock.Parameter);
-            _controller.GetState(outgoing.From).AddTo(Pose, outgoing.Parameter, outgoing.Phase, 1f, _clock.Speed);
-            // Lerping into the previous pose by f, towards a mix of (first, second) at w,
-            // takes two layers: first by f(1-w)/(1-fw), then second by fw.
-            Pose.Add(state.ClipLayer(first, _clock.Parameter, _clock.Phase, f * (1f - w) / (1f - f * w), _clock.Speed));
-            Pose.Add(state.ClipLayer(second, _clock.Parameter, _clock.Phase, f * w, _clock.Speed));
-        }
-        else
-        {
-            state.AddTo(Pose, _clock.Parameter, _clock.Phase, 1f, _clock.Speed);
-        }
-
-        var plays = Moves.Plays;
-        for (int i = 0; i < plays.Length; i++)
-        {
-            if (plays[i].Playing)
-            {
-                var action = _controller.GetAction(i);
-                Pose.Add(action.Layer(plays[i].Time, Rig.Clips[action.Clip].Duration, _clock.Speed));
-            }
-        }
     }
 }

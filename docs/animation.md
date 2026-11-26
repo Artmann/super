@@ -342,7 +342,8 @@ rig.RootMotion("mixamorig:Hips");
 ```
 
 Name the joint that carries the body. Its travel over the ground comes out of every clip,
-while its height and turns stay in, so a jump still leaves the ground. Each tick,
+while its height stays in, so a jump still leaves the ground, and so do its turns unless
+you [name the clip as turning](#turns). Each tick,
 `animator.RootMotion` says how far the clips carried the character, in the model's
 space. Turn it by the character's rotation and scale, then add it to where they stand:
 
@@ -354,6 +355,31 @@ Blends and actions mix it as they mix the pose, so a dodge fading in moves the
 character a little at first, and a loop carries on from where its last cycle ended.
 Call `RootMotion` once per rig, before starting animators. Asking again for the same
 joint does nothing, and asking for another throws.
+
+### Turns
+
+A turn on the spot, or a run that curves, turns the body as well as moving it. Played
+with travel alone, the character snaps back to the way it faced when the clip ends. Name
+those clips after the joint, and their turns come out too:
+
+```csharp
+rig.RootMotion("mixamorig:Hips", rig.Clip("turn-left"), rig.Clip("turn-right"));
+```
+
+Only the turn about the up axis comes out, so a lean or a stoop stays in the pose.
+`animator.RootTurn` says how far the clips turned the character on the last tick, in
+radians, the way `Matrix4x4.CreateRotationY` turns. The travel is in the facing the
+character had before that turn, so move them first, then turn them:
+
+```csharp
+_position += Vector3.Transform(_animator.RootMotion, Matrix4x4.CreateScale(scale) * Matrix4x4.CreateRotationY(_facing));
+_facing += _animator.RootTurn;
+```
+
+Turns blend by the same shares as travel, and a turning loop goes on from where its last
+lap ended and faced, so a curved run goes round a circle. Clips you don't name keep their
+turns in the pose, as before, so a game that only adds travel isn't turned by surprise.
+Name every turning clip in one call: asking again with other clips throws.
 
 ## Joints
 
@@ -472,8 +498,8 @@ sword too. Physics places a body on a bone where the joint is as of the tick.
   bones, so it doesn't make a model cheaper to animate.
 - Clips are sampled at 30 frames a second when imported, and blended linearly between
   frames.
-- Root motion only carries travel over the ground. Turns in a clip, such as a turn on
-  the spot, stay in the pose and don't turn the character.
+- Root motion carries turns only from the clips named as turning, in code. The import
+  settings can't mark a clip as turning yet.
 - A separate model follows a bone only as an entity with a bone `Parent`. Drawn with
   `view.Model`, place it yourself at `animator.Joint(name)` times the character's
   transform. A sword that is a mesh in the character's own file already follows its
