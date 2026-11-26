@@ -175,17 +175,18 @@ public sealed class AnimationPose
     }
 
     /// <summary>
-    /// How far the layers carry the character over this much time, once the rig has root motion, mixed as the
-    /// layers mix the root joint: each later layer takes its share from those before. Zero without root motion.
+    /// How far the layers carry and turn the character over this much time, once the rig has root motion, mixed as
+    /// the layers mix the root joint: each later layer takes its share from those before. Zero without root motion.
     /// </summary>
-    internal Vector3 TravelOver(float seconds)
+    internal RootStep StepOver(float seconds)
     {
         if (Rig.RootTravel is not { } travel)
         {
-            return Vector3.Zero;
+            return default;
         }
 
         var sum = Vector3.Zero;
+        float turn = 0f;
         float left = 1f;
         var layers = Layers;
         for (int i = layers.Length - 1; i >= 0 && left > 0f; i--)
@@ -197,11 +198,13 @@ public sealed class AnimationPose
                 continue;
             }
 
-            sum += left * share * travel.Over(layer.Clip, layer.Time, layer.Speed, layer.Loops, seconds);
+            var step = travel.Over(layer.Clip, layer.Time, layer.Speed, layer.Loops, seconds);
+            sum += left * share * step.Travel;
+            turn += left * share * step.Turn;
             left *= 1f - share;
         }
 
-        return sum;
+        return new RootStep(sum, turn);
     }
 
     /// <summary>The rest pose with each layer's clip blended over it in turn, <paramref name="ahead"/> seconds after the last tick.</summary>

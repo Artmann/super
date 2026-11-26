@@ -221,21 +221,37 @@ public sealed class Rig
     /// <summary>
     /// Takes the travel across the ground out of every clip and hands it to the game
     /// instead, so a dodge or a roll moves the character and not only its mesh. Name the
-    /// joint that carries the body, such as the hips. Its height and turns stay in the
-    /// clips, so a jump still leaves the ground. Each animator then reports the travel in
-    /// <see cref="Animator.RootMotion"/>, for the game to add to where the character is.
-    /// Asking again for the same joint does nothing.
+    /// joint that carries the body, such as the hips. Its height stays in the clips, so a
+    /// jump still leaves the ground, and so do its turns, apart from in the clips named in
+    /// <paramref name="turning"/>, such as a turn on the spot: their turns come out too, so
+    /// the character ends facing the new way instead of snapping back. Each animator then
+    /// reports the travel in <see cref="Animator.RootMotion"/> and the turn in
+    /// <see cref="Animator.RootTurn"/>, for the game to add to where the character is and
+    /// faces. Asking again for the same joint and clips does nothing.
     /// </summary>
-    public void RootMotion(string joint)
+    public void RootMotion(string joint, params ReadOnlySpan<ClipRef> turning)
     {
-        if (RootMotionJoint is not null)
+        var turns = new HashSet<int>();
+        foreach (var clip in turning)
         {
-            if (RootMotionJoint == joint)
+            if ((uint)clip.Index >= (uint)Clips.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(turning), clip.Index, $"The rig has {Clips.Count} clips, so it has no clip {clip.Index} to turn with.");
+            }
+
+            turns.Add(clip.Index);
+        }
+
+        if (RootTravel is { } taken)
+        {
+            if (RootMotionJoint == joint && taken.Turning.SetEquals(turns))
             {
                 return;
             }
 
-            throw new InvalidOperationException($"The rig already takes its root motion from {RootMotionJoint}, so it can't take it from {joint} too.");
+            throw new InvalidOperationException(RootMotionJoint == joint
+                ? $"The rig already takes its root motion from {joint} with other clips turning, so name every turning clip in one call."
+                : $"The rig already takes its root motion from {RootMotionJoint}, so it can't take it from {joint} too.");
         }
 
         int index = Skeleton.IndexOf(joint);
@@ -244,7 +260,7 @@ public sealed class Rig
             throw new ArgumentException($"The rig has no joint called {joint}. It has: {string.Join(", ", Skeleton.Names)}.", nameof(joint));
         }
 
-        RootTravel = new RigTravel(Skeleton, Clips, index);
+        RootTravel = new RigTravel(Skeleton, Clips, index, turns);
         RootMotionJoint = joint;
     }
 }
