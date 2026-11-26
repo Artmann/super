@@ -61,6 +61,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     /// <summary>Runs the callbacks owed, in the order they happened. Update comes right after.</summary>
     public void Deliver()
     {
+        _gestures.TakeSlide()?.Invoke();
         foreach (var callback in _callbacks)
         {
             callback();

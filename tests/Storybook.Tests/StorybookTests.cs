@@ -126,6 +126,53 @@ public sealed class StorybookTests
         var error = Assert.Throws<ArgumentException>(() => Stories.Find("tables"));
 
         Assert.StartsWith("There's no story \"tables\". The stories are typography, colours,", error.Message);
-        Assert.EndsWith("key-hints.", error.Message);
+        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges.", error.Message);
+    }
+
+    /// <summary>Clicks a control this far across it, halfway down, and lets the click land.</summary>
+    private static void ClickControl(HeadlessRun<StorybookGame> run, string id, float across = 0.5f) =>
+        ClickAt(run, run.Element(id).Frame, across);
+
+    private static void ClickAt(HeadlessRun<StorybookGame> run, UiRect frame, float across = 0.5f)
+    {
+        run.Input.Click(MouseButton.Left, at: new Vector2(frame.X + frame.Width * across, frame.Y + frame.Height / 2) * run.UiScale);
+        run.Ticks(1);
+        run.Input.Release(MouseButton.Left);
+        run.Ticks(2);
+    }
+
+    [Fact]
+    public void The_toggles_story_keeps_what_its_switches_are_set_to()
+    {
+        using var run = Open(new StoryChoice("toggles"));
+        Assert.Equal(false, run.Element("subtitles").Checked);
+
+        ClickControl(run, "subtitles");
+
+        Assert.Equal(true, run.Element("subtitles").Checked);
+        Assert.Equal(true, run.Element("music").Checked);
+    }
+
+    [Fact]
+    public void The_sliders_story_moves_its_volume_to_where_the_track_is_pressed()
+    {
+        using var run = Open(new StoryChoice("sliders"));
+        Assert.Equal("0.7", run.Element("volume").Value);
+
+        // The far left of the track is past the thumb's half width, so it reads as none.
+        ClickControl(run, "volume", across: 0f);
+
+        Assert.Equal("0", run.Element("volume").Value);
+    }
+
+    [Fact]
+    public void The_pickers_story_picks_the_difficulty_clicked()
+    {
+        using var run = Open(new StoryChoice("pickers"));
+        var hard = run.Elements.Single(element => element.Role == UiRole.Option && element.Label == "Hard");
+
+        ClickAt(run, hard.Frame);
+
+        Assert.Equal("Hard", run.Element("difficulty").Value);
     }
 }

@@ -112,12 +112,14 @@ that isn't meant to be cut, and clashing ids.
 ## Order
 
 1. Environment, theme, text styles, `Disabled`; quad kinds, shadows, gradients, shapes,
-   icons; `Divider`, `Badge`, `Label`. Storybook shell.
+   icons; `Divider`, `Badge`, `Label`. Storybook shell. Done.
 2. Button styles, `Toggle`, `Slider`, `Stepper`, segmented `Picker`, `ProgressView`,
-   `Gauge`, semantics.
+   `Gauge`, semantics. Done, with a radio `Picker` too. The indeterminate spinner and the
+   switch's moving knob need the UI clock, so they moved to step 7.
 3. Focus, keyboard and gamepad navigation; `TextField`, `SecureField`.
 4. Touch.
 5. Popups: `Menu`, context menu, menu `Picker`, `Sheet`, `Alert`, `Popover`, `Toast`.
 6. Containers and layout: `TabView`, `DisclosureGroup`, `Form`, `NavigationStack`,
    `Grid`/`GridRow`, `FlowStack`, `ViewThatFits`, `LazyVStack`, overlay/offset and friends.
-7. Animation and transitions; showcase screens; polish passes.
+7. Animation and transitions, including the spinning `ProgressView` and the switch's and
+   slider's moving knobs; showcase screens; polish passes.

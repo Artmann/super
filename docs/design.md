@@ -152,8 +152,8 @@ a nullable record struct (`StateFadeOut`, in its `AnimatorClock`), which costs n
 often: null means no cross-fade is running.
 
 When two lifecycles can overlap, each gets its own field instead of one state for every
-combination. `UiGestures` keeps what the left button holds (a click or a scroll bar's thumb)
-apart from a drag, which can be on any button, so a right drag can run while a left click
+combination. `UiGestures` keeps what the left button holds (a click, a scroll bar's thumb or
+a slider's `SlideHold`) apart from a drag, which can be on any button, so a right drag can run while a left click
 stays held on something else.
 
 Each change of state is one assignment, in a method named for the change. Code that runs per
@@ -200,6 +200,16 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
 - `UiPointer` routes mouse events between the interface and the game. `UiGestures` keeps
   what the buttons hold and drag, `UiHover` how things under the cursor look, and
   `UiScrolling` moves scroll views. `UiScrollBar` is where a scroll view's bar and thumb are.
+  A press on a `SlideModifier` starts a `SlideHold`. Moves only note where the cursor went,
+  and `Deliver` hands the slide over with `TakeSlide` before the clicks, once a tick with the
+  latest place, so a fast drag doesn't call `OnChange` once per mouse event.
+- The controls (`Toggle`, `Slider`, `Stepper`, `Picker`, `ProgressView`, `Gauge`) are plain
+  views made of the parts above. `MeterBar` draws a track with a filled part and an optional
+  thumb, and `MeterRing` a ring with something inside it. Each control wraps itself in a
+  `SemanticsModifier`, and `UiElements.Collect` turns those into the `UiElement`s that
+  `UiTree.Elements` lists, folding in the `Disabled` around them. An element's id is the
+  first `.Id` on it or on the views around it that hold only it. `UiIdSearch` is the walk
+  `FrameOf` uses to find a view by id.
 
 ## Audio mixer
 

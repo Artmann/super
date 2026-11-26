@@ -30,6 +30,25 @@ internal static class UiPointerSearch
         return false;
     }
 
+    /// <summary>The nearest slider at or above this node that's on, unless something clickable is nearer.</summary>
+    public static UiNode? Slidable(UiNode? node)
+    {
+        for (; node is not null; node = node.Parent)
+        {
+            if (node.View is ClickModifier)
+            {
+                return null;
+            }
+
+            if (node.View is SlideModifier slide)
+            {
+                return slide.Disabled || node.Environment.Disabled ? null : node;
+            }
+        }
+
+        return null;
+    }
+
     public static UiNode? Clickable(UiNode? node) => Find<ClickModifier>(node) is { View: ClickModifier { Disabled: false }, Environment.Disabled: false } found ? found : null;
 
     /// <summary>The nearest drop target that takes this payload, as long as the node isn't inside the drag's own source.</summary>

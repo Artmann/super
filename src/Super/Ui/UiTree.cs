@@ -83,7 +83,7 @@ public sealed class UiTree
         var ids = new List<object>();
         if (_root is not null)
         {
-            Collect(_root, id, found, ids);
+            UiIdSearch.Collect(_root, id, found, ids);
         }
 
         // The drag preview and the tooltip, as the last frame showed them.
@@ -91,7 +91,7 @@ public sealed class UiTree
         {
             if (overlay is not null)
             {
-                Collect(overlay, id, found, ids);
+                UiIdSearch.Collect(overlay, id, found, ids);
             }
         }
 
@@ -105,27 +105,21 @@ public sealed class UiTree
         };
     }
 
-    private static void Collect(UiNode node, object id, List<UiNode> found, List<object> ids)
+    /// <summary>
+    /// Every control on screen that describes itself, in the order they're drawn: each built-in control,
+    /// and any view given <see cref="ControlExtensions.Semantics"/>. A test reads them instead of pixels.
+    /// </summary>
+    public IReadOnlyList<UiElement> Elements
     {
-        if (node.View.Identity is { } identity)
+        get
         {
-            if (Equals(identity, id))
+            var found = new List<UiElement>();
+            if (_root is not null)
             {
-                found.Add(node);
+                UiElements.Collect(_root, found);
             }
 
-            if (!ids.Contains(identity))
-            {
-                ids.Add(identity);
-            }
-        }
-
-        foreach (var child in node.Children)
-        {
-            if (child is not null)
-            {
-                Collect(child, id, found, ids);
-            }
+            return found;
         }
     }
 
@@ -214,5 +208,34 @@ public sealed class UiTree
         _root.Place(screen.Align(_root.Measure(new Proposal(wide, high)), Alignment.Center));
         _root.Emit(_draw);
         _draw.EndTree();
+    }
+}
+
+/// <summary>Finds the views with an id, for <see cref="UiTree.FrameOf"/>.</summary>
+internal static class UiIdSearch
+{
+    /// <summary>Adds each node with this id to <paramref name="found"/>, and every id on the way to <paramref name="ids"/>.</summary>
+    public static void Collect(UiNode node, object id, List<UiNode> found, List<object> ids)
+    {
+        if (node.View.Identity is { } identity)
+        {
+            if (Equals(identity, id))
+            {
+                found.Add(node);
+            }
+
+            if (!ids.Contains(identity))
+            {
+                ids.Add(identity);
+            }
+        }
+
+        foreach (var child in node.Children)
+        {
+            if (child is not null)
+            {
+                Collect(child, id, found, ids);
+            }
+        }
     }
 }
