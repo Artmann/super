@@ -27,6 +27,20 @@ public sealed class PointerGame : IGame
         return run;
     }
 
+    /// <summary>Taps a key and lets two ticks run, so what it does has landed.</summary>
+    public static void Press(HeadlessRun<PointerGame> run, Key key)
+    {
+        run.Input.Press(key);
+        run.Ticks(2);
+    }
+
+    /// <summary>Taps a gamepad button and lets two ticks run.</summary>
+    public static void Press(HeadlessRun<PointerGame> run, GamepadButton button)
+    {
+        run.Input.Press(button);
+        run.Ticks(2);
+    }
+
     /// <summary>How many times Update has run.</summary>
     public long Ticks { get; private set; }
 

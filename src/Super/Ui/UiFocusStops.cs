@@ -25,7 +25,7 @@ internal static class UiFocusStops
     public static UiNode? Outermost(UiNode? node)
     {
         UiNode? stop = null;
-        for (; node is not null; node = node.Parent)
+        for (; node is not null; node = UiPointerSearch.Up(node))
         {
             if (node.View is FocusModifier)
             {
@@ -46,7 +46,8 @@ internal static class UiFocusStops
 
         foreach (var child in node.Children)
         {
-            if (child is not null && Below<T>(child) is { } found)
+            // A popup is a place of its own, searched only from its top.
+            if (child is { View: not LayerView } && Below<T>(child) is { } found)
             {
                 return found;
             }
@@ -142,7 +143,10 @@ internal static class UiFocusStops
 
         foreach (var child in node.Children)
         {
-            Collect(child, found);
+            if (child is { View: not LayerView })
+            {
+                Collect(child, found);
+            }
         }
     }
 
@@ -175,4 +179,72 @@ internal static class UiFocusStops
     /// <summary>Where a rectangle starts and ends across, or down.</summary>
     private static (float Low, float High) Along(UiRect rect, bool across) =>
         across ? (rect.X, rect.Right) : (rect.Y, rect.Bottom);
+}
+
+/// <summary>
+/// Keeps focus inside the popup on top. When one opens, focus moves into it, onto its default focus or its
+/// first stop, and when it closes focus goes back to what had it before, if that's still there.
+/// </summary>
+internal sealed class UiFocusTrap(UiTree tree)
+{
+    private readonly List<(UiNode Layer, UiNode? Opener)> _open = [];
+
+    /// <summary>Where focus may go: the popup on top, or the whole tree when none is open.</summary>
+    public UiNode? Root => tree.Layers.Trapping ?? tree.Root;
+
+    /// <summary>
+    /// Where focus moves, now that the popup on top has changed, given where it is. Moves is false while the
+    /// same popup is on top, or none, as most of the time.
+    /// </summary>
+    public (bool Moves, UiNode? To) Follow(UiNode? current)
+    {
+        var top = tree.Layers.Trapping;
+        if (_open.Count == 0 ? top is null : _open[^1].Layer == top)
+        {
+            return (false, null);
+        }
+
+        var (closed, back) = Close(top);
+        if (top is not null && (_open.Count == 0 || _open[^1].Layer != top))
+        {
+            _open.Add((top, current));
+            return (true, UiFocusStops.Default(top) ?? UiFocusStops.All(top).FirstOrDefault());
+        }
+
+        return closed ? (true, back is not null && UiFocusStops.IsOn(back) ? back : null) : (false, null);
+    }
+
+    /// <summary>Forgets the popups that closed above this one, and returns what opened the last of them.</summary>
+    private (bool Closed, UiNode? Opener) Close(UiNode? top)
+    {
+        bool closed = false;
+        UiNode? opener = null;
+        while (_open.Count > 0 && _open[^1].Layer != top && !_open[^1].Layer.Mounted)
+        {
+            opener = _open[^1].Opener;
+            _open.RemoveAt(_open.Count - 1);
+            closed = true;
+        }
+
+        return (closed, opener);
+    }
+
+    /// <summary>
+    /// Escape or the gamepad's East button, outside a text field: closes the popup on top as it says. Returns
+    /// whether a popup is open, which takes the key even when it can't be closed that way.
+    /// </summary>
+    public bool Back(List<Action> callbacks)
+    {
+        if (tree.Layers.Trapping is not { View: LayerView layer })
+        {
+            return false;
+        }
+
+        if (layer.Dismiss is { } dismiss)
+        {
+            callbacks.Add(dismiss);
+        }
+
+        return true;
+    }
 }

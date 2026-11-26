@@ -119,9 +119,11 @@ that isn't meant to be cut, and clashing ids.
 3. Focus, keyboard and gamepad navigation; `TextField`, `SecureField`. Done. Fields are one
    line; a multi-line `TextEditor` and selecting text with the mouse are left for later.
 4. Touch. Done on Windows through `WM_POINTER`, tried only with scripts so far. A long
-   press runs `.OnLongPress`; it opens context menus once step 5 has them. No pinch, and a
-   finger can't drag and drop yet.
-5. Popups: `Menu`, context menu, menu `Picker`, `Sheet`, `Alert`, `Popover`, `Toast`.
+   press runs `.OnLongPress`, and opens a context menu. No pinch, and a finger can't drag
+   and drop yet.
+5. Popups: `Menu`, context menu, menu `Picker`, `Sheet`, `Alert`, `Popover`, `Toast`. Done,
+   with a confirmation dialog too. No submenus, no key that opens a context menu, and toasts
+   have no buttons.
 6. Containers and layout: `TabView`, `DisclosureGroup`, `Form`, `NavigationStack`,
    `Grid`/`GridRow`, `FlowStack`, `ViewThatFits`, `LazyVStack`, overlay/offset and friends.
 7. Animation and transitions, including the spinning `ProgressView` and the switch's and

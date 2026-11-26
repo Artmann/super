@@ -70,6 +70,10 @@ public static class Stories
         new("Keyboard and gamepad", "Text fields", "A line of text to type, plain or secure.", Typing.TextFields),
         new("Keyboard and gamepad", "Focus", "Moving between controls with the keys, the d-pad or the stick.", Typing.Focus),
         new("Fingers", "Touch", "Taps, long presses, and drags that scroll and fling.", Touching.Touch),
+        new("Popups", "Menus", "Menus from a button, a picker as a menu, and a context menu.", Popping.Menus),
+        new("Popups", "Dialogs", "Alerts and confirmation dialogs that need an answer.", Popping.Dialogs),
+        new("Popups", "Sheets", "A form in a card over a scrim, and a popover under a button.", Popping.Sheets),
+        new("Popups", "Toasts", "Short notes in the corner that leave on their own.", Popping.ToastStory),
     ];
 
     /// <summary>The story with this id. An unknown id throws, listing the ones there are.</summary>

@@ -25,6 +25,7 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
 
     private readonly HashSet<Key> _taken = [];
     private readonly UiPadRepeat _pad = new(ticksPerSecond);
+    private readonly UiFocusTrap _trap = new(tree);
     private UiNode? _defaulted;
 
     private UiFocusMark Mark => tree.Focus;
@@ -53,6 +54,12 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
         if (Mark.Node is { } focused && !UiFocusStops.IsOn(focused))
         {
             Focus(null, false);
+        }
+
+        // A popup that opens takes focus, and one that closes gives it back.
+        if (_trap.Follow(Current) is (true, var to))
+        {
+            Focus(to, Mark.RingShown);
         }
 
         FocusDefault();
@@ -149,6 +156,12 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
     /// <summary>Does what a key or button asks. Returns whether focus used it, so the game shouldn't.</summary>
     private bool Command(UiNav nav)
     {
+        // Back closes the popup on top, unless a text field there takes it first.
+        if (nav == UiNav.Back && Current is not { View: FocusModifier { Keys.Text: not null } } && _trap.Back(callbacks))
+        {
+            return true;
+        }
+
         if (Current is not { View: FocusModifier { Keys: var keys } } node)
         {
             return Start(nav);
@@ -190,7 +203,7 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
             return;
         }
 
-        var stops = UiFocusStops.All(tree.Root);
+        var stops = UiFocusStops.All(_trap.Root);
         var next = nav switch
         {
             UiNav.Next => UiFocusStops.InOrder(stops, node, 1),
@@ -208,9 +221,9 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
     {
         var first = nav switch
         {
-            UiNav.Next => UiFocusStops.All(tree.Root).FirstOrDefault(),
-            UiNav.Previous => UiFocusStops.All(tree.Root).LastOrDefault(),
-            UiNav.Up or UiNav.Down or UiNav.Left or UiNav.Right => UiFocusStops.Default(tree.Root),
+            UiNav.Next => UiFocusStops.All(_trap.Root).FirstOrDefault(),
+            UiNav.Previous => UiFocusStops.All(_trap.Root).LastOrDefault(),
+            UiNav.Up or UiNav.Down or UiNav.Left or UiNav.Right => UiFocusStops.Default(_trap.Root),
             _ => null,
         };
         if (first is null)
@@ -270,14 +283,14 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
     /// <summary>A view marked <see cref="ControlExtensions.DefaultFocus"/> takes focus when it appears, with its ring hidden.</summary>
     private void FocusDefault()
     {
-        var marked = UiFocusStops.DefaultMark(tree.Root);
+        var marked = UiFocusStops.DefaultMark(_trap.Root);
         if (marked == _defaulted)
         {
             return;
         }
 
         _defaulted = marked;
-        if (marked is not null && Current is null && UiFocusStops.Default(tree.Root) is { } stop)
+        if (marked is not null && Current is null && UiFocusStops.Default(_trap.Root) is { } stop)
         {
             Focus(stop, false);
         }

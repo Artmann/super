@@ -33,6 +33,13 @@ public sealed class StorybookGame : IGame
         ["focus"] = new InputScript().Wait(2).Press(Key.Right).Press(Key.Right).Press(Key.Right).Press(Key.Down).Wait(2),
         ["typing"] = new InputScript().Wait(2).Click("name").Type("Ada Lovelace").Click("password").Type("hunter2").Wait(2),
         ["touch"] = new InputScript().Wait(2).Swipe("quests", new Vector2(0f, -150f)).Wait(30).Tap("quest-17").TouchDown("quest-15").Wait(20).TouchUp().Wait(2),
+        ["menu"] = new InputScript().Wait(2).Click("game-menu").Wait(2).Press(Key.Down).Wait(2),
+        ["context"] = new InputScript().Wait(2).MoveMouse("sword").Wait(1).Hold(MouseButton.Right).Release(MouseButton.Right).Wait(2),
+        ["alert"] = new InputScript().Wait(2).Click("delete-save").Wait(2),
+        ["confirm"] = new InputScript().Wait(2).Click("quit").Wait(2),
+        ["sheet"] = new InputScript().Wait(2).Click("new-character").Wait(2),
+        ["popover"] = new InputScript().Wait(2).Click("stamina").Wait(2),
+        ["toasts"] = new InputScript().Wait(2).Click("save-toast").Wait(2).Click("quest-toast").Wait(2).Click("save-toast").Wait(2),
     };
 
     public UiView? Ui => new HStack(VerticalAlignment.Top, 0f)

@@ -176,16 +176,28 @@ internal sealed class UiTouch(UiTree tree, int ticksPerSecond)
                 break;
             case Press press:
                 _gesture = press with { Age = press.Age + 1 };
-                if (press.Age + 1 == _longPressTicks && UiPointerSearch.Find<LongPressModifier>(Hit(press.At)) is { View: LongPressModifier held, Environment.Disabled: false })
+                if (press.Age + 1 == _longPressTicks && Held(press.At) is { } held)
                 {
                     _gesture = new Spent(press.Id);
-                    return held.LongPress;
+                    return held;
                 }
 
                 break;
         }
 
         return null;
+    }
+
+    /// <summary>What a finger held still here does: the view's long press, or else its context menu, opened under the finger.</summary>
+    private Action? Held(Vector2 at)
+    {
+        var hit = Hit(at);
+        if (UiPointerSearch.Find<LongPressModifier>(hit) is { View: LongPressModifier held, Environment.Disabled: false })
+        {
+            return held.LongPress;
+        }
+
+        return UiPointerSearch.Find<ContextModifier>(hit) is { View: ContextModifier menu, Environment.Disabled: false } ? () => menu.Open(at) : null;
     }
 
     /// <summary>Takes the slide owed since the last tick. Only the latest counts, as with the mouse.</summary>
@@ -210,7 +222,7 @@ internal sealed class UiTouch(UiTree tree, int ticksPerSecond)
         }
     }
 
-    private UiNode? Hit(Vector2 at) => tree.Root?.Hit(at.X, at.Y);
+    private UiNode? Hit(Vector2 at) => tree.Hit(at.X, at.Y);
 
     /// <summary>The nearest scroll view the finger can move this way, along the way it mostly went.</summary>
     private static UiNode? Pannable(UiNode hit, Vector2 moved)

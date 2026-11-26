@@ -51,9 +51,10 @@ Super is early. These are the known gaps, so you can plan around them.
   characters, trigger areas, contacts, joints, ragdolls, rays, shape casts and overlap
   tests, on Jolt. There are no mesh or height-field colliders, vehicles, or ragdolls that
   keep their balance yet.
-- **Menus and dialogs in interfaces.** [Interfaces](interfaces.md#touch) take the mouse, the
-  keyboard, the gamepad and touch on Windows, with one-line text fields, but there are no
-  menus, sheets or dialogs yet, and touch hasn't been tried on a real touch screen.
+- **Containers in interfaces.** [Interfaces](interfaces.md#popups) take the mouse, the
+  keyboard, the gamepad and touch on Windows, with one-line text fields, menus, dialogs,
+  sheets, popovers and toasts, but there are no tab views, forms or navigation stacks yet,
+  and touch hasn't been tried on a real touch screen.
 - **Saved games and levels.** `saves.Write` and `saves.Read` are the plan; see
   [JSON content](content.md#planned).
 - **Run logs.** Recording game events and checking them in tests is planned; see

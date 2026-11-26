@@ -11,6 +11,12 @@ public enum PickerStyle
 
     /// <summary>One under the other, each with a round button that's filled when it's picked.</summary>
     Radio,
+
+    /// <summary>
+    /// A button that shows the picked one and opens a menu of them all, with a check by the picked one. It
+    /// takes the least room, so it suits a long list or a settings row.
+    /// </summary>
+    Menu,
 }
 
 /// <summary>
@@ -30,15 +36,36 @@ public sealed record Picker<T>(string Label, T Selection, IReadOnlyList<PickerOp
         get
         {
             var environment = Environment;
+            var open = UseState(false);
             bool off = Disabled || environment.Disabled;
             var picked = Options.FirstOrDefault(IsPicked);
-            UiView choices = Style == PickerStyle.Radio ? Radio(environment, off) : Segmented(environment, off);
+            UiView choices = Style switch
+            {
+                PickerStyle.Radio => Radio(environment, off),
+                PickerStyle.Menu => Dropdown(open, picked, off),
+                _ => Segmented(environment, off),
+            };
             var meaning = new SemanticsModifier(choices, new UiSemantics(UiRole.Picker, Label, picked?.Label) { Disabled = off });
 
-            // One stop for the whole picker: left and right pick the one beside, and Enter the next, round to the first.
-            var keys = new FocusKeys { Adjust = by => PickBeside(by, false), Activate = () => PickBeside(1, true), Disabled = off };
+            // One stop for the whole picker: left and right pick the one beside, and Enter the next, round to
+            // the first, or opens the menu.
+            Action activate = Style == PickerStyle.Menu ? () => open.Value = !open.Value : () => PickBeside(1, true);
+            var keys = new FocusKeys { Adjust = by => PickBeside(by, false), Activate = activate, Disabled = off };
             return new FocusModifier(meaning, keys);
         }
+    }
+
+    /// <summary>A button with the picked one's label, which opens a menu of every choice.</summary>
+    private UiView Dropdown(State<bool> open, PickerOption<T>? picked, bool off)
+    {
+        var change = OnChange;
+        var items = Options.Select(option =>
+        {
+            var value = option.Value;
+            return new MenuItem(option.Label, change is null ? null : () => change(value)) { Checked = IsPicked(option) };
+        }).ToArray();
+        var trigger = new MenuTrigger(picked?.Label ?? Label, null, () => open.Value = !open.Value, off);
+        return new PopupModifier(trigger, open.Value && !off ? MenuPanel.Layer(items, () => open.Value = false) : null);
     }
 
     private void PickBeside(int by, bool round)
