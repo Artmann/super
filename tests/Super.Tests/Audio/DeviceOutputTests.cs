@@ -305,7 +305,7 @@ public sealed class AudioThreadTests
 
     private static void Frame(AudioService audio)
     {
-        audio.EndFrame(new Camera(Vector3.Zero, -Vector3.UnitZ), 1);
+        audio.EndFrame(new Camera(Vector3.Zero, -Vector3.UnitZ), 1, 0);
     }
 
     /// <summary>Polls until the condition holds, failing after two seconds.</summary>

@@ -18,6 +18,15 @@ internal struct VoiceStart
     public float FadeInSeconds;
 
     /// <summary>
+    /// How much a placed voice's pitch follows the Doppler effect: 0 not at all, 1 as in air. It scales both its own
+    /// velocity and the listener's. Flat voices never have it.
+    /// </summary>
+    public float Doppler;
+
+    /// <summary>How fast a placed voice moves, in metres a second, for the Doppler effect. It follows <see cref="Voice.Reposition"/>.</summary>
+    public Vector3 Velocity;
+
+    /// <summary>
     /// About where in the clip to start, for an ambience layer's random start. A decoded clip starts exactly there. A
     /// streamed clip uses its decoder's own quick seek once, when the voice starts, which may land a little off (up to
     /// 1152 frames early for an MP3), rather than decoding up to it, which can take longer than the speakers' buffer.
@@ -255,12 +264,14 @@ internal sealed class Voice
         Active = true;
     }
 
-    /// <summary>Moves a placed voice. A flat voice stays flat.</summary>
-    public void Reposition(Vector3 position)
+    /// <summary>Moves a placed voice, giving its velocity and Doppler amount too. A flat voice stays flat.</summary>
+    public void Reposition(Vector3 position, Vector3 velocity, float doppler)
     {
         if (Placed)
         {
             _setup.Position = position;
+            _setup.Velocity = velocity;
+            _setup.Doppler = doppler;
         }
     }
 

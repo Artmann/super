@@ -24,11 +24,17 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
         public float Far;
         public bool Placed;
         public Vector3 At;
+        public Vector3 Velocity;
+        public float Doppler;
+        public HeardMotion Motion;
 
         /// <summary>Whether this loop still plays <paramref name="sound"/>: the same clip, channel, distances and placing.</summary>
         public readonly bool Plays(Sound sound, bool placed) =>
             Clip == sound.Clip && Channel == sound.Channel && Near == sound.Near && Far == sound.Far && Placed == placed;
     }
+
+    // An entity's sound as this frame draws it: where it is, if it's placed, at what time on screen.
+    private readonly record struct Heard(Sound Sound, bool Placed, Vector3 At, double Now);
 
     private struct PlayingAmbience
     {
@@ -46,11 +52,11 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
 
     public void AfterDraw(View view)
     {
-        SyncSounds(view.Blend);
+        SyncSounds(view.Blend, view.Clock.Now);
         SyncAmbiences();
     }
 
-    private void SyncSounds(float blend)
+    private void SyncSounds(float blend, double now)
     {
         bool completed = false;
         try
@@ -67,7 +73,7 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
                 bool placed = world.Has<Transform>(entity);
                 Vector3 at = placed ? WorldFrame.WorldMatrix(world, entity, blend).Translation : default;
                 Check(entity, sound, placed, at);
-                _loops[entity] = SyncLoop(entity, sound, placed, at);
+                _loops[entity] = SyncLoop(entity, new Heard(sound, placed, at, now));
                 _lastLoops.Remove(entity);
             }
 
@@ -79,48 +85,62 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
         }
     }
 
-    /// <summary>Starts the entity's loop, restarts it when it changed or was dropped, or moves it and sets its volume.</summary>
-    private PlayingLoop SyncLoop(Entity entity, Sound sound, bool placed, Vector3 at)
+    /// <summary>
+    /// Starts the entity's loop, restarts it when it changed or was dropped, or moves it, with how fast it moves for
+    /// the Doppler effect, and sets its volume.
+    /// </summary>
+    private PlayingLoop SyncLoop(Entity entity, Heard heard)
     {
         if (!_lastLoops.TryGetValue(entity, out PlayingLoop loop))
         {
-            return StartLoop(sound, placed, at);
+            return StartLoop(heard);
         }
 
-        if (loop.Voice == NoId || !loop.Plays(sound, placed))
+        if (loop.Voice == NoId || !loop.Plays(heard.Sound, heard.Placed))
         {
-            return Restart(entity, loop, sound, placed, at);
+            return Restart(entity, loop, heard);
         }
 
         if (audio.Loops.WasDropped(loop.Voice))
         {
             // The voice limit dropped it. It comes back once the mixer has a slot free; until then nothing is
             // sent for it, so a full mixer isn't asked again every frame.
-            return audio.Loops.TryClaimVoice() ? Restart(entity, loop, sound, placed, at) : loop;
+            return audio.Loops.TryClaimVoice() ? Restart(entity, loop, heard) : loop;
         }
 
-        if (placed && loop.At != at)
+        if (heard.Placed)
         {
-            audio.Loops.Move(loop.Voice, at);
-            loop.At = at;
+            Follow(ref loop, heard);
         }
 
-        if (loop.Volume != sound.Volume)
+        if (loop.Volume != heard.Sound.Volume)
         {
-            audio.Loops.ChangeVolume(loop.Voice, sound.Volume);
-            loop.Volume = sound.Volume;
+            audio.Loops.ChangeVolume(loop.Voice, heard.Sound.Volume);
+            loop.Volume = heard.Sound.Volume;
         }
 
         return loop;
     }
 
-    private static void Check(Entity entity, Sound sound, bool placed, Vector3 at)
+    /// <summary>Moves a placed loop when where it is, how fast it moves or its Doppler amount changed.</summary>
+    private void Follow(ref PlayingLoop loop, Heard heard)
     {
-        if (!(sound.Volume >= 0) || !float.IsFinite(sound.Volume))
+        Vector3 velocity = loop.Motion.Update(heard.At, heard.Now);
+        float doppler = heard.Sound.Doppler;
+        if (loop.At == heard.At && loop.Velocity == velocity && loop.Doppler == doppler)
         {
-            throw new ArgumentOutOfRangeException(nameof(sound), sound.Volume, $"Entity {entity.Id}'s Sound has Volume {sound.Volume}; it must be a number of at least 0.");
+            return;
         }
 
+        audio.Loops.Move(loop.Voice, heard.At, velocity, doppler);
+        loop.At = heard.At;
+        loop.Velocity = velocity;
+        loop.Doppler = doppler;
+    }
+
+    private static void Check(Entity entity, Sound sound, bool placed, Vector3 at)
+    {
+        CheckLevels(entity, sound);
         if ((uint)sound.Channel > (uint)Channel.Interface)
         {
             throw new ArgumentOutOfRangeException(nameof(sound), sound.Channel, $"Entity {entity.Id}'s Sound has Channel {sound.Channel}; it must be one of the Channel values.");
@@ -142,19 +162,37 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
         }
     }
 
+    // The amounts that scale the sound, its volume and Doppler, must be finite and at least 0.
+    private static void CheckLevels(Entity entity, Sound sound)
+    {
+        if (!(sound.Volume >= 0) || !float.IsFinite(sound.Volume))
+        {
+            throw new ArgumentOutOfRangeException(nameof(sound), sound.Volume, $"Entity {entity.Id}'s Sound has Volume {sound.Volume}; it must be a number of at least 0.");
+        }
+
+        if (!(sound.Doppler >= 0) || !float.IsFinite(sound.Doppler))
+        {
+            throw new ArgumentOutOfRangeException(nameof(sound), sound.Doppler, $"Entity {entity.Id}'s Sound has Doppler {sound.Doppler}; it must be a number of at least 0.");
+        }
+    }
+
     private static bool IsFinite(Vector3 at) => float.IsFinite(at.X) && float.IsFinite(at.Y) && float.IsFinite(at.Z);
 
-    private PlayingLoop Restart(Entity entity, PlayingLoop loop, Sound sound, bool placed, Vector3 at)
+    private PlayingLoop Restart(Entity entity, PlayingLoop loop, Heard heard)
     {
         // Written back first, so a throw below leaves the entity tracked with no voice, not with a stopped one.
         audio.Loops.Stop(loop.Voice);
         loop.Voice = NoId;
         _lastLoops[entity] = loop;
-        return StartLoop(sound, placed, at);
+        return StartLoop(heard);
     }
 
-    private PlayingLoop StartLoop(Sound sound, bool placed, Vector3 at)
+    /// <summary>Starts the loop still: its speed is known from the next frame on.</summary>
+    private PlayingLoop StartLoop(Heard heard)
     {
+        (Sound sound, bool placed, Vector3 at, double now) = heard;
+        var motion = new HeardMotion();
+        motion.Update(at, now);
         return new PlayingLoop
         {
             Voice = audio.Loops.Start(new SoundLoop
@@ -165,6 +203,7 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
                 At = placed ? at : null,
                 Near = sound.Near,
                 Far = sound.Far,
+                Doppler = sound.Doppler,
             }),
             Clip = sound.Clip,
             Channel = sound.Channel,
@@ -173,6 +212,8 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
             Far = sound.Far,
             Placed = placed,
             At = at,
+            Doppler = sound.Doppler,
+            Motion = motion,
         };
     }
 

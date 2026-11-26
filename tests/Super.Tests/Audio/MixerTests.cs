@@ -310,6 +310,86 @@ public class MixerTests
         Assert.Equal(0.2, Assert.Single(Snapshot(mixer)).Seconds, 1e-9);
     }
 
+    /// <summary>A placed voice 10 m ahead of a listener at the origin, coming closer at a tenth of the speed of sound.</summary>
+    private static VoiceStart Approaching(float doppler)
+    {
+        return new VoiceStart
+        {
+            Clip = Constant("cart.wav", 48000, 48000),
+            Channel = Channel.Effects,
+            Position = new Vector3(0, 0, -10),
+            Velocity = new Vector3(0, 0, 34.3f),
+            Doppler = doppler,
+        };
+    }
+
+    [Fact]
+    public void AnApproachingVoicePlaysHigher()
+    {
+        var mixer = TestMixer.Make();
+        mixer.Listening.SetListener(Vector3.Zero, -Vector3.UnitZ);
+        mixer.Start(Approaching(1));
+
+        Mix(mixer, 4800);
+
+        // 0.1 s at 343 / (343 - 34.3) times the speed.
+        Assert.Equal(0.11111, Assert.Single(Snapshot(mixer)).Seconds, 1e-4);
+    }
+
+    [Fact]
+    public void AVoiceWithNoDopplerKeepsItsPitch()
+    {
+        var mixer = TestMixer.Make();
+        mixer.Listening.SetListener(Vector3.Zero, -Vector3.UnitZ);
+        mixer.Start(Approaching(0));
+
+        Mix(mixer, 4800);
+
+        Assert.Equal(0.1, Assert.Single(Snapshot(mixer)).Seconds, 1e-9);
+    }
+
+    [Fact]
+    public void ADopplerScaleOfZeroTurnsItOff()
+    {
+        var mixer = TestMixer.Make();
+        mixer.Listening.SetListener(Vector3.Zero, -Vector3.UnitZ);
+        mixer.Listening.SetDopplerScale(0);
+        mixer.Start(Approaching(1));
+
+        Mix(mixer, 4800);
+
+        Assert.Equal(0.1, Assert.Single(Snapshot(mixer)).Seconds, 1e-9);
+    }
+
+    [Fact]
+    public void AMovingListenerHearsAStillVoiceHigher()
+    {
+        var mixer = TestMixer.Make();
+        mixer.Listening.SetListener(Vector3.Zero, -Vector3.UnitZ, new Vector3(0, 0, -34.3f));
+        VoiceStart start = Approaching(1);
+        start.Velocity = Vector3.Zero;
+        mixer.Start(start);
+
+        Mix(mixer, 4800);
+
+        // 0.1 s at (343 + 34.3) / 343 times the speed.
+        Assert.Equal(0.11, Assert.Single(Snapshot(mixer)).Seconds, 1e-4);
+    }
+
+    [Fact]
+    public void AFlatVoiceHasNoDoppler()
+    {
+        var mixer = TestMixer.Make();
+        mixer.Listening.SetListener(Vector3.Zero, -Vector3.UnitZ, new Vector3(0, 0, -34.3f));
+        VoiceStart start = Approaching(1);
+        start.Position = null;
+        mixer.Start(start);
+
+        Mix(mixer, 4800);
+
+        Assert.Equal(0.1, Assert.Single(Snapshot(mixer)).Seconds, 1e-9);
+    }
+
     [Fact]
     public void RampClipIsInterpolatedBetweenFrames()
     {
@@ -420,7 +500,7 @@ public class MixerTests
         // Calls on the dropped id do nothing.
         mixer.Stop(dropped, 0);
         mixer.SetVolume(dropped, 0, 0);
-        mixer.SetPosition(dropped, Vector3.One);
+        mixer.SetPosition(dropped, Vector3.One, Vector3.Zero, 0);
         Assert.Equal(Mixer.MaxVoices, Snapshot(mixer).Length);
         Assert.All(Snapshot(mixer), p => Assert.Equal(0.5f, p.Gain));
     }
@@ -507,7 +587,7 @@ public class MixerTests
         });
         Mix(mixer, 10);
 
-        mixer.SetPosition(voice, new Vector3(1, 0, 0));
+        mixer.SetPosition(voice, new Vector3(1, 0, 0), Vector3.Zero, 0);
         Mix(mixer, 10); // the pan ramps across this block
         float[] stereo = Mix(mixer, 10);
 
@@ -531,7 +611,7 @@ public class MixerTests
 
         // Hard left to hard right, within the near distance so there is no falloff. Over 100 frames each side
         // moves 1/100 a frame: left 0.99 down to 0, right 0.01 up to 1.
-        mixer.SetPosition(voice, new Vector3(1, 0, 0));
+        mixer.SetPosition(voice, new Vector3(1, 0, 0), Vector3.Zero, 0);
         float[] stereo = Mix(mixer, 100);
 
         for (int frame = 0; frame < 100; frame++)

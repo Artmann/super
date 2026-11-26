@@ -81,8 +81,12 @@ internal sealed class Mixer
 
     public void SetVolume(int voice, float volume, float fadeSeconds) => _voices.SetVolume(voice, volume, fadeSeconds);
 
-    /// <summary>Moves a placed voice from the next mixed frame. A flat voice stays flat.</summary>
-    public void SetPosition(int voice, Vector3 position) => _voices.SetPosition(voice, position);
+    /// <summary>
+    /// Moves a placed voice from the next mixed frame, with how fast it moves and how much its pitch follows the
+    /// Doppler effect. A flat voice stays flat.
+    /// </summary>
+    public void SetPosition(int voice, Vector3 position, Vector3 velocity, float doppler) =>
+        _voices.SetPosition(voice, position, velocity, doppler);
 
     /// <summary>
     /// Starts an ambience: its layers loop on the Ambience channel from a random frame, fading in over the seconds

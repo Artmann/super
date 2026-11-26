@@ -211,12 +211,27 @@ noise). A voice's first block starts at its gains, so there is no fade from 0 be
 own fade-in. Once the gains are steady the ramp is flat and the output is exact.
 
 **Pitch and rate.** Each output frame steps through the source by
-`clip rate / 48000 × pitch`, times the world rate for voices that follow `Scale`, and
+`clip rate / 48000 × pitch × doppler`, times the world rate for voices that follow `Scale`, and
 reads between source frames with linear interpolation. So a 44.1 kHz clip plays at its
 own length and pitch. At a world rate of 0 a voice holds its place and is silent, then
 carries on from the same frame. Fades still run while it's held. So a pause doesn't
 click, the voice fades out over 5 ms (240 frames) while it keeps playing at its last
 speed, and fades back in over 5 ms when it resumes.
+
+**Doppler.** A placed voice carries a velocity and a Doppler amount (`VoiceStart.Doppler`,
+0 for music, ambiences and anything else the mixer starts itself), and the listener carries a
+velocity. `MixListening.Doppler` scales both velocities by the voice's amount times the global
+`Audio.Doppler`, and `Spatial.Doppler` turns them into
+`(c + v_listener·d) / (c + v_source·d)`, with `d` the unit vector from listener to source and
+c = 343 m/s. The source's part is held to at least −c/2 so the divisor stays positive, and the
+result is clamped to 0.5..2. It is worked out once per block, like the gains, so it steps at
+block edges; the velocities it comes from are smoothed, so the steps are small. The mixer
+never works out a speed: positions reach it at uneven times, so the game thread does that
+(`HeardMotion`), from the drawn positions and `ViewClock.Now`, and sends the velocity with
+each `Listener` and `MoveVoice` command. `HeardMotion` smooths exponentially with a 0.1 s
+time constant, snaps below 0.01 m/s to still (so a stopped entity stops sending moves), and
+treats a move faster than 100 m/s, or any move with no time passing, as a jump that resets
+the velocity to 0. A one-shot voice has no velocity of its own.
 
 **Placing.** A voice with a position is folded to mono, `(L + R) / 2`, then scaled by
 the falloff and panned. A voice without one keeps its own stereo and isn't panned.
@@ -341,9 +356,11 @@ Music takes its ids from the same pool as loops.
 `HostServices` registers for every game. After each frame's Draw it walks the entities with `Sound` and
 with `Ambience` and compares them with what it sent last frame, keyed by `Entity` (id and
 generation, so an id reused in the same tick is a new sound). Per entity it remembers the
-loop's id and the clip, channel, near, far, volume and world position it last sent. A new
-entity starts a loop, a changed clip/channel/near/far/placement stops and restarts it, a
-changed position sends `Move` (an exact compare) and a changed volume sends
+loop's id and the clip, channel, near, far, volume, Doppler amount, world position and
+velocity it last sent, and a `HeardMotion` that turns the drawn positions and
+`ViewClock.Now` into a velocity. A new entity starts a loop, still, a changed
+clip/channel/near/far/placement stops and restarts it, a changed position, velocity or
+Doppler amount sends `Move` (an exact compare) and a changed volume sends
 `ChangeVolume`; whatever wasn't seen is stopped. A still entity sends nothing, which
 matters because draw hooks run every frame while the ring drains once a tick in manual
 mode (`Audio.Commands.Written` is what the test reads). Two dictionaries swap roles each

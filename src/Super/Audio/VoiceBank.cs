@@ -100,10 +100,10 @@ internal sealed class VoiceBank
         Find(voice)?.Volume.To(volume, MixRate.ToFrames(fadeSeconds));
     }
 
-    /// <summary>Moves a placed voice from the next mixed frame. A flat voice stays flat.</summary>
-    public void SetPosition(int voice, Vector3 position)
+    /// <summary>Moves a placed voice from the next mixed frame, with its velocity and Doppler amount. A flat voice stays flat.</summary>
+    public void SetPosition(int voice, Vector3 position, Vector3 velocity, float doppler)
     {
-        Find(voice)?.Reposition(position);
+        Find(voice)?.Reposition(position, velocity, doppler);
     }
 
     /// <summary>

@@ -21,6 +21,9 @@ internal readonly struct SoundLoop
     public float Near { get; init; } = 2;
 
     public float Far { get; init; } = 50;
+
+    /// <summary>How much a placed loop's pitch follows the Doppler effect: 0 not at all, 1 as in air.</summary>
+    public float Doppler { get; init; }
 }
 
 /// <summary>
@@ -60,6 +63,7 @@ internal sealed class AudioLoops
         AudioChecks.CheckVolume(loop.Volume, "volume");
         AudioChecks.CheckChannel(loop.Channel, "channel");
         AudioChecks.CheckPlace(loop.At, loop.Near, loop.Far);
+        AudioChecks.CheckDoppler(loop.Doppler, "doppler");
         return StartVoice(new VoiceStart
         {
             Clip = _content.Sounds.ClipOf(loop.Clip),
@@ -71,19 +75,22 @@ internal sealed class AudioLoops
             Far = loop.Far,
             FadeInSeconds = FadeInSeconds,
             FollowsScale = true,
+            Doppler = loop.Doppler,
         });
     }
 
-    public void Move(int voice, Vector3 at)
+    /// <summary>Moves a placed loop, giving how fast it moves and how much its pitch follows the Doppler effect.</summary>
+    public void Move(int voice, Vector3 at, Vector3 velocity, float doppler)
     {
         if (!AudioChecks.IsFinite(at))
         {
             throw new ArgumentOutOfRangeException(nameof(at), at, "at must be a finite position.");
         }
 
+        AudioChecks.CheckDoppler(doppler, nameof(doppler));
         if (_ids.Holds(voice))
         {
-            _commands.Push(new AudioCommand { Kind = AudioCommandKind.MoveVoice, Id = voice, Position = at });
+            _commands.Push(new AudioCommand { Kind = AudioCommandKind.MoveVoice, Id = voice, Position = at, Velocity = velocity, Value = doppler });
         }
     }
 

@@ -92,7 +92,7 @@ internal sealed class LoopDraw
         }
 
         // Last of the frame's own work, so the listener is the camera the frame showed and the hooks' changes go too.
-        _audio.EndFrame(view.Shot, _time.Scale);
+        _audio.EndFrame(view.Shot, _time.Scale, view.Clock.Now);
 
         // The interface runs outside the measurement, so a stats panel reports the game
         // and not itself.
@@ -114,7 +114,7 @@ internal sealed class LoopDraw
     private void RunStopped(View view, UiTree ui, int width, int height, float blend)
     {
         view.Begin(blend, _time.Tick, _time.TickSeconds, _time.Scale);
-        _audio.EndFrame(view.Shot, _time.Scale);
+        _audio.EndFrame(view.Shot, _time.Scale, view.Clock.Now);
         ui.Update(StoppedPanel.For(_halts.Stopped!), width, height);
         view.Ui = ui;
         _changes.Open = true;

@@ -41,6 +41,38 @@ internal static class Spatial
         return Math.Clamp(pan, -1, 1);
     }
 
+    /// <summary>The speed of sound in air, in metres a second.</summary>
+    public const float SpeedOfSound = 343f;
+
+    /// <summary>The lowest and highest pitch the Doppler effect can give, an octave each way.</summary>
+    public const float LowestDoppler = 0.5f;
+    public const float HighestDoppler = 2f;
+
+    /// <summary>
+    /// How much the Doppler effect raises the pitch of a sound at <paramref name="source"/>, heard from
+    /// <paramref name="listener"/>: (c + the listener's speed towards the source) / (c + the source's speed away from
+    /// the listener), kept from 0.5 to 2. 1 when neither moves along the line between them, or when they're in the
+    /// same place.
+    /// </summary>
+    public static float Doppler(Vector3 listener, Vector3 listenerVelocity, Vector3 source, Vector3 sourceVelocity)
+    {
+        Vector3 toSource = source - listener;
+        float distance = toSource.Length();
+        if (distance < 1e-4f)
+        {
+            return 1;
+        }
+
+        Vector3 direction = toSource / distance;
+        float listenerTowards = Math.Clamp(Vector3.Dot(listenerVelocity, direction), -SpeedOfSound, SpeedOfSound);
+
+        // A source can't outrun its own sound: at half the speed of sound towards the listener the pitch is
+        // already past the highest it can go.
+        float sourceAway = Math.Clamp(Vector3.Dot(sourceVelocity, direction), -SpeedOfSound / 2, SpeedOfSound);
+        float factor = (SpeedOfSound + listenerTowards) / (SpeedOfSound + sourceAway);
+        return Math.Clamp(factor, LowestDoppler, HighestDoppler);
+    }
+
     /// <summary>Gains for each side that keep the total power the same wherever the sound is panned.</summary>
     public static (float Left, float Right) EqualPower(float pan)
     {

@@ -54,4 +54,55 @@ public class SpatialTests
         Assert.Equal(1f, left, 1e-6f);
         Assert.Equal(0f, right, 1e-6f);
     }
+
+    // The source is 10 m ahead of a listener at the origin; 34.3 m/s is a tenth of the speed of sound.
+    private static readonly Vector3 Ahead = new(0, 0, -10);
+
+    [Fact]
+    public void DopplerOfASourceComingCloserIsHigher()
+    {
+        // 343 / (343 - 34.3)
+        Assert.Equal(1.11111f, Spatial.Doppler(Vector3.Zero, Vector3.Zero, Ahead, new Vector3(0, 0, 34.3f)), 1e-4f);
+    }
+
+    [Fact]
+    public void DopplerOfASourceGoingAwayIsLower()
+    {
+        // 343 / (343 + 34.3)
+        Assert.Equal(0.90909f, Spatial.Doppler(Vector3.Zero, Vector3.Zero, Ahead, new Vector3(0, 0, -34.3f)), 1e-4f);
+    }
+
+    [Fact]
+    public void DopplerOfAListenerMovingTowardsTheSourceIsHigher()
+    {
+        // (343 + 34.3) / 343
+        Assert.Equal(1.1f, Spatial.Doppler(Vector3.Zero, new Vector3(0, 0, -34.3f), Ahead, Vector3.Zero), 1e-4f);
+    }
+
+    [Fact]
+    public void DopplerOfAStillSourceAndListenerIsOne()
+    {
+        Assert.Equal(1f, Spatial.Doppler(Vector3.Zero, Vector3.Zero, Ahead, Vector3.Zero));
+    }
+
+    [Fact]
+    public void DopplerOfASourceCrossingInFrontIsOne()
+    {
+        // Moving across the line between them, it comes no closer.
+        Assert.Equal(1f, Spatial.Doppler(Vector3.Zero, Vector3.Zero, Ahead, new Vector3(30, 0, 0)), 1e-6f);
+    }
+
+    [Fact]
+    public void DopplerStaysWithinAnOctaveEachWay()
+    {
+        Assert.Equal(2f, Spatial.Doppler(Vector3.Zero, Vector3.Zero, Ahead, new Vector3(0, 0, 500)));
+        Assert.Equal(0.5f, Spatial.Doppler(Vector3.Zero, Vector3.Zero, Ahead, new Vector3(0, 0, -500)));
+        Assert.Equal(0.5f, Spatial.Doppler(Vector3.Zero, new Vector3(0, 0, 500), Ahead, Vector3.Zero));
+    }
+
+    [Fact]
+    public void DopplerAtTheListenerIsOne()
+    {
+        Assert.Equal(1f, Spatial.Doppler(Vector3.One, Vector3.Zero, Vector3.One, new Vector3(0, 0, 50)));
+    }
 }

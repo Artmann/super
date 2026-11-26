@@ -360,7 +360,7 @@ public class AudioTests
         audio.Play(content.Sounds.Sound("bang.wav"));
 
         Assert.Empty(audio.Playing);
-        audio.EndFrame(new Camera(Vector3.Zero, -Vector3.UnitZ), 1);
+        audio.EndFrame(new Camera(Vector3.Zero, -Vector3.UnitZ), 1, 0);
         Assert.Single(audio.Playing);
     }
 
@@ -517,7 +517,7 @@ public class AudioTests
         int loop = audio.Loops.Start(new SoundLoop { Clip = content.Sounds.Sound("a.wav"), Channel = Channel.Effects, At = new Vector3(-1, 0, 0) });
         audio.Advance(0.2f);
 
-        audio.Loops.Move(loop, new Vector3(10, 0, 0));
+        audio.Loops.Move(loop, new Vector3(10, 0, 0), Vector3.Zero, 0);
         audio.Loops.ChangeVolume(loop, 0.5f);
         audio.Advance(0.2f);
 
