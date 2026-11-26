@@ -5,7 +5,7 @@ namespace Super;
 /// <see cref="R"/> across them, and the third cube coordinate <see cref="S"/> is what keeps the three summing to 0.
 /// These are the coordinates of the Red Blob Games hexagon guide. Hexes compare and hash by value. See docs/grids.md.
 /// </summary>
-public readonly record struct Hex(int Q, int R)
+public readonly record struct Hex(int Q, int R) : IGridCell<Hex>
 {
     private static readonly Hex[] _sides = [new(1, 0), new(1, -1), new(0, -1), new(-1, 0), new(-1, 1), new(0, 1)];
 
@@ -133,4 +133,16 @@ public readonly record struct Hex(int Q, int R)
 
         return around + offset;
     }
+
+    /// <summary>
+    /// Every hex a walk from <paramref name="start"/> can reach without spending more than <paramref name="budget"/>,
+    /// with the least it costs to get there. <paramref name="cost"/> says what stepping into a hex costs, or null where
+    /// nothing can go. The start costs nothing.
+    /// </summary>
+    public static IReadOnlyDictionary<Hex, float> Reachable(Hex start, float budget, Func<Hex, float?> cost) =>
+        GridSearch.Reachable(start, budget, cost, _sides);
+
+    (int A, int B) IGridCell<Hex>.Pair => (Q, R);
+
+    static Hex IGridCell<Hex>.FromPair(int a, int b) => new(a, b);
 }

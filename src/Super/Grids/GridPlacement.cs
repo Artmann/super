@@ -37,7 +37,10 @@ public readonly record struct GridPlacement(Vector3 Origin, Quaternion Rotation)
     /// Where a ray, such as the mouse's from <see cref="Camera.Ray"/>, meets the grid, on its own X and Z, or nothing
     /// when it runs alongside the grid or points away from it.
     /// </summary>
-    public Vector2? Hit(Ray ray)
+    public Vector2? Hit(Ray ray) => Along(ray) is { } along ? OnGrid(ray.Origin + ray.Direction * along) : null;
+
+    /// <summary>How far along a ray it meets the grid's plane, in lengths of its direction, or nothing when it doesn't.</summary>
+    internal float? Along(Ray ray)
     {
         var up = Up;
         float towards = Vector3.Dot(ray.Direction, up);
@@ -47,12 +50,7 @@ public readonly record struct GridPlacement(Vector3 Origin, Quaternion Rotation)
         }
 
         float along = Vector3.Dot(Origin - ray.Origin, up) / towards;
-        if (!(along >= 0f))
-        {
-            return null;
-        }
-
-        return OnGrid(ray.Origin + ray.Direction * along);
+        return along >= 0f ? along : null;
     }
 
     /// <summary>The turn, with the default of all zeros read as no turn.</summary>
