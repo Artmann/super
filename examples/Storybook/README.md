@@ -30,3 +30,4 @@ dotnet run -c Release --project examples/Storybook -- --story badges --theme lig
 | `Elements.cs` | Pages for buttons, badges, labels, dividers and key hints |
 | `Controls.cs` | Pages for buttons, toggles, sliders, steppers, pickers, progress and gauges |
 | `Typing.cs` | Pages for text fields and for moving focus with the keys and the gamepad |
+| `Touching.cs` | The touch page: a quest list to tap, hold, drag and fling, and a strip that scrolls sideways |

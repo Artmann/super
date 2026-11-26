@@ -38,6 +38,7 @@ internal abstract class GameLoop
         Halts = new LoopHalts(Input);
         Input.Mouse.Feed.RoutesMouse = true;
         Input.Keys.Routes = true;
+        Input.Touches.Feed.Routes = true;
         var pointer = new UiPointer(Ui, Input, time.TicksPerSecond);
         _tick = new LoopTick(services, LoopedGame, time, pointer, Halts);
         _draw = new LoopDraw(services, LoopedGame, time, pointer, Halts);

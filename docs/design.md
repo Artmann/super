@@ -230,6 +230,20 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   until the button is let go. The left stick and d-pad go through `UiPadRepeat`, which moves
   at once, after 0.4 s and then every 0.1 s, counted in ticks so it replays exactly, and
   `GamepadInput.LeftStickTaken` centres the stick for the game while focus is on.
+- Fingers come in through `TouchFeed`, routed the same way: with `Routes` on, downs, moves, ups
+  and cancels wait in `Events`, and `UiPointer.Pump` hands each to `UiTouch`. A finger the
+  interface doesn't take is applied to the feed's own fingers, which `TouchInput` rolls into
+  the tick's `Touch` list, keeping a lifted finger for one more tick marked `Released`.
+  `UiTouch` takes the first finger that lands on a view and keeps its gesture: a `Press`
+  until it moves 10 units, then a `Panning` of the nearest scroll view along the way it
+  mostly moved, or a `Slide` on a slider from the start. A pan's speed is smoothed each tick
+  and set to nothing after a tick at rest, so a drag that stops doesn't fling; past 20 units a
+  second the lift starts a `Fling`, which keeps a tenth of its speed per second and stops at an
+  edge. A press counts ticks towards its long press, so it replays, and the long press turns the gesture `Spent` so the
+  lift doesn't tap. GLFW has no touch, so on Windows `WindowTouch` subclasses the window with
+  `SetWindowLongPtrW` and reads `WM_POINTERDOWN`, `UPDATE`, `UP` and `CAPTURECHANGED` for
+  pointers of the touch type, answering them so Windows doesn't turn them into mouse
+  messages. Pen and mouse pass on to GLFW.
 - A text field keeps a `UiTextEdit` (the text, caret and anchor, in UTF-16 indexes kept off the
   middle of a surrogate pair) in its `TextFieldMemory` state. `UiTextKeys` turns a key into a
   new edit, and `UiTextInput.Apply` queues one `OnChange` a tick with the text as it ends up.

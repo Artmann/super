@@ -15,6 +15,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     private readonly List<Action> _callbacks = [];
     private readonly UiHover _hover = new(tree, ticksPerSecond);
     private readonly UiGestures _gestures = new(tree, input);
+    private readonly UiTouch _touch = new(tree, ticksPerSecond);
     private UiFocus? _focus;
 
     private Vector2 _position;
@@ -30,6 +31,11 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     {
         Pump();
         Focus.Tick();
+        if (_touch.Tick() is { } longPress)
+        {
+            _callbacks.Add(longPress);
+        }
+
         _hover.Tick();
         input.Mouse.Feed.PendingMouseOverUi = _uiHeld != 0 || (_gameHeld == 0 && !input.Mouse.Locked && Hit() is not null);
     }
@@ -62,12 +68,19 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
         }
 
         input.Mouse.Feed.MouseEvents.Clear();
+        foreach (var touch in input.Touches.Feed.Events)
+        {
+            _touch.Route(touch, input.Touches.Feed, Focus, _hover, _callbacks);
+        }
+
+        input.Touches.Feed.Events.Clear();
     }
 
     /// <summary>Runs the callbacks owed, in the order they happened. Update comes right after.</summary>
     public void Deliver()
     {
         _gestures.TakeSlide()?.Invoke();
+        _touch.TakeSlide()?.Invoke();
         foreach (var callback in _callbacks)
         {
             callback();
@@ -83,9 +96,11 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     public bool Refresh()
     {
         _gestures.ForgetUnmounted();
+        _touch.ForgetUnmounted();
         var hit = (_gameHeld & Left) != 0 || input.Mouse.Locked ? null : Hit();
         bool leftHeld = (_uiHeld & Left) != 0;
-        var (look, pressed) = _gestures.LookAt(hit, leftHeld);
+        // A finger holding something shows it pressed, and otherwise the mouse says what looks hovered.
+        var (look, pressed) = _touch.Pressed is { } touched ? (touched, true) : _gestures.LookAt(hit, leftHeld);
         bool changed = _hover.ShowPress(look, pressed);
         changed |= _hover.RefreshBar(_gestures.HeldBar, hit, _position, leftHeld);
         _hover.FollowTip(hit);

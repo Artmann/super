@@ -95,6 +95,56 @@ public sealed class InputScript
         return Release(button).Wait(1);
     }
 
+    /// <summary>Puts a finger down here, in screen pixels, until <see cref="TouchUp"/>.</summary>
+    public InputScript TouchDown(Vector2 position, int finger = 0) => Then(input => input.Touches.Feed.Down(finger, position));
+
+    /// <summary>Puts a finger down on the middle of the view given this id with <see cref="UiExtensions.Id"/>, looked up when the step runs.</summary>
+    public InputScript TouchDown(object id, int finger = 0) => Then((input, ui) => input.Touches.Feed.Down(finger, ui.ScreenMiddle(id)));
+
+    /// <summary>Moves a finger that's down to here.</summary>
+    public InputScript TouchMove(Vector2 position, int finger = 0) => Then(input => input.Touches.Feed.Moved(finger, position));
+
+    public InputScript TouchUp(int finger = 0) => Then(input => input.Touches.Feed.Up(finger));
+
+    /// <summary>Taps the middle of the view given this id: a finger down, and up a tick later. It takes two ticks.</summary>
+    public InputScript Tap(object id) => TouchDown(id).Wait(1).TouchUp().Wait(1);
+
+    /// <summary>
+    /// Puts a finger down here, moves it there over <paramref name="ticks"/> ticks, and lifts it at once, so a
+    /// scroll view under it flings on. Fewer ticks is a faster swipe.
+    /// </summary>
+    public InputScript Swipe(Vector2 from, Vector2 to, int ticks = 4)
+    {
+        TouchDown(from).Wait(1);
+        for (int step = 1; step <= ticks; step++)
+        {
+            TouchMove(Vector2.Lerp(from, to, step / (float)ticks)).Wait(1);
+        }
+
+        return TouchUp().Wait(1);
+    }
+
+    /// <summary>
+    /// Swipes from the middle of the view given this id, <paramref name="by"/> pixels, over <paramref name="ticks"/>
+    /// ticks. The view is looked up when the finger comes down, and the finger keeps to that line.
+    /// </summary>
+    public InputScript Swipe(object id, Vector2 by, int ticks = 4)
+    {
+        var from = Vector2.Zero;
+        Then((input, ui) =>
+        {
+            from = ui.ScreenMiddle(id);
+            input.Touches.Feed.Down(0, from);
+        }).Wait(1);
+        for (int step = 1; step <= ticks; step++)
+        {
+            float share = step / (float)ticks;
+            Then(input => input.Touches.Feed.Moved(0, from + by * share)).Wait(1);
+        }
+
+        return TouchUp().Wait(1);
+    }
+
     /// <summary>Adds something to happen now, or this many ticks from now without moving on.</summary>
     internal InputScript Then(Action<Input> apply, long ticksFromNow = 0) => Then((input, _) => apply(input), ticksFromNow);
 

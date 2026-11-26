@@ -127,6 +127,10 @@ public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string
 | `Drag(from, to)` | Presses at one place, moves and lets go at the other |
 | `Drag(fromId, toId, button)` | The same between two views found by id, with any button (left if left out) |
 | `Scroll(notches)` | Turns the wheel |
+| `TouchDown(position, finger)`, `TouchDown(id, finger)` | Puts a finger down, in screen pixels or on the middle of a view. The finger is 0 if left out |
+| `TouchMove(position, finger)`, `TouchUp(finger)` | Moves a finger that's down, or lifts it |
+| `Tap(id)` | Taps the middle of a view: down, and up a tick later. It takes two ticks |
+| `Swipe(from, to, ticks)`, `Swipe(id, by, ticks)` | Drags a finger over a few ticks (4 if left out) and lifts it at once, so a list flings on |
 | `LeaveWindow()` | Moves the cursor out of the window |
 | `Wait(ticks)` | Waits before the next step |
 
