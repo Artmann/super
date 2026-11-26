@@ -32,6 +32,59 @@ internal static class FinishChecks
         }
     }
 
+    /// <summary>
+    /// The adaptation speeds at 0 or above, the centre weight from 0 to 1, and the limits numbers with the darkest
+    /// not past the brightest.
+    /// </summary>
+    public static void Metering(in PostSettings settings)
+    {
+        // Each message is built only when it is thrown, since this runs every frame.
+        if (!(float.IsFinite(settings.AdaptationSpeed) && settings.AdaptationSpeed >= 0f))
+        {
+            throw Refusal(string.Create(CultureInfo.InvariantCulture,
+                $"The adaptation speed must be above 0 stops a second, or 0 for the default of 2, but it is {settings.AdaptationSpeed}."));
+        }
+
+        var metering = settings.Metering;
+        if (!(float.IsFinite(metering.DarkSpeed) && metering.DarkSpeed >= 0f))
+        {
+            throw Refusal(string.Create(CultureInfo.InvariantCulture,
+                $"The speed into the dark must be above 0 stops a second, or 0 for the default of 1, but it is {metering.DarkSpeed}."));
+        }
+
+        if (metering.Centre is not (>= 0f and <= 1f))
+        {
+            throw Refusal(string.Create(CultureInfo.InvariantCulture,
+                $"The metering's centre weight must be from 0, every pixel the same, to 1, but it is {metering.Centre}."));
+        }
+
+        MeteringLimits(metering);
+    }
+
+    private static void MeteringLimits(in MeteringSettings metering)
+    {
+        if (metering.Darkest is { } darkest && !float.IsFinite(darkest))
+        {
+            throw Refusal(string.Create(CultureInfo.InvariantCulture,
+                $"The darkest scene to meter for must be a number of stops, or null for no limit, but it is {darkest}."));
+        }
+
+        if (metering.Brightest is { } brightest && !float.IsFinite(brightest))
+        {
+            throw Refusal(string.Create(CultureInfo.InvariantCulture,
+                $"The brightest scene to meter for must be a number of stops, or null for no limit, but it is {brightest}."));
+        }
+
+        if (metering.Darkest > metering.Brightest)
+        {
+            throw Refusal(string.Create(CultureInfo.InvariantCulture,
+                $"The darkest scene to meter for, {metering.Darkest}, can't be brighter than the brightest, {metering.Brightest}."));
+        }
+    }
+
+    /// <summary>A refusal of the settings passed to <see cref="ViewEffects.Finish"/>.</summary>
+    private static ArgumentOutOfRangeException Refusal(string message) => new("settings", message);
+
     /// <summary>Every amount from 0 to 1, the colours and the speed blur's centre numbers, and the paper's tile not below 0.</summary>
     public static void Screen(in ScreenEffects effects, string parameter)
     {

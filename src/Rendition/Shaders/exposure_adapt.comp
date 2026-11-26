@@ -1,18 +1,13 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
+#define EXPOSURE_METERING
 #include "exposure.glsl"
 
 // Reads the histogram, empties it for the next frame and moves the exposure towards the mean
-// brightness of the 40th to 95th percentile, by at most the step it is given. The sums are the
-// same as Exposure.Target and Exposure.Adapt.
+// brightness of the 40th to 95th percentile, held to the limits, by at most the rise or fall it is
+// given. The sums are the same as Exposure.Target, ExposureAim.Limit and Exposure.Adapt.
 
 layout(local_size_x = EXPOSURE_BINS) in;
-
-// Must match AdaptConstants in Vulkan/ExposureMeter.cs.
-layout(push_constant) uniform Adapt {
-    float maxStep; // The most it may move this frame, in stops: speed times the time since the last.
-    int snap;      // 1 to jump straight to the target, on the first metered frame.
-} adapt;
 
 shared float counts[EXPOSURE_BINS];
 
@@ -52,11 +47,11 @@ void main() {
         return;
     }
 
-    float target = sum / weight;
+    float target = clamp(sum / weight, metering.darkest, metering.brightest);
     float current = exposure.adaptedEv;
-    if (adapt.snap != 0 || isnan(current) || isinf(current)) {
+    if (metering.snap != 0 || isnan(current) || isinf(current)) {
         exposure.adaptedEv = target;
     } else {
-        exposure.adaptedEv = current + clamp(target - current, -adapt.maxStep, adapt.maxStep);
+        exposure.adaptedEv = current + clamp(target - current, -metering.fall, metering.rise);
     }
 }

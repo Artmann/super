@@ -143,16 +143,7 @@ public sealed class ViewEffects
     /// <summary>Sets the look of the finished picture.</summary>
     public void Finish(in PostSettings settings)
     {
-        float speed = settings.AdaptationSpeed;
-        if (!(float.IsFinite(speed) && speed >= 0f))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(settings),
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"The adaptation speed must be above 0 stops a second, or 0 for the default of 2, but it is {speed}."));
-        }
-
+        FinishChecks.Metering(settings);
         RefuseOutsideOne(settings.Temperature, "temperature");
         RefuseOutsideOne(settings.Tint, "tint");
         FinishChecks.Grade(settings);
