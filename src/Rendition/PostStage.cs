@@ -59,7 +59,7 @@ internal sealed class PostStage
     /// never drawn doesn't move the clock.
     /// </summary>
     public void StepExposure(in FrameView view, RenderEffects off) =>
-        _clock.Next(!off.HasFlag(RenderEffects.AutoExposure), view.Time, Exposure.Speed(view.Picture.Post.AdaptationSpeed));
+        _clock.Next(!off.HasFlag(RenderEffects.AutoExposure), view.Time, Exposure.Aim(view.Picture.Post));
 
     /// <summary>Blurs what is out of focus, adds bloom, paints, meters the exposure and tonemaps the picture into Ldr.</summary>
     public void Record(CommandBuffer cmd, DescriptorSet frameSet, GBuffer targets, (bool ReadsAntiAliased, RenderEffects Off) display)

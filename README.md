@@ -146,6 +146,7 @@ Start with [Getting started](docs/getting-started.md), then read what you need:
 - [The world](docs/ecs.md), [cameras and clicking](docs/cameras.md) and [rendering](docs/rendering.md)
 - [Interfaces](docs/interfaces.md), [input](docs/input.md) and [game states](docs/states.md)
 - [JSON content](docs/content.md) and [random numbers](docs/random.md)
+- [Square and hex grids](docs/grids.md), for building, tiles and tactics maps
 - [Testing](docs/testing.md), [the command line](docs/command-line.md), [debug drawing](docs/debugging.md) and [profiling](docs/profiling.md)
 - [Drawing by hand](docs/views.md), for what only one frame shows
 - [What's not here yet](docs/roadmap.md)

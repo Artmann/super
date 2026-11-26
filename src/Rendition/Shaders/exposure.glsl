@@ -22,3 +22,15 @@ layout(std430, set = EXPOSURE_SET, binding = 0) EXPOSURE_ACCESS buffer ExposureS
     float adaptedEv;          // The EV the picture is exposed for, carried from frame to frame.
     float pad;
 } exposure;
+
+#ifdef EXPOSURE_METERING
+// What both metering passes are told for a frame. Must match MeteringConstants in Vulkan/ExposureMeter.cs.
+layout(push_constant) uniform Metering {
+    float rise;      // The most the exposure may rise this frame, in stops: the speed into the light times the time since the last.
+    float fall;      // The most it may fall, at the speed into the dark.
+    float darkest;   // The target is held to darkest..brightest, which is the float range without limits.
+    float brightest;
+    float centre;    // How much more the middle counts, from 0 to 1.
+    int snap;        // 1 to jump straight to the target, on the first metered frame.
+} metering;
+#endif

@@ -82,7 +82,7 @@ the rest is not yet.
 | Ragdoll muscles | Before each simulation step, each simulated part's spin against its parent is moved part of the way (`RagdollMuscles.Grip × Strength`) to what would close the gap to the animation's relative turn at `RagdollMuscles.Rate × Strength`. The change is shared between the part and its parent about the joint by how hard each is to turn there | A velocity drive needs no motor settings per constraint and is stable at any strength; turning about the joint, not the middles, keeps the joint from pulling the turn back out |
 | Ragdoll pose | After the step physics moves the entity by how far the pelvis moved, then gives the animator each simulated joint's place in the skeleton's space at the last two steps through `AnimationPose.SetPhysical`. Evaluation puts them over the layers, turns and reaches, parents first (`HeldJoints` keeps them, and `SkeletonSpace` places joints and bends limbs in the skeleton's space), taking only turns but for the pelvis, and moves between the two by the view's blend. At `Off` the weights fade over `BlendSeconds`. If the clip then playing has its pelvis lying down (from `AnimationPose.Evaluate` with physics left off), the entity is turned about Y so the clip's flattened pelvis-up meets the body's, and moved so the clip's pelvis lands on the body's, on the ground a ray finds below it | The skeleton keeps one pose path for drawing, so masks, smoothing and the ECS need nothing new. Laying the get-up clip over the body leaves the blend only the limbs to bend, so the character doesn't slide or spin as they rise |
 | Animation | An `Animator` per character is gameplay state. The game sets it in `Update`, and `GameHost` moves every animator from a `content.Rig` rig on one tick right after, through `Content.Animators`, which holds them weakly. It writes its blend as clip layers into an `AnimationPose`, which the renderer samples at draw time, `PoseAhead` seconds past the tick. Joints the game sets itself through `pose.Joints` (`PoseJoints`), such as IK, are copied over the layers last and not moved ahead, since the game blends them in Draw | Games never step or hand over poses themselves, dropped characters stop being run without a call, clips stay smooth at any frame rate, gameplay can wait on moments in a clip, and a seed replays the same, since an animator nothing holds can't affect the game |
-| Root motion | `Rig.RootMotion` strips one joint's travel over the ground out of every clip at load and keeps it as a track per clip; the animator mixes it by layer weight into `RootMotion` each tick | The game owns where a character stands, so travel has to come back as state rather than live in the pose |
+| Root motion | `Rig.RootMotion` strips one joint's travel over the ground out of every clip at load and keeps it as a track per clip, and for the clips named as turning, the twist about up of the joint's model-space rotation from frame 0, unwrapped across frames. Travel is taken as the joint's spot minus its first spot turned by the turn so far, so a turn about the model's origin moves nothing. The animator mixes both by layer weight into `RootMotion` and `RootTurn` each tick, with travel in the facing at the tick's start; a turning loop's whole laps sum as a geometric series of turns | The game owns where a character stands and faces, so travel and turn have to come back as state rather than live in the pose. Turning is opt-in per clip so games that only add travel keep working |
 | Cutscenes | A `Cutscene` is a list of shots, moments and slow stretches built in code; the `Director` runs it on the tick clock, cueing before `Update` and placing the camera after it, and sets `GameTime.Scale` | Moments land on ticks, so a recorded film replays the same. Shots keep real time while the world slows. The camera sees where things are once they've moved |
 | Time scale | `GameTime.Scale` scales `DeltaSeconds`, never the tick rate | Input and the camera stay smooth in slow motion, and a frozen world still ticks |
 | Tweens | `TweenValue<T>` is a struct the game keeps and moves with `Update(time)`, blending by checking `typeof(T)` for the six supported types. Its `TweenTiming` turns elapsed seconds into an eased amount, and tweens, sequences and groups share one playhead struct. Curves are cubic Hermite with slopes worked out once when built | No allocation per tick, no scheduler to own them, and they follow the tick clock and `Scale`, so a seed replays the same. Checking the type compiles away for each struct, so no interface is needed on `Vector3` or `Color` |
@@ -4464,12 +4464,18 @@ copies `ViewLook.Paint` into `FrameView.Picture.Paint`.
 Auto exposure meters the frame on the GPU and never reads it back. Before the tonemap,
 `exposure_histogram.comp` reads the image the tonemap and bloom read (resolved, or HDR
 without anti-aliasing), so it sees the lit frame before bloom. It puts each pixel's
-luminance into one of 64 bins spanning -8 to +16 EV. Each 16 x 16 group counts into shared
+luminance into one of 64 bins spanning -8 to +16 EV. A pixel adds a whole-number weight
+rather than 1, so the bins stay exact integers: `1 + round(centre * 15 * (1 - 2|uv - 0.5|^2))`,
+which is 1 at the corners and anywhere at a centre weight of 0, and up to 16 in the middle.
+At 4K that is at most 133 million a bin, well inside a `uint`. Each 16 x 16 group counts into shared
 memory first, then adds its bins to a storage buffer. Black, negative and NaN pixels go to
 the first bin and anything past the top, such as a sun disc of 30000, to the last, so
 nothing overflows or falls outside. `exposure_adapt.comp` then runs as one group of 64.
 It reads and empties the bins, takes the mean bin centre of the 40th to 95th percentile,
-and moves the stored EV towards it by at most a step it is pushed. The tonemap reads the EV
+clamps it to `MeteringSettings.Darkest` and `Brightest`, and moves the stored EV towards it by
+at most the rise or fall it is pushed. Both passes share one pipeline layout and one push constant
+block (`Metering` in `exposure.glsl`, `MeteringConstants` in `ExposureMeter`), pushed once before
+the histogram, since push constants stay bound across a pipeline change with the same layout. The tonemap reads the EV
 from the same buffer as a third descriptor set (`ExposureMeter.Set`) and multiplies by
 `0.18 * 2^-EV`, which puts the metered brightness at middle grey, on top of
 `PostSettings.Exposure`, which then works as compensation. The buffer is
@@ -4477,11 +4483,15 @@ from the same buffer as a third descriptor set (`ExposureMeter.Set`) and multipl
 `Passes/Exposure.cs` does the same sums on the CPU for the tests. The time the two passes
 take counts towards the tonemap's in `GpuTimer`.
 
-The CPU only keeps time (`ExposureClock`). The step is `AdaptationSpeed` times the change in
-`FrameView.Time` since the last metered frame. `Exposure.Speed` turns a speed of 0, and any
-speed that isn't finite and above 0, into the default of 2, because a negative step would
-flip the shader's clamp. `view.Effects.Finish` refuses those instead, so only Rendition used alone
-relies on the fallback. The first metered frame snaps to the target,
+The CPU only keeps time (`ExposureClock`). `Exposure.Aim` turns the settings into an
+`ExposureAim`, and each frame's `ExposureStep` carries it with the change in `FrameView.Time`
+since the last metered frame: the rise is `AdaptationSpeed` times that and the fall
+`Metering.DarkSpeed` times it. `Exposure.Speed` turns a speed of 0, and any speed that isn't
+finite and above 0, into the default (2 into the light, 1 into the dark), because a negative step
+would flip the shader's clamp. `Aim` also holds the centre weight to 0 to 1 and drops a limit
+that isn't a number or a darkest past the brightest, which would make GLSL's `clamp` undefined;
+missing limits are `±float.MaxValue`. `view.Effects.Finish` refuses all of those instead, in
+`FinishChecks.Metering`, so only Rendition used alone relies on the fallbacks. The first metered frame snaps to the target,
 as does the first after metering was off and the first after time went backwards, such as
 a restart. Super's screenshots and recordings step `Time` by a fixed tick and settle at a
 fixed moment, where the step is 0, so the same seed and ticks give the same bytes. The
@@ -6101,7 +6111,7 @@ change does too.
   little along with the light. Transmission uses the shadow map like foliage does, not
   the real thickness, and under water the light isn't spread.
 - Clips are sampled at 30 frames a second when cooked and blended linearly between
-  frames. Root motion only carries travel over the ground, not turns.
+  frames. Root motion turns only the clips named as turning, and only about the up axis.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
   game character would need a reduced version and levels of detail.
 - A caster can stretch a shadow cascade's reach towards the sun to at most six of its

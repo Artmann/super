@@ -10,6 +10,9 @@ public class ExposureTests
 {
     private const float Tolerance = 1e-5f;
 
+    /// <summary>A meter that moves at one speed both ways, counts every pixel the same and has no limits.</summary>
+    private static ExposureAim Steady(float speed) => new(speed, speed, 0f, -float.MaxValue, float.MaxValue);
+
     [Fact]
     public void A_frame_all_in_one_bin_targets_that_bin()
     {
@@ -73,34 +76,34 @@ public class ExposureTests
     [InlineData(-3f, -1f)]
     public void Adaptation_moves_at_most_speed_times_dt_stops(float target, float expected)
     {
-        Assert.Equal(expected, Exposure.Adapt(0f, target, 2f, 0.5f), Tolerance);
+        Assert.Equal(expected, Exposure.Adapt(0f, target, 2f, 2f, 0.5f), Tolerance);
     }
 
     [Fact]
     public void Adaptation_stops_at_a_near_target_instead_of_overshooting()
     {
-        Assert.Equal(0.5f, Exposure.Adapt(0f, 0.5f, 2f, 0.5f));
+        Assert.Equal(0.5f, Exposure.Adapt(0f, 0.5f, 2f, 2f, 0.5f));
     }
 
     [Fact]
     public void Adaptation_snaps_when_told()
     {
-        Assert.Equal(3f, Exposure.Adapt(float.NaN, 3f, 2f, 1f / 60f));
+        Assert.Equal(3f, Exposure.Adapt(float.NaN, 3f, 2f, 2f, 1f / 60f));
     }
 
     [Fact]
     public void Adaptation_holds_still_without_a_target()
     {
-        Assert.Equal(1.5f, Exposure.Adapt(1.5f, float.NaN, 2f, 0.5f));
+        Assert.Equal(1.5f, Exposure.Adapt(1.5f, float.NaN, 2f, 2f, 0.5f));
     }
 
     [Fact]
     public void Sixty_steps_of_a_sixtieth_at_2_stops_a_second_move_2_stops()
     {
-        float exposure = Exposure.Adapt(float.NaN, 0f, 2f, 1f / 60f);
+        float exposure = Exposure.Adapt(float.NaN, 0f, 2f, 2f, 1f / 60f);
         for (int i = 0; i < 60; i++)
         {
-            exposure = Exposure.Adapt(exposure, 3f, 2f, 1f / 60f);
+            exposure = Exposure.Adapt(exposure, 3f, 2f, 2f, 1f / 60f);
         }
 
         // A second at 2 stops a second moves 2 stops of the 3.
@@ -118,9 +121,9 @@ public class ExposureTests
         CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
         try
         {
-            var error = Assert.Throws<ArgumentOutOfRangeException>(() => Exposure.Adapt(0f, 3f, speed, 0.5f));
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => Exposure.Adapt(0f, 3f, speed, speed, 0.5f));
 
-            Assert.StartsWith($"The adaptation speed must be above 0 stops a second, but it is {shown}.", error.Message);
+            Assert.StartsWith($"The adaptation speeds must be above 0 stops a second, but they are {shown} towards the light and {shown} towards the dark.", error.Message);
         }
         finally
         {
@@ -132,7 +135,7 @@ public class ExposureTests
     public void An_adaptation_speed_left_at_zero_adapts_at_two_stops_a_second()
     {
         // Half a second at 2 stops a second.
-        Assert.Equal(1f, Exposure.Adapt(0f, 3f, Exposure.Speed(0f), 0.5f), Tolerance);
+        Assert.Equal(1f, Exposure.Adapt(0f, 3f, Exposure.Speed(0f), 1f, 0.5f), Tolerance);
         Assert.Equal(5f, Exposure.Speed(5f));
     }
 
@@ -146,12 +149,12 @@ public class ExposureTests
         // Rendition used without Super's View has nothing refusing these. Each frame's step must stay
         // a finite number of stops 0 or more: half a second at 2 stops a second is 1.
         var clock = new ExposureClock();
-        clock.Next(metered: true, time: 1f, speed: Exposure.Speed(requested));
+        clock.Next(metered: true, time: 1f, aim: Steady(Exposure.Speed(requested)));
 
-        var step = clock.Next(metered: true, time: 1.5f, speed: Exposure.Speed(requested));
+        var step = clock.Next(metered: true, time: 1.5f, aim: Steady(Exposure.Speed(requested)));
 
-        Assert.Equal(1f, step!.Value.MaxStep, Tolerance);
-        Assert.Equal(1f, Exposure.Adapt(0f, 3f, Exposure.Speed(requested), 0.5f), Tolerance);
+        Assert.Equal(1f, step!.Value.Rise, Tolerance);
+        Assert.Equal(1f, Exposure.Adapt(0f, 3f, Exposure.Speed(requested), 1f, 0.5f), Tolerance);
     }
 
     [Theory]
@@ -176,22 +179,22 @@ public class ExposureTests
     {
         var clock = new ExposureClock();
 
-        var step = clock.Next(metered: true, time: 12f, speed: 2f);
+        var step = clock.Next(metered: true, time: 12f, aim: Steady(2f));
 
         Assert.True(step!.Value.Snap);
-        Assert.Equal(0f, step.Value.MaxStep);
+        Assert.Equal(0f, step.Value.Rise);
     }
 
     [Fact]
     public void Later_frames_move_speed_times_the_time_since_the_last()
     {
         var clock = new ExposureClock();
-        clock.Next(metered: true, time: 1f, speed: 2f);
+        clock.Next(metered: true, time: 1f, aim: Steady(2f));
 
-        var step = clock.Next(metered: true, time: 1.25f, speed: 2f);
+        var step = clock.Next(metered: true, time: 1.25f, aim: Steady(2f));
 
         Assert.False(step!.Value.Snap);
-        Assert.Equal(0.5f, step.Value.MaxStep, Tolerance);
+        Assert.Equal(0.5f, step.Value.Rise, Tolerance);
     }
 
     [Fact]
@@ -199,22 +202,22 @@ public class ExposureTests
     {
         // A screenshot settles by drawing the last tick's moment again and again.
         var clock = new ExposureClock();
-        clock.Next(metered: true, time: 1f, speed: 2f);
+        clock.Next(metered: true, time: 1f, aim: Steady(2f));
 
-        var step = clock.Next(metered: true, time: 1f, speed: 2f);
+        var step = clock.Next(metered: true, time: 1f, aim: Steady(2f));
 
         Assert.False(step!.Value.Snap);
-        Assert.Equal(0f, step.Value.MaxStep);
+        Assert.Equal(0f, step.Value.Rise);
     }
 
     [Fact]
     public void Turning_metering_back_on_snaps_again()
     {
         var clock = new ExposureClock();
-        clock.Next(metered: true, time: 1f, speed: 2f);
+        clock.Next(metered: true, time: 1f, aim: Steady(2f));
 
-        Assert.Null(clock.Next(metered: false, time: 2f, speed: 2f));
-        var step = clock.Next(metered: true, time: 3f, speed: 2f);
+        Assert.Null(clock.Next(metered: false, time: 2f, aim: Steady(2f)));
+        var step = clock.Next(metered: true, time: 3f, aim: Steady(2f));
 
         Assert.True(step!.Value.Snap);
     }
@@ -223,9 +226,9 @@ public class ExposureTests
     public void Time_going_backwards_snaps_as_a_restart_does()
     {
         var clock = new ExposureClock();
-        clock.Next(metered: true, time: 30f, speed: 2f);
+        clock.Next(metered: true, time: 30f, aim: Steady(2f));
 
-        var step = clock.Next(metered: true, time: 0f, speed: 2f);
+        var step = clock.Next(metered: true, time: 0f, aim: Steady(2f));
 
         Assert.True(step!.Value.Snap);
     }
@@ -263,5 +266,208 @@ public class ExposureTests
 
         Assert.True(view.Effects.Post.AutoExposure);
         Assert.Equal(0f, view.Effects.Post.AdaptationSpeed);
+    }
+
+    [Theory]
+    [InlineData(3f, 2f)]    // a second towards the light at 2 stops a second
+    [InlineData(-3f, -0.5f)] // a second towards the dark at half a stop a second
+    public void The_dark_is_followed_at_its_own_speed(float target, float expected)
+    {
+        Assert.Equal(expected, Exposure.Adapt(0f, target, 2f, 0.5f, 1f), Tolerance);
+    }
+
+    [Fact]
+    public void A_speed_into_the_dark_must_be_above_zero_too()
+    {
+        var original = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
+        try
+        {
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => Exposure.Adapt(0f, -3f, 2f, -0.5f, 0.5f));
+
+            Assert.StartsWith("The adaptation speeds must be above 0 stops a second, but they are 2 towards the light and -0.5 towards the dark.", error.Message);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public void Left_at_zero_the_meter_follows_the_light_at_2_and_the_dark_at_1()
+    {
+        var aim = Exposure.Aim(new PostSettings { AutoExposure = true });
+
+        Assert.Equal(2f, aim.Brighter);
+        Assert.Equal(1f, aim.Darker);
+        Assert.Equal(0f, aim.Centre);
+        Assert.Equal(-1e6f, aim.Limit(-1e6f));
+        Assert.Equal(1e6f, aim.Limit(1e6f));
+    }
+
+    [Fact]
+    public void A_faster_speed_into_the_light_leaves_the_dark_at_its_own()
+    {
+        var aim = Exposure.Aim(new PostSettings { AdaptationSpeed = 4f, Metering = new MeteringSettings { DarkSpeed = 0.25f } });
+
+        Assert.Equal(4f, aim.Brighter);
+        Assert.Equal(0.25f, aim.Darker);
+    }
+
+    [Fact]
+    public void Each_frame_may_rise_and_fall_by_its_own_speed_times_the_time_since_the_last()
+    {
+        var clock = new ExposureClock();
+        var aim = new ExposureAim(2f, 0.5f, 0f, -float.MaxValue, float.MaxValue);
+        clock.Next(metered: true, time: 1f, aim);
+
+        var step = clock.Next(metered: true, time: 1.25f, aim)!.Value;
+
+        Assert.Equal(0.5f, step.Rise, Tolerance);
+        Assert.Equal(0.125f, step.Fall, Tolerance);
+    }
+
+    [Theory]
+    [InlineData(-5f, -3f)]
+    [InlineData(4f, 2f)]
+    [InlineData(0.5f, 0.5f)]
+    public void The_target_is_held_to_the_darkest_and_brightest_scenes_asked_for(float target, float expected)
+    {
+        var aim = Exposure.Aim(new PostSettings { Metering = new MeteringSettings { Darkest = -3f, Brightest = 2f } });
+
+        Assert.Equal(expected, aim.Limit(target));
+    }
+
+    [Fact]
+    public void A_target_that_is_not_a_number_stays_one_so_the_exposure_holds()
+    {
+        var aim = Exposure.Aim(new PostSettings { Metering = new MeteringSettings { Darkest = -3f, Brightest = 2f } });
+
+        Assert.True(float.IsNaN(aim.Limit(float.NaN)));
+    }
+
+    [Theory]
+    [InlineData(3f, 1f, 1f)]                    // a darkest past the brightest: neither limit
+    [InlineData(float.NaN, float.PositiveInfinity, 1f)]
+    [InlineData(-2f, float.NaN, float.NaN)]     // centre weight not a number: none
+    public void Metering_no_view_would_accept_is_made_safe_for_the_shaders(float darkest, float brightest, float centre)
+    {
+        // Rendition used without Super's View has nothing refusing these, so a limit that can't hold is left out
+        // and the centre weight is held to 0 to 1.
+        var aim = Exposure.Aim(new PostSettings { Metering = new MeteringSettings { Darkest = darkest, Brightest = brightest, Centre = centre } });
+
+        Assert.Equal(float.IsNaN(darkest) || darkest > brightest ? -1e6f : -2f, aim.Limit(-1e6f));
+        Assert.Equal(1e6f, aim.Limit(1e6f));
+        Assert.Equal(float.IsNaN(centre) ? 0f : 1f, aim.Centre);
+    }
+
+    [Fact]
+    public void A_centre_weight_above_one_counts_as_one()
+    {
+        var aim = Exposure.Aim(new PostSettings { Metering = new MeteringSettings { Centre = 3f } });
+
+        Assert.Equal(1f, aim.Centre);
+    }
+
+    [Theory]
+    [InlineData(0.5f, 0.5f, 0f, 1u)]    // no centre weight: every pixel once
+    [InlineData(0.5f, 0.5f, 1f, 16u)]   // the very middle, all of it: 1 + 15
+    [InlineData(0.5f, 0.5f, 0.5f, 9u)]  // half: 1 + 7.5, rounded up
+    [InlineData(0f, 0f, 1f, 1u)]        // a corner counts once however centred
+    [InlineData(1f, 0f, 1f, 1u)]
+    [InlineData(0.75f, 0.5f, 1f, 14u)]  // a quarter right: 1 - 2 * 0.0625 = 0.875, 15 * 0.875 = 13.1
+    [InlineData(0.5f, 0f, 1f, 9u)]      // the top edge's middle: 1 - 2 * 0.25 = 0.5, 15 * 0.5 = 7.5
+    public void The_middle_counts_more_the_more_the_metering_centres(float u, float v, float centre, uint expected)
+    {
+        Assert.Equal(expected, Exposure.Weight(new Vector2(u, v), centre));
+    }
+
+    [Fact]
+    public void A_bright_middle_lifts_the_target_once_the_metering_centres()
+    {
+        // A 4 by 4 frame, the middle 2 by 2 bright in bin 40 and the rest dark in bin 10. Bin 10's centre is
+        // -8 + 10.5 * 0.375 = -4.0625 EV and bin 40's -8 + 40.5 * 0.375 = 7.1875.
+        // Unweighted: 12 dark and 4 bright, the band from 6.4 to 15.2 keeps 5.6 dark and 3.2 bright,
+        // (5.6 * -4.0625 + 3.2 * 7.1875) / 8.8 = 0.0284.
+        // Fully centred the middle counts 15, the edges' middles 11 and the corners 8: 120 dark and 60 bright,
+        // the band from 72 to 171 keeps 48 dark and 51 bright, (48 * -4.0625 + 51 * 7.1875) / 99 = 1.7330.
+        Assert.Equal(0.25f / 8.8f, Meter(centre: 0f), 1e-4f);
+        Assert.Equal(171.5625f / 99f, Meter(centre: 1f), 1e-4f);
+
+        static float Meter(float centre)
+        {
+            var bins = new uint[Exposure.Bins];
+            for (int y = 0; y < 4; y++)
+            {
+                for (int x = 0; x < 4; x++)
+                {
+                    bool middle = x is 1 or 2 && y is 1 or 2;
+                    bins[middle ? 40 : 10] += Exposure.Weight(new Vector2((x + 0.5f) / 4f, (y + 0.5f) / 4f), centre);
+                }
+            }
+
+            return Exposure.Target(bins, Exposure.MinEv, Exposure.MaxEv);
+        }
+    }
+
+    [Theory]
+    [InlineData(-1f, 0f, null, null, "The speed into the dark must be above 0 stops a second, or 0 for the default of 1, but it is -1.")]
+    [InlineData(0f, 1.5f, null, null, "The metering's centre weight must be from 0, every pixel the same, to 1, but it is 1.5.")]
+    [InlineData(0f, 0f, float.NaN, null, "The darkest scene to meter for must be a number of stops, or null for no limit, but it is NaN.")]
+    [InlineData(0f, 0f, null, float.PositiveInfinity, "The brightest scene to meter for must be a number of stops, or null for no limit, but it is Infinity.")]
+    [InlineData(0f, 0f, 2.5f, -1f, "The darkest scene to meter for, 2.5, can't be brighter than the brightest, -1.")]
+    public void A_view_refuses_metering_it_cannot_follow(float darkSpeed, float centre, float? darkest, float? brightest, string expected)
+    {
+        var original = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
+        try
+        {
+            var view = new View();
+            var metering = new MeteringSettings { DarkSpeed = darkSpeed, Centre = centre, Darkest = darkest, Brightest = brightest };
+
+            var error = Assert.Throws<ArgumentOutOfRangeException>(
+                () => view.Effects.Finish(new PostSettings { AutoExposure = true, Metering = metering }));
+
+            Assert.StartsWith(expected, error.Message);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public void A_view_keeps_metering_it_can_follow()
+    {
+        var view = new View();
+        var metering = new MeteringSettings { DarkSpeed = 0.5f, Centre = 1f, Darkest = -3f, Brightest = -3f };
+
+        view.Effects.Finish(new PostSettings { AutoExposure = true, Metering = metering });
+
+        Assert.Equal(metering, view.Effects.Post.Metering);
+    }
+
+    [Fact]
+    public void Easing_metering_mixes_speeds_and_centre_and_limits_both_ends_have()
+    {
+        var from = new MeteringSettings { Darkest = -4f };
+        var to = new MeteringSettings { DarkSpeed = 3f, Darkest = -2f, Brightest = 1f, Centre = 1f };
+
+        var quarter = MeteringSettings.Lerp(from, to, 0.25f);
+
+        Assert.Equal(1.5f, quarter.DarkSpeed, Tolerance); // from the default of 1 towards 3
+        Assert.Equal(0.25f, quarter.Centre, Tolerance);
+        Assert.Equal(-3.5f, quarter.Darkest!.Value, Tolerance);
+        Assert.Null(quarter.Brightest);                    // only one end has it, so it waits for halfway
+        Assert.Equal(1f, MeteringSettings.Lerp(from, to, 0.5f).Brightest);
+    }
+
+    [Fact]
+    public void Easing_a_whole_finish_eases_its_metering()
+    {
+        var from = new PostSettings { Metering = new MeteringSettings { Centre = 0.2f } };
+        var to = new PostSettings { Metering = new MeteringSettings { Centre = 0.6f } };
+
+        Assert.Equal(0.4f, PostSettings.Lerp(from, to, 0.5f).Metering.Centre, Tolerance);
     }
 }

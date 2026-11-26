@@ -5,8 +5,8 @@ namespace Rendition.Passes;
 
 /// <summary>
 /// Auto exposure's sums, done the way exposure_histogram.comp and exposure_adapt.comp do them so they
-/// can be tested here: which bin a pixel falls in, the brightness the camera aims for from the bins,
-/// and how far the exposure moves towards it in a frame.
+/// can be tested here: which bin a pixel falls in and how much it counts, the brightness the camera aims
+/// for from the bins, and how far the exposure moves towards it in a frame.
 /// </summary>
 internal static class Exposure
 {
@@ -22,6 +22,10 @@ internal static class Exposure
     public const float HighCut = 0.95f;
     /// <summary>The adaptation speed used when <see cref="PostSettings.AdaptationSpeed"/> is left at 0.</summary>
     public const float DefaultSpeed = 2f;
+    /// <summary>The speed into the dark used when <see cref="MeteringSettings.DarkSpeed"/> is left at 0.</summary>
+    public const float DefaultDarkSpeed = 1f;
+    /// <summary>How many times a corner the very middle counts at a <see cref="MeteringSettings.Centre"/> of 1, less one.</summary>
+    public const float CentreBoost = 15f;
 
     /// <summary>
     /// The bin of a pixel: its luminance's EV across <see cref="MinEv"/> to <see cref="MaxEv"/>. Anything
@@ -38,6 +42,18 @@ internal static class Exposure
 
         float position = (MathF.Log2(luminance) - MinEv) * (Bins / (MaxEv - MinEv));
         return (uint)Math.Clamp(position, 0f, Bins - 1f);
+    }
+
+    /// <summary>
+    /// How many times a pixel at <paramref name="uv"/> counts, a whole number so the GPU can add it up exactly:
+    /// 1 at the corners and anywhere at a <paramref name="centre"/> of 0, rising towards the middle as one less
+    /// the squared distance from it, with a corner at 1, to 1 + 15 times the centre weight.
+    /// </summary>
+    public static uint Weight(Vector2 uv, float centre)
+    {
+        var fromMiddle = uv - new Vector2(0.5f);
+        float near = MathF.Max(0f, 1f - (Vector2.Dot(fromMiddle, fromMiddle) * 2f));
+        return 1u + (uint)MathF.Round(centre * CentreBoost * near, MidpointRounding.AwayFromZero);
     }
 
     /// <summary>
@@ -79,19 +95,20 @@ internal static class Exposure
 
     /// <summary>
     /// The exposure after <paramref name="dt"/> seconds: <paramref name="current"/> moved towards
-    /// <paramref name="target"/> by at most <paramref name="speedStopsPerSecond"/> times dt, without
-    /// passing it. A current that is not a number snaps straight to the target, which is how the first
-    /// frame starts metered instead of from black; a target that is not a number holds still.
+    /// <paramref name="target"/> without passing it, by at most <paramref name="brighter"/> stops a second when
+    /// the target is brighter and <paramref name="darker"/> when it is darker. A current that is not a number
+    /// snaps straight to the target, which is how the first frame starts metered instead of from black; a
+    /// target that is not a number holds still.
     /// </summary>
-    public static float Adapt(float current, float target, float speedStopsPerSecond, float dt)
+    public static float Adapt(float current, float target, float brighter, float darker, float dt)
     {
-        if (!(float.IsFinite(speedStopsPerSecond) && speedStopsPerSecond > 0f))
+        if (!(float.IsFinite(brighter) && brighter > 0f && float.IsFinite(darker) && darker > 0f))
         {
             throw new ArgumentOutOfRangeException(
-                nameof(speedStopsPerSecond),
+                nameof(brighter),
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"The adaptation speed must be above 0 stops a second, but it is {speedStopsPerSecond}."));
+                    $"The adaptation speeds must be above 0 stops a second, but they are {brighter} towards the light and {darker} towards the dark."));
         }
 
         if (float.IsNaN(target))
@@ -104,18 +121,36 @@ internal static class Exposure
             return target;
         }
 
-        float step = speedStopsPerSecond * dt;
-        return current + Math.Clamp(target - current, -step, step);
+        return current + Math.Clamp(target - current, -darker * dt, brighter * dt);
     }
 
     /// <summary>
-    /// The adaptation speed for a <see cref="PostSettings.AdaptationSpeed"/>: 0 means the default, and so
-    /// does anything that isn't a finite speed above 0. Super's View refuses those, but Rendition can be
-    /// used alone, and a negative speed would reach exposure_adapt.comp as a negative step, which flips
-    /// its clamp and throws the exposure the wrong way. What comes out is always one <see cref="Adapt"/> takes.
+    /// The adaptation speed for a requested one: 0 means <paramref name="otherwise"/>, and so does anything that
+    /// isn't a finite speed above 0. Super's View refuses those, but Rendition can be used alone, and a negative
+    /// speed would reach exposure_adapt.comp as a negative step, which flips its clamp and throws the exposure the
+    /// wrong way. What comes out is always one <see cref="Adapt"/> takes.
     /// </summary>
-    public static float Speed(float requested) =>
-        float.IsFinite(requested) && requested > 0f ? requested : DefaultSpeed;
+    public static float Speed(float requested, float otherwise = DefaultSpeed) =>
+        float.IsFinite(requested) && requested > 0f ? requested : otherwise;
+
+    /// <summary>
+    /// How the meter is set for a frame from its settings. Rendition can be used alone, so a centre weight
+    /// outside 0 to 1 is held to it, and a limit that is not a number, or a darkest past the brightest, is left out.
+    /// </summary>
+    public static ExposureAim Aim(in PostSettings post)
+    {
+        var metering = post.Metering;
+        float darkest = metering.Darkest is { } low && float.IsFinite(low) ? low : -float.MaxValue;
+        float brightest = metering.Brightest is { } high && float.IsFinite(high) ? high : float.MaxValue;
+        if (darkest > brightest)
+        {
+            (darkest, brightest) = (-float.MaxValue, float.MaxValue);
+        }
+
+        float centre = float.IsNaN(metering.Centre) ? 0f : Math.Clamp(metering.Centre, 0f, 1f);
+        return new ExposureAim(
+            Speed(post.AdaptationSpeed), Speed(metering.DarkSpeed, DefaultDarkSpeed), centre, darkest, brightest);
+    }
 
     /// <summary>
     /// The switches the shaders see: <paramref name="off"/>, plus <see cref="RenderEffects.AutoExposure"/>
@@ -126,8 +161,26 @@ internal static class Exposure
         post.AutoExposure ? off : off | RenderEffects.AutoExposure;
 }
 
-/// <summary>What exposure_adapt.comp is told for a frame: how far it may move, or to snap.</summary>
-internal readonly record struct ExposureStep(float MaxStep, bool Snap);
+/// <summary>
+/// How the meter is set: its speeds towards the light and the dark in stops a second, how much the middle counts,
+/// and the darkest and brightest targets it follows, which are the float range when there is no limit.
+/// </summary>
+internal readonly record struct ExposureAim(float Brighter, float Darker, float Centre, float Darkest, float Brightest)
+{
+    /// <summary>A target held within the limits. One that is not a number stays so, and holds the exposure still.</summary>
+    public float Limit(float target) => float.IsNaN(target) ? target : Math.Clamp(target, Darkest, Brightest);
+}
+
+/// <summary>
+/// What the meter is told for a frame: how it is set, and the seconds since the last metered frame, or to snap.
+/// The exposure may rise by <see cref="Rise"/> stops and fall by <see cref="Fall"/>.
+/// </summary>
+internal readonly record struct ExposureStep(ExposureAim Aim, float Seconds, bool Snap)
+{
+    public float Rise => Aim.Brighter * Seconds;
+
+    public float Fall => Aim.Darker * Seconds;
+}
 
 /// <summary>
 /// Keeps time for auto exposure on the CPU, so the GPU never has to be read back. The first metered
@@ -144,7 +197,7 @@ internal sealed class ExposureClock
     public ExposureStep? Step { get; private set; }
 
     /// <summary>The step for this frame, or null when the frame isn't metered. It is kept as <see cref="Step"/> too.</summary>
-    public ExposureStep? Next(bool metered, float time, float speed)
+    public ExposureStep? Next(bool metered, float time, in ExposureAim aim)
     {
         if (!metered)
         {
@@ -157,7 +210,7 @@ internal sealed class ExposureClock
         float dt = snap ? 0f : time - _lastTime;
         _running = true;
         _lastTime = time;
-        Step = new ExposureStep(speed * dt, snap);
+        Step = new ExposureStep(aim, dt, snap);
         return Step;
     }
 }
