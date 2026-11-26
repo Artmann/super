@@ -102,11 +102,43 @@ internal static class AudioChecks
 
     public static void CheckChannel(Channel channel, string name)
     {
-        if ((uint)channel > (uint)Channel.Interface)
+        if (!IsChannel(channel))
         {
             throw new ArgumentOutOfRangeException(name, channel, $"{name} must be one of the Channel values.");
         }
     }
+
+    public static void CheckSeconds(float seconds, string name)
+    {
+        if (!(seconds >= 0) || !float.IsFinite(seconds))
+        {
+            throw new ArgumentOutOfRangeException(name, seconds, $"{name} must be a number of at least zero.");
+        }
+    }
+
+    /// <summary>Checks a channel a duck names: any channel but Master, which carries the rest.</summary>
+    public static void CheckDuckChannel(Channel channel, string name)
+    {
+        CheckChannel(channel, name);
+        if (channel == Channel.Master)
+        {
+            throw new ArgumentOutOfRangeException(name, channel, $"{name} can't be Master, which carries every other channel. Duck the channels under it instead.");
+        }
+    }
+
+    public static void CheckDuck(float decibels, float attack, float release)
+    {
+        if (!(decibels <= 0) || !float.IsFinite(decibels))
+        {
+            throw new ArgumentOutOfRangeException(nameof(decibels), decibels, "decibels must be a number of 0 or below: a duck only turns a channel down.");
+        }
+
+        CheckSeconds(attack, nameof(attack));
+        CheckSeconds(release, nameof(release));
+    }
+
+    /// <summary>Whether the value is one of the <see cref="Channel"/> values.</summary>
+    public static bool IsChannel(Channel channel) => (uint)channel <= (uint)Channel.Dialogue;
 
     public static void CheckPlace(Vector3? at, float near, float far)
     {

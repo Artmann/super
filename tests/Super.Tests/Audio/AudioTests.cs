@@ -550,4 +550,115 @@ public class AudioTests
         audio.Advance(0.2f);
         Assert.Empty(audio.Playing);
     }
+
+    /// <summary>A manual-mode audio with a music loop at full volume, past its fade-in.</summary>
+    private static (AudioService Audio, Content Content) WithMusic()
+    {
+        var content = new Content(Files());
+        var audio = new AudioService(content, seed: 1);
+        audio.Loops.Start(new SoundLoop { Clip = content.Sounds.Sound("a.wav"), Channel = Channel.Music });
+        audio.Advance(0.2f);
+        return (audio, content);
+    }
+
+    [Fact]
+    public void MusicDipsTenDecibelsUnderDialogue()
+    {
+        (AudioService audio, Content content) = WithMusic();
+
+        audio.Play(content.Sounds.Sound("bang.wav"), channel: Channel.Dialogue);
+        audio.Advance(0.1f);
+
+        Assert.Equal(0.31623f, Find(audio, "a.wav").Gain, 1e-4f);
+    }
+
+    [Fact]
+    public void DuckSetsARuleBetweenChannels()
+    {
+        (AudioService audio, Content content) = WithMusic();
+        audio.Duck(Channel.Music, by: Channel.Interface, decibels: -6, attack: 0.1f, release: 0.1f);
+
+        audio.Play(content.Sounds.Sound("click.wav"));
+        audio.Advance(0.1f);
+        Assert.Equal(0.50119f, Find(audio, "a.wav").Gain, 1e-4f);
+
+        // The click ends at 0.2 s, and the music is back a release later.
+        audio.Advance(0.3f);
+        Assert.Equal(1f, Find(audio, "a.wav").Gain, 1e-5f);
+    }
+
+    [Fact]
+    public void DuckForDipsAChannelForAMoment()
+    {
+        (AudioService audio, Content _) = WithMusic();
+
+        audio.DuckFor(Channel.Music, -6, seconds: 0.3f);
+        audio.Advance(0.2f);
+        Assert.Equal(0.50119f, Find(audio, "a.wav").Gain, 1e-4f);
+
+        // Held to 0.3 s, then back over the 0.8 s release.
+        audio.Advance(1.2f);
+        Assert.Equal(1f, Find(audio, "a.wav").Gain, 1e-5f);
+    }
+
+    private static PlayingSound Find(AudioService audio, string clip)
+    {
+        return Assert.Single(audio.Playing, sound => sound.Clip == clip);
+    }
+
+    [Theory]
+    [InlineData(Channel.Master, Channel.Dialogue, "target", "target can't be Master")]
+    [InlineData(Channel.Music, Channel.Master, "by", "by can't be Master")]
+    [InlineData(Channel.Music, Channel.Music, "by", "can't duck under itself, but both target and by are Music")]
+    [InlineData((Channel)99, Channel.Dialogue, "target", "target must be one of the Channel values")]
+    public void DuckRefusesChannelsItCannotDuck(Channel target, Channel by, string param, string message)
+    {
+        var audio = new AudioService(new Content(Files()), seed: 1);
+
+        ArgumentException problem = Assert.ThrowsAny<ArgumentException>(() => audio.Duck(target, by));
+
+        Assert.Equal(param, problem.ParamName);
+        Assert.Contains(message, problem.Message);
+    }
+
+    [Theory]
+    [InlineData(3f, 0.1f, 0.8f, "decibels", "0 or below")]
+    [InlineData(float.NegativeInfinity, 0.1f, 0.8f, "decibels", "0 or below")]
+    [InlineData(-6f, -1f, 0.8f, "attack", "attack must be a number of at least zero")]
+    [InlineData(-6f, 0.1f, float.NaN, "release", "release must be a number of at least zero")]
+    public void DuckRefusesBadAmounts(float decibels, float attack, float release, string param, string message)
+    {
+        var audio = new AudioService(new Content(Files()), seed: 1);
+
+        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => audio.Duck(Channel.Music, Channel.Dialogue, decibels, attack, release));
+
+        Assert.Equal(param, problem.ParamName);
+        Assert.Contains(message, problem.Message);
+    }
+
+    [Fact]
+    public void DuckForRefusesNegativeSeconds()
+    {
+        var audio = new AudioService(new Content(Files()), seed: 1);
+
+        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => audio.DuckFor(Channel.Music, -6, seconds: -1));
+
+        Assert.Equal("seconds", problem.ParamName);
+        Assert.Contains("seconds must be a number of at least zero", problem.Message);
+    }
+
+    [Fact]
+    public void DialogueIsAChannelWithAVolume()
+    {
+        var content = new Content(Files());
+        var audio = new AudioService(content, seed: 1);
+        audio.Volume(Channel.Dialogue, 0.5f);
+
+        audio.Play(content.Sounds.Sound("bang.wav"), channel: Channel.Dialogue);
+        audio.Advance(0.1f);
+
+        PlayingSound line = Assert.Single(audio.Playing);
+        Assert.Equal(Channel.Dialogue, line.Channel);
+        Assert.Equal(0.5f, line.Gain, 1e-5f);
+    }
 }

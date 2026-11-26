@@ -200,8 +200,8 @@ start, because both decoders' own seeks land off. The decoders themselves alloca
 decode (NVorbis about 10 bytes a frame, and about 25 KB per rewind; NLayer a few tens of KB
 per pass), so a streamed compressed clip is the one place mixing still allocates.
 
-**Gain.** A voice's gain is its volume × its fade × distance falloff × its channel ×
-Master (a voice on `Master` is scaled once). Volume and fade move per frame along
+**Gain.** A voice's gain is its volume × its fade × distance falloff × its channel × its
+channel's ducking × Master (a voice on `Master` is scaled once). Volume and fade move per frame along
 straight ramps, so a fade-in of 0.1 s is exactly 0.5 at 2400 frames. Channel volumes,
 the listener and voice positions are read once per `Mix` call, and each voice's left and
 right gain is worked out from them. A voice ramps those two gains in a straight line from
@@ -209,6 +209,21 @@ where the last block left them to this block's values, frame by frame, so a came
 a moving source or a channel change never steps at a block edge (that would be zipper
 noise). A voice's first block starts at its gains, so there is no fade from 0 beyond its
 own fade-in. Once the gains are steady the ramp is flat and the output is exact.
+
+**Ducking.** `Ducking` (`MixListening.Ducks`) holds a rule for every target and trigger
+channel pair and one moment (`DuckFor`) per channel, in arrays made up front. Each has a
+depth from 0 to 1 that moves in a straight line, by `frames / attack frames` per block
+towards 1 while it's on and by `frames / release frames` towards 0 while it's off, and the
+duck's decibels scale with the depth, so the level glides evenly in dB. At the start of
+each `Mix`, after the ambiences start their voices, `VoiceBank.ChannelsPlaying` makes a
+bit mask of the channels with an active voice that isn't stopping, `Ducking.Update` moves
+every depth on by the block and keeps the deepest dB per channel as a gain, and
+`ChannelGain` multiplies it in. So a rule is set off by any voice on its trigger, not by
+its level, and the dip steps per block; the voice's gain ramp spreads each step over the
+block. A moment is on while the clock is before its end, and once it is past its end and
+back to depth 0 its dB is cleared, so the next `DuckFor` takes its own dB rather than the
+deeper of the two. The default rules (Music −10 dB and Ambience −6 dB under Dialogue,
+0.1 s attack, 0.8 s release) are set in the constructor.
 
 **Pitch and rate.** Each output frame steps through the source by
 `clip rate / 48000 × pitch × doppler`, times the world rate for voices that follow `Scale`, and

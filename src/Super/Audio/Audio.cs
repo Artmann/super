@@ -17,7 +17,6 @@ public sealed class Audio
 {
     private readonly Content _content;
     private readonly RandomStream _pitch;
-    private readonly AudioCommands _commands = new();
     private readonly float[] _volumes = new float[Enum.GetValues<Channel>().Length];
     private HeardMotion _listenerMotion;
     private float _dopplerScale = 1;
@@ -34,10 +33,10 @@ public sealed class Audio
         var random = new GameRandom(seed);
         _pitch = random.Stream("audio pitch");
         var drops = new VoiceDropReport(AudioLoops.MaxIds);
-        Mixing = new AudioMixing(random.Stream("audio"), _commands, drops);
+        Mixing = new AudioMixing(random.Stream("audio"), Commands, drops);
         Device = new AudioDevice(Mixing);
-        Loops = new AudioLoops(content, _commands, drops);
-        Ambiences = new AudioAmbiences(content, _commands);
+        Loops = new AudioLoops(content, Commands, drops);
+        Ambiences = new AudioAmbiences(content, Commands);
         Array.Fill(_volumes, 1f);
     }
 
@@ -54,7 +53,7 @@ public sealed class Audio
     internal AudioMixing Mixing { get; }
 
     /// <summary>The queue to the mixer. Tests read its counts to see what a frame sent.</summary>
-    internal AudioCommands Commands => _commands;
+    internal AudioCommands Commands { get; } = new();
 
     /// <summary>
     /// What the mixer is playing, once it has taken the commands handed over so far. Manual mode only, since otherwise
@@ -115,7 +114,7 @@ public sealed class Audio
             FollowsScale = at.HasValue,
             Doppler = doppler,
         };
-        _commands.Push(new AudioCommand { Kind = AudioCommandKind.StartVoice, Id = AudioIdPool.NoId, Start = start });
+        Commands.Push(new AudioCommand { Kind = AudioCommandKind.StartVoice, Id = AudioIdPool.NoId, Start = start });
     }
 
     /// <summary>
@@ -138,7 +137,7 @@ public sealed class Audio
         }
 
         _volumes[(int)channel] = volume;
-        _commands.Push(new AudioCommand { Kind = AudioCommandKind.ChannelVolume, Channel = channel, Value = volume });
+        Commands.Push(new AudioCommand { Kind = AudioCommandKind.ChannelVolume, Channel = channel, Value = volume });
     }
 
     /// <summary>The volume last set for the channel. Each starts at 1.</summary>
@@ -159,8 +158,58 @@ public sealed class Audio
         {
             AudioChecks.CheckDoppler(value, nameof(Doppler));
             _dopplerScale = value;
-            _commands.Push(new AudioCommand { Kind = AudioCommandKind.DopplerScale, Value = value });
+            Commands.Push(new AudioCommand { Kind = AudioCommandKind.DopplerScale, Value = value });
         }
+    }
+
+    /// <summary>
+    /// Dips <paramref name="target"/> by <paramref name="decibels"/> while any sound plays on <paramref name="by"/>,
+    /// going down over <paramref name="attack"/> seconds and coming back over <paramref name="release"/> once the
+    /// last one ends. It replaces the rule for that pair, and 0 dB removes it. Music and Ambience start out ducked
+    /// under <see cref="Channel.Dialogue"/> by 10 and 6 dB.
+    /// </summary>
+    /// <param name="decibels">How far down, 0 or below. -6 is about half as loud, -10 about a third.</param>
+    public void Duck(Channel target, Channel by, float decibels = -10, float attack = Ducking.AttackSeconds, float release = Ducking.ReleaseSeconds)
+    {
+        AudioChecks.CheckDuckChannel(target, nameof(target));
+        AudioChecks.CheckDuckChannel(by, nameof(by));
+        if (target == by)
+        {
+            throw new ArgumentException($"A channel can't duck under itself, but both target and by are {target}.", nameof(by));
+        }
+
+        AudioChecks.CheckDuck(decibels, attack, release);
+        Commands.Push(new AudioCommand
+        {
+            Kind = AudioCommandKind.DuckRule,
+            Channel = target,
+            By = by,
+            Value = decibels,
+            FadeSeconds = attack,
+            ReleaseSeconds = release,
+        });
+    }
+
+    /// <summary>
+    /// Dips a channel by <paramref name="decibels"/> for a moment, such as under a boss's roar: it goes down over
+    /// <paramref name="attack"/> seconds, stays down until <paramref name="seconds"/> have passed since the call, then
+    /// comes back over <paramref name="release"/>. Calling it again while one is under way keeps the deeper dip and
+    /// the later end.
+    /// </summary>
+    public void DuckFor(Channel channel, float decibels, float seconds, float attack = Ducking.AttackSeconds, float release = Ducking.ReleaseSeconds)
+    {
+        AudioChecks.CheckDuckChannel(channel, nameof(channel));
+        AudioChecks.CheckDuck(decibels, attack, release);
+        AudioChecks.CheckSeconds(seconds, nameof(seconds));
+        Commands.Push(new AudioCommand
+        {
+            Kind = AudioCommandKind.DuckFor,
+            Channel = channel,
+            Value = decibels,
+            HoldSeconds = seconds,
+            FadeSeconds = attack,
+            ReleaseSeconds = release,
+        });
     }
 
     /// <summary>
@@ -170,15 +219,15 @@ public sealed class Audio
     internal void EndFrame(Camera listener, float scale, double now)
     {
         Vector3 velocity = _listenerMotion.Update(listener.Position, now);
-        _commands.Push(new AudioCommand
+        Commands.Push(new AudioCommand
         {
             Kind = AudioCommandKind.Listener,
             Position = listener.Position,
             Forward = listener.Target - listener.Position,
             Velocity = velocity,
         });
-        _commands.Push(new AudioCommand { Kind = AudioCommandKind.WorldRate, Value = scale });
-        _commands.Publish();
+        Commands.Push(new AudioCommand { Kind = AudioCommandKind.WorldRate, Value = scale });
+        Commands.Publish();
     }
 
     /// <summary>
@@ -192,12 +241,8 @@ public sealed class Audio
             throw new InvalidOperationException("The audio can only be advanced by hand when the game drives it, as in tests.");
         }
 
-        if (!(seconds >= 0) || !float.IsFinite(seconds))
-        {
-            throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "seconds must be a number of at least zero.");
-        }
-
-        _commands.Publish();
+        AudioChecks.CheckSeconds(seconds, nameof(seconds));
+        Commands.Publish();
         Device.MixFor(seconds);
     }
 }

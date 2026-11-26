@@ -219,9 +219,10 @@ from the beginning rather than bringing the fading one back.
 
 ## Channel volumes
 
-Every sound plays on one of five channels: `Master`, `Music`, `Ambience`, `Effects` and
-`Interface`. Each has a volume from 0 to 1, starting at 1, and `Master` scales all the
-others, so a sound's loudness is its own volume × its channel × `Master`.
+Every sound plays on one of six channels: `Master`, `Music`, `Ambience`, `Effects`,
+`Interface` and `Dialogue`. Each has a volume from 0 to 1, starting at 1, and `Master` scales all the
+others, so a sound's loudness is its own volume × its channel × any [ducking](#ducking) ×
+`Master`. Play speech on `Dialogue`, with `channel: Channel.Dialogue` or a `Sound`'s `Channel`.
 
 ```csharp
 audio.Volume(Channel.Music, 0.5f);
@@ -231,6 +232,43 @@ float music = audio.Volume(Channel.Music);
 
 A volume outside 0 to 1 throws `ArgumentOutOfRangeException` naming the channel. Saving
 the player's choices is the game's job, for example with [user data](user-data.md).
+
+## Ducking
+
+Ducking dips one channel so another is heard over it, then brings it back. Out of the box
+`Music` goes down 10 dB (to about a third) and `Ambience` 6 dB (about half) while anything
+plays on `Dialogue`, so a line of speech isn't lost under the score.
+
+A duck goes down over its attack, 0.1 s unless you say otherwise, and comes back over its
+release, 0.8 s, once the last sound on the other channel ends or is told to stop. The level
+glides evenly in decibels, so halfway through a 10 dB attack it's 5 dB down. Where several
+ducks reach one channel, the deepest wins rather than adding up.
+
+`audio.Duck` sets the rule for a pair of channels, replacing the one before it, and 0 dB
+removes it:
+
+```csharp
+audio.Duck(Channel.Music, by: Channel.Dialogue, decibels: -14, attack: 0.2f, release: 1.5f);
+audio.Duck(Channel.Effects, by: Channel.Dialogue, decibels: -4);
+audio.Duck(Channel.Ambience, by: Channel.Dialogue, decibels: 0);
+```
+
+For a big moment that isn't on a channel of its own, such as a boss's roar, `audio.DuckFor`
+dips a channel for a while. It goes down over the attack, stays down until `seconds` have
+passed since the call, then comes back over the release. Calling it again while one is
+under way keeps the deeper dip and the later end.
+
+```csharp
+audio.Play(roar, at: boss.Position, volume: 1);
+audio.DuckFor(Channel.Music, -6, seconds: 2);
+```
+
+A rule watches whether a sound is playing on the channel, not how loud it is, so a quiet
+line ducks as much as a shout. `Master` as either channel, decibels above 0, or a negative
+attack, release or `seconds` throw `ArgumentOutOfRangeException`, and ducking a channel
+under itself throws `ArgumentException`. The dip is worked out once per mixed block, so a
+release can begin up to a block after a sound ends by itself (a block is at most 2048
+frames, about 43 ms).
 
 ## Time scale and pausing
 

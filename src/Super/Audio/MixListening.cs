@@ -61,11 +61,14 @@ internal sealed class MixListening
         _worldRate = Math.Max(0, scale);
     }
 
-    /// <summary>The channel's volume times Master. A voice on Master is scaled once.</summary>
+    /// <summary>Which channels dip under which, and by how much this block.</summary>
+    public Ducking Ducks { get; } = new();
+
+    /// <summary>The channel's volume times its ducking this block, times Master. A voice on Master is scaled once.</summary>
     public float ChannelGain(Channel channel)
     {
         float master = _channelVolumes[(int)Channel.Master];
-        return channel == Channel.Master ? master : _channelVolumes[(int)channel] * master;
+        return channel == Channel.Master ? master : _channelVolumes[(int)channel] * Ducks.Gain(channel) * master;
     }
 
     public float Falloff(Vector3 position, float near, float far)
