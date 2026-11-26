@@ -38,8 +38,8 @@ public sealed class StorybookTests
 
             Assert.Equal(id, run.Game.Story.Id);
             Assert.Equal(light ? Theme.Light : Theme.Dark, run.Game.Theme);
-            // Once in the sidebar and once as the page's title.
-            Assert.Equal(2, run.ShownText.Count(shown => shown.Text == run.Game.Story.Name));
+            // As the page's title, right of the sidebar, which scrolls, so a story far down it can be out of sight there.
+            Assert.Single(run.ShownText, shown => shown.Text == run.Game.Story.Name && shown.Frame.X > 232f);
         }
     }
 
@@ -126,7 +126,7 @@ public sealed class StorybookTests
         var error = Assert.Throws<ArgumentException>(() => Stories.Find("tables"));
 
         Assert.StartsWith("There's no story \"tables\". The stories are typography, colours,", error.Message);
-        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges.", error.Message);
+        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus.", error.Message);
     }
 
     /// <summary>Clicks a control this far across it, halfway down, and lets the click land.</summary>
@@ -174,5 +174,65 @@ public sealed class StorybookTests
         ClickAt(run, hard.Frame);
 
         Assert.Equal("Hard", run.Element("difficulty").Value);
+    }
+
+    private static void Press(HeadlessRun<StorybookGame> run, Key key)
+    {
+        run.Input.Press(key);
+        run.Ticks(2);
+    }
+
+    [Fact]
+    public void The_focus_story_moves_round_the_locked_level_with_the_arrows_and_presses_with_enter()
+    {
+        using var run = Open(new StoryChoice("focus"));
+        Assert.True(run.Element("level-1").Focused);
+
+        // The first arrow only shows the ring; then down to level 4 and right past locked level 5.
+        Press(run, Key.Right);
+        Press(run, Key.Down);
+        Press(run, Key.Right);
+        Assert.True(run.Element("level-6").Focused);
+
+        Press(run, Key.Enter);
+        Assert.True(Shows(run, "Pressed: Level 6. Level 5 is locked, so focus passes it by."));
+    }
+
+    [Fact]
+    public void The_text_fields_story_signs_in_with_tab_and_enter()
+    {
+        using var run = Open(new StoryChoice("text-fields"));
+        // The form is the last card, below the fold of a small window.
+        var name = run.FrameOf("name");
+        run.Input.MoveMouse(new Vector2(name.X + name.Width / 2, name.Y + name.Height / 2) * run.UiScale);
+        run.Input.Scroll(-20f);
+        run.Ticks(2);
+
+        Click(run, "account");
+        run.Input.Type("Ada");
+        run.Ticks(2);
+        Press(run, Key.Tab);
+        run.Input.Type("engine");
+        run.Ticks(2);
+        Press(run, Key.Enter);
+
+        Assert.Equal("Ada", run.Element("account").Value);
+        Assert.Equal("••••••", run.Element("secret").Value);
+        Assert.True(Shows(run, "Signed in as Ada."));
+    }
+
+    [Fact]
+    public void The_focus_and_typing_scripts_end_on_level_6_and_with_a_name_typed()
+    {
+        using var focus = Open(new StoryChoice("focus"));
+        focus.Play(focus.Game.Scripts["focus"]);
+        focus.Ticks(20);
+        Assert.True(focus.Element("level-6").Focused);
+
+        using var typing = Open(new StoryChoice("text-fields"));
+        typing.Play(typing.Game.Scripts["typing"]);
+        typing.Ticks(30);
+        Assert.Equal("Ada Lovelace", typing.Element("name").Value);
+        Assert.Equal(new string('•', 7), typing.Element("password").Value);
     }
 }

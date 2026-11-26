@@ -20,7 +20,6 @@ public sealed class UiTree
 
     // The drag preview and the tooltip, which float above everything.
     private readonly UiNode?[] _overlays = new UiNode?[2];
-    private UiNode? _root;
     private (int Width, int Height) _screen;
     private bool _layoutWanted;
 
@@ -29,6 +28,12 @@ public sealed class UiTree
     internal GlyphAtlas Atlas => field ??= new GlyphAtlas { Scale = Scale };
 
     internal ReadOnlySpan<OverlayQuad> Quads => _draw.Quads;
+
+    /// <summary>Which view has focus, and whether its ring shows.</summary>
+    internal UiFocusMark Focus { get; } = new();
+
+    /// <summary>The view on screen, as the last update left it.</summary>
+    internal UiNode? Root { get; private set; }
 
     /// <summary>
     /// How many pixels one unit of the interface covers. At 2, text, padding and frames are
@@ -62,7 +67,9 @@ public sealed class UiTree
     /// </summary>
     public void Update(UiView? view, int width, int height)
     {
-        bool changed = Mount(ref _root, view) | (width, height) != _screen | _layoutWanted;
+        var root = Root;
+        bool changed = Mount(ref root, view) | (width, height) != _screen | _layoutWanted;
+        Root = root;
         _screen = (width, height);
         if (changed)
         {
@@ -81,9 +88,9 @@ public sealed class UiTree
     {
         var found = new List<UiNode>();
         var ids = new List<object>();
-        if (_root is not null)
+        if (Root is not null)
         {
-            UiIdSearch.Collect(_root, id, found, ids);
+            UiIdSearch.Collect(Root, id, found, ids);
         }
 
         // The drag preview and the tooltip, as the last frame showed them.
@@ -114,17 +121,14 @@ public sealed class UiTree
         get
         {
             var found = new List<UiElement>();
-            if (_root is not null)
+            if (Root is not null)
             {
-                UiElements.Collect(_root, found);
+                UiElements.Collect(Root, found, UiElements.FocusedOf(Focus.Node is { Mounted: true } focus ? focus : null));
             }
 
             return found;
         }
     }
-
-    /// <summary>What the mouse touches at this point, in the layout last shown.</summary>
-    internal UiNode? Hit(float x, float y) => _root?.Hit(x, y);
 
     /// <summary>
     /// Draws what floats above everything and belongs to no place in the tree, each time
@@ -196,17 +200,17 @@ public sealed class UiTree
     private void Layout()
     {
         _draw.Clear();
-        if (_root is null)
+        if (Root is null)
         {
             return;
         }
 
-        _root.ForgetLayout();
+        Root.ForgetLayout();
         float wide = _screen.Width / Scale;
         float high = _screen.Height / Scale;
         var screen = new UiRect(0f, 0f, wide, high);
-        _root.Place(screen.Align(_root.Measure(new Proposal(wide, high)), Alignment.Center));
-        _root.Emit(_draw);
+        Root.Place(screen.Align(Root.Measure(new Proposal(wide, high)), Alignment.Center));
+        Root.Emit(_draw);
         _draw.EndTree();
     }
 }

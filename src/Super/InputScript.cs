@@ -41,6 +41,15 @@ public sealed class InputScript
 
     public InputScript Release(Key key) => Then(input => input.KeyUp(key));
 
+    /// <summary>Types this text, as the keyboard sends characters to a focused text field. It takes a tick.</summary>
+    public InputScript Type(string text) => Then(input =>
+    {
+        foreach (char character in text)
+        {
+            input.TypedCharacter(character);
+        }
+    }).Wait(1);
+
     /// <summary>Takes the cursor off the window.</summary>
     public InputScript LeaveWindow() => Then(input => input.Mouse.Feed.MouseLeftWindow());
 

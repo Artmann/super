@@ -8,13 +8,7 @@ namespace Super.Tests.Ui;
 /// <summary>The built-in controls, driven with the mouse and read back by what they mean.</summary>
 public sealed class ControlTests
 {
-    private static HeadlessRun<PointerGame> Run(Func<PointerGame, UiView> screen)
-    {
-        var run = HeadlessGame.Create<PointerGame>(1);
-        run.Game.Screen = screen;
-        run.Ticks(1);
-        return run;
-    }
+    private static HeadlessRun<PointerGame> Run(Func<PointerGame, UiView> screen) => PointerGame.Show(screen);
 
     private static UiView Corner(UiView view, float width = 300f) =>
         view.Frame(width: width)

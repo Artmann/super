@@ -211,13 +211,7 @@ public sealed class EnvironmentTests
         Assert.Equal("rest", run.ShownText.Single().Text);
     }
 
-    private static HeadlessRun<PointerGame> Run(Func<PointerGame, UiView> screen)
-    {
-        var run = HeadlessGame.Create<PointerGame>(1);
-        run.Game.Screen = screen;
-        run.Ticks(1);
-        return run;
-    }
+    private static HeadlessRun<PointerGame> Run(Func<PointerGame, UiView> screen) => PointerGame.Show(screen);
 
     private static UiView Corner(UiView view) =>
         view.Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);

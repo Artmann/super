@@ -18,4 +18,20 @@ public static class ControlExtensions
     /// It's what a <see cref="Slider"/> is made with.
     /// </summary>
     public static UiView OnSlide(this UiView view, Action<float> slide, float inset = 0f) => new SlideModifier(view, slide, inset);
+
+    /// <summary>
+    /// Lets Tab, the arrows and the gamepad stop on this view, with a ring round it. Enter, Space and the
+    /// gamepad's South button call <paramref name="onActivate"/>, or press the click inside when it's null.
+    /// <paramref name="onAdjust"/> gets -1 or 1 for left and right, for a control that changes a value. Every
+    /// built-in control can take focus already. A view that can take focus inside this one is part of it.
+    /// </summary>
+    public static UiView Focusable(this UiView view, Action? onActivate = null, Action<int>? onAdjust = null) =>
+        new FocusModifier(view, new FocusKeys { Activate = onActivate, Adjust = onAdjust });
+
+    /// <summary>
+    /// Gives focus to the first view inside that can take it, as soon as this appears, with its ring hidden until
+    /// a key or the gamepad moves it. Then a menu answers the gamepad and Enter from the start. With nothing
+    /// focused, the arrows, the d-pad and the stick come back here.
+    /// </summary>
+    public static UiView DefaultFocus(this UiView view) => new DefaultFocusModifier(view);
 }

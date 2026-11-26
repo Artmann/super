@@ -38,10 +38,31 @@ internal sealed class ButtonSet(int count)
         state.WentUp = true;
     }
 
+    /// <summary>Whether the button went down since the last tick, before the tick sees it.</summary>
+    public bool WentDown(int index) => _states[index].WentDown;
+
+    /// <summary>
+    /// Keeps this press from the next ticks: the button reads as up until it's let go, and its release
+    /// isn't seen either, so whoever reads it sees no part of the press. The interface takes the buttons it uses.
+    /// </summary>
+    public void Take(int index)
+    {
+        ref var state = ref _states[index];
+        state.Taken = state.Physical || state.WentDown;
+        state.WentDown = false;
+        state.WentUp = false;
+    }
+
     public void Roll()
     {
         foreach (ref var state in _states.AsSpan())
         {
+            if (state.Taken)
+            {
+                state = new State { Physical = state.Physical, Taken = state.Physical };
+                continue;
+            }
+
             state.Pressed = state.WentDown;
             // A tap owed a release from the last tick still gets it, even if the button went down again.
             if (state.Physical)
@@ -78,5 +99,6 @@ internal sealed class ButtonSet(int count)
         public bool PendingRelease;
         public bool WentDown;
         public bool WentUp;
+        public bool Taken;
     }
 }

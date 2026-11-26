@@ -120,6 +120,7 @@ public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string
 | `Hold(button)`, `Release(button)` | Presses or lets go of a mouse button |
 | `Press(key)` | Taps a key: down on one tick and up on the next. It takes a tick |
 | `Hold(key)`, `Release(key)` | Holds a key down, or lets it go |
+| `Type(text)` | Types the text, as into a focused [text field](interfaces.md#text-fields). It takes a tick |
 | `Press(control)` | Taps an [action](input.md), whatever it's bound to. It takes a tick |
 | `Hold(control)`, `Release(control)` | Holds an action as a button, or hands it back to its bindings |
 | `Hold(control, vector)` | Holds an action at a vector, as a stick leaned that way, until `Release(control)` |

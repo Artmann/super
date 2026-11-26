@@ -26,6 +26,13 @@ public sealed class StorybookGame : IGame
     {
     }
 
+    /// <summary>For shots: focus moved with the keys on the Focus story, and typing on the Text fields story.</summary>
+    public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
+    {
+        ["focus"] = new InputScript().Wait(2).Press(Key.Right).Press(Key.Right).Press(Key.Right).Press(Key.Down).Wait(2),
+        ["typing"] = new InputScript().Wait(2).Click("name").Type("Ada Lovelace").Click("password").Type("hunter2").Wait(2),
+    };
+
     public UiView? Ui => new HStack(VerticalAlignment.Top, 0f)
     {
         Sidebar(),

@@ -18,6 +18,15 @@ public sealed class PointerGame : IGame
 
     public PointerGame(Input input) => Input = input;
 
+    /// <summary>A headless run showing this screen, a tick in so it's laid out.</summary>
+    public static HeadlessRun<PointerGame> Show(Func<PointerGame, UiView> screen)
+    {
+        var run = HeadlessGame.Create<PointerGame>(1);
+        run.Game.Screen = screen;
+        run.Ticks(1);
+        return run;
+    }
+
     /// <summary>How many times Update has run.</summary>
     public long Ticks { get; private set; }
 
@@ -43,13 +52,7 @@ public sealed class PointerTests
     private static readonly Vector2 OnBox = new(40f, 40f);
     private static readonly Vector2 Away = new(600f, 600f);
 
-    private static HeadlessRun<PointerGame> Run(Func<PointerGame, UiView> screen)
-    {
-        var run = HeadlessGame.Create<PointerGame>(1);
-        run.Game.Screen = screen;
-        run.Ticks(1);
-        return run;
-    }
+    private static HeadlessRun<PointerGame> Run(Func<PointerGame, UiView> screen) => PointerGame.Show(screen);
 
     /// <summary>Puts a view in the window's top left corner, where a test can aim at it.</summary>
     private static UiView Corner(UiView view) =>
