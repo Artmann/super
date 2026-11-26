@@ -44,10 +44,10 @@ internal static class UiFocusStops
             return node;
         }
 
-        foreach (var child in node.Children)
+        for (int i = 0; i < node.Children.Count; i++)
         {
             // A popup is a place of its own, searched only from its top.
-            if (child is { View: not LayerView } && Below<T>(child) is { } found)
+            if (node.Children[i] is { View: not LayerView } child && PrimitiveView.IsShown(node, i) && Below<T>(child) is { } found)
             {
                 return found;
             }
@@ -141,9 +141,9 @@ internal static class UiFocusStops
             return;
         }
 
-        foreach (var child in node.Children)
+        for (int i = 0; i < node.Children.Count; i++)
         {
-            if (child is { View: not LayerView })
+            if (node.Children[i] is { View: not LayerView } child && PrimitiveView.IsShown(node, i))
             {
                 Collect(child, found);
             }

@@ -59,7 +59,10 @@ Interface code runs on the CPU only. Layout and text are real in headless runs, 
 | `Image(content.UiImages.Image("icon.png"), ImageFit.Contain)` | An image, stretched, fitted (`Contain`) or filling (`Cover`), with an optional tint |
 | `ScrollView()` | Scrolls what's inside it with the wheel or a draggable bar. Give it a height, or it grows to fit |
 | `ListView<T>(items, row, selected, onSelect)` | A scrolling list of rows you can hover and pick |
-| `Grid(columns, columnGap, rowGap)` | Children in equal columns, wrapping onto new rows |
+| `Grid { new GridRow { ... } }`, `Grid(Columns: 6)` | A table whose columns line up, or equal columns filled left to right. See [Grids](#grids) |
+| `FlowStack(spacing, lineSpacing)` | Children in a row that wraps onto new lines, like words |
+| `ViewThatFits { ... }` | Shows the first child that fits the room |
+| `LazyVStack<T>(items, row, rowHeight)` | A column that only makes the rows near the screen, for very long lists. See [Lazy lists](#lazy-lists) |
 | `Pressable(look => view, onClick)` | Anything clickable, drawn from whether it's hovered or pressed |
 | `Button("Craft", onClick, Disabled: true)` | A ready-made `Pressable` with a label. See [Controls](#controls) |
 | `Toggle("Music", on, set)` | A switch, or a checkbox with `Style = ToggleStyle.Checkbox` |
@@ -87,6 +90,11 @@ Modifiers wrap a view, so their order usually matters.
 | `.Frame(width, height, maxWidth, maxHeight, alignment, minWidth, minHeight)` | Fixes the size, or lets the view stretch |
 | `.FixedSize()` | Uses the size the view would like, whatever it's offered |
 | `.Background(color)`, `.Background(Paint.Linear(...))` | Fills the view's area with a colour or a [gradient](#gradients) |
+| `.Background(view, alignment)`, `.Overlay(view, alignment)` | Puts a view behind or in front, at the size of this one. Neither changes the size |
+| `.Offset(x, y)` | Moves where the view is drawn and clicked, and leaves its neighbours where they were |
+| `.Hidden()` | Hides the view but keeps its room. It can't be clicked or focused, and tests don't see it |
+| `.LayoutPriority(priority)` | Lets a stack serve this view first when it's short of room |
+| `.AspectRatio(ratio, ContentMode.Fit)` | Keeps the view at one width to height, the biggest that fits or, with `Fill`, the smallest that covers |
 | `.Border(width, color)` | Draws a line inside the view's edge, following its corners |
 | `.CornerRadius(radius)`, `.CornerRadius(new CornerRadii(...))` | Rounds the background, border and image, and clips what's inside. `CornerRadii` rounds each corner on its own |
 | `.Shadow(ShadowSize.Medium)`, `.Shadow(color, blur, x, y, spread)` | Casts a soft [shadow](#shadows) under the box |
@@ -445,6 +453,7 @@ and `gauges` stories keep their values, so you can try each control, and `text-f
 those for a shot, with `--story focus --script focus`. The `touch` story and script show taps,
 long presses and flings. The `menus`, `dialogs`, `sheets` and `toasts` stories have every popup,
 and the `menu`, `context`, `alert`, `confirm`, `sheet`, `popover` and `toasts` scripts open them.
+The `layers`, `grids`, `flows` and `lazy-lists` stories show the [layout](#layout) views.
 
 ![The storybook's shapes page in the dark theme](media/storybook.webp)
 
@@ -462,6 +471,61 @@ nothing wraps in a row that fits it. To make something grow like `flex-grow`, gi
 `.Frame(maxWidth: UiExtensions.Infinity)`. To pin something to a corner, wrap it in a
 frame that fills the screen, as `MyColony` does above. The top of the tree is centered
 otherwise.
+
+![Overlays, offsets, hiding, grids, flow stacks, views that fit and a lazy list in the storybook](media/ui-layout.webp)
+
+When a row is short of room, `.LayoutPriority(1f)` on one child makes the stack serve it
+first. The stack keeps back only what the others can't do without, so the name you'd rather
+not wrap gets its line and the rest wrap round it.
+
+`.Hidden()` keeps a view's room, so nothing moves when it comes back. To take the room away
+too, leave the view out with `null`, which a stack skips.
+
+### Grids
+
+A `Grid` of `GridRow`s lines its columns up, as a settings screen does with its labels. Each
+column is as wide as its widest cell. A column with a cell that stretches, such as a
+`Slider`, takes the room left over, and when there isn't enough room every column shrinks
+alike. A child that isn't a row, such as a `Divider`, spans every column.
+
+```csharp
+new Grid(ColumnGap: 16f, RowGap: 12f)
+{
+    new GridRow { new Text("Music"), new Slider(music, setMusic), new Text($"{music:P0}") },
+    new Divider(),
+    new GridRow { new Text("Voice chat"), new Slider(voice, setVoice), new Text($"{voice:P0}") },
+}
+```
+
+Give `Columns` and no rows for equal columns, filled left to right and then down, as an
+inventory is. A `null` child leaves its cell empty. A row is as tall as its tallest cell.
+
+### Flows and views that fit
+
+A `FlowStack` puts its children in a row and starts a new line when the next one doesn't
+fit, for tags, chips and keywords. Its `Alignment` sets where each line sits.
+
+A `ViewThatFits` shows the first of its children that fits the room it's offered, so a label
+can shorten to a word and then to an icon as its room shrinks. `new ViewThatFits(Axis.Horizontal)`
+only checks the width. Only the child shown takes focus, and tests see only it.
+
+### Lazy lists
+
+A `LazyVStack` in a `ScrollView` makes only the rows near the screen, so a leaderboard of
+10,000 players costs what a short one does:
+
+```csharp
+new ScrollView
+{
+    new LazyVStack<Player>(players, player => new PlayerRow(player), RowHeight: 36f, Spacing: 2f),
+}.Frame(height: 300f)
+```
+
+Every row is `RowHeight` tall, so the stack knows its length without making them. It keeps
+a screen's worth of rows made above and below what shows, so scrolling and moving focus
+find their rows ready. Items name their rows, so they should differ from each other. Hand it
+a new list when the items change, since a list changed in place looks the same as the last.
+Outside a scroll view it makes every row.
 
 ### Text that doesn't fit
 
@@ -780,4 +844,5 @@ Touch is read on Windows only, and only tried with scripts so far, not on a real
 A finger can't drag and drop, there's no pinch or rotate, and a long press is for fingers only.
 Text fields are one line only. Menus have no submenus, a context menu has no key to open it from
 the keyboard or the gamepad, toasts have no buttons of their own, and popups appear and leave at
-once, with no animation.
+once, with no animation. A lazy stack's rows all have one height, there's no lazy row or lazy
+grid, and when a lazy list scrolls far in one frame the new rows show a frame later.

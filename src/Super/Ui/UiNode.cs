@@ -112,9 +112,9 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view) : IUiReco
         }
 
         // A popup is drawn above the whole tree, not in its place.
-        foreach (var child in Children)
+        for (int i = 0; i < Children.Count; i++)
         {
-            if (child is { View: not LayerView })
+            if (Children[i] is { View: not LayerView } child && PrimitiveView.IsShown(this, i))
             {
                 child.Emit(draw);
             }
@@ -131,7 +131,7 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view) : IUiReco
             return Children[0]!.Hit(x, y);
         }
 
-        if (primitive.PassesPointer || primitive.ClipArea(this) is { } clip && !clip.Contains(x, y))
+        if (primitive.Misses(this, x, y))
         {
             return null;
         }
@@ -143,7 +143,7 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view) : IUiReco
 
         for (int i = Children.Count - 1; i >= 0; i--)
         {
-            if (Children[i]?.Hit(x, y) is { } hit)
+            if (primitive.Shows(this, i) && Children[i]?.Hit(x, y) is { } hit)
             {
                 return hit;
             }

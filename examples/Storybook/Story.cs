@@ -74,6 +74,10 @@ public static class Stories
         new("Popups", "Dialogs", "Alerts and confirmation dialogs that need an answer.", Popping.Dialogs),
         new("Popups", "Sheets", "A form in a card over a scrim, and a popover under a button.", Popping.Sheets),
         new("Popups", "Toasts", "Short notes in the corner that leave on their own.", Popping.ToastStory),
+        new("Layout", "Layers", "Overlays, backgrounds, offsets, hiding and aspect ratios.", Arranging.Layers),
+        new("Layout", "Grids", "Rows whose columns line up, and equal columns.", Arranging.Grids),
+        new("Layout", "Flows", "Rows that wrap, views that fit, and which view gets its room first.", Arranging.Flows),
+        new("Layout", "Lazy lists", "Long lists that only make the rows near the screen.", Arranging.LazyLists),
     ];
 
     /// <summary>The story with this id. An unknown id throws, listing the ones there are.</summary>

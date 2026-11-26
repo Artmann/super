@@ -53,7 +53,8 @@ Super is early. These are the known gaps, so you can plan around them.
   keep their balance yet.
 - **Containers in interfaces.** [Interfaces](interfaces.md#popups) take the mouse, the
   keyboard, the gamepad and touch on Windows, with one-line text fields, menus, dialogs,
-  sheets, popovers and toasts, but there are no tab views, forms or navigation stacks yet,
+  sheets, popovers and toasts, and lay out grids, flow stacks and lazy lists, but there are
+  no tab views, forms or navigation stacks yet,
   and touch hasn't been tried on a real touch screen.
 - **Saved games and levels.** `saves.Write` and `saves.Read` are the plan; see
   [JSON content](content.md#planned).

@@ -70,11 +70,23 @@ public abstract record PrimitiveView : UiView
     /// <summary>Where this cuts off what's inside it, if it does. What's cut off can't be hit.</summary>
     internal virtual UiRect? ClipArea(UiNode node) => null;
 
+    /// <summary>Whether the mouse here misses this view and all that's inside it: it passes through, or it's cut off.</summary>
+    internal bool Misses(UiNode node, float x, float y) => PassesPointer || ClipArea(node) is { } clip && !clip.Contains(x, y);
+
     /// <summary>Whether this takes the mouse here ahead of its children.</summary>
     internal virtual bool HitsFirst(UiNode node, float x, float y) => false;
 
     /// <summary>Changes the environment, such as the text style, for everything inside this view.</summary>
     internal virtual UiEnvironment Inherit(UiEnvironment environment) => environment;
+
+    /// <summary>
+    /// Whether this child shows: a hidden one is laid out but draws nothing, takes no pointer, and
+    /// holds no focus or control.
+    /// </summary>
+    internal virtual bool Shows(UiNode node, int child) => true;
+
+    /// <summary>Whether this node's child at this index shows. A component's one child always does.</summary>
+    internal static bool IsShown(UiNode parent, int child) => parent.View is not PrimitiveView primitive || primitive.Shows(parent, child);
 
     /// <summary>
     /// Where a node shows: a component is where its body is, and a box is where it shows,

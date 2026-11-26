@@ -187,7 +187,27 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
 - Stacks share their room by flexibility, least flexible first. `Stack.Share` also asks each
   child its ideal size, and while the ideal sizes of the children left still fit in the room
   left, each is offered at least its ideal. Without that floor, a row placed at the width it
-  measured would offer a wrapping text only an even share and wrap it.
+  measured would offer a wrapping text only an even share and wrap it. When children have
+  `LayoutPriority`, `AllotByPriority` serves them a priority at a time, highest first: each
+  group gets the room left after keeping back the lower groups' smallest sizes, and shares it
+  by flexibility as above.
+- `UiView.Shows(node, child)` says whether a child node takes part this frame. `IsShown`
+  walks that up the tree, and drawing, hit tests, focus stops and `UiElements.Collect` all ask
+  it, so a hidden view or a `ViewThatFits` child that wasn't picked stays mounted, keeping its
+  state, but is never drawn, clicked, focused or seen by tests. `HiddenModifier` answers no,
+  and `ViewThatFits` answers yes only for its `Chosen` child, the first whose ideal size fits
+  the proposal along its axes, or the last when none does.
+- `Grid` with `GridRow`s builds a `UiGridRows` for the width offered: each column's ideal
+  width, which columns stretch (a cell measured wider when offered infinity), then `Fit` hands
+  out the room left or shrinks the columns alike. `GridRow` measures to nothing, since only
+  the grid knows its columns. `FlowStack` breaks its children into `UiFlowLine`s with `UiFlow`.
+- `LazyVStack` keeps a `UiLazyWindow` (the first row made and how many) in its state and
+  makes only those rows, under a `UiLazyRows` that measures the whole column from the row
+  height and places each made row at its index. After placing, `UiLazyRows` finds the scroll
+  view round it and works out which rows it shows. When some aren't made, it sets the window
+  to them plus a screen either side. Setting state during layout re-runs the Body next
+  update, so rows scrolled into view far past the window appear a frame late. With no scroll
+  view round it, the window grows to every row.
 - `UiEnvironment` carries the text style (`TextLook`), the `Theme`, `Disabled` and the
   `ControlSize` down the tree. `StyleModifier` and `EnvironmentModifier` change them for
   everything inside. A `Tone` becomes a colour where `.Foreground(tone)` is, from the theme in

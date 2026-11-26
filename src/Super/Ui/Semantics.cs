@@ -101,9 +101,9 @@ internal static class UiElements
             });
         }
 
-        foreach (var child in node.Children)
+        for (int i = 0; i < node.Children.Count; i++)
         {
-            if (child is not null)
+            if (node.Children[i] is { } child && PrimitiveView.IsShown(node, i))
             {
                 Collect(child, found, focused);
             }
