@@ -232,6 +232,18 @@ public ref struct FrameExtras
     public ReadOnlySpan<LineDraw> Lines;
 
     /// <summary>
+    /// Grids laid onto what the camera sees, unlit, drawn after the grade and under <see cref="Lines"/>. At most
+    /// <see cref="Passes.GridOverlayBatch.MaxOverlays"/>; more throws. Each one's cells are bits in <see cref="GridCells"/>.
+    /// </summary>
+    public ReadOnlySpan<GridOverlayDraw> GridOverlays;
+
+    /// <summary>
+    /// The cells the <see cref="GridOverlays"/> cover, 32 to a word, each overlay's window of them row by row from
+    /// its <see cref="GridCellWindow.Start"/>. At most <see cref="Passes.GridOverlayBatch.MaxCellWords"/> words.
+    /// </summary>
+    public ReadOnlySpan<uint> GridCells;
+
+    /// <summary>
     /// Soft puffs of dust, smoke or spray, blended over the lit scene in any order. At most
     /// <see cref="Particle.MaxPerFrame"/> are drawn; the rest are dropped.
     /// </summary>

@@ -17,6 +17,11 @@ internal static class TestSky
         Lights = new[] { new DirectionalLight { Direction = sun, Radiance = new Vector3(5f) } },
     };
 
+    // Looking down -Z with every effect off, for a test of something drawn over the picture whose colour nothing
+    // else should move.
+    public static FrameView Bare(int size) =>
+        View(size, -Vector3.UnitZ, Vector3.Normalize(new Vector3(0.3f, 0.5f, 0.8f))) with { Off = RenderEffects.All };
+
     // Draws frames frames first, then the one read back, and gives how many pixels across it is. The window may hold
     // more pixels than asked for, such as on a screen scaled up.
     public static byte[] Capture(GpuFixture gpu, in FrameView view, DrawItem[] draws, int frames, out int wide)

@@ -34,5 +34,12 @@ internal static class TestPixels
 
     public static float Brightness(Vector3 colour) => (colour.X + colour.Y + colour.Z) / 3f;
 
+    // Fails unless every channel of two colours in 0 to 255 is within steps, naming what was looked at.
+    public static void AssertNear(Vector3 expected, Vector3 actual, float steps, string what)
+    {
+        float most = MathF.Max(MathF.Abs(expected.X - actual.X), MathF.Max(MathF.Abs(expected.Y - actual.Y), MathF.Abs(expected.Z - actual.Z)));
+        Assert.True(most <= steps, $"For {what} expected {Show(expected)} but got {Show(actual)}.");
+    }
+
     public static string Show(Vector3 colour) => $"({colour.X:F0}, {colour.Y:F0}, {colour.Z:F0})";
 }

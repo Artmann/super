@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using Rendition;
 using Rendition.Passes;
+using Super.Ui;
 
 namespace Super;
 
@@ -36,10 +37,11 @@ public sealed class ViewEffects
     /// <summary>The finish, the screen effects and the paint this frame asks for.</summary>
     internal ViewLook Look { get; } = new();
 
-    internal OutlineSettings OutlineSettings { get; private set; } = new();
-
     /// <summary>How the screen moves between pictures this frame. Set by <see cref="Transitions"/>.</summary>
     internal ScreenTransition Transition { get; set; }
+
+    /// <summary>The game's interface, laid out for this frame and drawn over the picture last. Set by the loop.</summary>
+    internal UiTree? Ui { get; set; }
 
     /// <summary>
     /// Throws for a surface the game's content doesn't know, so a decal that names one fails where the mistake is.
@@ -205,7 +207,7 @@ public sealed class ViewEffects
             throw new ArgumentException(problem);
         }
 
-        OutlineSettings = settings;
+        Look.Outlines = settings;
     }
 
     /// <summary>
@@ -218,7 +220,6 @@ public sealed class ViewEffects
         _decals.Clear();
         _fogVolumes.Clear();
         Look.Clear();
-        OutlineSettings = new OutlineSettings();
         Transition = new ScreenTransition { Hold = Transition.Hold };
     }
 }

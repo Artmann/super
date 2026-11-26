@@ -79,7 +79,7 @@ internal sealed class FrameMaker
             {
                 Occlusion = view.Indirect.Occlusion,
                 Bounce = view.Indirect.Bounce,
-                Outlines = view.Effects.OutlineSettings,
+                Outlines = view.Effects.Look.Outlines,
             },
             LightProbes = view.Indirect.LightProbeVolume,
             Baked = new BakedAreas { Space = view.Indirect.BakedSpace, Chunks = view.Indirect.PlacedBakedChunks },
@@ -177,11 +177,13 @@ internal sealed class FrameMaker
         };
     }
 
-    /// <summary>What the frame draws besides its draws: the view's overlay, particles, decals, fog volumes, grass and reflection plane.</summary>
+    /// <summary>What the frame draws besides its draws: the view's overlay, debug lines, grid overlays, particles, decals, fog volumes, grass and reflection plane.</summary>
     private FrameExtras Extras(View view, RenderEffects off) => new()
     {
-        Overlay = view.Ui is { } ui ? ui.Quads : [],
+        Overlay = view.Effects.Ui is { } ui ? ui.Quads : [],
         Lines = view.Debug.Draws,
+        GridOverlays = view.Overlays.Drawn,
+        GridCells = view.Overlays.Words,
         Particles = view.Effects.DrawnParticles,
         Decals = _decals.Drawn,
         FogVolumes = off.HasFlag(RenderEffects.FogVolumes) || off.HasFlag(RenderEffects.VolumetricFog) ? default : view.Effects.DrawnFogVolumes,

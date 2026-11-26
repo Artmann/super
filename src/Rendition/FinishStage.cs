@@ -20,7 +20,7 @@ internal sealed unsafe class FinishStage
     private readonly DescriptorSet _finishSet;
     private readonly ResourceTable _resources;
     private readonly OverlayPass _overlayPass;
-    private readonly LinePass _linePass;
+    private readonly SceneMarks _marks;
 
     public FinishStage(VulkanContext context, DescriptorKit kit, FrameRing ring, GpuTimer timer, (Format Format, ResourceTable Resources) window)
     {
@@ -33,7 +33,7 @@ internal sealed unsafe class FinishStage
         _finishPass = new FullscreenPass(
             context, "finish.frag", window.Format, [kit.FrameSetLayout, kit.TwoTextureLayout, window.Resources.Layout], TransitionConstants.Size);
         _overlayPass = new OverlayPass(context, kit, window.Format, window.Resources, FrameRing.Count);
-        _linePass = new LinePass(context, kit, window.Format, FrameRing.Count);
+        _marks = new SceneMarks(context, kit, window.Format, FrameRing.Count);
     }
 
     /// <summary>Where the frame being drawn copies its picture for a capture, or null when it isn't one.</summary>
@@ -45,8 +45,11 @@ internal sealed unsafe class FinishStage
     /// <summary>Uploads the frame's overlay quads, and returns how many it draws: none before an atlas is set.</summary>
     public int UploadOverlay(ReadOnlySpan<OverlayQuad> quads) => _overlayPass.Upload(_ring.Index, quads);
 
-    /// <summary>Uploads the frame's debug lines, with the camera they're seen through.</summary>
-    public void UploadLines(in FrameView view) => _linePass.Upload(_ring.Index, view);
+    /// <summary>Uploads the frame's grid overlays and debug lines, with the camera they're seen through.</summary>
+    public void UploadMarks(in FrameView view) => _marks.Upload(_ring.Index, view);
+
+    /// <summary>Checks and packs the frame's grid overlays, throwing before anything is recorded if one can't be drawn.</summary>
+    public void PrepareGridOverlays(in FrameView view) => _marks.Prepare(view);
 
     /// <summary>
     /// Replaces the image that the overlay's quads read from. Only its alpha is used. Waits for the GPU, so it isn't
@@ -62,7 +65,7 @@ internal sealed unsafe class FinishStage
             new(_kit.LinearSampler, targets.Picture.Ldr.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_kit.LinearSampler, targets.Picture.Held.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
-        _linePass.WriteSet(_kit.NearestSampler, targets.Depth.View);
+        _marks.WriteSet(_kit.NearestSampler, targets.Depth.View);
     }
 
     /// <summary>
@@ -92,8 +95,8 @@ internal sealed unsafe class FinishStage
         picture.Targets.Picture.LdrReady = true;
         _timer.Mark(cmd);
 
-        // Timed with the overlay: both are drawn over the finished picture.
-        _linePass.Record(cmd, (swapchain.Views[imageIndex], size));
+        // Timed with the overlay: all three are drawn over the finished picture, the grids under the lines.
+        _marks.Record(cmd, (swapchain.Views[imageIndex], size));
         if (overlayQuads > 0)
         {
             _overlayPass.Record(cmd, (swapchain.Views[imageIndex], size), _ring.Index, overlayQuads);
@@ -115,7 +118,7 @@ internal sealed unsafe class FinishStage
     public void Dispose()
     {
         _overlayPass.Dispose();
-        _linePass.Dispose();
+        _marks.Dispose();
         _finishPass.Dispose();
     }
 

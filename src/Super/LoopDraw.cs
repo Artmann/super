@@ -111,7 +111,7 @@ internal sealed class LoopDraw
 
         _pointer.ShowOverlays();
         ui.ShowDebugLabels(view.Debug.Labels, view.Shot);
-        view.Ui = ui;
+        view.Effects.Ui = ui;
         _stats.Resume();
         _changes.Open = true;
     }
@@ -122,7 +122,7 @@ internal sealed class LoopDraw
         view.Begin(blend, _time.Tick, _time.TickSeconds, _time.Scale);
         _audio.EndFrame(view.Shot, _time.Scale, view.Clock.Now);
         ui.Update(StoppedPanel.For(_halts.Stopped!), width, height);
-        view.Ui = ui;
+        view.Effects.Ui = ui;
         _changes.Open = true;
     }
 

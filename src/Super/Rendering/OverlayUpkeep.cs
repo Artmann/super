@@ -25,7 +25,7 @@ internal sealed class OverlayUpkeep
     {
         // Only a character that hasn't been drawn before brings this here.
         // Games with no interface never get here, and never load the fonts.
-        if (view.Ui is { Quads.IsEmpty: false } ui && ui.Atlas.Version != _uploadedAtlas)
+        if (view.Effects.Ui is { Quads.IsEmpty: false } ui && ui.Atlas.Version != _uploadedAtlas)
         {
             _renderer.Assets.SetOverlayAtlas(new TextureData
             {
@@ -37,7 +37,7 @@ internal sealed class OverlayUpkeep
             _uploadedAtlas = ui.Atlas.Version;
         }
 
-        if (view.Ui is { } shown)
+        if (view.Effects.Ui is { } shown)
         {
             _content = content;
             shown.BindImages(_textureOf);

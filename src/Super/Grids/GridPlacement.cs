@@ -53,6 +53,9 @@ public readonly record struct GridPlacement(Vector3 Origin, Quaternion Rotation)
         return along >= 0f ? along : null;
     }
 
+    /// <summary>The grid's own space to the world: its turn, then its origin.</summary>
+    internal Matrix4x4 Matrix => Matrix4x4.CreateFromQuaternion(Turn) * Matrix4x4.CreateTranslation(Origin);
+
     /// <summary>The turn, with the default of all zeros read as no turn.</summary>
     private Quaternion Turn => Rotation == default ? Quaternion.Identity : Quaternion.Normalize(Rotation);
 }

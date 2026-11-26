@@ -118,9 +118,9 @@ public class FrameSettingsTests
 
         Describe();
 
-        Assert.Equal(new Vector3(1f, 0f, 0f), _view.Effects.OutlineSettings.Color);
-        Assert.Equal(3f, _view.Effects.OutlineSettings.Thickness);
-        Assert.Equal(OutlineSettings.DefaultFadeEnd, _view.Effects.OutlineSettings.FadeEnd);
+        Assert.Equal(new Vector3(1f, 0f, 0f), _view.Effects.Look.Outlines.Color);
+        Assert.Equal(3f, _view.Effects.Look.Outlines.Thickness);
+        Assert.Equal(OutlineSettings.DefaultFadeEnd, _view.Effects.Look.Outlines.FadeEnd);
     }
 
     [Fact]

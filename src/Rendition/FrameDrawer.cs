@@ -178,6 +178,7 @@ internal sealed class FrameDrawer
     private void CheckDraws(in FrameView view, ReadOnlySpan<DrawItem> draws)
     {
         _parts.FrameStages.OpaqueStage.PrepareDecals(view);
+        _parts.FrameStages.FinishStage.PrepareGridOverlays(view);
         _parts.FrameStages.Grass.Prepare(view, _parts.SceneStores.Switches.Off, _parts.SceneStores.Settings.GrassDetail);
         BakeIds.CheckStaticDraws(draws);
         BakeFiles.CheckChunks(view.Baked.Chunks);
