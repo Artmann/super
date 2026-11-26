@@ -34,4 +34,11 @@ public static class ControlExtensions
     /// focused, the arrows, the d-pad and the stick come back here.
     /// </summary>
     public static UiView DefaultFocus(this UiView view) => new DefaultFocusModifier(view);
+
+    /// <summary>
+    /// Calls <paramref name="action"/> when a finger rests on this view for half a second without moving, on the
+    /// tick, as a click does. The finger lifting after that doesn't tap. A view turned off with
+    /// <see cref="UiExtensions.Disabled"/> ignores it.
+    /// </summary>
+    public static UiView OnLongPress(this UiView view, Action action) => new LongPressModifier(view, action);
 }

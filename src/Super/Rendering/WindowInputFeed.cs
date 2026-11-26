@@ -46,6 +46,12 @@ internal sealed unsafe class WindowInputFeed
         glfw.SetCharCallback(window, _onChar);
         _input.Keys.Clipboard = new WindowClipboard(_window);
 
+        // GLFW has no touch, so on Windows it's read from the window's own messages. Elsewhere only scripts touch.
+        if (OperatingSystem.IsWindows())
+        {
+            WindowTouch.Attach(_window, _input.Touches.Feed);
+        }
+
         // The cursor may already be over the window, and a first click shouldn't need a move.
         glfw.GetCursorPos(window, out double cursorX, out double cursorY);
         glfw.GetWindowSize(window, out int width, out int height);

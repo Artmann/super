@@ -27,6 +27,7 @@ public sealed class Input
     {
         Mouse = new MouseInput(_tick);
         Gamepad = new GamepadInput(_tick);
+        Touches = new TouchInput(_tick);
     }
 
     /// <summary>The cursor, the wheel, and how the system shows the cursor.</summary>
@@ -34,6 +35,9 @@ public sealed class Input
 
     /// <summary>The gamepad's sticks and triggers, and whether one is connected.</summary>
     public GamepadInput Gamepad { get; }
+
+    /// <summary>The fingers on the screen. Those that land on the interface belong to it and aren't here.</summary>
+    public TouchInput Touches { get; }
 
     /// <summary>The characters typed this tick, for text fields.</summary>
     public string Typed { get => _tick.Read(field); private set; } = string.Empty;
@@ -88,6 +92,7 @@ public sealed class Input
         Typed = Keys.Roll();
         Mouse.Roll();
         Gamepad.Roll();
+        Touches.Roll();
 
         foreach (var listener in Listeners)
         {

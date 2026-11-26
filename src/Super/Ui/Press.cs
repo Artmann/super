@@ -170,3 +170,6 @@ internal sealed record SlideModifier(UiView Child, Action<float> Slide, float In
         return span <= 0f ? 0.5f : Math.Clamp((x - area.X - Inset) / span, 0f, 1f);
     }
 }
+
+/// <summary>Calls <paramref name="LongPress"/> when a finger holds still on the view for half a second.</summary>
+internal sealed record LongPressModifier(UiView Child, Action LongPress) : PointerModifier(Child);

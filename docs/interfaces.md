@@ -382,7 +382,8 @@ variations, in both themes. Run it to see what's there, or with `--story badges 
 to open one page. The `buttons`, `toggles`, `sliders`, `steppers`, `pickers`, `progress`
 and `gauges` stories keep their values, so you can try each control, and `text-fields` and
 `focus` show typing and moving with the keys. The `focus` and `typing` input scripts play
-those for a shot, with `--story focus --script focus`.
+those for a shot, with `--story focus --script focus`. The `touch` story and script show taps,
+long presses and flings.
 
 ![The storybook's shapes page in the dark theme](media/storybook.webp)
 
@@ -514,6 +515,64 @@ have a panel let clicks through to the game, as a stats readout should, use
 A `ListView` compares its list by reference, so hand it a new one when the items change.
 
 [The crafting bench](../examples/Crafting/CraftingGame.cs) uses all of this.
+
+## Touch
+
+On a touch screen, the interface works with a finger as it does with the mouse, and nothing
+needs to change to support it:
+
+| Finger | What it does |
+| --- | --- |
+| A tap | Clicks what's under it, as a click would. A text field it lands on takes focus |
+| A drag on a `ScrollView` | Moves it with the finger, and a quick one flings it on until it slows |
+| A drag on a slider | Follows the finger |
+| Holding still for half a second | Runs `.OnLongPress(...)` |
+
+A finger shows what it holds as pressed while it stays on it, and lifting it off there is no tap,
+just as with a button. Once a finger has moved more than a few pixels, the drag goes to the
+nearest scroll view that runs the way it mostly moved, so a strip that scrolls sideways inside a
+list that scrolls down takes sideways drags and leaves the rest to the list. A drag never taps.
+A finger on a list that's still flinging stops it. A finger never hovers, so tooltips stay with
+the mouse.
+
+`.OnLongPress(...)` is for what a right click or a held button does with the mouse, such as
+pinning a quest or showing more about an item. It runs on the tick the half second is up, while
+the finger is still down, and the lift after it doesn't tap. A view that's turned off ignores it:
+
+```csharp
+new QuestRow(quest)
+    .OnClick(() => journal.Pick(quest))
+    .OnLongPress(() => journal.Pin(quest));
+```
+
+The interface takes the first finger that lands on it. Fingers that land elsewhere, and a second
+finger while the first holds a control, go to the game in `input.Touches`. Each one has an `Id`
+that stays the same until it lifts, where it is, how far it moved this tick, and whether it came
+down or lifted since the last tick. A finger that lifted is in the list once more, marked
+`Released`:
+
+```csharp
+foreach (var touch in input.Touches)
+{
+    if (touch.Pressed)
+    {
+        aim.Start(touch.Id, touch.Position);
+    }
+    else if (touch.Released)
+    {
+        aim.Fire(touch.Id);
+    }
+    else
+    {
+        aim.Move(touch.Id, touch.Delta);
+    }
+}
+```
+
+![Quests flung down the list, one picked with a tap and one pinned with a long press](media/ui-touch.webp)
+
+Touch screens are read on Windows. Scripts and tests can touch on any system, with `TouchDown`,
+`TouchMove`, `TouchUp`, `Tap` and `Swipe`, as [Testing](testing.md) shows.
 
 ## Scale
 
@@ -656,5 +715,6 @@ stops repeating.
 
 ## Not yet
 
-There's no touch yet, text fields are one line only, and menus, sheets and dialogs aren't
-built in yet.
+Touch is read on Windows only, and only tried with scripts so far, not on a real touch screen.
+A finger can't drag and drop, there's no pinch or rotate, and a long press is for fingers only.
+Text fields are one line only, and menus, sheets and dialogs aren't built in yet.
