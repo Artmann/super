@@ -118,12 +118,149 @@ same way as `Quaternion.CreateFromAxisAngle(Vector3.UnitY, angle)` with a positi
 angle, so a building's cells and its model turn together. Negative turns go the other
 way, and four quarter turns or six sixth turns come back to where they started.
 
+## Mirroring
+
+`Cell.Mirror(cell, around)` flips a cell across the column of another, so X runs the
+other way, as a model scaled by −1 along X is. A hex's coordinates flip differently on
+pointy and flat grids, so for hexes ask the grid: `map.Mirror(hex, around)`. Mirroring
+twice gives the cell back.
+
+## Offset coordinates
+
+A hex map stored as a rectangle, such as one drawn in a tile editor or kept in a 2D
+array, uses offset coordinates: a column and a row. `map.ToOffset(hex)` gives them, and
+`map.FromOffset(column, row)` goes back. On a pointy grid every other row is pushed half
+a hex along +X, and on a flat grid every other column is pushed half a hex along +Z.
+`HexOffset.Odd`, the default, pushes rows or columns 1, 3, 5 and so on, and
+`HexOffset.Even` pushes 0, 2, 4. These are the guide's odd-r, even-r, odd-q and even-q.
+Do the maths in axial coordinates and only use offsets to store or show a hex.
+
+## How far a unit can walk
+
+`Reachable(start, budget, cost)` floods out from a cell and gives every cell a walk can
+reach without spending more than the budget, with the least it costs to get there. It
+suits a tactics unit's move range or how far a fire spreads. It isn't pathfinding, but
+it finds the cost of the cheapest path to every cell it reaches.
+
+```csharp
+IReadOnlyDictionary<Hex, float> range = Hex.Reachable(unit, 5f, hex =>
+    terrain.TryGet(hex, out var ground) ? ground.MoveCost : null);
+```
+
+The cost function says what stepping into a cell costs, or null where nothing can go,
+such as a wall or water. The start costs nothing and is always in the answer. A cost
+below 0 throws. `Cell.Reachable` steps across sides only. With `corners: true` it steps
+across corners too, at the same cost, and can slip between two walls that meet at a
+corner.
+
+## Footprints
+
+Something bigger than one cell, such as a 2 by 3 barn or a temple of three hexes, has a
+`Footprint`: the cells it covers, measured from its own cell 0, 0. `Footprints.Rectangle(2, 3)`
+makes a rectangle of squares, `Footprints.Hexagon(1)` makes a hex and its six
+neighbours, and `Footprints.Of(...)` takes any cells.
+
+```csharp
+var barn = Footprints.Rectangle(2, 3);
+bool fits = barn.Fits(under, turns, cell => !buildings.Contains(cell));
+view.Model(key, barnModel, transform, new Ghost(fits ? Green : Red, 0.6f));
+```
+
+`Fits(at, turns, isFree)` turns the footprint round its cell 0, 0 the way `Rotate` does,
+moves it to the cell, and asks `isFree` about each cell. `Placed(at, turns, span)`
+writes the cells it covers into a span, so placing a ghost every frame allocates
+nothing. `Mirrored(grid)` flips the footprint for a building drawn mirrored. Every turn
+keeps the same number of cells.
+
+## Keeping something in each cell
+
+`GridMap<TCell, T>` keeps a value in each cell: a building's entity, a tile, a cost or
+an owner. It has no edge, and cells below 0 work like any other.
+
+```csharp
+var buildings = new GridMap<Cell, Entity>();
+buildings.Set(cell, barn);
+if (buildings.TryGet(cell, out Entity there)) { ... }
+buildings.Remove(cell);
+```
+
+Cells are kept in blocks of 16 by 16, called chunks. `Chunks` lists the ones that hold
+anything, `InChunk(chunk)` walks one, and `ChunkVersion(chunk)` goes up whenever a cell
+in it changes, so drawing code can rebuild only the chunks that changed. `Version` goes
+up on any change. Walking the whole map with `foreach` gives each cell and its value,
+in no promised order.
+
+`GridMaps.ToJson(map)` saves a map, and `GridMaps.FromJson<Cell, T>(json)` loads it
+back, for a save game or a level file. The file lists each cell, row by row, so it
+reads well and changes little in a diff:
+
+```json
+{
+  "cells": [
+    { "at": [-3, 0], "value": { "name": "floor", "turns": 0 } },
+    { "at": [4, 1], "value": { "name": "wall", "turns": 2 } }
+  ]
+}
+```
+
+Values are written with System.Text.Json, in camelCase unless you pass your own
+options. A cell listed twice, or one whose `at` isn't two whole numbers, throws and
+says which one. An entity's ID only means something while the game runs, so save what
+the entity is, not the entity itself.
+
+## Naming grids
+
+The `Grids` service holds a game's grids by name, so any code can find one, and so the
+mouse can find which grid it's over. Ask for it in a constructor:
+
+```csharp
+public sealed class MyGame(Grids grids, Input input, World world) : IGame
+{
+    public void Load()
+    {
+        grids.Add("build", new SquareGrid(2f));
+        grids.Add("deck", deckGrid, cell => deck.Contains(cell));
+    }
+
+    public void Update(GameTime time)
+    {
+        if (world.ActiveCamera() is { } camera && grids.Under(input.Mouse.Ray(camera)) is { Name: "deck" } hit)
+        {
+            Cell cell = hit.Cell<Cell>();
+        }
+    }
+}
+```
+
+`Under(ray)` gives the grid the ray meets first, where it met it and how far along the
+ray. A grid's plane has no edge, so pass a third argument to `Add` saying which cells
+the grid has, and `Under` looks past the rest. `Get<Cell>("build")` gives a grid back,
+and throws when there's none by that name or its cells are hexes.
+
+`SquareGrid` and `HexGrid` share `IGrid<TCell>`, so code that takes one works with
+either. Through it a hex grid's `HexAt` is called `CellAt`.
+
+## Floors
+
+`LayeredGrid` repeats one grid at several heights, for the floors of a building or the
+levels of a dungeon:
+
+```csharp
+var floors = new LayeredGrid<Cell>(new SquareGrid(1f), 0f, 3f, 6f);
+var (floor, cell) = floors.CellAt(player.Position);
+Vector3 stairsTop = floors[1].Center(stairs);
+```
+
+Each layer has the ground's cells and turn, raised along the ground's up, so setting
+`Placement` moves every floor together. `LayerAt(position)` gives the highest floor at
+or below a point. A point a centimetre under a floor still counts as on it, so feet
+that sink a little don't drop a floor. To pick on one floor with the mouse, use that
+layer's grid: `floors[current].CellAt(ray)`.
+
 ## What's not here yet
 
-Some parts of issue #31 aren't built yet:
-
-- Footprints for things that cover more than one cell, with a check that one fits.
-- `GridMap` storage, a registry of named grids, and stacked grids for floors.
-- Offset coordinates for hexes.
-- Flood fills for the cells a budget can reach.
 - Drawing the grid on screen, which is issue #33.
+- Tile maps of modular pieces on a grid, which is issue #32.
+- `GridMap` has no dense form for small bounded maps. The chunked one does both.
+- `Reachable` has no rule against cutting a corner past a wall when it steps across
+  corners.

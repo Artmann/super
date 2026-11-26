@@ -4,7 +4,7 @@ namespace Super;
 /// A square on a <see cref="SquareGrid"/>: its column along the grid's X and its row along its Z. Cells compare and hash
 /// by value, so they work as dictionary keys. See docs/grids.md.
 /// </summary>
-public readonly record struct Cell(int X, int Z)
+public readonly record struct Cell(int X, int Z) : IGridCell<Cell>
 {
     private static readonly Cell[] _sides = [new(1, 0), new(0, 1), new(-1, 0), new(0, -1)];
     private static readonly Cell[] _around = [new(1, 0), new(1, 1), new(0, 1), new(-1, 1), new(-1, 0), new(-1, -1), new(0, -1), new(1, -1)];
@@ -107,6 +107,25 @@ public readonly record struct Cell(int X, int Z)
 
         return around + offset;
     }
+
+    /// <summary>
+    /// A cell flipped across the column of <paramref name="around"/>, so X runs the other way, as a model scaled by −1
+    /// along X is. Mirroring twice gives the cell back.
+    /// </summary>
+    public static Cell Mirror(Cell cell, Cell around) => new(2 * around.X - cell.X, cell.Z);
+
+    /// <summary>
+    /// Every cell a walk from <paramref name="start"/> can reach without spending more than <paramref name="budget"/>,
+    /// with the least it costs to get there. <paramref name="cost"/> says what stepping into a cell costs, or null
+    /// where nothing can go. The start costs nothing. With <paramref name="corners"/>, steps across corners cost the
+    /// same as steps across sides, as a king moves, and may pass between two blocked cells.
+    /// </summary>
+    public static IReadOnlyDictionary<Cell, float> Reachable(Cell start, float budget, Func<Cell, float?> cost, bool corners = false) =>
+        GridSearch.Reachable(start, budget, cost, corners ? _around : _sides);
+
+    (int A, int B) IGridCell<Cell>.Pair => (X, Z);
+
+    static Cell IGridCell<Cell>.FromPair(int a, int b) => new(a, b);
 
     private static int Nearest(int from, int to, float t, float nudge) =>
         (int)MathF.Round(from + (to - from) * t + nudge, MidpointRounding.AwayFromZero);

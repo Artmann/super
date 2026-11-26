@@ -8,7 +8,7 @@ namespace Super;
 /// level. Cell 0, 0 runs from the grid's origin to one cell size along its X and Z. A game can have as many as it
 /// needs, each with its own size and placement. See docs/grids.md.
 /// </summary>
-public sealed class SquareGrid
+public sealed class SquareGrid : IGrid<Cell>
 {
     /// <summary>A grid of cells <paramref name="cellSize"/> wide along X and deep along Z, in metres.</summary>
     public SquareGrid(Vector2 cellSize, GridPlacement placement = default)
@@ -59,6 +59,14 @@ public sealed class SquareGrid
         corners[2] = Placement.InWorld(low + CellSize);
         corners[3] = Placement.InWorld(low + new Vector2(0f, CellSize.Y));
     }
+
+    /// <summary>A cell flipped across the column of <paramref name="around"/>, as <see cref="Cell.Mirror"/> does.</summary>
+    public Cell Mirror(Cell cell, Cell around) => Cell.Mirror(cell, around);
+
+    /// <summary>A grid with the same cells, sitting at <paramref name="placement"/> instead.</summary>
+    public SquareGrid MovedTo(GridPlacement placement) => new(CellSize, placement);
+
+    IGrid<Cell> IGrid<Cell>.MovedTo(GridPlacement placement) => MovedTo(placement);
 
     private Cell CellOn(Vector2 onGrid)
     {
