@@ -120,8 +120,9 @@ placed in the world is folded to mono.
 | `pitchVariation` | How far the pitch may move up or down each play, from 0 up to 1. 0.05 is ±5% | 0 |
 | `near` | Full volume up to this many metres, 0 or more | 2 |
 | `far` | Silent from this many metres, beyond `near` | 50 |
+| `doppler` | How much the pitch follows the [Doppler effect](#doppler), 0 or more. 1 is as in air | 1 |
 
-A volume below 0, a `pitchVariation` outside 0 up to 1, a negative `near`, a `far` not
+A volume below 0, a negative `doppler`, a `pitchVariation` outside 0 up to 1, a negative `near`, a `far` not
 beyond `near` or an `at` that isn't a finite position throws
 `ArgumentOutOfRangeException` naming the argument. Pitch variation is picked from audio's
 own random stream, never the game's `GameRandom`, so playing sounds can't change how a
@@ -153,13 +154,15 @@ world.Add(machine, new Sound(content.Sounds.Sound("sounds/hum.ogg"), Volume: 0.6
 | `Volume` | 0 or more | 1 |
 | `Channel` | The channel to play on | `Effects` |
 | `Near`, `Far` | Full volume within `Near` metres, silent from `Far` | 2, 50 |
+| `Doppler` | How much the pitch follows the [Doppler effect](#doppler) as the entity moves, 0 or more | 1 |
 
 - With a `Transform` it's placed where the entity is drawn, blended between ticks
   and following its `Parent`, and follows it. Without one it's flat, but it still follows the time scale:
   it pauses at `Scale` 0 and slows below 1, unlike a flat `audio.Play`.
 - It fades in over 0.1 s. Removing the component or destroying the entity fades it out. So does giving the entity, or one of its parents, [`Hidden`](ecs.md)
   over 0.3 s. An entity that has a `Sound` when the game loads simply starts playing.
-- Changing `Volume` fades to it over 0.1 s. Changing `Clip`, `Channel`, `Near`, `Far`, or
+- Changing `Volume` fades to it over 0.1 s, and changing `Doppler` takes effect at once.
+  Changing `Clip`, `Channel`, `Near`, `Far`, or
   whether the entity has a `Transform`, fades the old sound out and starts the new one.
 - A sound that can't start, such as when all 1024 ids are in use, is tried again each
   frame until it can.
@@ -187,7 +190,7 @@ changed, so a thousand still sounds cost nothing frame to frame. The flip side: 
 the mixer is full and a move or volume change is dropped, it isn't sent again until that value
 changes again.
 
-A bad value on a component, such as a negative `Volume`, a `Far` that isn't beyond `Near` or a
+A bad value on a component, such as a negative `Volume` or `Doppler`, a `Far` that isn't beyond `Near` or a
 position that isn't finite, throws `ArgumentOutOfRangeException` from the frame, naming the
 entity and the field. The sounds already playing carry on, and once the value is fixed (or the
 component removed) the next frame picks up from there without restarting or doubling anything.
@@ -246,6 +249,33 @@ pause.OnExit(Pause.Paused, () => time.Scale = 1);
 ```
 
 The scale is read once a frame, along with the camera.
+
+## Doppler
+
+A placed sound rises in pitch as it and the camera come together and falls as they part, so
+a cart rushing past or an arrow whizzing by sweeps down as it goes. The pitch is
+`(c + the camera's speed towards the sound) / (c + the sound's speed away from the camera)`,
+with `c` the speed of sound, 343 m/s, and it's kept within an octave either way (0.5 to 2).
+A sound passing at 34 m/s, about 120 km/h, is 11% higher coming and 9% lower going.
+
+Super works out the speeds itself, from where the camera and each `Sound` entity are drawn on
+each frame, smoothed over about 0.1 s so an uneven frame doesn't wobble the pitch. A jump
+faster than 100 m/s, such as a teleport or a camera cut, counts as standing still rather than
+as a swoop. A one-shot `audio.Play(at:)` stays where it started, so only the camera's own
+movement bends its pitch.
+
+Speeds are measured in seconds on screen, so in slow motion a moving thing bends the pitch
+less, as it moves less each second. Flat sounds have no Doppler.
+
+Set `Doppler` on a `Sound`, or `doppler:` on `Play`, to 0 for a sound that should keep its
+pitch, such as a voice line following a character. `audio.Doppler` scales it for every
+sound at once: 0 turns it off, and above 1 makes a cartoonish swoop. It starts at 1, and a
+value below 0 throws `ArgumentOutOfRangeException`.
+
+```csharp
+audio.Doppler = 0.5f;
+world.Add(cart, new Sound(rattle, Near: 4, Far: 60, Doppler: 1.5f));
+```
 
 ## Speakers
 

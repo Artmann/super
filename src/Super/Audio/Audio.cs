@@ -19,6 +19,8 @@ public sealed class Audio
     private readonly RandomStream _pitch;
     private readonly AudioCommands _commands = new();
     private readonly float[] _volumes = new float[Enum.GetValues<Channel>().Length];
+    private HeardMotion _listenerMotion;
+    private float _dopplerScale = 1;
 
     /// <param name="content">Where clips and ambiences are named.</param>
     /// <param name="seed">
@@ -75,9 +77,11 @@ public sealed class Audio
     /// Plays a clip once. Without <paramref name="at"/> it's flat, on <see cref="Channel.Interface"/>, and ignores the
     /// time scale. With it, it's placed in the world on <see cref="Channel.Effects"/>: full volume within
     /// <paramref name="near"/> metres of the camera, silent from <paramref name="far"/>, panned by where it is, and
-    /// slowed and paused by <see cref="GameTime.Scale"/>.
+    /// slowed and paused by <see cref="GameTime.Scale"/>. A placed sound stays where it started, but its pitch still
+    /// follows the camera's own movement through the Doppler effect.
     /// </summary>
     /// <param name="pitchVariation">How far the pitch may move up or down, from 0 up to 1. 0.05 is ±5%.</param>
+    /// <param name="doppler">How much a placed sound's pitch follows the Doppler effect: 0 not at all, 1 as in air.</param>
     public void Play(
         SoundRef clip,
         Vector3? at = null,
@@ -85,9 +89,11 @@ public sealed class Audio
         Channel? channel = null,
         float pitchVariation = 0,
         float near = 2,
-        float far = 50)
+        float far = 50,
+        float doppler = 1)
     {
         AudioChecks.CheckVolume(volume, nameof(volume));
+        AudioChecks.CheckDoppler(doppler, nameof(doppler));
         if (!(pitchVariation >= 0 && pitchVariation < 1))
         {
             throw new ArgumentOutOfRangeException(nameof(pitchVariation), pitchVariation, "pitchVariation must be from 0 up to, but not including, 1.");
@@ -107,6 +113,7 @@ public sealed class Audio
             Near = near,
             Far = far,
             FollowsScale = at.HasValue,
+            Doppler = doppler,
         };
         _commands.Push(new AudioCommand { Kind = AudioCommandKind.StartVoice, Id = AudioIdPool.NoId, Start = start });
     }
@@ -142,12 +149,34 @@ public sealed class Audio
     }
 
     /// <summary>
-    /// Ends the frame: sends the camera as the listener and the time scale, then hands over everything queued since
-    /// the last hand-over.
+    /// How strong the Doppler effect is for every placed sound, on top of each one's own amount: 1 as in air, 0 off,
+    /// and above 1 for a cartoonish swoop. It starts at 1.
     /// </summary>
-    internal void EndFrame(Camera listener, float scale)
+    public float Doppler
     {
-        _commands.Push(new AudioCommand { Kind = AudioCommandKind.Listener, Position = listener.Position, Forward = listener.Target - listener.Position });
+        get => _dopplerScale;
+        set
+        {
+            AudioChecks.CheckDoppler(value, nameof(Doppler));
+            _dopplerScale = value;
+            _commands.Push(new AudioCommand { Kind = AudioCommandKind.DopplerScale, Value = value });
+        }
+    }
+
+    /// <summary>
+    /// Ends the frame: sends the camera as the listener, with how fast it moved up to <paramref name="now"/> (the
+    /// time on screen, in seconds), and the time scale, then hands over everything queued since the last hand-over.
+    /// </summary>
+    internal void EndFrame(Camera listener, float scale, double now)
+    {
+        Vector3 velocity = _listenerMotion.Update(listener.Position, now);
+        _commands.Push(new AudioCommand
+        {
+            Kind = AudioCommandKind.Listener,
+            Position = listener.Position,
+            Forward = listener.Target - listener.Position,
+            Velocity = velocity,
+        });
         _commands.Push(new AudioCommand { Kind = AudioCommandKind.WorldRate, Value = scale });
         _commands.Publish();
     }

@@ -362,6 +362,82 @@ public class SoundTests
         Assert.True(creak.Seconds > heard);
     }
 
+    /// <summary>
+    /// Moves a creak at the camera along −Z at a tenth of the speed of sound, 34.3 m/s, from 60 m away, and returns
+    /// how many seconds of the clip played in half a second, once the speed has settled.
+    /// </summary>
+    private static double HalfASecondComingCloser(HeadlessRun<Hearing> run, float doppler = 1)
+    {
+        World world = run.Game.World;
+        Vector3 at = new(0f, 0f, -60f);
+        Entity entity = world.Create();
+        world.Add(entity, new Sound(run.Game.Creak, Doppler: doppler));
+        world.Add(entity, Transform.At(at));
+        run.Game.Step = () =>
+        {
+            at.Z += 34.3f / 30f;
+            world.Add(entity, Transform.At(at));
+        };
+
+        run.Ticks(15);
+        double before = Find(run, "creak.wav").Seconds;
+        run.Ticks(15);
+        return Find(run, "creak.wav").Seconds - before;
+    }
+
+    [Fact]
+    public void A_sound_coming_at_the_camera_plays_higher()
+    {
+        using var run = Start();
+
+        // 343 / (343 - 34.3) = 1.1111 times as fast.
+        Assert.Equal(0.5 * 1.1111, HalfASecondComingCloser(run), 0.002);
+    }
+
+    [Fact]
+    public void A_sound_with_no_doppler_keeps_its_pitch_as_it_comes_closer()
+    {
+        using var run = Start();
+
+        Assert.Equal(0.5, HalfASecondComingCloser(run, doppler: 0), 0.0005);
+    }
+
+    [Fact]
+    public void Turning_doppler_off_for_all_sounds_keeps_their_pitch()
+    {
+        using var run = Start();
+        run.Game.Audio.Doppler = 0;
+
+        Assert.Equal(0.5, HalfASecondComingCloser(run), 0.0005);
+    }
+
+    [Fact]
+    public void A_teleport_does_not_bend_the_pitch()
+    {
+        using var run = Start();
+        World world = run.Game.World;
+        Entity entity = Make(run, run.Game.Creak, new Vector3(0f, 0f, -40f));
+        run.Ticks(6);
+
+        // 30 m in one tick, 900 m/s.
+        world.Add(entity, Transform.At(new Vector3(0f, 0f, -10f)));
+        double before = Find(run, "creak.wav").Seconds;
+        run.Ticks(3);
+
+        Assert.Equal(0.1, Find(run, "creak.wav").Seconds - before, 0.0005);
+    }
+
+    [Fact]
+    public void A_negative_doppler_throws_naming_the_entity()
+    {
+        using var run = Start();
+        Entity entity = run.Game.World.Spawn(new Sound(run.Game.Creak, Doppler: -1f));
+
+        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => run.Frame(1f));
+
+        Assert.StartsWith($"Entity {entity.Id}'s Sound has Doppler -1; it must be a number of at least 0.", problem.Message);
+    }
+
     [Fact]
     public void ANonFinitePositionThrowsNamingTheEntity()
     {

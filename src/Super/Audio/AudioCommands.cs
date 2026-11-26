@@ -13,7 +13,10 @@ internal enum AudioCommandKind : byte
     /// <summary>Fades the voice to <see cref="AudioCommand.Value"/> over <see cref="AudioCommand.FadeSeconds"/>.</summary>
     VoiceVolume,
 
-    /// <summary>Moves a placed voice to <see cref="AudioCommand.Position"/>.</summary>
+    /// <summary>
+    /// Moves a placed voice to <see cref="AudioCommand.Position"/>, moving at <see cref="AudioCommand.Velocity"/>, with
+    /// <see cref="AudioCommand.Value"/> as its Doppler amount.
+    /// </summary>
     MoveVoice,
 
     /// <summary>Starts <see cref="AudioCommand.Ambience"/> at <see cref="AudioCommand.Value"/> as the ambience <see cref="AudioCommand.Id"/>.</summary>
@@ -26,11 +29,17 @@ internal enum AudioCommandKind : byte
     /// <summary>Sets <see cref="AudioCommand.Channel"/> to <see cref="AudioCommand.Value"/>.</summary>
     ChannelVolume,
 
-    /// <summary>Hears placed voices from <see cref="AudioCommand.Position"/>, facing <see cref="AudioCommand.Forward"/>.</summary>
+    /// <summary>
+    /// Hears placed voices from <see cref="AudioCommand.Position"/>, facing <see cref="AudioCommand.Forward"/> and
+    /// moving at <see cref="AudioCommand.Velocity"/>.
+    /// </summary>
     Listener,
 
     /// <summary>Sets the world's time scale to <see cref="AudioCommand.Value"/>.</summary>
     WorldRate,
+
+    /// <summary>Scales every voice's Doppler amount by <see cref="AudioCommand.Value"/>.</summary>
+    DopplerScale,
 }
 
 /// <summary>One change the game thread asks of the mixer. Which fields count depends on <see cref="Kind"/>.</summary>
@@ -48,6 +57,7 @@ internal struct AudioCommand
     public float FadeSeconds;
     public Vector3 Position;
     public Vector3 Forward;
+    public Vector3 Velocity;
 }
 
 /// <summary>

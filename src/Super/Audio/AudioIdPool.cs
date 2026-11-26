@@ -92,6 +92,14 @@ internal static class AudioChecks
         }
     }
 
+    public static void CheckDoppler(float doppler, string name)
+    {
+        if (!(doppler >= 0) || !float.IsFinite(doppler))
+        {
+            throw new ArgumentOutOfRangeException(name, doppler, $"{name} must be a number of at least zero.");
+        }
+    }
+
     public static void CheckChannel(Channel channel, string name)
     {
         if ((uint)channel > (uint)Channel.Interface)

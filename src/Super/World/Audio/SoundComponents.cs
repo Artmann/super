@@ -5,9 +5,10 @@ namespace Super;
 /// <see cref="Parent"/>, as for drawing) the sound sits where the entity is drawn and
 /// follows it; without one it's flat. It fades in over 0.1 s when added and out over 0.3 s when removed or when its
 /// entity goes, and it pauses and slows with <see cref="GameTime.Scale"/>. Near and Far are the distances, in
-/// metres, within which it's at full volume and beyond which it's silent.
+/// metres, within which it's at full volume and beyond which it's silent. Doppler is how much a placed sound's pitch
+/// rises as it and the camera come together and falls as they part: 1 as in air, 0 not at all.
 /// </summary>
-public record struct Sound(SoundRef Clip, float Volume = 1, Channel Channel = Channel.Effects, float Near = 2, float Far = 50);
+public record struct Sound(SoundRef Clip, float Volume = 1, Channel Channel = Channel.Effects, float Near = 2, float Far = 50, float Doppler = 1);
 
 /// <summary>
 /// Makes an entity play an ambience for as long as it has this: it fades in over 2 s and out over 2 s. Put it on an

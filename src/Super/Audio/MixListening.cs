@@ -11,7 +11,9 @@ internal sealed class MixListening
     private readonly float[] _channelVolumes = new float[Enum.GetValues<Channel>().Length];
     private Vector3 _listener;
     private Vector3 _forward = -Vector3.UnitZ;
+    private Vector3 _listenerVelocity;
     private float _worldRate = 1;
+    private float _dopplerScale = 1;
 
     public MixListening()
     {
@@ -23,11 +25,34 @@ internal sealed class MixListening
         _channelVolumes[(int)channel] = volume;
     }
 
-    /// <summary>Where placed voices are heard from, from the next mixed frame.</summary>
-    public void SetListener(Vector3 position, Vector3 forward)
+    /// <summary>Where placed voices are heard from, from the next mixed frame, and how fast the listener moves.</summary>
+    public void SetListener(Vector3 position, Vector3 forward, Vector3 velocity = default)
     {
         _listener = position;
         _forward = forward;
+        _listenerVelocity = velocity;
+    }
+
+    /// <summary>Scales every placed voice's Doppler amount: 0 turns the effect off, 1 leaves each voice's own.</summary>
+    public void SetDopplerScale(float scale)
+    {
+        _dopplerScale = Math.Max(0, scale);
+    }
+
+    /// <summary>
+    /// How much the Doppler effect raises the voice's pitch: 1 for a flat voice or one with no Doppler amount,
+    /// otherwise from both velocities scaled by the voice's amount and the global scale.
+    /// </summary>
+    public float Doppler(Voice voice)
+    {
+        ref readonly VoiceStart setup = ref voice.Setup;
+        float amount = setup.Doppler * _dopplerScale;
+        if (!voice.Placed || !(amount > 0))
+        {
+            return 1;
+        }
+
+        return Spatial.Doppler(_listener, _listenerVelocity * amount, voice.Position, setup.Velocity * amount);
     }
 
     /// <summary>The world's time scale. Voices that follow it play slower and lower below 1, and hold at 0.</summary>
@@ -58,11 +83,11 @@ internal sealed class MixListening
         return Spatial.Pan(_listener, _forward, position);
     }
 
-    /// <summary>Source frames the voice moves on per output frame.</summary>
+    /// <summary>Source frames the voice moves on per output frame: its pitch, the Doppler effect and the world rate.</summary>
     public double SourceStep(Voice voice)
     {
         ref readonly VoiceStart setup = ref voice.Setup;
-        double step = (double)setup.Clip.SampleRate / MixRate.SampleRate * setup.Pitch;
+        double step = (double)setup.Clip.SampleRate / MixRate.SampleRate * setup.Pitch * Doppler(voice);
         if (setup.FollowsScale)
         {
             step *= _worldRate;

@@ -132,7 +132,7 @@ internal sealed class MixCommandApplier
                 _mixer.SetVolume(_voices.MixerId(command.Id), command.Value, command.FadeSeconds);
                 return true;
             case AudioCommandKind.MoveVoice:
-                _mixer.SetPosition(_voices.MixerId(command.Id), command.Position);
+                _mixer.SetPosition(_voices.MixerId(command.Id), command.Position, command.Velocity, command.Value);
                 return true;
             default:
                 return false;
@@ -166,10 +166,13 @@ internal sealed class MixCommandApplier
                 _mixer.Listening.SetChannelVolume(command.Channel, command.Value);
                 break;
             case AudioCommandKind.Listener:
-                _mixer.Listening.SetListener(command.Position, command.Forward);
+                _mixer.Listening.SetListener(command.Position, command.Forward, command.Velocity);
                 break;
             case AudioCommandKind.WorldRate:
                 _mixer.Listening.SetWorldRate(command.Value);
+                break;
+            case AudioCommandKind.DopplerScale:
+                _mixer.Listening.SetDopplerScale(command.Value);
                 break;
         }
     }
