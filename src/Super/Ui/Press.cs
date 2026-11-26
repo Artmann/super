@@ -16,7 +16,8 @@ public sealed record Pressable(Func<PressState, UiView> Content, Action? OnClick
         {
             var look = UseState(default(PressState));
             bool off = Disabled || Environment.Disabled;
-            return new ClickModifier(Content(off ? default : look.Value), OnClick, look, off);
+            var click = new ClickModifier(Content(off ? default : look.Value), OnClick, look, off);
+            return new FocusModifier(click, new FocusKeys { Disabled = off });
         }
     }
 }

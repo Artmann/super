@@ -116,7 +116,8 @@ that isn't meant to be cut, and clashing ids.
 2. Button styles, `Toggle`, `Slider`, `Stepper`, segmented `Picker`, `ProgressView`,
    `Gauge`, semantics. Done, with a radio `Picker` too. The indeterminate spinner and the
    switch's moving knob need the UI clock, so they moved to step 7.
-3. Focus, keyboard and gamepad navigation; `TextField`, `SecureField`.
+3. Focus, keyboard and gamepad navigation; `TextField`, `SecureField`. Done. Fields are one
+   line; a multi-line `TextEditor` and selecting text with the mouse are left for later.
 4. Touch.
 5. Popups: `Menu`, context menu, menu `Picker`, `Sheet`, `Alert`, `Popover`, `Toast`.
 6. Containers and layout: `TabView`, `DisclosureGroup`, `Form`, `NavigationStack`,

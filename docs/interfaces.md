@@ -292,12 +292,97 @@ new Knob(level)
 as long as the left button stays down. `inset` keeps that much of each end out of the
 range, for a thumb whose middle stops short of the edge.
 
+## Focus, the keyboard and the gamepad
+
+Every built-in control can take focus, so a menu works without a mouse. The focused control
+has a ring round it:
+
+| Input | What it does |
+| --- | --- |
+| Tab, Shift+Tab | The next or the previous control, in the order they're laid out, round to the start again |
+| The arrows, the d-pad, the left stick | The nearest control that way. On a slider, stepper or picker, left and right change its value instead |
+| Enter, Space, the gamepad's South button | Presses the focused control |
+| Escape, the gamepad's East button | Leaves a text field |
+
+Held, the d-pad and the stick move once, then after a short wait again and again. A control
+that's turned off, hidden or gone is passed by, and when the focused one goes, focus lets go.
+A click anywhere but a text field lets go too, and the ring stays hidden while the mouse is
+in use: the first arrow after a click only shows it again.
+
+![Focus on a level button, passing the locked one by, and typing into a secure field](media/ui-focus-and-text-fields.webp)
+
+Keys and buttons the interface uses are taken from the game. While a control has focus,
+`input.Pressed(Key.Enter)` stays false for the press that pressed it, and the game sees no part of
+it, not even the release. The same goes for the gamepad's buttons, and the left stick reads as
+centred while it steers. With nothing focused, every key and button goes to the game, so a game
+with no interface on screen sees all its input as before.
+
+`.DefaultFocus()` gives focus to the first control inside it as soon as it appears, with the
+ring hidden. A main menu wants that, so the gamepad's South button starts the game from the
+start. With nothing focused, the arrows come back to it:
+
+```csharp
+new VStack(Spacing: 12f)
+{
+    new Button("Play", game.Start),
+    new Button("Options", () => screen = Screen.Options) { Style = ButtonStyle.Secondary },
+    new Button("Quit", game.Quit) { Style = ButtonStyle.Ghost },
+}.DefaultFocus()
+```
+
+Without one, Tab still starts on the first control, and the arrows stay with the game until
+something has focus.
+
+`.Focusable(...)` makes a view of your own a stop. It takes what Enter does and, for a
+control with a value, what left and right do, as -1 or 1. Leave the first out to press the
+click inside the view. A focusable view holds whatever can take focus inside it, so a
+stepper's two buttons are one stop:
+
+```csharp
+new Card(chest)
+    .Focusable(() => chest.Open(), step => chest.Turn(step))
+    .Semantics(UiRole.Button, "Old chest");
+```
+
+A focused control inside a `ScrollView` is scrolled into view.
+
+## Text fields
+
+`TextField` is one line of text to type. It's a control like the others: give it the text
+and store what `OnChange` hands back. The prompt shows in a muted colour while it's empty.
+`SecureField` shows a dot for each character and won't copy or cut:
+
+```csharp
+new TextField("Player name", profile.Name, name => profile.Name = name),
+new SecureField("Password", login.Password, password => login.Password = password)
+{
+    OnSubmit = _ => login.SignIn(),
+},
+```
+
+A click or Tab focuses a field, and a click places the caret. A focused field takes every key
+except the modifiers and F1 to F25, so typing a W doesn't walk the player. Tab, Up, Down, Enter
+and Escape leave it, and Enter calls `OnSubmit` first. Inside the field:
+
+| Keys | What they do |
+| --- | --- |
+| Left, Right, Home, End | Move the caret. With Ctrl (Command on a Mac) Left and Right go a word at a time |
+| Shift with any of those | Selects |
+| Backspace, Delete | Delete a character, the selection, or with Ctrl (Command) a word |
+| Ctrl+A, C, X, V (Command on a Mac) | Select all, copy, cut and paste. A paste becomes one line |
+
+`OnChange` runs once a tick at most, with the text as it ends up, however many keys came in.
+Characters below a space are dropped. A field that's `Disabled`, or inside `.Disabled()`,
+fades and can't be focused.
+
 ## The storybook
 
 The [Storybook example](../examples/Storybook) shows every element on its own and in its
 variations, in both themes. Run it to see what's there, or with `--story badges --theme light`
 to open one page. The `buttons`, `toggles`, `sliders`, `steppers`, `pickers`, `progress`
-and `gauges` stories keep their values, so you can try each control.
+and `gauges` stories keep their values, so you can try each control, and `text-fields` and
+`focus` show typing and moving with the keys. The `focus` and `typing` input scripts play
+those for a shot, with `--story focus --script focus`.
 
 ![The storybook's shapes page in the dark theme](media/storybook.webp)
 
@@ -571,4 +656,5 @@ stops repeating.
 
 ## Not yet
 
-There are no text inputs, and the interface can't be driven by keyboard, gamepad or touch yet. Toggles, sliders, pickers, menus and dialogs aren't built in yet either.
+There's no touch yet, text fields are one line only, and menus, sheets and dialogs aren't
+built in yet.

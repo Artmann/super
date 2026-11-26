@@ -29,7 +29,19 @@ public sealed record Slider(float Value, Action<float>? OnChange = null, float M
             var bar = new MeterBar(fraction, colors.Primary, MathF.Round(thumb * 0.375f), thumb)
                 .Frame(maxWidth: UiExtensions.Infinity, minHeight: metrics.Height);
             var slider = new SlideModifier(bar, Slid, thumb / 2f, off).Opacity(off ? 0.5f : 1f);
-            return new SemanticsModifier(slider, new UiSemantics(UiRole.Slider, Label, UiSemantics.Number(Value)) { Disabled = off });
+            var meaning = new SemanticsModifier(slider, new UiSemantics(UiRole.Slider, Label, UiSemantics.Number(Value)) { Disabled = off });
+            return new FocusModifier(meaning, new FocusKeys { Adjust = Nudged, Disabled = off });
+        }
+    }
+
+    /// <summary>What left and right move it by: a step, or a twentieth of the range when it moves smoothly.</summary>
+    private void Nudged(int by)
+    {
+        float step = Step > 0f ? Step : (Max - Min) / 20f;
+        float value = Math.Clamp(Value + by * step, Math.Min(Min, Max), Math.Max(Min, Max));
+        if (value != Value)
+        {
+            OnChange?.Invoke(value);
         }
     }
 

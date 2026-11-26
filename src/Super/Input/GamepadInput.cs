@@ -29,6 +29,12 @@ public sealed class GamepadInput
 
     internal ButtonSet Buttons { get; } = new(ButtonCount);
 
+    /// <summary>When set, the next tick sees the left stick centred, because the interface is steering with it.</summary>
+    internal bool LeftStickTaken { get; set; }
+
+    /// <summary>The left stick as polled since the last tick, before the dead zone, with forward positive.</summary>
+    internal Vector2 PendingLeftStick => new(_pendingAxes[0], -_pendingAxes[1]);
+
     /// <summary>A stick's position, from -1 to 1 on each axis with forward positive, after the dead zone.</summary>
     public Vector2 Stick(GamepadStick stick)
     {
@@ -83,6 +89,12 @@ public sealed class GamepadInput
     {
         Buttons.Roll();
         _pendingAxes.CopyTo(_axes, 0);
+        if (LeftStickTaken)
+        {
+            _axes[0] = 0f;
+            _axes[1] = 0f;
+        }
+
         Connected = _pendingConnected;
     }
 

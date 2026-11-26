@@ -36,9 +36,21 @@ public sealed record Stepper(string Label, int Value, Action<int>? OnChange = nu
             UiView stepper = Label.Length == 0
                 ? buttons
                 : new HStack(Spacing: metrics.Gap) { new Text(Label).FontSize(metrics.FontSize), new Spacer(), buttons };
-            return new SemanticsModifier(
+            var meaning = new SemanticsModifier(
                 stepper,
                 new UiSemantics(UiRole.Stepper, Label, Value.ToString(CultureInfo.InvariantCulture)) { Disabled = off });
+
+            // One stop for the whole stepper: left and right step it, and its buttons aren't stops of their own.
+            return new FocusModifier(meaning, new FocusKeys { Adjust = Stepped, Activate = () => { }, Disabled = off });
+        }
+    }
+
+    private void Stepped(int by)
+    {
+        int next = Next(by * Step);
+        if (next != Value)
+        {
+            OnChange?.Invoke(next);
         }
     }
 

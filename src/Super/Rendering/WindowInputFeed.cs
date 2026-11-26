@@ -44,6 +44,7 @@ internal sealed unsafe class WindowInputFeed
         glfw.SetCursorEnterCallback(window, _onCursorEnter);
         glfw.SetScrollCallback(window, _onScroll);
         glfw.SetCharCallback(window, _onChar);
+        _input.Keys.Clipboard = new WindowClipboard(_window);
 
         // The cursor may already be over the window, and a first click shouldn't need a move.
         glfw.GetCursorPos(window, out double cursorX, out double cursorY);
@@ -56,8 +57,14 @@ internal sealed unsafe class WindowInputFeed
 
     private void OnKey(WindowHandle* window, Silk.NET.GLFW.Keys key, int scanCode, InputAction action, KeyModifiers mods)
     {
-        if (action == InputAction.Repeat || !GlfwInput.TryMapKey((int)key, out var mapped))
+        if (!GlfwInput.TryMapKey((int)key, out var mapped))
         {
+            return;
+        }
+
+        if (action == InputAction.Repeat)
+        {
+            _input.Keys.Repeated(mapped);
             return;
         }
 
@@ -115,5 +122,15 @@ internal sealed unsafe class WindowInputFeed
         {
             _input.TypedCharacter(character);
         }
+    }
+}
+
+/// <summary>The system's clipboard, through the window. GLFW gives back null when it holds no text.</summary>
+internal sealed unsafe class WindowClipboard(OsWindow window) : GameClipboard
+{
+    public override string Text
+    {
+        get => window.GlfwApi.GetClipboardString(window.NativeWindow) ?? string.Empty;
+        set => window.GlfwApi.SetClipboardString(window.NativeWindow, value);
     }
 }

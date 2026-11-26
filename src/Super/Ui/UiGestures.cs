@@ -189,10 +189,9 @@ internal sealed class UiGestures(UiTree tree, Input input)
     /// <summary>On a Mac, Cmd counts as Control: Ctrl with a click means a right-click there.</summary>
     private DragStart Start(MouseButton button) => new(
         button,
-        Shift: input.Held(Key.LeftShift) || input.Held(Key.RightShift),
-        Control: input.Held(Key.LeftControl) || input.Held(Key.RightControl)
-            || (OperatingSystem.IsMacOS() && (input.Held(Key.LeftSuper) || input.Held(Key.RightSuper))),
-        Alt: input.Held(Key.LeftAlt) || input.Held(Key.RightAlt));
+        Shift: input.Keys.Shift,
+        Control: input.Keys.Command,
+        Alt: input.Keys.Alt);
 
     /// <summary>What the left button is holding in the interface.</summary>
     private abstract record LeftHold;

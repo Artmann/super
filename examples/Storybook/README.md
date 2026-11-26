@@ -28,3 +28,5 @@ dotnet run -c Release --project examples/Storybook -- --story badges --theme lig
 | `Specimen.cs` | The titled cards each variation sits on, and the layouts for them |
 | `Foundations.cs` | Pages for text styles, colours, shadows, shapes, gradients and icons |
 | `Elements.cs` | Pages for buttons, badges, labels, dividers and key hints |
+| `Controls.cs` | Pages for buttons, toggles, sliders, steppers, pickers, progress and gauges |
+| `Typing.cs` | Pages for text fields and for moving focus with the keys and the gamepad |

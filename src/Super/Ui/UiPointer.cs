@@ -15,16 +15,21 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     private readonly List<Action> _callbacks = [];
     private readonly UiHover _hover = new(tree, ticksPerSecond);
     private readonly UiGestures _gestures = new(tree, input);
+    private UiFocus? _focus;
 
     private Vector2 _position;
     private bool _inWindow;
     private int _uiHeld;
     private int _gameHeld;
 
+    /// <summary>The keyboard and the gamepad, which share the callbacks so everything lands in the order it happened.</summary>
+    private UiFocus Focus => _focus ??= new UiFocus(tree, input, _callbacks, ticksPerSecond);
+
     /// <summary>Runs before the tick rolls, so the tick sees everything up to now.</summary>
     public void BeforeRoll()
     {
         Pump();
+        Focus.Tick();
         _hover.Tick();
         input.Mouse.Feed.PendingMouseOverUi = _uiHeld != 0 || (_gameHeld == 0 && !input.Mouse.Locked && Hit() is not null);
     }
@@ -32,6 +37,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     /// <summary>Handles what the mouse did since the last time this ran.</summary>
     public void Pump()
     {
+        Focus.PumpKeys();
         foreach (var mouse in input.Mouse.Feed.MouseEvents)
         {
             switch (mouse.Kind)
@@ -89,7 +95,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     /// <summary>Draws the drag preview and the tooltip, above everything.</summary>
     public void ShowOverlays() => tree.ShowOverlays(_gestures.Preview, _hover.Tooltip(_uiHeld != 0), _position);
 
-    private UiNode? Hit() => _inWindow ? tree.Hit(_position.X, _position.Y) : null;
+    private UiNode? Hit() => _inWindow ? tree.Root?.Hit(_position.X, _position.Y) : null;
 
     private void Moved(Vector2 position)
     {
@@ -105,6 +111,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     {
         int bit = 1 << (int)button;
         var hit = input.Mouse.Locked ? null : Hit();
+        Focus.Pointed(hit, _position.X);
         if (hit is null)
         {
             _gameHeld |= bit;
