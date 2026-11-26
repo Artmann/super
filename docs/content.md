@@ -69,6 +69,10 @@ written as points or as Bézier knots, so routes, rails and tracks can live in f
 
 See [Splines](splines.md#splines-in-content).
 
+A `TileLevel` is a level for a tile map, listing which tile or group goes in each cell,
+and a `Tile` is one modular piece with its model. Both load like any other record. See
+[Tile maps](grids.md#levels).
+
 ## References between catalogs
 
 To point at a record in another catalog, use `Ref<T>`:

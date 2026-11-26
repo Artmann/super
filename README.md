@@ -163,6 +163,7 @@ marked as planned. The examples are the best place to see it running:
 | --- | --- |
 | [ColorCube](examples/ColorCube) | The game loop, input actions and seeded randomness |
 | [Plots](examples/Plots) | Square and hex grids, raised and turned, with the cell under the mouse and debug outlines, coordinates and a heat map |
+| [Tiles](examples/Tiles) | Tile maps loaded from JSON levels: a dungeon whose walls join up as they're painted, and a hex island whose coast faces the sea |
 | [Shapes](examples/Shapes) | Every built-in shape, and shapes made in code with `Shapes` |
 | [Bricks](examples/Bricks) | A brick wall and a cobbled street whose mortar sinks in with height maps and darkens with occlusion maps, with fine grit from detail maps; P, D and O turn them off |
 | [Rooms](examples/Rooms) | Game states, a loading screen, JSON content, clicking the ground and huts that rise on a curve |

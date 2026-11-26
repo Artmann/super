@@ -365,11 +365,118 @@ Some things to know about how they look:
 - The edge of a raised thing, such as a step, can show a one-pixel staircase in the
   lines.
 
+## Tile maps
+
+A tile map builds a level from modular pieces, such as a dungeon's walls and floor slabs
+or an island's coast, with one piece in each cell. You paint a group, such as walls, and
+each cell picks the piece and turn that fits its neighbours in the same group, so walls
+join up into corners and tees, and a coast faces the sea.
+
+![The Tiles example: a dungeon whose walls join up, and a hex island whose coast slopes down to the water](media/tile-maps.webp)
+
+A `Tile` names its model, its group, and which of its sides join a neighbour, as one
+`1` or `0` for each side in `Sides` order: +X, +Z, −X, −Z for a square, and the six
+`Hex.Sides` in turn for a hex. A tile with no `Connects` joins on every side, which suits
+floors, and a tile with no group is only ever placed by name, such as a crate.
+
+```csharp
+var tiles = new TileSet<Cell>([
+    new Tile("wall-post", post, "walls", "0000"),
+    new Tile("wall-end", end, "walls", "1000"),
+    new Tile("wall-straight", straight, "walls", "1010"),
+    new Tile("wall-corner", corner, "walls", "1100"),
+    new Tile("wall-tee", tee, "walls", "1110"),
+    new Tile("wall-cross", cross, "walls", "1111"),
+    new Tile("floor", slab, "floor"),
+    new Tile("crate", crate, Offset: new Vector3(0f, 0.5f, 0f)),
+]);
+
+var map = new TileMap<Cell>(tiles, grid);
+map.Paint(Cell.Line(new Cell(0, 0), new Cell(8, 0)), "walls");
+map.Set(new Cell(3, 2), "crate", turns: 1);
+map.Erase(new Cell(4, 0));
+```
+
+You only make each shape once. A painted cell tries every tile of its group at every
+turn and takes the one with the fewest sides wrong, then the fewest turns, so `1100` also
+serves the other three corners. When a group has no exact fit, the nearest one is used.
+When several tiles fit equally well, such as three floor slabs in different shades, each
+cell picks one of them, the same one every run, so a floor doesn't repeat.
+
+`Paint` and `Erase` fit the changed cell's painted neighbours again, so putting a wall
+next to an end turns it into a straight. Painting many cells at once with a list is
+faster than one at a time and gives the same map. `Set` puts a tile as it is, and doesn't
+change its neighbours. `Cells(floor)` is the map's `GridMap` of placed tiles, and
+`Transform(cell)` gives where a tile is drawn, to put a collider there.
+
+Tiles are turned about the grid's up, so a tile is modelled facing its first side, `+X`,
+with its middle at the cell's middle and its base on the grid. `Offset` moves it in its
+own space before the turn.
+
+A map made from a `LayeredGrid` has a floor on each layer, and every call takes a floor,
+0 by default, as the island's trees do on floor 1.
+
+### Levels
+
+A `TileLevel` is a level in JSON content, loaded like any other record. Each cell either
+paints a group or names a tile and its turn:
+
+```json
+// content/levels/dungeon.json
+{
+  "id": "dungeon",
+  "cells": [
+    { "at": [0, 0], "paint": "walls" },
+    { "at": [1, 1], "paint": "floor" },
+    { "at": [3, 2], "tile": "crate", "turns": 1 }
+  ]
+}
+```
+
+```csharp
+var levels = content.LoadAll<TileLevel>("levels");
+map.Load(levels["dungeon"]);
+File.WriteAllText("saved.json", map.ToLevel("saved").ToJson());
+```
+
+A cell on another floor of a layered map gives its `"floor"`. `Load` empties the map,
+sets the named tiles, then paints every group at once, so the
+order of the cells doesn't matter. A cell with no `at`, both a tile and a group, a tile
+or group the set doesn't have, or a floor the map doesn't have throws and says which
+cell. `ToLevel` writes every cell with its tile and turn, so a level saved after editing
+loads back exactly, even if the tile set's fits change later.
+
+A `TileSet` can also be made from a `Catalog<Tile>` of tiles in content. It then follows
+the catalog through a [live reload](content.md#change-it-while-the-game-runs).
+
+### Drawing a tile map
+
+```csharp
+public void Draw(View view)
+{
+    view.TileMap(1, map);
+}
+```
+
+`view.TileMap` draws every tile on every floor, with each tile's colour. Each chunk of
+16 by 16 cells is kept from the last frame until one of its cells, the tile set or the
+grid's placement changes, so a big map that isn't changing costs little and allocates
+nothing. The number names the map, so give each map drawn in a frame its own.
+
+The [Tiles](../examples/Tiles) example paints a dungeon on a square grid and a hex island
+from two levels in `content/levels`, with tiles made in code: walls joined by arms to
+each joined side, three floor shades, and land that slopes to the water on every open
+side.
+
 ## What's not here yet
 
 - A build preview of the model itself. Draw it with `view.Model` and a `Ghost`, and fill
   its footprint's cells with `Cells`.
-- Tile maps of modular pieces on a grid, which is issue #32.
+- Tile fitting looks only at the sides of a cell, not its corners, so a tile can't tell
+  an inside corner of a room from the middle of a floor. Sets of 47 tiles that look at
+  corners too aren't supported.
+- When a tile set reloads, painted cells keep the tiles they were fitted with until they
+  are painted again.
 - `GridMap` has no dense form for small bounded maps. The chunked one does both.
 - `Reachable` has no rule against cutting a corner past a wall when it steps across
   corners.
