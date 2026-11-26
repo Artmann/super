@@ -124,7 +124,10 @@ that isn't meant to be cut, and clashing ids.
 5. Popups: `Menu`, context menu, menu `Picker`, `Sheet`, `Alert`, `Popover`, `Toast`. Done,
    with a confirmation dialog too. No submenus, no key that opens a context menu, and toasts
    have no buttons.
-6. Containers and layout: `TabView`, `DisclosureGroup`, `Form`, `NavigationStack`,
-   `Grid`/`GridRow`, `FlowStack`, `ViewThatFits`, `LazyVStack`, overlay/offset and friends.
+6. Containers and layout, in two parts. The layout part is done: overlay, background view,
+   offset, hidden, layout priority, aspect ratio, `Grid`/`GridRow`, `FlowStack`,
+   `ViewThatFits` and `LazyVStack`. A lazy stack's rows share one height, and`.SafeAreaPadding`
+   waits until the window knows its safe area. The containers part is `Card`, `Section`/`Form`,
+   `LabeledContent`, `DisclosureGroup`, `TabView` and `NavigationStack`.
 7. Animation and transitions, including the spinning `ProgressView` and the switch's and
    slider's moving knobs; showcase screens; polish passes.

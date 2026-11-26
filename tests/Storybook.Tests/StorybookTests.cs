@@ -126,7 +126,7 @@ public sealed class StorybookTests
         var error = Assert.Throws<ArgumentException>(() => Stories.Find("tables"));
 
         Assert.StartsWith("There's no story \"tables\". The stories are typography, colours,", error.Message);
-        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus, touch, menus, dialogs, sheets, toasts.", error.Message);
+        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists.", error.Message);
     }
 
     /// <summary>Clicks a control this far across it, halfway down, and lets the click land.</summary>
@@ -304,5 +304,41 @@ public sealed class StorybookTests
         run.Ticks(4 * 30);
 
         Assert.DoesNotContain(run.Elements, element => element.Role == UiRole.Toast);
+    }
+
+    [Fact]
+    public void The_layers_story_brings_the_middle_badge_back_without_moving_the_last()
+    {
+        using var run = Open(new StoryChoice("layers"));
+        var last = run.ShownText.Single(shown => shown.Text == "Last").Frame;
+        Assert.False(Shows(run, "Middle"), "The middle badge starts hidden.");
+
+        ClickControl(run, "hide");
+
+        Assert.True(Shows(run, "Middle"));
+        Assert.Equal(last, run.ShownText.Single(shown => shown.Text == "Last").Frame);
+    }
+
+    [Fact]
+    public void The_lazy_lists_story_makes_only_the_rows_near_the_screen_as_it_scrolls()
+    {
+        using var run = Open(new StoryChoice("lazy-lists"));
+        run.Ticks(2);
+        Assert.True(Shows(run, "Player 1"));
+        int made = run.Elements.Count(element => element.Label.StartsWith("Player ", StringComparison.Ordinal));
+        Assert.InRange(made, 8, 100);
+
+        var first = run.ShownText.Single(shown => shown.Text == "Player 1").Frame;
+        run.Input.MoveMouse(new Vector2(first.X + 20f, first.Y + 100f) * run.UiScale);
+        for (int i = 0; i < 10; i++)
+        {
+            run.Input.Scroll(-20f);
+            run.Ticks(2);
+        }
+
+        Assert.False(Shows(run, "Player 1"), "Scrolling should take the first row out of sight.");
+        var shown = run.ShownText.Where(text => text.Text.StartsWith("Player ", StringComparison.Ordinal)).ToArray();
+        Assert.NotEmpty(shown);
+        Assert.InRange(run.Elements.Count(element => element.Label.StartsWith("Player ", StringComparison.Ordinal)), 8, 100);
     }
 }

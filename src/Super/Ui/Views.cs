@@ -152,27 +152,54 @@ public abstract record Stack(float Spacing) : Container
             return sizes;
         }
 
-        var flexibility = new float[children.Length];
-        var ideal = new float[children.Length];
-        for (int i = 0; i < children.Length; i++)
-        {
-            float smallest = Main(children[i].Measure(Propose(0f, cross)));
-            float largest = Main(children[i].Measure(Propose(float.PositiveInfinity, cross)));
-            flexibility[i] = largest - smallest;
-            ideal[i] = Main(children[i].Measure(Propose(null, cross)));
-        }
+        var line = Lengths(children, sizes, cross);
 
         // Spacers wait until everything else is served, holding on to only their minimum.
         // Otherwise a spacer would take half the room from text that needs it.
-        var order = Enumerable.Range(0, children.Length).OrderBy(index => flexibility[index]).ToArray();
+        var order = Enumerable.Range(0, children.Length).OrderBy(index => line.Flexibility[index]).ToArray();
         int[] spacers = order.Where(index => children[index].View is Spacer).ToArray();
         int[] others = order.Where(index => children[index].View is not Spacer).ToArray();
-        float held = spacers.Sum(index => Main(children[index].Measure(Propose(0f, cross))));
+        float held = spacers.Sum(index => line.Smallest[index]);
         float available = offered - TotalSpacing(children.Length);
-        var line = new StackLine(children, sizes, ideal, cross);
-        float left = Allot(line, others, available - held);
+        float left = AllotByPriority(line, others, available - held);
         Allot(line, spacers, left + held);
         return sizes;
+    }
+
+    /// <summary>How long each child is at its smallest and ideal, how far it stretches, and its layout priority.</summary>
+    private StackLine Lengths(UiNode[] children, UiSize[] sizes, float? cross)
+    {
+        var line = new StackLine(children, sizes, new float[children.Length], cross)
+        {
+            Smallest = new float[children.Length],
+            Flexibility = new float[children.Length],
+            Priority = new float[children.Length],
+        };
+        for (int i = 0; i < children.Length; i++)
+        {
+            line.Smallest[i] = Main(children[i].Measure(Propose(0f, cross)));
+            line.Flexibility[i] = Main(children[i].Measure(Propose(float.PositiveInfinity, cross))) - line.Smallest[i];
+            line.Ideal[i] = Main(children[i].Measure(Propose(null, cross)));
+            line.Priority[i] = LayoutPriorityModifier.Of(children[i]);
+        }
+
+        return line;
+    }
+
+    /// <summary>
+    /// Serves the highest priority first. Each is offered what's left once the lower priorities' smallest
+    /// lengths are kept back for them, so they shrink first. Returns what nobody took.
+    /// </summary>
+    private float AllotByPriority(StackLine line, int[] order, float remaining)
+    {
+        foreach (float priority in order.Select(index => line.Priority[index]).Distinct().OrderDescending())
+        {
+            int[] group = order.Where(index => line.Priority[index] == priority).ToArray();
+            float reserved = order.Where(index => line.Priority[index] < priority).Sum(index => line.Smallest[index]);
+            remaining = Allot(line, group, remaining - reserved) + reserved;
+        }
+
+        return remaining;
     }
 
     /// <summary>
@@ -202,7 +229,14 @@ public abstract record Stack(float Spacing) : Container
 }
 
 /// <summary>A stack's children as it shares out its length: their sizes so far, each one's ideal length, and the cross length offered.</summary>
-internal readonly record struct StackLine(UiNode[] Children, UiSize[] Sizes, float[] Ideal, float? Cross);
+internal readonly record struct StackLine(UiNode[] Children, UiSize[] Sizes, float[] Ideal, float? Cross)
+{
+    public float[] Smallest { get; init; } = [];
+
+    public float[] Flexibility { get; init; } = [];
+
+    public float[] Priority { get; init; } = [];
+}
 
 /// <summary>Stacks its children from top to bottom.</summary>
 public sealed record VStack(HorizontalAlignment Alignment = HorizontalAlignment.Center, float Spacing = 8f) : Stack(Spacing)

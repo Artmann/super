@@ -27,6 +27,16 @@ public sealed class PointerGame : IGame
         return run;
     }
 
+    /// <summary>Moves the mouse here, clicks the left button a tick later, and lets two ticks run.</summary>
+    public static void Click(HeadlessRun<PointerGame> run, Vector2 at)
+    {
+        run.Input.MoveMouse(at);
+        run.Ticks(1);
+        run.Input.Hold(MouseButton.Left);
+        run.Ticks(1);
+        run.Input.Release(MouseButton.Left);
+        run.Ticks(2);
+    }
     /// <summary>Taps a key and lets two ticks run, so what it does has landed.</summary>
     public static void Press(HeadlessRun<PointerGame> run, Key key)
     {

@@ -1,6 +1,7 @@
 using System.Numerics;
 using Super.Testing;
 using Super.Ui;
+using static Super.Tests.Ui.PointerGame;
 
 namespace Super.Tests.Ui;
 
@@ -216,13 +217,4 @@ public sealed class EnvironmentTests
     private static UiView Corner(UiView view) =>
         view.Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);
 
-    private static void Click(HeadlessRun<PointerGame> run, Vector2 at)
-    {
-        run.Input.MoveMouse(at);
-        run.Ticks(1);
-        run.Input.Hold(MouseButton.Left);
-        run.Ticks(1);
-        run.Input.Release(MouseButton.Left);
-        run.Ticks(2);
-    }
 }
