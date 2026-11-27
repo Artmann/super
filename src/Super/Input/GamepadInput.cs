@@ -82,13 +82,16 @@ public sealed class GamepadInput
             PendingFamily = Devices.FamilyOf(_pendingName);
         }
 
+        // Only a push that starts now counts, so a stick held over while the player picks up the mouse doesn't keep
+        // taking the device back. The last poll's axes are still here to compare with.
+        bool wasPushed = Devices.Pushed(_pendingAxes);
         for (int i = 0; i < AxisCount; i++)
         {
             float centred = i >= 4 ? -1f : 0f;
             _pendingAxes[i] = connected ? axes[i] : centred;
         }
 
-        if (connected && Devices.Pushed(axes))
+        if (connected && !wasPushed && Devices.Pushed(axes))
         {
             _tick.PendingDevice = InputDevice.Gamepad;
         }

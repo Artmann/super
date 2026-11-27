@@ -47,7 +47,7 @@ public sealed record Banner(string Title, string Hint) : UiView
 }
 
 /// <summary>A bar over each enemy that has been hit, green when healthy and red when nearly dead.</summary>
-public sealed record HealthBars(List<(Vector3 Head, float Left)> Bars) : UiView
+public sealed record HealthBars(List<(Entity Enemy, Vector3 Head, float Left)> Bars) : UiView
 {
     private const float Width = 36f;
     private static readonly Color Healthy = Color.Hex("#6CCB5F");
@@ -58,14 +58,15 @@ public sealed record HealthBars(List<(Vector3 Head, float Left)> Bars) : UiView
         get
         {
             var bars = new ZStack();
-            foreach (var (head, left) in Bars)
+            foreach (var (enemy, head, left) in Bars)
             {
                 bars.Add(new ZStack(Alignment.Leading)
                 {
                     new Capsule().Fill(Color.Hex("#10141C", 0.8f)).Frame(width: Width + 4f, height: 8f),
                     new Capsule().Fill(Dying.Mix(Healthy, left)).Frame(width: Width * left, height: 4f).Padding(2f),
                 }
-                .Id("health")
+                // Each enemy's own id, so a bar stays with its enemy when another dies ahead of it in the list.
+                .Id(enemy)
                 .AtWorld(head));
             }
 

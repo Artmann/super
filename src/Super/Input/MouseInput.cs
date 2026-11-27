@@ -74,6 +74,7 @@ internal sealed class MouseFeed(InputTick tick)
 
     private Vector2 _position;
     private Vector2 _delta;
+    private Vector2 _travel;
     private float _scroll;
     private bool _hasPosition;
 
@@ -134,9 +135,13 @@ internal sealed class MouseFeed(InputTick tick)
         if (_hasPosition)
         {
             _delta += position - _position;
-            if (Devices.Moved(position - _position))
+            // Adds up while another device is in use, so a slow move counts once it has gone far enough, while a
+            // shaking desk goes back and forth and adds up to nothing.
+            _travel = tick.PendingDevice == InputDevice.KeyboardAndMouse ? Vector2.Zero : _travel + position - _position;
+            if (Devices.Moved(_travel))
             {
                 tick.PendingDevice = InputDevice.KeyboardAndMouse;
+                _travel = Vector2.Zero;
             }
         }
 

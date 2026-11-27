@@ -324,8 +324,9 @@ public class OutpostTests
         var brute = enemies.Spawn(EnemyKind.Brute);
         run.Ticks(30);
 
-        var unhurt = Assert.Throws<InvalidOperationException>(() => run.FrameOf("health"));
-        Assert.StartsWith("No view on screen has the id 'health'", unhurt.Message);
+        // Each bar has its enemy as its id, so it stays with that enemy when another one dies.
+        var unhurt = Assert.Throws<InvalidOperationException>(() => run.FrameOf(brute));
+        Assert.StartsWith($"No view on screen has the id '{brute}'", unhurt.Message);
 
         enemies.Hit(brute, 4);
         run.Ticks(1);
@@ -333,7 +334,7 @@ public class OutpostTests
         // Its bottom middle sits on the spot over the brute's head, as the camera sees it.
         var head = run.World.Get<Transform>(brute).Position + new Vector3(0f, 0.65f + 0.25f, 0f);
         var spot = run.Game.Camera.Pixel(head, run.ScreenSize)!.Value / run.UiScale;
-        var bar = run.FrameOf("health");
+        var bar = run.FrameOf(brute);
         Assert.Equal(spot.X, bar.X + bar.Width / 2f, 0.5f);
         Assert.Equal(spot.Y, bar.Y + bar.Height, 0.5f);
     }

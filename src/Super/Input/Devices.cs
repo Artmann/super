@@ -35,18 +35,22 @@ internal static class Devices
     // How far the mouse must move at once, in pixels, before it counts as picking up the mouse.
     private const float MouseNudge = 4f;
 
+    // How far past halfway a trigger must be, from -1 to 1, before it counts.
+    private const float TriggerMargin = 0.1f;
+
     /// <summary>Whether a move this far is the player picking up the mouse, and not the desk shaking.</summary>
     public static bool Moved(System.Numerics.Vector2 delta) => delta.LengthSquared() > MouseNudge * MouseNudge;
 
     /// <summary>
-    /// Whether a stick is past halfway, or a trigger pulled past half, which GLFW reports above 0. The axes come in
+    /// Whether a stick is past halfway, or a trigger pulled a little past half, which GLFW reports above 0. Some
+    /// drivers report a trigger at 0 until it's first pulled, so the margin keeps that from counting. The axes come in
     /// GLFW's order: the two sticks' x and y, then the two triggers.
     /// </summary>
     public static bool Pushed(ReadOnlySpan<float> axes)
     {
         for (int i = 0; i < axes.Length; i++)
         {
-            if (i >= 4 ? axes[i] > 0f : MathF.Abs(axes[i]) > 0.5f)
+            if (i >= 4 ? axes[i] > TriggerMargin : MathF.Abs(axes[i]) > 0.5f)
             {
                 return true;
             }
