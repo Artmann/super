@@ -164,7 +164,7 @@ public sealed record DisclosureGroup(string Label, bool? IsExpanded = null, Acti
             return new VStack(HorizontalAlignment.Leading, metrics.Gap)
             {
                 meaning,
-                open ? Fill(new VStack(HorizontalAlignment.Leading, metrics.Gap)).Padding(0f, 0f, 0f, metrics.FontSize + metrics.Gap * 2f) : null,
+                open ? Fill(new VStack(HorizontalAlignment.Leading, metrics.Gap)).Padding(0f, 0f, 0f, metrics.FontSize + metrics.Gap * 2f).Transition(Entrance.Drop, AnimationExtensions.Quick) : null,
             };
         }
     }

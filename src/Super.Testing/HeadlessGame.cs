@@ -119,6 +119,12 @@ public sealed class HeadlessRun<TGame> : IDisposable
     /// </summary>
     public UiRect FrameOf(object id) => _host.Ui.FrameOf(id);
 
+    /// <summary>
+    /// Whether something in the interface is still moving, such as a switch's knob, a view easing in or a
+    /// spinner, so the next frame will look different. Tick until it's false to see where things settle.
+    /// </summary>
+    public bool Animating => _host.Ui.Clock.Moving;
+
     /// <summary>Every control on screen, by what it means. See <see cref="UiTree.Elements"/>.</summary>
     public IReadOnlyList<UiElement> Elements => _host.Ui.Elements;
 

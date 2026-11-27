@@ -34,6 +34,24 @@ public abstract record UiView
     /// </summary>
     protected static UiEnvironment Environment =>
         UiBodyHooks.Running?.Environment ?? throw new InvalidOperationException("Environment only works while Body runs.");
+
+    /// <summary>
+    /// A number that eases toward <paramref name="target"/> over <paramref name="seconds"/> whenever the target
+    /// changes, for a knob that slides or a panel that fades. It keeps Body running each frame until it
+    /// arrives. Give <paramref name="from"/> to start there when the view appears, so it moves in. Call it
+    /// from Body in the same order each run, as <see cref="UseState"/>. Inside <c>.Animations(false)</c> it
+    /// returns the target at once.
+    /// </summary>
+    protected static float UseAnimation(float target, float seconds = 0.2f, Easing easing = Easing.Out, float? from = null) =>
+        UiBodyHooks.Running?.Animate(target, seconds, easing, from)
+        ?? throw new InvalidOperationException("UseAnimation only works while Body runs.");
+
+    /// <summary>
+    /// The interface's time in seconds, for something that keeps moving, such as a spinner. Body runs again
+    /// every frame while it reads this. Inside <c>.Animations(false)</c> it stays at zero.
+    /// </summary>
+    protected static double UseTime() =>
+        UiBodyHooks.Running?.Time() ?? throw new InvalidOperationException("UseTime only works while Body runs.");
 }
 
 /// <summary>A view Super draws itself, which makes it the end of the line for Body.</summary>
@@ -241,7 +259,13 @@ public readonly record struct UiEnvironment
     /// <summary>The size in pixels text has here.</summary>
     public float FontSize => Text.Size;
 
+    /// <summary>Whether things move here, which <c>.Animations(false)</c> turns off. Controls jump to where they're going without it.</summary>
+    public bool Animates => !Still;
+
     internal TextLook Text { get; init; }
+
+    /// <summary>Whether motion is off here, so animations jump straight to where they're going.</summary>
+    internal bool Still { get; init; }
 
     internal static UiEnvironment Default { get; } = For(Theme.Dark);
 
@@ -250,7 +274,7 @@ public readonly record struct UiEnvironment
         new(TextLook.Default with { Size = theme.Typography.Body.Size, Weight = theme.Typography.Body.Weight, Color = theme.Colors.Foreground }, theme, false, ControlSize.Regular);
 
     internal UiEnvironment With(Theme? theme = null, bool? disabled = null, ControlSize? controlSize = null) =>
-        new(Text, theme ?? Theme, disabled ?? Disabled, controlSize ?? ControlSize);
+        new(Text, theme ?? Theme, disabled ?? Disabled, controlSize ?? ControlSize) { Still = Still };
 }
 
 internal static class AlignmentFractions

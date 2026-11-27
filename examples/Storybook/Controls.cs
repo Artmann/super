@@ -18,7 +18,8 @@ internal static class Controls
         new("Nightmare", "nightmare"),
     ];
 
-    private static readonly PickerOption<string>[] Presets =
+    /// <summary>Graphics presets, which the settings showcase picks from too.</summary>
+    public static readonly PickerOption<string>[] Presets =
     [
         new("Low", "low"),
         new("Medium", "medium"),

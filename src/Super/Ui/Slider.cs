@@ -8,6 +8,9 @@ namespace Super.Ui;
 /// </summary>
 public sealed record Slider(float Value, Action<float>? OnChange = null, float Min = 0f, float Max = 1f) : UiView
 {
+    // How long the thumb takes to reach a new value, in seconds.
+    private const float ThumbSeconds = 0.1f;
+
     /// <summary>What the value moves in, such as 1 for whole numbers. Zero, the default, moves smoothly.</summary>
     public float Step { get; init; }
 
@@ -25,7 +28,10 @@ public sealed record Slider(float Value, Action<float>? OnChange = null, float M
             var metrics = environment.Metrics;
             bool off = Disabled || environment.Disabled;
             float thumb = MathF.Round(metrics.FontSize * 8f / 7f);
-            float fraction = Max > Min ? Math.Clamp((Value - Min) / (Max - Min), 0f, 1f) : 0f;
+            float target = Max > Min ? Math.Clamp((Value - Min) / (Max - Min), 0f, 1f) : 0f;
+
+            // Short enough to keep up with a drag, whose value only changes each tick, and smooths it between them.
+            float fraction = UseAnimation(target, ThumbSeconds);
             var bar = new MeterBar(fraction, colors.Primary, MathF.Round(thumb * 0.375f), thumb)
                 .Frame(maxWidth: UiExtensions.Infinity, minHeight: metrics.Height);
             var slider = new SlideModifier(bar, Slid, thumb / 2f, off).Opacity(off ? 0.5f : 1f);
@@ -77,6 +83,9 @@ internal sealed record MeterBar(float Fraction, Paint Fill, float Thickness, flo
     // How wide a bar is when nothing says.
     private const float IdealWidth = 160f;
 
+    /// <summary>Where the fill starts, as a fraction of the track, for a bar that doesn't know how far along it is.</summary>
+    public float From { get; init; }
+
     internal override IReadOnlyList<UiView?> Children => [];
 
     internal override bool Blocks => true;
@@ -97,9 +106,10 @@ internal sealed record MeterBar(float Fraction, Paint Fill, float Thickness, flo
 
         // The thumb's middle runs from half a thumb in at one end to half a thumb in at the other.
         float end = Thumb > 0f ? Thumb / 2f + f * (frame.Width - Thumb) : f * frame.Width;
-        if (end > 0f)
+        float start = Math.Clamp(From, 0f, f) * frame.Width;
+        if (end > start)
         {
-            draw.AddBox(track with { Width = end }, Fill, Thickness / 2f);
+            draw.AddBox(track with { X = track.X + start, Width = end - start }, Fill, Thickness / 2f);
         }
 
         if (Thumb > 0f)

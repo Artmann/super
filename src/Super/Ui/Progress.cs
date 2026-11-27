@@ -15,14 +15,28 @@ public enum MeterStyle
 /// <summary>
 /// How far along a task is, such as loading or crafting: <paramref name="Value"/> of
 /// <paramref name="Total"/>. A linear one shows the label and the percentage above the bar, when there's
-/// a label; a circular one shows the percentage inside the ring.
+/// a label; a circular one shows the percentage inside the ring. Made with only a label, it doesn't know how
+/// far along it is and keeps moving instead: a ring spins, or a piece of the bar sweeps across.
 /// </summary>
 public sealed record ProgressView(string Label, float Value, float Total = 1f) : UiView
 {
+    // How long a spinning ring takes to go round, and a sweeping piece of bar to cross, in seconds.
+    private const float Turn = 1.1f;
+    private const float Sweep = 1.4f;
+
+    /// <summary>A progress view that doesn't know how far along it is, which keeps moving until it's gone.</summary>
+    public ProgressView(string Label = "")
+        : this(Label, float.NaN)
+    {
+    }
+
     public MeterStyle Style { get; init; }
 
+    /// <summary>Whether it doesn't know how far along it is, and spins.</summary>
+    public bool Indeterminate => float.IsNaN(Value);
+
     /// <summary>How much is done, from 0 to 1.</summary>
-    internal float Fraction => Total > 0f ? Math.Clamp(Value / Total, 0f, 1f) : 0f;
+    internal float Fraction => Total > 0f && !Indeterminate ? Math.Clamp(Value / Total, 0f, 1f) : 0f;
 
     public override UiView Body
     {
@@ -31,12 +45,43 @@ public sealed record ProgressView(string Label, float Value, float Total = 1f) :
             var environment = Environment;
             var colors = environment.Theme.Colors;
             var metrics = environment.Metrics;
+            if (Indeterminate)
+            {
+                return new SemanticsModifier(Moving(colors, metrics, UseTime()), new UiSemantics(UiRole.ProgressBar, Label));
+            }
+
             string percent = MathF.Round(Fraction * 100f).ToString(CultureInfo.InvariantCulture) + "%";
             UiView shown = Style == MeterStyle.Circular
                 ? new MeterRing(Fraction, colors.Primary, metrics.Height + 8f, new Text(percent).FontSize(MathF.Round(metrics.FontSize * 0.8f)).MonospacedDigit())
                 : Meters.Bar(Label, percent, new MeterBar(Fraction, colors.Primary, 8f), metrics);
             return new SemanticsModifier(shown, new UiSemantics(UiRole.ProgressBar, Label, UiSemantics.Number(Value)));
         }
+    }
+
+    /// <summary>
+    /// A quarter of a ring going round, beside the label if there is one, or a third of a bar sweeping across
+    /// under it. Still, inside <c>.Animations(false)</c>, it rests where it starts.
+    /// </summary>
+    private UiView Moving(ThemeColors colors, ControlMetrics metrics, double now)
+    {
+        if (Style == MeterStyle.Circular)
+        {
+            float side = metrics.Height - 8f;
+            float start = (float)(now / Turn % 1.0);
+            var ring = new ZStack
+            {
+                new Arc(0f, 1f, 2.5f).Fill(colors.Muted),
+                new Arc(start, 0.25f, 2.5f).Fill(colors.Primary),
+            }.Frame(side, side);
+            return Label.Length == 0
+                ? ring
+                : new HStack(Spacing: metrics.Gap) { ring, new Text(Label).FontSize(metrics.FontSize).Foreground(Tone.Muted) };
+        }
+
+        // The piece runs from off the start to off the end, so it enters and leaves rather than bouncing.
+        float across = (float)(now / Sweep % 1.0) * 1.3f - 0.3f;
+        var bar = new MeterBar(Math.Min(across + 0.3f, 1f), colors.Primary, 8f) { From = Math.Max(across, 0f) };
+        return Meters.Bar(Label, "", bar, metrics);
     }
 }
 

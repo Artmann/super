@@ -29,8 +29,11 @@ public sealed record Toggle(string Label, bool IsOn, Action<bool>? OnChange = nu
             bool off = Disabled || environment.Disabled;
             var change = OnChange;
             bool next = !IsOn;
+
+            // How far the switch's knob is across, and its track filled in. The box ticks at once.
+            float on = Style == ToggleStyle.Switch ? UseAnimation(IsOn ? 1f : 0f, AnimationExtensions.Quick) : 0f;
             var toggle = new Pressable(
-                _ => Row(theme, metrics).Opacity(off ? 0.5f : 1f),
+                _ => Row(theme, metrics, on).Opacity(off ? 0.5f : 1f),
                 change is null ? null : () => change(next),
                 off);
             var role = Style == ToggleStyle.Checkbox ? UiRole.Checkbox : UiRole.Switch;
@@ -38,9 +41,9 @@ public sealed record Toggle(string Label, bool IsOn, Action<bool>? OnChange = nu
         }
     }
 
-    private UiView Row(Theme theme, ControlMetrics metrics)
+    private UiView Row(Theme theme, ControlMetrics metrics, float on)
     {
-        var mark = Style == ToggleStyle.Checkbox ? Box(theme, metrics) : Switch(theme, metrics);
+        var mark = Style == ToggleStyle.Checkbox ? Box(theme, metrics) : Switch(theme, metrics, on);
         if (Label.Length == 0)
         {
             return mark;
@@ -52,20 +55,21 @@ public sealed record Toggle(string Label, bool IsOn, Action<bool>? OnChange = nu
             : new HStack(Spacing: metrics.Gap) { label, new Spacer(), mark };
     }
 
-    private UiView Switch(Theme theme, ControlMetrics metrics)
+    private static UiView Switch(Theme theme, ControlMetrics metrics, float on)
     {
         float height = MathF.Round(metrics.FontSize * 1.43f);
         float width = MathF.Round(height * 1.8f);
         float knob = height - 4f;
-        return new ZStack(IsOn ? Alignment.Trailing : Alignment.Leading)
+        return new ZStack(Alignment.Leading)
         {
-            new Capsule().Fill(IsOn ? theme.Colors.Primary : theme.Colors.Input),
+            new Capsule().Fill(theme.Colors.Input.Mix(theme.Colors.Primary, on)),
             new Circle()
                 .Fill(theme.Colors.Background)
                 .Frame(knob, knob)
                 .CornerRadius(knob / 2f)
                 .Shadow(ShadowSize.Small)
-                .Padding(2f),
+                .Padding(2f)
+                .Offset(MathF.Round((width - height) * on * 4f) / 4f, 0f),
         }.Frame(width, height);
     }
 

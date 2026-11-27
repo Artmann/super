@@ -29,6 +29,9 @@ public sealed class UiTree
     /// <summary>Which view has focus, and whether its ring shows.</summary>
     internal UiFocusMark Focus { get; } = new();
 
+    /// <summary>The interface's time, which the frame sets, and the components that move with it.</summary>
+    internal UiClock Clock { get; } = new();
+
     /// <summary>The view on screen, as the last update left it.</summary>
     internal UiNode? Root { get; private set; }
 
@@ -67,6 +70,8 @@ public sealed class UiTree
     /// </summary>
     public void Update(UiView? view, int width, int height)
     {
+        // What's moving runs again at the new time.
+        Clock.Wake();
         var root = Root;
         bool changed = UiLayers.Mount(this, ref root, view) | (width, height) != _screen | _layoutWanted;
         Root = root;

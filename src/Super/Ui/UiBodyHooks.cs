@@ -5,7 +5,7 @@ namespace Super.Ui;
 /// for them, and the states it read last run. When one of those changes, the component
 /// is told, so it runs again on the next update.
 /// </summary>
-internal sealed class UiBodyHooks(Action changed)
+internal sealed class UiBodyHooks(Action changed, UiClock clock)
 {
     [ThreadStatic]
     private static UiBodyHooks? _running;
@@ -60,6 +60,40 @@ internal sealed class UiBodyHooks(Action changed)
         }
 
         return slot;
+    }
+
+    /// <summary>
+    /// The next animation slot's value at this frame's time, heading for <paramref name="target"/>. A new one
+    /// rests at <paramref name="from"/>, or at the target, so one from elsewhere sets off on its first run.
+    /// While it's on its way, Body runs again next frame.
+    /// </summary>
+    public float Animate(float target, float seconds, Easing easing, float? from)
+    {
+        var animation = UseSlot(from ?? target, static value => new UiAnimation(value));
+        double now = clock.Now;
+        if (animation.To != target || Environment.Still)
+        {
+            animation.Retarget(target, now, Environment.Still ? 0f : seconds, easing);
+        }
+
+        if (!animation.Arrived(now))
+        {
+            clock.NextFrame(this);
+        }
+
+        return animation.At(now);
+    }
+
+    /// <summary>The interface's time in seconds. Body runs again every frame while it reads it, unless motion is off.</summary>
+    public double Time()
+    {
+        if (Environment.Still)
+        {
+            return 0.0;
+        }
+
+        clock.NextFrame(this);
+        return clock.Now;
     }
 
     /// <summary>Remembers how to stop reading a state, for when Body runs again or the component goes.</summary>
