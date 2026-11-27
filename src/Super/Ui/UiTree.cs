@@ -78,6 +78,7 @@ public sealed class UiTree
         bool changed = UiLayers.Mount(this, ref root, view) | (width, height) != _screen | _layoutWanted | !Focus.Landed;
         Root = root;
         _screen = (width, height);
+        World.Screen = new Vector2(width, height);
         if (changed)
         {
             _layoutWanted = false;
@@ -158,12 +159,8 @@ public sealed class UiTree
         }
     }
 
-    /// <summary>
-    /// Draws each debug label over its place in the world as <paramref name="camera"/> sees it, centred just above it
-    /// on a dark backing, and leaves out those behind the camera. Over the overlays, and gone the next frame with them.
-    /// </summary>
-    internal void ShowDebugLabels(ReadOnlySpan<DebugLabel> labels, in Camera camera) =>
-        DebugLabels.Draw(labels, camera, (_draw, Atlas, Scale), new Vector2(_screen.Width, _screen.Height));
+    /// <summary>The camera that places views over the world, and draws the debug labels.</summary>
+    internal UiWorld World => field ??= new UiWorld(this, _draw);
 
     /// <summary>Asks for layout on the next update, for what changes without a new description.</summary>
     internal void RequestLayout() => _layoutWanted = true;
@@ -177,6 +174,7 @@ public sealed class UiTree
     private void Layout()
     {
         _draw.Clear();
+        World.Anchored = 0;
         Layers.Clear();
         Focus.StartDraw();
         if (Root is null)

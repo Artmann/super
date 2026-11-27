@@ -105,6 +105,20 @@ public sealed class StorybookTests
     }
 
     [Fact]
+    public void Turning_right_twice_brings_east_to_the_middle_of_the_compass()
+    {
+        using var run = Open(new StoryChoice("compass-and-map"));
+        Assert.False(Shows(run, "E"), "Facing north, east is past the end of the compass.");
+
+        Click(run, "turn-right");
+        Click(run, "turn-right");
+
+        var compass = run.FrameOf("compass");
+        var east = run.ShownText.Single(shown => shown.Text == "E").Frame;
+        Assert.Equal(compass.X + compass.Width / 2f, east.X + east.Width / 2f, 0.5f);
+    }
+
+    [Fact]
     public void The_art_panels_story_asks_for_the_textured_theme_until_it_has_it()
     {
         const string note = "This theme draws boxes. Pick Textured at the top right to see these drawn from art.";
@@ -164,7 +178,7 @@ public sealed class StorybookTests
         var error = Assert.Throws<ArgumentException>(() => Stories.Find("tables"));
 
         Assert.StartsWith("There's no story \"tables\". The stories are typography, colours,", error.Message);
-        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, game-controls, progress, gauges, text-fields, focus, prompts, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists, cards, forms, tabs, navigation, art-panels, animation, game-feel, settings, inventory, main-menu, hud, character-creator.", error.Message);
+        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, game-controls, progress, gauges, text-fields, focus, prompts, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists, cards, forms, tabs, navigation, art-panels, animation, game-feel, compass-and-map, settings, inventory, main-menu, hud, character-creator.", error.Message);
     }
 
     /// <summary>Clicks a control this far across it, halfway down, and lets the click land.</summary>

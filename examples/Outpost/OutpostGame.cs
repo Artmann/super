@@ -16,7 +16,7 @@ public sealed class OutpostGame(Scenery scenery, Field field, Player player, Ene
         Screen.Title => new Banner("Outpost", "Click or press Space to start"),
         Screen.Won => new Banner("You held the outpost!", "Press R to play again"),
         Screen.Lost => new Banner("The outpost fell", "Press R to play again"),
-        _ => new Hud(player.Gold, player.Lives, waves.Number, Waves.Count),
+        _ => new ZStack { new HealthBars(enemies.Wounded()), new Hud(player.Gold, player.Lives, waves.Number, Waves.Count) },
     };
 
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>

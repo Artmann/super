@@ -185,6 +185,15 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   x and y edges and their UVs in `stackalloc` spans and emits up to nine image quads, skipping
   any with no width or height, so it allocates nothing a frame. `NineSlice.Fit` shrinks both
   corners by the same share when they don't fit across the frame.
+- Views over the world go through `UiTree.World`, a `UiWorld` that holds the frame's camera
+  and the screen size. `LoopDraw` hands it the camera with `Look` before the interface updates.
+  Each layout counts the `AtWorldModifier`s it places in `Anchored`, and `Look` asks for
+  layout when the camera changed and that count isn't zero, so a still interface with no world
+  views never lays out again. `WorldSpots.Find` places a point with `Camera.Pixel`. A view that
+  clings goes to the edge along a line from the middle of the screen through its point. For a
+  point behind the camera, that line comes from the point's offset along the camera's right and
+  up. The modifier measures as zero and draws its arc in `EmitAfter`. The debug labels use the
+  same camera through `UiWorld.ShowDebugLabels`.
 - `UiNode` is one place in the tree. `UiChildren` pairs a node's new child views with its
   old children. `UiBodyHooks` holds a component's states and the states its last Body
   read: a `State<T>` tells each reader's hooks when it changes. A scroll view's position
@@ -1443,7 +1452,7 @@ pipeline. In the Courtyard this took the G-buffer pass from 3.15 to 2.89 ms at 1
 Debug shapes ([debugging.md](debugging.md)) reach the renderer as `FrameExtras.Lines`, a span
 of 48-byte `LineDraw`s: two ends, a width in window pixels, a colour and how much shows behind
 the scene. `DebugCanvas` breaks every shape into lines on the CPU, so a sphere is 96 of them,
-and the renderer only ever draws lines. Labels never reach it: `UiTree.ShowDebugLabels` places
+and the renderer only ever draws lines. Labels never reach it: `UiWorld.ShowDebugLabels` places
 them with `Camera.Pixel` and draws them into the interface's own draw list, after the overlays.
 
 `LinePass` draws them in the finish stage, after `FinishPass` and before the interface
