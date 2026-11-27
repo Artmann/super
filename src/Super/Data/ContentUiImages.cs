@@ -27,9 +27,10 @@ public sealed class ContentUiImages
         byte[] cooked = CookedBytes.Read(files, name, "image");
         var (width, height) = CookedTexture.ReadSize(cooked, name);
 
-        // The item's place is its index, as for models, because index 0 is the built-in cube.
-        var image = new GameImage(name, width, height, cooked, _items.Items.Count + 1);
-        _items.Add(image);
+        // The image holds its own place, so it's built for the place it's about to take.
+        var (index, generation) = _items.Slots.Next;
+        var image = new GameImage(name, width, height, cooked, index) { Generation = generation };
+        _items.AddReusable(image);
         _items.Remember(name, image);
         return image;
     }
@@ -51,8 +52,9 @@ public sealed class ContentUiImages
             throw new ArgumentException($"A {width} by {height} image takes {width * height * 4} bytes, four a pixel, not {pixels.Length}.", nameof(pixels));
         }
 
-        var image = new GameImage(width, height, pixels, _items.Items.Count + 1);
-        _items.Add(image);
+        var (index, generation) = _items.Slots.Next;
+        var image = new GameImage(width, height, pixels, index) { Generation = generation };
+        _items.AddReusable(image);
         return image;
     }
 
@@ -64,7 +66,7 @@ public sealed class ContentUiImages
     {
         ArgumentNullException.ThrowIfNull(image);
         ItemChecks.RequireNamed(_items, image.Index, nameof(image));
-        ItemChecks.RequireLoaded(_items, image.Index, nameof(image));
+        ItemChecks.RequireLoaded(_items, image.Index, image.Generation, nameof(image));
         if (!ReferenceEquals(_items.Items[image.Index - 1], image))
         {
             throw new ArgumentException($"{nameof(image)} isn't one this content made.", nameof(image));

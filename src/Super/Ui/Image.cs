@@ -53,6 +53,9 @@ public sealed class GameImage
 
     /// <summary>Its place among everything <see cref="Content"/> has named.</summary>
     internal int Index { get; }
+
+    /// <summary>How many items had held <see cref="Index"/> before it, as for <see cref="ModelRef"/>.</summary>
+    internal int Generation { get; init; }
 }
 
 /// <summary>How an image fills a frame of a different shape.</summary>

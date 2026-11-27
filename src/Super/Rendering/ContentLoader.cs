@@ -28,14 +28,7 @@ internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object>
     public void Update(Content content)
     {
         long started = Clock.GetTimestamp();
-        var items = content.Store.Items;
-        while (_loaded.Count <= items.Count)
-        {
-            object item = items[_loaded.Count - 1];
-            _loaded.Add(null);
-            _preparing.Add(Start(() => prepare(item)));
-        }
-
+        StartNamed(content.Store);
         while (_firstWaiting < _loaded.Count && _loaded[_firstWaiting] is not null)
         {
             _firstWaiting++;
@@ -81,6 +74,29 @@ internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object>
         }
 
         return loaded;
+    }
+
+    /// <summary>Starts preparing what was named since the last frame, in a new slot or one an unloaded item gave back.</summary>
+    private void StartNamed(ContentItems store)
+    {
+        var items = store.Items;
+        foreach (int index in store.Slots.Retaken)
+        {
+            object item = items[index - 1];
+            _loaded[index] = null;
+            _preparing[index] = Start(() => prepare(item));
+            _firstWaiting = Math.Min(_firstWaiting, index);
+        }
+
+        store.Slots.ClearRetaken();
+        while (_loaded.Count <= items.Count)
+        {
+            object item = items[_loaded.Count - 1];
+            _loaded.Add(null);
+            _preparing.Add(Start(() => prepare(item)));
+        }
+
+        store.Slots.Seen = _loaded.Count - 1;
     }
 
     private TLoaded Finish(int index, Content content)

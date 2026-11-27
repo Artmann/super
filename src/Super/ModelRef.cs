@@ -32,4 +32,10 @@ public readonly record struct ModelRef(int Index)
 
     /// <summary>Whether this is the cube or one of the other shapes every game has.</summary>
     public bool IsBuiltIn => Index <= 0;
+
+    /// <summary>
+    /// How many models had held its index before it, since an unloaded model's index is given to a later one. A ref
+    /// kept after its model was unloaded then still says so, instead of naming the new one.
+    /// </summary>
+    internal int Generation { get; init; }
 }

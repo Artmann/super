@@ -3270,6 +3270,12 @@ game can skip one still loading instead of waiting. A texture is freed after eve
 that names it; a texture array keeps its own copy of each layer, so the single layers can
 go as soon as the array is made.
 
+A game can stream meshes and textures in and out for as long as it runs: once the window has freed one, the next
+one named takes its place, so the content's lists stay as long as the most that were ever loaded at once. A
+`ModelRef` or `TextureRef` kept after its item was unloaded stays unloaded even when a new item has the same
+`Index`, so drawing it or naming it in a surface still throws instead of picking up the new one. Colour tables,
+shaders, texture arrays and skies keep their place after they're let go.
+
 ## Height and detail maps
 
 A height map sinks the low parts of a flat surface, such as the mortar between bricks or

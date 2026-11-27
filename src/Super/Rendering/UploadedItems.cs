@@ -45,9 +45,19 @@ internal sealed class UploadedItems
         _loader.Get(index, content) as T
             ?? throw new InvalidOperationException($"Item {index} was unloaded, so nothing can use it.");
 
+    /// <summary>
+    /// The item a ref names, by its index and generation. Throws when it was unloaded, even when a later item has
+    /// taken its index since.
+    /// </summary>
+    public T Require<T>(int index, int generation, Content content)
+        where T : ItemOnGpu =>
+        content.Store.Slots.IsGone(index, generation)
+            ? throw new InvalidOperationException($"Item {index} was unloaded, so nothing can use it.")
+            : Require<T>(index, content);
+
     /// <summary>The texture a ref names, or null for none.</summary>
     public TextureHandle? TextureFor(TextureRef? texture, Content content) =>
-        texture is { } named ? Require<TextureOnGpu>(named.Index, content).Handle : null;
+        texture is { } named ? Require<TextureOnGpu>(named.Index, named.Generation, content).Handle : null;
 
     /// <summary>A model by its ref's index. The built-in shapes other than the cube sit below zero.</summary>
     public ModelOnGpu ModelFor(int index, Content content) =>

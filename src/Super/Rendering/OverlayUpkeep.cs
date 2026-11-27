@@ -17,7 +17,7 @@ internal sealed class OverlayUpkeep
     public OverlayUpkeep(Renderer renderer, UploadedItems items)
     {
         _renderer = renderer;
-        _textureOf = image => OverlayQuad.For(items.Require<TextureOnGpu>(image.Index, _content!).Handle);
+        _textureOf = image => OverlayQuad.For(items.Require<TextureOnGpu>(image.Index, image.Generation, _content!).Handle);
     }
 
     /// <summary>Uploads the glyph atlas when it gained characters, and points the interface's images at their textures.</summary>

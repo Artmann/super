@@ -14,6 +14,11 @@ public readonly record struct TextureRef(int Index)
     /// content's texture; the engine swaps in the renderer's own when it draws the frame.
     /// </summary>
     public static implicit operator TextureHandle(TextureRef texture) => new(texture.Index);
+
+    /// <summary>How many textures had held its index before it, as for <see cref="ModelRef"/>.</summary>
+    internal int Generation { get; init; }
+
+    internal static TextureRef Of(ModelRef slot) => new(slot.Index) { Generation = slot.Generation };
 }
 
 /// <summary>Names a stack of same-sized textures. <see cref="Content.TextureArray"/> hands these out.</summary>
@@ -37,7 +42,10 @@ internal sealed record SkyItem(string Name, IContentFiles Files);
 /// <summary>An artist's colour table the game named, read from its cooked file.</summary>
 internal sealed record LutItem(string Name, IContentFiles Files);
 
-/// <summary>Stands where an unloaded item was, so its data can be collected while its index stays taken.</summary>
+/// <summary>
+/// Stands where an unloaded item was, so its data can be collected. Its index stays taken until the window has freed
+/// what it made, and for good for kinds that can't be named again in the same place.
+/// </summary>
 internal sealed record UnloadedItem
 {
     public static UnloadedItem Instance { get; } = new();
@@ -101,7 +109,7 @@ public sealed class Content
         if (!Store.TryNamed(name, out ModelRef model))
         {
             ContentNames.Require(Store.Files, name, ContentKind.Model);
-            model = Store.Add(name);
+            model = Store.AddReusable(name);
             Store.Remember(name, model);
         }
 
@@ -203,7 +211,7 @@ public sealed class Content
     /// </summary>
     public void Unload(ColorLut lut)
     {
-        var item = ItemChecks.Require<LutItem>(Store, lut.Index, nameof(lut), "colour table");
+        var item = ItemChecks.Require<LutItem>(Store, lut.Index, 0, nameof(lut), "colour table");
         Store.MarkUnloaded(lut.Index);
         Store.ForgetName<ColorLut>(item.Name);
     }
@@ -224,12 +232,12 @@ public sealed class Content
         ItemChecks.RequireSurface(Store, mesh.Surface);
         if (!isStatic)
         {
-            var model = Store.Add(mesh);
+            var model = Store.AddReusable(mesh);
             Store.Identities.MarkDynamic(model.Index);
             return model;
         }
 
-        return Store.Add(mesh.WithLightmapUvs());
+        return Store.AddReusable(mesh.WithLightmapUvs());
     }
 
     /// <summary>
@@ -258,7 +266,7 @@ public sealed class Content
         if (!Store.TryNamed(name, out TextureRef texture))
         {
             ContentNames.Require(Store.Files, name, ContentKind.Texture);
-            texture = new TextureRef(Store.Add(new TextureItem(name, null, Store.Files, TextureKind.Color, false)).Index);
+            texture = TextureRef.Of(Store.AddReusable(new TextureItem(name, null, Store.Files, TextureKind.Color, false)));
             Store.Remember(name, texture);
         }
 
@@ -297,7 +305,7 @@ public sealed class Content
 
     /// <summary>Names an image made in code. Each call makes a new one.</summary>
     public TextureRef Texture(GeneratedTexture texture, TextureKind kind = TextureKind.Color, bool normalMap = false) =>
-        new(Store.Add(new TextureItem(null, texture, Store.Files, kind, normalMap)).Index);
+        TextureRef.Of(Store.AddReusable(new TextureItem(null, texture, Store.Files, kind, normalMap)));
 
     /// <summary>
     /// Stacks textures named before into one array that a shader indexes by layer. All
@@ -313,7 +321,7 @@ public sealed class Content
         var items = new TextureItem[layers.Length];
         for (int i = 0; i < layers.Length; i++)
         {
-            items[i] = ItemChecks.Require<TextureItem>(Store, layers[i].Index, $"{nameof(layers)}[{i}]", "texture");
+            items[i] = ItemChecks.Require<TextureItem>(Store, layers[i].Index, layers[i].Generation, $"{nameof(layers)}[{i}]", "texture");
         }
 
         return new TextureArrayRef(Store.Add(new TextureArrayItem(items)).Index);
@@ -326,7 +334,7 @@ public sealed class Content
     /// </summary>
     public void Unload(TextureRef texture)
     {
-        var item = ItemChecks.Require<TextureItem>(Store, texture.Index, nameof(texture), "texture");
+        var item = ItemChecks.Require<TextureItem>(Store, texture.Index, texture.Generation, nameof(texture), "texture");
         var items = Store.Items;
         for (int i = 0; i < items.Count; i++)
         {
