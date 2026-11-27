@@ -29,6 +29,7 @@ public sealed class Input
         Gamepad = new GamepadInput(_tick);
         Touches = new TouchInput(_tick);
         Keys = new KeyFeed(_tick);
+        Window = new WindowInput(_tick);
     }
 
     /// <summary>
@@ -49,6 +50,9 @@ public sealed class Input
 
     /// <summary>The fingers on the screen. Those that land on the interface belong to it and aren't here.</summary>
     public TouchInput Touches { get; }
+
+    /// <summary>Whether the game's window has focus, for pausing while the player is in another window.</summary>
+    public WindowInput Window { get; }
 
     /// <summary>The characters typed this tick, for text fields.</summary>
     public string Typed { get => _tick.Read(field); private set; } = string.Empty;
@@ -95,8 +99,6 @@ public sealed class Input
 
     internal void KeyUp(Key key) => Keys.Up(key);
 
-    internal void TypedCharacter(char character) => Keys.Typed(character);
-
     /// <summary>Turns everything that happened since the last tick into this tick's snapshot.</summary>
     internal void Roll()
     {
@@ -105,6 +107,7 @@ public sealed class Input
         Mouse.Roll();
         Gamepad.Roll();
         Touches.Roll();
+        Window.Roll();
 
         foreach (var listener in Listeners)
         {

@@ -110,6 +110,7 @@ run.Input.Click("build.Cabin");                          // the view given .Id("
 run.Input.Scroll(-2f);
 run.Input.Stick(GamepadStick.Left, new Vector2(0f, 1f));
 run.Input.ConnectGamepad("PS5 Controller");             // a pad by name, for its button prompts
+run.Input.LoseFocus();                                   // the player switches to another window
 run.Input.Type("hello");
 
 // Actions directly, so the test still passes when the bindings change.

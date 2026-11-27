@@ -19,6 +19,7 @@ internal sealed unsafe class WindowInputFeed
     private readonly GlfwCallbacks.CursorEnterCallback _onCursorEnter;
     private readonly GlfwCallbacks.ScrollCallback _onScroll;
     private readonly GlfwCallbacks.CharCallback _onChar;
+    private readonly GlfwCallbacks.WindowFocusCallback _onFocus;
 
     public WindowInputFeed(OsWindow window, Input input, GameStats stats)
     {
@@ -31,6 +32,7 @@ internal sealed unsafe class WindowInputFeed
         _onCursorEnter = OnCursorEnter;
         _onScroll = (_, _, offsetY) => input.Mouse.Feed.Scrolled((float)offsetY);
         _onChar = OnChar;
+        _onFocus = (_, focused) => input.Window.FocusChanged(focused);
     }
 
     /// <summary>Hands the window's events to the input from now on.</summary>
@@ -44,6 +46,10 @@ internal sealed unsafe class WindowInputFeed
         glfw.SetCursorEnterCallback(window, _onCursorEnter);
         glfw.SetScrollCallback(window, _onScroll);
         glfw.SetCharCallback(window, _onChar);
+        glfw.SetWindowFocusCallback(window, _onFocus);
+
+        // A window that came up behind another, or lost focus before anyone listened, starts out without it.
+        _input.Window.FocusChanged(_window.HasFocus);
         _input.Keys.Clipboard = new WindowClipboard(_window);
 
         // GLFW has no touch, so on Windows it's read from the window's own messages. Elsewhere only scripts touch.
@@ -126,7 +132,7 @@ internal sealed unsafe class WindowInputFeed
     {
         foreach (char character in char.ConvertFromUtf32((int)codepoint))
         {
-            _input.TypedCharacter(character);
+            _input.Keys.Typed(character);
         }
     }
 }

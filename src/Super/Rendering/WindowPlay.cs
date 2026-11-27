@@ -39,7 +39,8 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
                 ReloadSavedShaders(shaders);
                 PlayFrame(host, clock, realTime);
 
-                int limit = host.Graphics.Screen.MaxFramesPerSecond;
+                // The window's own focus, so a script playing still saves power in the background.
+                int limit = host.Graphics.Screen.FrameLimit(window.HasFocus);
                 if (limit > 0)
                 {
                     fineSleep ??= FrameLimiter.FineSleep();

@@ -46,7 +46,7 @@ public sealed class InputScript
     {
         foreach (char character in text)
         {
-            input.TypedCharacter(character);
+            input.Keys.Typed(character);
         }
     }).Wait(1);
 
