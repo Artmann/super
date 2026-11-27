@@ -43,6 +43,9 @@ public enum UiRole
 
     /// <summary>A navigation stack. Its label is the title of the page on top, and its value how deep it is.</summary>
     Navigation,
+
+    /// <summary>A key or button drawn in a prompt. Its label is the button's name, such as "A", "Cross" or "Space", and its value the device: "Keyboard", "Mouse", or the pad's family.</summary>
+    Prompt,
 }
 
 /// <summary>

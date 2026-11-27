@@ -15,6 +15,9 @@ internal sealed class InputTick
 
     public Vector2 ScreenSize { get; set; }
 
+    /// <summary>The device the player last used, as the window fed it, ahead of the next tick.</summary>
+    public InputDevice PendingDevice { get; set; }
+
     public void Check()
     {
         if (!Readable)

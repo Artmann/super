@@ -17,6 +17,7 @@ public sealed class ScriptedInput
     private readonly InputScript _tape = new();
     private readonly float[] _axes = NewAxes();
     private readonly bool[] _buttons = new bool[Input.GamepadButtonCount];
+    private string? _gamepadName;
 
     internal ScriptedInput(Input input, Func<Type, object> resolve, UiTree ui)
     {
@@ -33,6 +34,17 @@ public sealed class ScriptedInput
         axes[5] = -1f;
         return axes;
     }
+
+    /// <summary>
+    /// Plugs in a pad that calls itself this, such as "Xbox Controller" or "PS5 Controller", so
+    /// <see cref="GamepadInput.Family"/> and the button prompts follow it. It doesn't make the gamepad the device
+    /// in use until a button or stick is.
+    /// </summary>
+    public void ConnectGamepad(string name) => Queue(input =>
+    {
+        _gamepadName = name;
+        input.Gamepad.Polled(true, _axes, _buttons, _gamepadName);
+    });
 
     /// <summary>A tap: down and up before the next tick, so it's pressed on that tick and released on the one after.</summary>
     public void Press(Key key)
@@ -68,13 +80,13 @@ public sealed class ScriptedInput
     public void Hold(GamepadButton button) => Queue(input =>
     {
         _buttons[(int)button] = true;
-        input.Gamepad.Polled(true, _axes, _buttons);
+        input.Gamepad.Polled(true, _axes, _buttons, _gamepadName);
     });
 
     public void Release(GamepadButton button) => Queue(input =>
     {
         _buttons[(int)button] = false;
-        input.Gamepad.Polled(true, _axes, _buttons);
+        input.Gamepad.Polled(true, _axes, _buttons, _gamepadName);
     });
 
     /// <summary>Puts the cursor here, in the pixels the interface lays itself out in.</summary>
@@ -142,14 +154,14 @@ public sealed class ScriptedInput
         int first = (int)stick * 2;
         _axes[first] = value.X;
         _axes[first + 1] = -value.Y;
-        input.Gamepad.Polled(true, _axes, _buttons);
+        input.Gamepad.Polled(true, _axes, _buttons, _gamepadName);
     });
 
     /// <summary>Holds a trigger at this pull, from 0 to 1, until set again.</summary>
     public void Trigger(GamepadTrigger trigger, float value) => Queue(input =>
     {
         _axes[4 + (int)trigger] = value * 2f - 1f;
-        input.Gamepad.Polled(true, _axes, _buttons);
+        input.Gamepad.Polled(true, _axes, _buttons, _gamepadName);
     });
 
     /// <summary>Performs the action for exactly one tick, whatever it's bound to.</summary>

@@ -27,6 +27,7 @@ public sealed class TouchInput : IReadOnlyList<Touch>
     internal TouchInput(InputTick tick)
     {
         _tick = tick;
+        Feed = new TouchFeed(tick);
     }
 
     public int Count => _tick.Read(_touches).Length;
@@ -34,7 +35,7 @@ public sealed class TouchInput : IReadOnlyList<Touch>
     public Touch this[int index] => _tick.Read(_touches)[index];
 
     /// <summary>What the screen sent since the last tick, waiting for the next one.</summary>
-    internal TouchFeed Feed { get; } = new();
+    internal TouchFeed Feed { get; }
 
     public IEnumerator<Touch> GetEnumerator() => ((IEnumerable<Touch>)_tick.Read(_touches)).GetEnumerator();
 
@@ -48,7 +49,7 @@ public sealed class TouchInput : IReadOnlyList<Touch>
 /// event waits in <see cref="Events"/> for the interface, which takes the fingers that land on it and
 /// applies the rest with <see cref="Apply"/>.
 /// </summary>
-internal sealed class TouchFeed
+internal sealed class TouchFeed(InputTick tick)
 {
     private readonly Dictionary<int, Finger> _fingers = [];
 
@@ -58,7 +59,11 @@ internal sealed class TouchFeed
     /// <summary>What the fingers did that the interface hasn't seen yet, in order.</summary>
     public List<TouchEvent> Events { get; } = [];
 
-    public void Down(int id, Vector2 position) => Route(new TouchEvent(TouchEventKind.Down, id, position));
+    public void Down(int id, Vector2 position)
+    {
+        tick.PendingDevice = InputDevice.Touch;
+        Route(new TouchEvent(TouchEventKind.Down, id, position));
+    }
 
     public void Moved(int id, Vector2 position) => Route(new TouchEvent(TouchEventKind.Moved, id, position));
 

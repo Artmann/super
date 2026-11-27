@@ -109,6 +109,7 @@ run.Input.Click(MouseButton.Left, at: new Vector2(640, 360));
 run.Input.Click("build.Cabin");                          // the view given .Id("build.Cabin")
 run.Input.Scroll(-2f);
 run.Input.Stick(GamepadStick.Left, new Vector2(0f, 1f));
+run.Input.ConnectGamepad("PS5 Controller");             // a pad by name, for its button prompts
 run.Input.Type("hello");
 
 // Actions directly, so the test still passes when the bindings change.

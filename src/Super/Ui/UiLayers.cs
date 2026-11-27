@@ -13,6 +13,12 @@ internal sealed class UiLayers(UiTree tree)
     private (UiNode Node, Action Run)? _back;
     private (UiNode Node, Action<int> Run)? _tabs;
 
+    /// <summary>
+    /// What every layer starts from: the default look, with the device the player last used, which
+    /// <see cref="UiPointer.Pump"/> sets so the next update draws prompts for it.
+    /// </summary>
+    public UiEnvironment Root { get; set; } = UiEnvironment.Default;
+
     /// <summary>The drag preview and the tooltip, as the last frame showed them.</summary>
     public IReadOnlyList<UiNode?> Overlays => _overlays;
 
@@ -152,12 +158,12 @@ internal sealed class UiLayers(UiTree tree)
 
         if (node is not null && node.View.GetType() == view.GetType())
         {
-            return node.Update(view, UiEnvironment.Default);
+            return node.Update(view, tree.Layers.Root);
         }
 
         node?.Unmount();
         node = new UiNode(tree, null, view);
-        node.Update(view, UiEnvironment.Default);
+        node.Update(view, tree.Layers.Root);
         return true;
     }
 

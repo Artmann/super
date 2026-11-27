@@ -386,6 +386,42 @@ new VStack(Spacing: 2f)
 In tests, `run.FocusMarker` is where the highlight was last drawn, or null when it's hidden,
 and `run.Animating` stays true while it slides.
 
+### Button prompts
+
+A hint such as "Press E to open" should show the button in the player's hand. `ActionPrompt`
+reads it from your [bindings](input.md#bindings): the first key or mouse binding while the
+player uses the keyboard and mouse, and the first gamepad binding once they pick up a pad. It
+switches as soon as they do, and after a rebind it shows the new key:
+
+```csharp
+new HStack(Spacing: 24f)
+{
+    new ActionPrompt<Control>(actions, Control.Jump, "Jump"),
+    new ActionPrompt<Control>(actions, Control.Interact, "Open"),
+}
+```
+
+A key is drawn as a keycap with the short name keyboards print, such as Esc, Shift or PgUp, and
+the arrows as arrows. A mouse button is a mouse with that button filled in. A gamepad button is
+drawn the way its pad marks it: coloured A, B, X and Y on an Xbox pad, the four shapes on a
+PlayStation one, and on a Nintendo pad B at the bottom and A on the right. A pad whose name
+gives nothing away gets plain letters. A binding of several keys, such as `Keys.WASD`, shows each
+of them. On a touch screen `ActionPrompt` shows nothing, as there's no button to point at.
+
+`ButtonPrompt` draws one binding, whatever the device, for a key list or a tutorial.
+`Family` draws it for a given pad instead of the one plugged in:
+
+```csharp
+new ButtonPrompt(GamepadButton.South) { Family = GamepadFamily.PlayStation }
+```
+
+Both take the text's size, so `.FontSize(24f)` makes them bigger. Each key or button reads in
+tests as a `UiRole.Prompt` element, with its name as the label and its device as the value,
+such as `Cross (PlayStation)` or `Esc (Keyboard)`. Views of your own can read
+`Environment.Device` and `Environment.Gamepad` to change with the player too.
+
+![Button prompts for each family of pad, and keys and the mouse](media/ui-prompts.webp)
+
 ## Text fields
 
 `TextField` is one line of text to type. It's a control like the others: give it the text
@@ -1071,4 +1107,5 @@ grid, and when a lazy list scrolls far in one frame the new rows show a frame la
 Going back in a navigation stack forgets the state of the page that was under it, and a tab
 view or a navigation stack under `.Hidden()` still takes the bumpers and Escape. There's no
 key on the keyboard that switches tabs from anywhere, as the bumpers do. Nothing plays the
-`Confirm` sound yet.
+`Confirm` sound yet. Button prompts know the first gamepad only, read its family from the
+name the system gives it, and have no glyphs for a Steam Deck's back buttons or a touchpad.

@@ -88,6 +88,7 @@ class Console(Input input)
 | `Typed` | Text the player entered this tick |
 | `Mouse` | The cursor and the wheel, below |
 | `Gamepad` | The first gamepad's sticks and triggers, below |
+| `Device` | What the player last played with: `KeyboardAndMouse`, `Gamepad` or `Touch`, for [button prompts](interfaces.md#button-prompts) |
 
 The mouse is on `input.Mouse`:
 
@@ -107,6 +108,7 @@ The gamepad is on `input.Gamepad`:
 | --- | --- |
 | `Stick(GamepadStick)`, `Trigger(GamepadTrigger)` | Sticks give forward as positive y; triggers go from 0 to 1 |
 | `Connected` | Whether there's a gamepad |
+| `Name`, `Family` | The name the system gives the pad, and whose it is from that name: `Xbox`, `PlayStation`, `Nintendo` or `Other` |
 | `DeadZone` | The stick dead zone, 0.2 by default |
 
 The engine keeps one key, F3 unless the game picks another, to show and hide the

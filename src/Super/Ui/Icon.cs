@@ -21,6 +21,35 @@ public enum IconName
     Search,
     Info,
     Dot,
+
+    /// <summary>A ring, as on the PlayStation's east button.</summary>
+    Circle,
+
+    /// <summary>A square, as on the PlayStation's west button.</summary>
+    Square,
+
+    /// <summary>A triangle, as on the PlayStation's north button.</summary>
+    Triangle,
+
+    /// <summary>A mouse, for moving the mouse.</summary>
+    Mouse,
+
+    /// <summary>A mouse with its left button filled in.</summary>
+    MouseLeft,
+
+    /// <summary>A mouse with its right button filled in.</summary>
+    MouseRight,
+
+    /// <summary>A mouse with its wheel filled in, for the middle button and the wheel.</summary>
+    MouseMiddle,
+
+    /// <summary>A direction pad.</summary>
+    DPad,
+
+    DPadUp,
+    DPadDown,
+    DPadLeft,
+    DPadRight,
 }
 
 /// <summary>
@@ -120,7 +149,57 @@ internal static class IconDrawings
             pen.Spot(12f, 8f, 1.25f);
         },
         pen => pen.Spot(12f, 12f, 4f),
+        pen => pen.Ring(12f, 12f, 7f),
+        pen => pen.Lines((6f, 6f), (18f, 6f), (18f, 18f), (6f, 18f), (6f, 6f)),
+        pen => pen.Lines((12f, 4.5f), (20f, 18.5f), (4f, 18.5f), (12f, 4.5f)),
+        pen => Mouse(pen, 0f),
+        pen => Mouse(pen, -1f),
+        pen => Mouse(pen, 1f),
+        pen =>
+        {
+            Mouse(pen, float.NaN);
+            pen.Spot(12f, 8f, 1.5f);
+        },
+        pen => DPad(pen, null),
+        pen => DPad(pen, (12f, 6.5f)),
+        pen => DPad(pen, (12f, 17.5f)),
+        pen => DPad(pen, (6.5f, 12f)),
+        pen => DPad(pen, (17.5f, 12f)),
     ];
+
+    /// <summary>A mouse's outline and the line between its buttons, with the left (-1) or right (1) button filled in.</summary>
+    private static void Mouse(IconPen pen, float button)
+    {
+        pen.Lines((9f, 3f), (15f, 3f), (18f, 6f), (18f, 17f), (14f, 21f), (10f, 21f), (6f, 17f), (6f, 6f), (9f, 3f));
+        pen.Lines((6f, 10f), (18f, 10f));
+        if (float.IsNaN(button))
+        {
+            return;
+        }
+
+        pen.Lines((12f, 3f), (12f, 10f));
+        if (button != 0f)
+        {
+            // Strokes side by side fill the button, which a spot in so small a space can't.
+            float inner = 12f + button * 1.5f;
+            float outer = 12f + button * 4.5f;
+            pen.Lines((inner, 5f), (outer, 5f));
+            pen.Lines((inner, 6.75f), (outer, 6.75f));
+            pen.Lines((inner, 8.5f), (outer, 8.5f));
+        }
+    }
+
+    /// <summary>The cross of a direction pad, with one arm filled in when <paramref name="arm"/> says which.</summary>
+    private static void DPad(IconPen pen, (float X, float Y)? arm)
+    {
+        pen.Lines(
+            (9f, 3f), (15f, 3f), (15f, 9f), (21f, 9f), (21f, 15f), (15f, 15f),
+            (15f, 21f), (9f, 21f), (9f, 15f), (3f, 15f), (3f, 9f), (9f, 9f), (9f, 3f));
+        if (arm is { } at)
+        {
+            pen.Spot(at.X, at.Y, 2.5f);
+        }
+    }
 
     /// <summary>Draws the icon, or a dot for a name that isn't one.</summary>
     public static void Draw(IconName name, IconPen pen)

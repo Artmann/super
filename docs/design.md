@@ -284,6 +284,16 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   until the button is let go. The left stick and d-pad go through `UiPadRepeat`, which moves
   at once, after 0.4 s and then every 0.1 s, counted in ticks so it replays exactly, and
   `GamepadInput.LeftStickTaken` centres the stick for the game while focus is on.
+- The device in use is set by the feeds, not read from the tick, so input the interface takes
+  still counts: `KeyFeed`, `MouseFeed` (a button, the wheel, or a move over 4 pixels) and
+  `TouchFeed` set `InputTick.PendingDevice` as events arrive, and `GamepadInput.Polled` sets it
+  on a newly pressed button or a stick or trigger past half, so a button held from before
+  doesn't steal it back. `Input.Roll` copies it into the tick-gated `Input.Device`. The pad's
+  family comes from its name in `Devices.FamilyOf`. `UiPointer.Pump` hands the pending device
+  and family to `UiLayers.Root`, the `UiEnvironment` every layer starts from, so prompts switch
+  in the frame the player does. `PromptGlyphs` and `PadGlyphs` turn a `Binding` into the glyphs
+  `ButtonPrompt` draws. `ActionPrompt` copies its bindings when it's made, so a rebind makes it
+  compare unequal and draw again.
 - Fingers come in through `TouchFeed`, routed the same way: with `Routes` on, downs, moves, ups
   and cancels wait in `Events`, and `UiPointer.Pump` hands each to `UiTouch`. A finger the
   interface doesn't take is applied to the feed's own fingers, which `TouchInput` rolls into

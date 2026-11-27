@@ -14,6 +14,7 @@ public sealed class MouseInput
     internal MouseInput(InputTick tick)
     {
         _tick = tick;
+        Feed = new MouseFeed(tick);
     }
 
     /// <summary>Set in Update to hide the cursor and lock it to the window, for looking around with the mouse.</summary>
@@ -48,7 +49,7 @@ public sealed class MouseInput
     public float Scroll { get => _tick.Read(field); private set; }
 
     /// <summary>What the window sent since the last tick, waiting for the next one.</summary>
-    internal MouseFeed Feed { get; } = new();
+    internal MouseFeed Feed { get; }
 
     /// <summary>The line from the camera through the cursor, for working out what was clicked.</summary>
     public Ray Ray(in Camera camera) => camera.Ray(Position, _tick.ScreenSize);
@@ -67,7 +68,7 @@ public sealed class MouseInput
 /// interface is on, events wait in <see cref="MouseEvents"/> for it to pass on what it
 /// doesn't take.
 /// </summary>
-internal sealed class MouseFeed
+internal sealed class MouseFeed(InputTick tick)
 {
     internal const int ButtonCount = 8;
 
@@ -89,6 +90,7 @@ internal sealed class MouseFeed
 
     public void MouseButtonDown(MouseButton button)
     {
+        tick.PendingDevice = InputDevice.KeyboardAndMouse;
         if (RoutesMouse)
         {
             MouseEvents.Add(new MouseEvent(MouseEventKind.Down, button, default, 0f));
@@ -132,6 +134,10 @@ internal sealed class MouseFeed
         if (_hasPosition)
         {
             _delta += position - _position;
+            if (Devices.Moved(position - _position))
+            {
+                tick.PendingDevice = InputDevice.KeyboardAndMouse;
+            }
         }
 
         _position = position;
@@ -153,6 +159,7 @@ internal sealed class MouseFeed
 
     public void Scrolled(float notches)
     {
+        tick.PendingDevice = InputDevice.KeyboardAndMouse;
         if (RoutesMouse)
         {
             MouseEvents.Add(new MouseEvent(MouseEventKind.Wheel, default, default, notches));

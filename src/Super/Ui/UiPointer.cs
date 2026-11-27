@@ -45,6 +45,9 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     public void Pump()
     {
         Focus.PumpKeys();
+        // Read before the tick rolls, so prompts switch in the frame the player does. The environment compares by
+        // value, so setting the same device again redraws nothing.
+        tree.Layers.Root = UiEnvironment.Default with { Device = input.PendingDevice, Gamepad = input.Gamepad.PendingFamily };
         foreach (var mouse in input.Mouse.Feed.MouseEvents)
         {
             switch (mouse.Kind)
