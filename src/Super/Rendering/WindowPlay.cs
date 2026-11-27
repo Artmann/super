@@ -37,10 +37,12 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
             while (!window.ShouldClose)
             {
                 ReloadSavedShaders(shaders);
-                PlayFrame(host, clock, realTime);
 
                 // The window's own focus, so a script playing still saves power in the background.
-                int limit = host.Graphics.Screen.FrameLimit(window.HasFocus);
+                bool focused = window.HasFocus;
+                PlayFrame(host, clock, realTime, host.Graphics.Screen.Draws(focused));
+
+                int limit = host.Graphics.Screen.FrameLimit(focused, host.Time.TicksPerSecond);
                 if (limit > 0)
                 {
                     fineSleep ??= FrameLimiter.FineSleep();
@@ -75,7 +77,7 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
         ApplyAutoBake(host);
     }
 
-    private void PlayFrame(GameLoop host, FixedStepClock clock, Stopwatch realTime)
+    private void PlayFrame(GameLoop host, FixedStepClock clock, Stopwatch realTime, bool draws)
     {
         window.PollEvents();
         if (host.Script is null)
@@ -99,6 +101,12 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
         unsafe
         {
             cursor.Apply(window.GlfwApi, window.NativeWindow, host.Input, host.Ui.Scale);
+        }
+
+        // Nothing goes to the GPU, so streaming and bakes wait for the window to come back.
+        if (!draws)
+        {
+            return;
         }
 
         host.DrawSteps.BakeProgress = scene.Renderer.Baking.Progress;

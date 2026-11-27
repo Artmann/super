@@ -102,27 +102,49 @@ public class FocusTests
 
     [Theory]
     [InlineData(true, 0, 30, 0)]
-    [InlineData(false, 0, 0, 0)]
+    [InlineData(false, 0, -1, 0)]
     [InlineData(false, 0, 10, 10)]
-    [InlineData(false, 144, 0, 144)]
+    [InlineData(false, 144, -1, 144)]
     [InlineData(false, 144, 10, 10)]
     [InlineData(false, 5, 10, 5)]
     [InlineData(true, 144, 10, 144)]
+    [InlineData(true, 144, 0, 144)]
     public void The_unfocused_limit_only_slows_frames_while_the_window_has_no_focus(bool focused, int limit, int unfocused, int expected)
     {
         var screen = new GraphicsScreen { MaxFramesPerSecond = limit, UnfocusedMaxFramesPerSecond = unfocused };
 
-        Assert.Equal(expected, screen.FrameLimit(focused));
+        Assert.Equal(expected, screen.FrameLimit(focused, 30));
+        Assert.True(screen.Draws(focused));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(144)]
+    public void An_unfocused_limit_of_zero_draws_nothing_and_wakes_once_a_tick(int limit)
+    {
+        var screen = new GraphicsScreen { MaxFramesPerSecond = limit, UnfocusedMaxFramesPerSecond = 0 };
+
+        Assert.False(screen.Draws(false));
+        Assert.Equal(30, screen.FrameLimit(false, 30));
     }
 
     [Fact]
-    public void A_negative_unfocused_limit_is_refused()
+    public void The_unfocused_limit_keeps_to_the_frame_limit_by_default()
+    {
+        var screen = new GraphicsScreen { MaxFramesPerSecond = 144 };
+
+        Assert.Equal(-1, screen.UnfocusedMaxFramesPerSecond);
+        Assert.Equal(144, screen.FrameLimit(false, 30));
+    }
+
+    [Fact]
+    public void An_unfocused_limit_below_minus_one_is_refused()
     {
         var screen = new GraphicsScreen();
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => screen.UnfocusedMaxFramesPerSecond = -1);
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => screen.UnfocusedMaxFramesPerSecond = -2);
 
-        Assert.StartsWith("The unfocused frame limit can't be negative. Use 0 to keep to MaxFramesPerSecond.", error.Message);
-        Assert.Equal(0, screen.UnfocusedMaxFramesPerSecond);
+        Assert.StartsWith("The unfocused frame limit can be -1 to keep to MaxFramesPerSecond, 0 to draw nothing, or a frame rate.", error.Message);
+        Assert.Equal(-1, screen.UnfocusedMaxFramesPerSecond);
     }
 }
