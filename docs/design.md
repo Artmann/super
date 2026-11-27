@@ -5061,6 +5061,21 @@ builds them from `Shapes.BuiltIn` once, with the shared white material, and keep
 for its whole life; `Content` treats any index of 0 or below as always ready and never
 unloadable, and `View.Model` refuses a negative index with no shape behind it.
 
+Models, textures and interface images reuse the slots of unloaded ones (`ContentItems.AddReusable`), so a game that
+streams chunks for hours keeps `ContentItems`, `ItemProgress` and the `ContentLoader` lists bounded. A slot goes on
+the free list only once nothing on the GPU can still come from it: at once if the loader never walked it
+(`ItemSlots.Seen`, which the loader sets each frame), or else after `ItemUploads.UnloadPending` has taken and
+destroyed what it made (`ItemSlots.ReleasePendingUnloads`). The slot bookkeeping lives in `ItemSlots`
+(`src/Super/Data/ItemSlots.cs`), reached as `ContentItems.Slots`. Each slot keeps a generation that moves on as it's
+given back, and `ModelRef`, `TextureRef` and `GameImage` carry the generation they were made with, so
+`ItemSlots.IsGone` tells a stale ref from the item now in its slot; `ItemChecks`, `View.Model` and
+`UploadedItems.Require` ask it. A slot the loader had walked goes on `ItemSlots.Retaken` when it's taken again, and
+the loader's next `Update` starts
+preparing the new item there. `ItemProgress` counts named and loaded items as running totals, so a slot taken again
+counts as a new item. Colour tables are Rendition's `ColorLut`, which has no room for a generation, so they, shaders,
+texture arrays and skies keep their slot for good. A `MeshMask` remembers only its model's index, not its
+generation.
+
 Generated meshes share materials. `ItemUploads` keeps one material per surface in
 `SharedMaterials`, counting the meshes that use it, and destroys it when the last of them is
 unloaded or fails to upload. Surfaces are compared by value, with their arrays compared item

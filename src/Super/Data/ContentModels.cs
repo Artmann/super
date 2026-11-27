@@ -79,7 +79,7 @@ public sealed class ContentModels
         }
 
         ItemChecks.RequireNamed(_items, model.Index, nameof(model));
-        return !_items.IsUnloaded(model.Index) && _items.Loading.IsReady(model.Index);
+        return !_items.Slots.IsGone(model.Index, model.Generation) && _items.Loading.IsReady(model.Index);
     }
 
     /// <summary>
@@ -94,7 +94,7 @@ public sealed class ContentModels
         }
 
         ItemChecks.RequireNamed(_items, model.Index, nameof(model));
-        ItemChecks.RequireLoaded(_items, model.Index, nameof(model));
+        ItemChecks.RequireLoaded(_items, model.Index, model.Generation, nameof(model));
         object item = _items.Items[model.Index - 1];
         if (item is not (string or GeneratedMesh))
         {
@@ -125,7 +125,7 @@ public sealed class ContentModels
             throw new ArgumentException($"{field} names {model.Index}, which this content never named, so it has no mesh names.", field);
         }
 
-        ItemChecks.RequireLoaded(_items, model.Index, field);
+        ItemChecks.RequireLoaded(_items, model.Index, model.Generation, field);
         if (_meshNames.TryGetValue(model.Index, out var known))
         {
             return known;

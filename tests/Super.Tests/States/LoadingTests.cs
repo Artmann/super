@@ -284,6 +284,28 @@ public class LoadingTests
     }
 
     [Fact]
+    public void A_slot_given_back_and_taken_again_is_loaded_again_with_the_new_item()
+    {
+        var fake = new Fake();
+        int a = fake.Name("a");
+        fake.Finish("a");
+        fake.FramesUntil(uploads: 1);
+        fake.Content.Models.Unload(new ModelRef(a));
+        Assert.Equal("a", fake.Loader.Take(a, "gone", fake.Content));
+        fake.Content.Store.Slots.ReleasePendingUnloads();
+
+        int b = fake.Name("b");
+        Assert.Equal(a, b);
+        Assert.False(fake.Content.IsLoaded);
+        fake.Finish("b");
+        fake.FramesUntil(uploads: 2);
+
+        Assert.Equal(["a", "b"], fake.Uploaded);
+        Assert.Equal("b", fake.Loader.Get(b, fake.Content));
+        Assert.True(fake.Content.IsLoaded);
+    }
+
+    [Fact]
     public void A_failed_load_throws_on_the_frame_that_finds_it()
     {
         var fake = new Fake();

@@ -260,7 +260,7 @@ public class ContentTests
 
         content.Unload(lut);
 
-        Assert.Contains(lut.Index, content.Store.PendingUnloads.ToArray());
+        Assert.True(content.Store.Slots.IsUnloaded(lut.Index));
         var again = Assert.Throws<ArgumentException>(() => content.Unload(lut));
         Assert.Equal($"lut names {lut.Index}, which was unloaded. (Parameter 'lut')", again.Message);
         Assert.NotEqual(lut, content.Lut("grades/dusk.cube"));
@@ -320,7 +320,7 @@ public class ContentTests
         content.Models.Unload(model);
         content.Unload(texture);
 
-        Assert.True(content.Store.IsUnloaded(texture.Index));
+        Assert.True(content.Store.Slots.IsUnloaded(texture.Index));
     }
 
     [Fact]
