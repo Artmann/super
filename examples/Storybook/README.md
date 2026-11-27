@@ -1,7 +1,7 @@
 # Storybook
 
 Every interface element Super has built in, each on its own page: alone, in its variations
-and sizes, turned off, and next to the others, in the dark theme and the light one. Pick a
+and sizes, turned off, and next to the others, in the dark theme, the light one and one drawn from art. Pick a
 page in the sidebar, and switch the theme in the top right. It's the place to see what an
 element looks like before you use it, and a test bed for changing one.
 
@@ -13,8 +13,9 @@ dotnet test tests/Storybook.Tests -c Release
 ```
 
 `--story badges` opens a page by its name in lower case with dashes, such as `key-hints`,
-and `--theme light` starts in the light theme. Both work with `--screenshot`, so a shot of
-one element is one command:
+and `--theme light` starts in the light theme. `--theme textured` starts in a theme whose
+cards, buttons and popups are drawn from art, painted in `Textured.cs`. Both options work with `--screenshot`, so a shot
+of one element is one command:
 
 ```
 dotnet run -c Release --project examples/Storybook -- --story badges --theme light --screenshot badges.png
@@ -36,5 +37,7 @@ dotnet run -c Release --project examples/Storybook -- --story badges --theme lig
 | `Containing.cs` | Pages for cards, labelled content, forms, disclosure groups, tab views and navigation stacks |
 | `Moving.cs` | The animation page: controls that move, spinners, transitions, a health bar of your own, and motion turned off |
 | `Feeling.cs` | The game feel page: presses that squash, springs, counting gold, a gauge's trail, a quest card that leaves and pages that slide |
+| `Dressing.cs` | The art panels page: cards, buttons and a dialog drawn from the theme's art, and an image drawn as a 9-slice |
+| `Textured.cs` | The textured theme, with its card, popup and button pictures painted in code |
 | `Showcases.cs` | Whole screens a game would have, the frame they sit in, the main menu and the heads-up display |
 | `ShowcaseScreens.cs` | The settings screen, the inventory and the character creator |

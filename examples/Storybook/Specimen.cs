@@ -32,11 +32,15 @@ public sealed record Specimen(string Title, string Note, UiView Content) : UiVie
 /// <summary>Ways to lay out the specimens of a story.</summary>
 internal static class Layout
 {
-    /// <summary>The specimens of one story, one under the other.</summary>
-    public static UiView Page(params UiView[] specimens)
+    /// <summary>The specimens of one story, one under the other. A null keeps its spot empty.</summary>
+    public static UiView Page(params UiView?[] specimens)
     {
         var page = new VStack(HorizontalAlignment.Leading, 32f);
-        page.Add(specimens);
+        foreach (var specimen in specimens)
+        {
+            page.Add(specimen);
+        }
+
         return page;
     }
 

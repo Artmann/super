@@ -13,7 +13,7 @@ public sealed record Story(string Group, string Name, string Summary, Func<UiVie
 }
 
 /// <summary>Which story to open and in which theme, from the command line.</summary>
-public sealed record StoryChoice(string? Story = null, bool Light = false)
+public sealed record StoryChoice(string? Story = null, StoryTheme Theme = StoryTheme.Dark)
 {
     /// <summary>Reads <c>--story</c> and <c>--theme</c>, leaving every other option to the game.</summary>
     public static StoryChoice Parse(IReadOnlyList<string> args)
@@ -27,7 +27,7 @@ public sealed record StoryChoice(string? Story = null, bool Light = false)
             }
             else if (args[i] == "--theme")
             {
-                choice = choice with { Light = ThemeIsLight(ValueAfter(args, i)) };
+                choice = choice with { Theme = ThemeNamed(ValueAfter(args, i)) };
             }
         }
 
@@ -37,12 +37,21 @@ public sealed record StoryChoice(string? Story = null, bool Light = false)
     private static string ValueAfter(IReadOnlyList<string> args, int index) =>
         index + 1 < args.Count ? args[index + 1] : throw new ArgumentException($"{args[index]} needs a value after it.");
 
-    private static bool ThemeIsLight(string name) => name switch
+    private static StoryTheme ThemeNamed(string name) => name switch
     {
-        "light" => true,
-        "dark" => false,
-        _ => throw new ArgumentException($"--theme takes dark or light, not \"{name}\"."),
+        "light" => StoryTheme.Light,
+        "dark" => StoryTheme.Dark,
+        "textured" => StoryTheme.Textured,
+        _ => throw new ArgumentException($"--theme takes dark, light or textured, not \"{name}\"."),
     };
+}
+
+/// <summary>The storybook's themes: the two built in, and one drawn from art.</summary>
+public enum StoryTheme
+{
+    Dark,
+    Light,
+    Textured,
 }
 
 /// <summary>Every story, in the order the sidebar shows them.</summary>
@@ -90,6 +99,7 @@ public static class Stories
         new("Containers", "Forms", "Sections of settings with lines between, and groups that open.", Containing.Forms),
         new("Containers", "Tabs", "Pages a bar of tabs switches between.", Containing.Tabs),
         new("Containers", "Navigation", "Pages that go deeper, with a way back.", Containing.Navigation),
+        new("Containers", "Art panels", "Cards, buttons and popups drawn from images, and any image drawn as a 9-slice.", Dressing.ArtPanels),
         new("Motion", "Animation", "Controls that move, views that ease in, numbers of your own, and motion turned off.", Moving.Animation),
         new("Motion", "Game feel", "Presses that squash, springs, numbers that count, losses that trail, views that leave and pages that slide.", Feeling.GameFeel),
         new("Showcases", "Settings", "A settings screen: tabs of sections, sliders and switches, and a footer to apply.", Showcases.Settings),

@@ -76,14 +76,7 @@ public sealed record Button(string Label, Action? OnClick = null, bool Disabled 
             var theme = environment.Theme;
             var metrics = environment.Metrics;
             bool off = Disabled || environment.Disabled;
-            var button = new Pressable(
-                look => Framed(Face(look, theme, metrics), metrics)
-                    .Background(Fill(theme.Colors, look))
-                    .Border(Style == ButtonStyle.Outline ? 1f : 0f, theme.Colors.Input)
-                    .CornerRadius(theme.Radius)
-                    .Opacity(off ? 0.5f : 1f),
-                OnClick,
-                off);
+            var button = new Pressable(look => Panel(Framed(Face(look, theme, metrics), metrics), theme, look).Opacity(off ? 0.5f : 1f), OnClick, off);
             string name = Label.Length == 0 && Icon is { } icon ? icon.ToString() : Label;
             return new SemanticsModifier(button, new UiSemantics(UiRole.Button, name) { Disabled = off });
         }
@@ -92,6 +85,23 @@ public sealed record Button(string Label, Action? OnClick = null, bool Disabled 
     /// <summary>A fill a little towards the background when hovered, and further when held.</summary>
     internal static Color Shade(Color fill, ThemeColors colors, PressState look) =>
         look.Pressed ? fill.Mix(colors.Background, 0.2f) : look.Hovered ? fill.Mix(colors.Background, 0.1f) : fill;
+
+    /// <summary>The face on the theme's button picture, when it has one and this is a filled style, and on the style's box when not.</summary>
+    private UiView Panel(UiView face, Theme theme, PressState look)
+    {
+        var fill = Fill(theme.Colors, look);
+        bool filled = Style is ButtonStyle.Default or ButtonStyle.Secondary or ButtonStyle.Destructive;
+        if (filled && theme.Panels.Button is { } art)
+        {
+            // Art in its own colours still darkens under the pointer and when held.
+            return face.Background(art.Behind(fill, Shade(Color.White, theme.Colors, look)));
+        }
+
+        return face
+            .Background(fill)
+            .Border(Style == ButtonStyle.Outline ? 1f : 0f, theme.Colors.Input)
+            .CornerRadius(theme.Radius);
+    }
 
     /// <summary>The face at the control's height, square with no label, and a menu row stretched across with its label at the start.</summary>
     private UiView Framed(UiView face, ControlMetrics metrics)

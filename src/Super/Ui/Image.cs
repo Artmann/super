@@ -71,14 +71,26 @@ public enum ImageFit
 /// <summary>
 /// Draws an image at its natural size. Inside a <see cref="UiExtensions.Frame"/> it takes
 /// the frame's size instead, and if only one length is set it keeps its shape.
-/// <paramref name="Tint"/> multiplies its colors.
+/// <paramref name="Tint"/> multiplies its colors. With <see cref="Slices"/> it's a 9-slice: it fills the room it's
+/// offered, keeps its corners their size and stretches its edges and middle, for panels and buttons drawn from art.
 /// </summary>
 public sealed record Image(GameImage Source, ImageFit Fit = ImageFit.Stretch, Color? Tint = null) : PrimitiveView
 {
+    /// <summary>Where to cut the image to draw it as a 9-slice, in its pixels. <see cref="Fit"/> doesn't apply to one.</summary>
+    public ImageSlices? Slices { get; init; }
+
+    /// <summary>How many interface units each of a 9-slice's pixels covers at its corners and edges.</summary>
+    public float SliceScale { get; init; } = 1f;
+
     internal override IReadOnlyList<UiView?> Children => [];
 
     internal override UiSize Measure(UiNode node, Proposal proposal)
     {
+        if (Slices is not null)
+        {
+            return new UiSize(Finite(proposal.Width) ?? Source.Width, Finite(proposal.Height) ?? Source.Height);
+        }
+
         if (FrameOf(node) is not { } frame)
         {
             return new UiSize(Source.Width, Source.Height);
@@ -104,8 +116,15 @@ public sealed record Image(GameImage Source, ImageFit Fit = ImageFit.Stretch, Co
 
     internal override void Emit(UiNode node, UiDrawList draw)
     {
+        var tint = Tint ?? Color.White;
+        if (Slices is { } slices)
+        {
+            NineSlice.Draw(draw, node.Frame, this, slices, tint);
+            return;
+        }
+
         var (rectangle, uvMin, uvMax) = Fitted(node.Frame);
-        draw.AddImage(rectangle, uvMin, uvMax, Tint ?? Color.White, Source);
+        draw.AddImage(rectangle, uvMin, uvMax, tint, Source);
     }
 
     /// <summary>The frame that decides this image's size, through anything that only wraps it.</summary>

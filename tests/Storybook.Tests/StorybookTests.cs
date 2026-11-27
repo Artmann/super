@@ -30,14 +30,14 @@ public sealed class StorybookTests
 
     [Theory]
     [MemberData(nameof(StoryIds))]
-    public void Every_story_opens_in_both_themes_with_its_title_on_the_page(string id)
+    public void Every_story_opens_in_every_theme_with_its_title_on_the_page(string id)
     {
-        foreach (bool light in new[] { false, true })
+        foreach (var theme in Enum.GetValues<StoryTheme>())
         {
-            using var run = Open(new StoryChoice(id, light));
+            using var run = Open(new StoryChoice(id, theme));
 
             Assert.Equal(id, run.Game.Story.Id);
-            Assert.Equal(light ? Theme.Light : Theme.Dark, run.Game.Theme);
+            Assert.Equal(run.Game.ThemeFor(theme), run.Game.Theme);
             // As the page's title, right of the sidebar, which scrolls, so a story far down it can be out of sight there,
             // and in the header, since a showcase such as Settings has a heading of its own with the same name.
             Assert.Single(run.ShownText, shown => shown.Text == run.Game.Story.Name && shown.Frame.X > 232f && shown.Frame.Y < 100f);
@@ -92,25 +92,62 @@ public sealed class StorybookTests
     }
 
     [Fact]
+    public void The_theme_switch_picks_the_textured_theme_whose_panels_are_art()
+    {
+        using var run = Open(new StoryChoice());
+
+        Click(run, "theme-textured");
+
+        Assert.Same(run.Game.TexturedTheme, run.Game.Theme);
+        Assert.NotNull(run.Game.Theme.Panels.Card);
+        Assert.NotNull(run.Game.Theme.Panels.Popup);
+        Assert.NotNull(run.Game.Theme.Panels.Button);
+    }
+
+    [Fact]
+    public void The_art_panels_story_asks_for_the_textured_theme_until_it_has_it()
+    {
+        const string note = "This theme draws boxes. Pick Textured at the top right to see these drawn from art.";
+        using var run = Open(new StoryChoice("art-panels"));
+        Assert.True(Shows(run, note), "The dark theme has no art, so the story should say so.");
+        Assert.False(Shows(run, "SliceScale 2"));
+
+        Click(run, "theme-textured");
+        // The 9-slice specimen is the last, below the fold of a small window.
+        run.Input.MoveMouse(new Vector2(run.ScreenSize.X / 2, run.ScreenSize.Y / 2));
+        run.Input.Scroll(-40f);
+        run.Ticks(2);
+
+        Assert.False(Shows(run, note));
+        Assert.True(Shows(run, "SliceScale 2"), "With art, the story should show the card's picture as a 9-slice.");
+    }
+
+    [Fact]
     public void The_command_line_picks_the_story_and_theme_and_leaves_other_options_alone()
     {
         var choice = StoryChoice.Parse(["--seed", "4", "--story", "badges", "--theme", "light", "--ticks", "2"]);
 
-        Assert.Equal(new StoryChoice("badges", Light: true), choice);
+        Assert.Equal(new StoryChoice("badges", StoryTheme.Light), choice);
+    }
+
+    [Fact]
+    public void The_command_line_picks_the_textured_theme()
+    {
+        Assert.Equal(StoryTheme.Textured, StoryChoice.Parse(["--theme", "textured"]).Theme);
     }
 
     [Fact]
     public void The_dark_theme_can_be_asked_for_by_name()
     {
-        Assert.False(StoryChoice.Parse(["--theme", "light", "--theme", "dark"]).Light);
+        Assert.Equal(StoryTheme.Dark, StoryChoice.Parse(["--theme", "light", "--theme", "dark"]).Theme);
     }
 
     [Fact]
-    public void A_theme_other_than_dark_or_light_is_refused()
+    public void A_theme_other_than_the_three_is_refused()
     {
         var error = Assert.Throws<ArgumentException>(() => StoryChoice.Parse(["--theme", "blue"]));
 
-        Assert.Equal("--theme takes dark or light, not \"blue\".", error.Message);
+        Assert.Equal("--theme takes dark, light or textured, not \"blue\".", error.Message);
     }
 
     [Fact]
@@ -127,7 +164,7 @@ public sealed class StorybookTests
         var error = Assert.Throws<ArgumentException>(() => Stories.Find("tables"));
 
         Assert.StartsWith("There's no story \"tables\". The stories are typography, colours,", error.Message);
-        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, game-controls, progress, gauges, text-fields, focus, prompts, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists, cards, forms, tabs, navigation, animation, game-feel, settings, inventory, main-menu, hud, character-creator.", error.Message);
+        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, game-controls, progress, gauges, text-fields, focus, prompts, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists, cards, forms, tabs, navigation, art-panels, animation, game-feel, settings, inventory, main-menu, hud, character-creator.", error.Message);
     }
 
     /// <summary>Clicks a control this far across it, halfway down, and lets the click land.</summary>
