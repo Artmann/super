@@ -22,6 +22,7 @@ public class ScreenEffectsTests
         EdgeTint = new EdgeTint(Red, 0.7f),
         SecondEdgeTint = new EdgeTint(Green, 0.2f),
         Desaturate = 0.8f,
+        Blur = 0.6f,
         Canvas = new TextureHandle(5),
         CanvasStrength = 0.9f,
         CanvasTileSize = 256f,
@@ -50,6 +51,7 @@ public class ScreenEffectsTests
         Assert.Equal(0.15f, halfway.Fade, 5);
         Assert.Equal(0.35f, halfway.EdgeTint.Strength, 5);
         Assert.Equal(0.4f, halfway.Desaturate, 5);
+        Assert.Equal(0.3f, halfway.Blur, 5);
     }
 
     [Fact]
@@ -206,9 +208,14 @@ public class ScreenEffectsTests
             Canvas = new TextureHandle(3),
             CanvasStrength = 2f,
             CanvasTileSize = -10f,
+            Blur = 4f,
         };
 
         var block = PostGrade.Screen(wild, 3);
+        var under = PostGrade.Screen(new ScreenEffects { Blur = -2f }, -1);
+
+        Assert.Equal(1f, block.ScreenRetro.W);
+        Assert.Equal(0f, under.ScreenRetro.W);
 
         Assert.Equal(new Vector4(1f, 0f, 0.5f, 0.5f), block.ScreenLens);
         Assert.Equal(new Vector4(1f, 0f, 0.5f, 1f), block.ScreenFlash);
@@ -306,6 +313,7 @@ public class ScreenEffectsTests
     [InlineData("edge tint's strength")]
     [InlineData("second edge tint's strength")]
     [InlineData("desaturation")]
+    [InlineData("blur")]
     [InlineData("canvas strength")]
     public void An_amount_past_1_is_refused_with_its_name(string name)
     {
@@ -318,6 +326,7 @@ public class ScreenEffectsTests
             "edge tint's strength" => new ScreenEffects { EdgeTint = new EdgeTint(Red, 1.5f) },
             "second edge tint's strength" => new ScreenEffects { SecondEdgeTint = new EdgeTint(Red, 1.5f) },
             "desaturation" => new ScreenEffects { Desaturate = 1.5f },
+            "blur" => new ScreenEffects { Blur = 1.5f },
             _ => new ScreenEffects { CanvasStrength = 1.5f },
         };
 

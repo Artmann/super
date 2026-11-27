@@ -103,7 +103,7 @@ internal sealed record LayerView(UiView Content, LayerPlace Spot, Action? Dismis
 
     /// <summary>The backdrop, which fades in, and the content, which eases in from the way it opens.</summary>
     internal override IReadOnlyList<UiView?> Children =>
-        [Traps ? new Backdrop(Scrim, Light ? Dismiss : null).Transition(Entrance.Fade, Fade) : null, Spot == LayerPlace.Corner ? Content : Content.Transition(Arrival, Fade)];
+        [Traps ? new PopupScrim(Scrim, Light ? Dismiss : null).Transition(Entrance.Fade, Fade) : null, Spot == LayerPlace.Corner ? Content : Content.Transition(Arrival, Fade)];
 
     // How long a popup takes to come in, in seconds.
     private const float Fade = 0.15f;
@@ -194,7 +194,7 @@ internal sealed record PopupModifier(UiView Child, LayerView? Layer) : Modifier(
 }
 
 /// <summary>What covers the screen behind a popup: it dims it for a dialog, and a click on it closes a light popup.</summary>
-internal sealed record Backdrop(bool Scrim, Action? Dismiss) : UiView
+internal sealed record PopupScrim(bool Scrim, Action? Dismiss) : UiView
 {
     public override UiView Body => new ClickModifier(new Rectangle().Fill(Scrim ? Environment.Theme.Colors.Scrim : default), Dismiss, Cue: UiCue.Back);
 }

@@ -38,6 +38,9 @@ internal sealed class UiWorld(UiTree tree, UiDrawList draw)
     /// <summary>How many views the last layout placed over the world.</summary>
     public int Anchored { get; set; }
 
+    /// <summary>How much the last layout's <see cref="Backdrop"/>s ask for the picture behind to blur, the most of them.</summary>
+    public float Blur { get; set; }
+
     /// <summary>Takes the frame's camera, and lays out again when it moved and views follow it.</summary>
     public void Look(in Camera camera)
     {
@@ -57,14 +60,22 @@ internal sealed class UiWorld(UiTree tree, UiDrawList draw)
         Camera is { } camera ? WorldSpots.Find(camera, point, Screen / tree.Scale, offScreen, inset) : null;
 
     /// <summary>
-    /// Draws each debug label over its place in the world as the frame's camera sees it, centred just above it on a
-    /// dark backing, and leaves out those behind the camera. Over the overlays, and gone the next frame with them.
+    /// Puts what the world asks of the interface and the interface of the world on the frame, once it's laid out. Each
+    /// debug label is drawn over its place in the world as the frame's camera sees it, centred just above it on a
+    /// dark backing, leaving out those behind the camera, over the overlays and gone the next frame with them. And
+    /// the picture behind is blurred as much as a <see cref="Backdrop"/> asks, or as the game's own effects do if more.
     /// </summary>
-    public void ShowDebugLabels(ReadOnlySpan<DebugLabel> labels)
+    public void Present(View view)
     {
         if (Camera is { } camera)
         {
-            DebugLabels.Draw(labels, camera, (draw, tree.Atlas, tree.Scale), Screen);
+            DebugLabels.Draw(view.Debug.Labels, camera, (draw, tree.Atlas, tree.Scale), Screen);
+        }
+
+        var look = view.Effects.Look;
+        if (Blur > look.Post.Screen.Blur)
+        {
+            look.Screen = look.Screen with { Blur = Blur };
         }
     }
 }

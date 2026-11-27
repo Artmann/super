@@ -64,7 +64,11 @@ internal sealed class GlyphAtlas
         return last.Cut ? string.Concat(text.AsSpan(0, last.End), UiLineBreaker.Ellipsis.ToString()) : text;
     }
 
-    public void Draw(UiDrawList list, string text, in TextLook style, UiRect frame)
+    /// <summary>
+    /// Draws the text wrapped in the frame, or only its first <paramref name="shown"/> characters, laid out where the
+    /// whole text puts them, so typed-out text doesn't jump a word to the next line as it grows.
+    /// </summary>
+    public void Draw(UiDrawList list, string text, in TextLook style, UiRect frame, int shown = int.MaxValue)
     {
         // Worked out in pixels, so characters land on whole pixels, then handed back in interface units.
         var face = FaceFor(style);
@@ -76,7 +80,7 @@ internal sealed class GlyphAtlas
             float room = Math.Max(frame.Width * Scale - line.Width, 0f);
             float pen = MathF.Round(frame.X * Scale + room * fraction);
             char previous = '\0';
-            for (int i = line.Start; i < line.End; i++)
+            for (int i = line.Start; i < Math.Min(line.End, shown); i++)
             {
                 char character = text[i];
                 var glyph = face.Glyph(character);

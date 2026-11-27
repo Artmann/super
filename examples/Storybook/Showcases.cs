@@ -13,9 +13,9 @@ internal static class Showcases
 
     public static UiView Inventory() => new GameScreen(new InventoryScreen());
 
-    public static UiView MainMenu() => new GameScreen(new MainMenuScreen(), Backdrop.Dusk);
+    public static UiView MainMenu() => new GameScreen(new MainMenuScreen(), Scenery.Dusk);
 
-    public static UiView Hud() => new GameScreen(new HudScreen(), Backdrop.World, Padded: false);
+    public static UiView Hud() => new GameScreen(new HudScreen(), Scenery.World, Padded: false);
 
     public static UiView CharacterCreator() => new GameScreen(new CreatorScreen());
 }
@@ -48,7 +48,7 @@ internal static class ShowcaseParts
 }
 
 /// <summary>What a showcase screen is drawn over.</summary>
-internal enum Backdrop
+internal enum Scenery
 {
     /// <summary>The theme's background, as a menu over a paused game would be.</summary>
     Plain,
@@ -61,7 +61,7 @@ internal enum Backdrop
 }
 
 /// <summary>A showcase in a frame the size of a small game window, over its backdrop.</summary>
-internal sealed record GameScreen(UiView Content, Backdrop Backdrop = Backdrop.Plain, bool Padded = true) : UiView
+internal sealed record GameScreen(UiView Content, Scenery Backdrop = Scenery.Plain, bool Padded = true) : UiView
 {
     private const float Width = 960f;
     private const float Height = 600f;
@@ -74,8 +74,8 @@ internal sealed record GameScreen(UiView Content, Backdrop Backdrop = Backdrop.P
             var inside = (Padded ? Content.Padding(32f) : Content).Frame(width: Width, height: Height, alignment: Alignment.TopLeading);
             var behind = Backdrop switch
             {
-                Backdrop.Dusk => inside.Background(Paint.Linear(Color.Hex("#312E81"), Color.Hex("#0B1020"))),
-                Backdrop.World => inside.Background(Hills()).Background(Paint.Linear(Color.Hex("#7DB4E0"), Color.Hex("#D8E9F0"))),
+                Scenery.Dusk => inside.Background(Paint.Linear(Color.Hex("#312E81"), Color.Hex("#0B1020"))),
+                Scenery.World => inside.Background(Hills()).Background(Paint.Linear(Color.Hex("#7DB4E0"), Color.Hex("#D8E9F0"))),
                 _ => inside.Background(theme.Colors.Background),
             };
             return behind

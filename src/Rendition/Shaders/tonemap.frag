@@ -30,6 +30,22 @@ const float ABERRATION_REACH = 0.033;
 const int SPEED_BLUR_TAPS = 16;
 const float SPEED_BLUR_REACH = 0.25;
 
+// How far out the soft blur's ring of taps reads, in bloom texels, which are two of the picture's.
+const float SOFTEN_REACH = 3.0;
+
+// The picture behind a pause menu: bloom's blur, already a wide average of the scene, read again over a ring and its
+// middle so no step of it shows. The bloom pass runs for it even when the glow is off.
+vec3 softened(vec2 uv) {
+    vec2 texel = SOFTEN_REACH / vec2(textureSize(bloomTexture, 0));
+    vec3 sum = textureLod(bloomTexture, uv, 0.0).rgb * 2.0;
+    for (int tap = 0; tap < 8; tap++) {
+        float angle = float(tap) * 0.785398;
+        sum += textureLod(bloomTexture, uv + vec2(cos(angle), sin(angle)) * texel, 0.0).rgb;
+    }
+
+    return sum / 10.0;
+}
+
 // The scene's light with its glow. Every pixel gives a little light to its surroundings, so bright things glow by
 // themselves and no brightness threshold is needed. Left out, the bloom pass never ran, so its target holds nothing to read.
 // Read at the top level: the speed blur's taps start at noise that jumps from pixel to pixel, and with that in the
@@ -38,6 +54,11 @@ vec3 glowing(vec2 uv) {
     vec3 color = textureLod(hdrTexture, uv, 0.0).rgb;
     if (!isOff(OFF_BLOOM)) {
         color = mix(color, textureLod(bloomTexture, uv, 0.0).rgb, frame.lift.a);
+    }
+
+    float soften = frame.screenRetro.w;
+    if (soften > 0.0) {
+        color = mix(color, softened(uv), soften);
     }
 
     return color;

@@ -3,7 +3,7 @@ using Super.Ui;
 
 namespace Super;
 
-/// <summary>Draws <see cref="ViewDebug"/>'s labels into the interface's draw list, for <see cref="UiWorld.ShowDebugLabels"/>.</summary>
+/// <summary>Draws <see cref="ViewDebug"/>'s labels into the interface's draw list, for <see cref="UiWorld.Present"/>.</summary>
 internal static class DebugLabels
 {
     /// <summary>What a label sits on, so it reads over anything.</summary>

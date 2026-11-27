@@ -118,19 +118,37 @@ public sealed class ForestGame(
     /// <summary>How fast the camera circles on its own, in radians a second. Dragging with the mouse turns it as well.</summary>
     public float OrbitSpeed { get; set; } = OrbitRadiansPerSecond;
 
+    /// <summary>For shots: <c>paused</c> pauses, so the forest blurs behind the title.</summary>
+    public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
+    {
+        ["paused"] = new InputScript().Press(Key.P).Wait(30),
+    };
+
     public UiView? Ui
     {
         get
         {
             string volumes = string.Join("   ", VolumeKeys.Select((entry, index) =>
                 string.Create(CultureInfo.InvariantCulture, $"{index + 1} {entry.Channel} {Levels[_levelOf[index]]:0.0}")));
-            return new VStack(HorizontalAlignment.Leading, Spacing: 4f)
+            var help = new VStack(HorizontalAlignment.Leading, Spacing: 4f)
             {
                 new Text(volumes),
-                new Text(pause.Is(Pause.Paused) ? "Paused (P)" : "P pauses, Space clicks, V volumetric fog"),
+                new Text("P pauses, Space clicks, V volumetric fog"),
             }
             .Padding(16f)
             .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);
+            if (!pause.Is(Pause.Paused))
+            {
+                return help;
+            }
+
+            // Paused, the forest dims and blurs behind a title, while the help stays sharp over it.
+            return new ZStack
+            {
+                new Backdrop(),
+                new TitleCard("Paused") { Subtitle = "P to carry on" },
+                help,
+            };
         }
     }
 

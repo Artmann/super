@@ -111,6 +111,9 @@ internal static class PostGrade
             SecondEdgeTint = Edge(screen.SecondEdgeTint),
             ScreenCanvas = new Vector4(
                 Math.Clamp(screen.Desaturate, 0f, 1f), canvas, Math.Max(screen.CanvasTileSize, 0f), canvas > 0f ? canvasSlot : -1),
+
+            // The frame fills in the retro look from the view round this.
+            ScreenRetro = new Vector4(0f, 0f, 0f, Math.Clamp(screen.Blur, 0f, 1f)),
         };
 
         static Vector4 Edge(EdgeTint tint) =>

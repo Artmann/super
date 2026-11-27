@@ -110,7 +110,7 @@ internal sealed class LoopDraw
         }
 
         _pointer.ShowOverlays();
-        ui.World.ShowDebugLabels(view.Debug.Labels);
+        ui.World.Present(view);
         view.Effects.Ui = ui;
         _stats.Resume();
         _changes.Open = true;

@@ -328,7 +328,7 @@ internal struct FrameScreenBlock
     /// <summary>x: how much colour the picture loses; y: how much the paper shows; z: a tile's width in pixels, 0 for the texture's own; w: the paper's texture slot, -1 for none.</summary>
     public Vector4 ScreenCanvas;
 
-    /// <summary>x: a pixel's height as a share of the picture's, 0 for none; y: steps between black and white, 0 for all; z: the dither; w: unused. See <see cref="RetroSettings.Pack"/>.</summary>
+    /// <summary>x: a pixel's height as a share of the picture's, 0 for none; y: steps between black and white, 0 for all; z: the dither; w: the soft blur from <see cref="ScreenEffects.Blur"/>, 0 to 1. See <see cref="RetroSettings.Pack"/>.</summary>
     public Vector4 ScreenRetro;
 }
 
