@@ -1,4 +1,5 @@
 using System.Globalization;
+using Rendition;
 using Super.Testing;
 using Super.Ui;
 
@@ -193,6 +194,54 @@ public sealed class AnimationTests
 
         Assert.Contains(run.Elements, element => element.Role == UiRole.ProgressBar);
         Assert.False(run.Animating);
+    }
+
+    [Fact]
+    public void Inside_animations_off_a_waiting_progress_bar_still_shows_a_piece_of_fill()
+    {
+        // The fill is drawn in the primary colour, made red here so it can be told from the track and the text.
+        var theme = Theme.Dark with { Colors = Theme.Dark.Colors with { Primary = new Color(1f, 0f, 0f) } };
+        var tree = new UiTree();
+        tree.Update(new ProgressView("Loading") { Style = MeterStyle.Linear }.Animations(false).Frame(width: 200f).Theme(theme), 800, 600);
+
+        var fill = Assert.Single(tree.Quads.ToArray(), quad => quad.Color == new System.Numerics.Vector4(1f, 0f, 0f, 1f));
+        Assert.True(fill.Size.X > 20f, $"The fill should be a piece of the bar, but is {fill.Size.X} wide.");
+    }
+
+    [Fact]
+    public void A_tree_updated_without_a_time_moves_a_sixtieth_of_a_second_each_update()
+    {
+        var tree = new UiTree();
+        var view = new Mover(9f, From: 0f);
+
+        // It sets off at the first update, and 9 more are 0.15 seconds, half of its 0.3.
+        for (int i = 0; i < 10; i++)
+        {
+            tree.Update(view, 800, 600);
+        }
+
+        string shown = tree.ShownText.Single(text => text.Text.Contains('.')).Text;
+        Assert.Equal(4.5f, float.Parse(shown, CultureInfo.InvariantCulture), 0.01f);
+    }
+
+    [Fact]
+    public void A_toast_still_rising_keeps_rising_when_an_older_one_above_it_goes()
+    {
+        var toasts = new Toasts();
+        var screen = new Screen { View = new Text("Game").Toasts(toasts) };
+        using var run = Run(screen);
+        var saved = new Toast("Game saved");
+        toasts.Show(saved);
+        run.Ticks(20);
+        Assert.False(run.Animating);
+
+        toasts.Show("Quest updated");
+        run.Ticks(1);
+        toasts.Dismiss(saved);
+        run.Ticks(1);
+
+        // Without its own identity, the new toast would take the old one's finished card and stop at once.
+        Assert.True(run.Animating);
     }
 
     [Fact]

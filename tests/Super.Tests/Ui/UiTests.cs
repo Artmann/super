@@ -326,7 +326,7 @@ public sealed class UiTests
         var problem = Assert.Throws<InvalidOperationException>(() => tree.Update(new OutOfOrder(flip) { Identity = null, Version = 2 }, 800, 600));
 
         Assert.Equal(
-            "OutOfOrder called UseState in a different order than last time. Call it the same way on every run of Body.",
+            "OutOfOrder called UseState or UseAnimation in a different order than last time. Call them the same way on every run of Body.",
             problem.Message);
     }
 

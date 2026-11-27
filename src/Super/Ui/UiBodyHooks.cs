@@ -56,7 +56,7 @@ internal sealed class UiBodyHooks(Action changed, UiClock clock)
         if (_slots[_nextSlot++] is not TSlot slot)
         {
             throw new InvalidOperationException(
-                $"{_component!.Name} called UseState in a different order than last time. Call it the same way on every run of Body.");
+                $"{_component!.Name} called UseState or UseAnimation in a different order than last time. Call them the same way on every run of Body.");
         }
 
         return slot;

@@ -30,8 +30,10 @@ public sealed record Toggle(string Label, bool IsOn, Action<bool>? OnChange = nu
             var change = OnChange;
             bool next = !IsOn;
 
-            // How far the switch's knob is across, and its track filled in. The box ticks at once.
-            float on = Style == ToggleStyle.Switch ? UseAnimation(IsOn ? 1f : 0f, AnimationExtensions.Quick) : 0f;
+            // How far the switch's knob is across, and its track filled in. The box ticks at once. Asked on every
+            // run, whatever the style, so the hooks keep their order if the style changes.
+            float knob = UseAnimation(IsOn ? 1f : 0f, AnimationExtensions.Quick);
+            float on = Style == ToggleStyle.Switch ? knob : 0f;
             var toggle = new Pressable(
                 _ => Row(theme, metrics, on).Opacity(off ? 0.5f : 1f),
                 change is null ? null : () => change(next),
