@@ -132,7 +132,8 @@ internal abstract record PointerModifier(UiView Child) : Modifier(Child)
     internal override UiRect HitArea(UiNode node) => ShownArea(Inner(node));
 }
 
-internal sealed record ClickModifier(UiView Child, Action? Click, State<PressState>? Look = null, bool Disabled = false) : PointerModifier(Child);
+/// <summary>A view that can be clicked, and the sound a click makes.</summary>
+internal sealed record ClickModifier(UiView Child, Action? Click, State<PressState>? Look = null, bool Disabled = false, UiCue Cue = UiCue.Press) : PointerModifier(Child);
 
 /// <summary>Lets the mouse through this view and everything inside it.</summary>
 internal sealed record IgnoresPointerModifier(UiView Child) : Modifier(Child)

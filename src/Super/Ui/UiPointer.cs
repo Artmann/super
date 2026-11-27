@@ -111,7 +111,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     /// <summary>Draws the drag preview and the tooltip, above everything.</summary>
     public void ShowOverlays() => tree.ShowOverlays(_gestures.Preview, _hover.Tooltip(_uiHeld != 0), _position);
 
-    private UiNode? Hit() => _inWindow ? tree.Hit(_position.X, _position.Y) : null;
+    private UiNode? Hit() => _inWindow ? tree.Layers.Hit(_position.X, _position.Y) : null;
 
     private void Moved(Vector2 position)
     {

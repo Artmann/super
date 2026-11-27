@@ -92,6 +92,12 @@ internal sealed class SoundClip
         return new SoundClip(path, sampleRate, channels, seconds, open);
     }
 
+    /// <summary>A decoded mono clip from samples made in code, such as the built-in interface sounds.</summary>
+    internal static SoundClip Made(string path, int sampleRate, float[] samples)
+    {
+        return new SoundClip(path, sampleRate, 1, samples);
+    }
+
     /// <summary>An empty decoded-clip reader, for a voice to hold so that rebinding it to a clip later allocates nothing.</summary>
     internal static ISampleReader NewDecodedReader()
     {

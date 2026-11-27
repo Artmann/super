@@ -110,7 +110,8 @@ Without `at:` a sound is flat: it keeps its own stereo, plays on the `Interface`
 and ignores the time scale. With `at:` it's placed in the world on the `Effects` channel,
 heard from the camera the last frame showed: full volume within `near` metres, silent
 from `far` on, and panned by where it sits relative to the camera's facing. A stereo clip
-placed in the world is folded to mono.
+placed in the world is folded to mono. The interface's own clicks and ticks play on the
+`Interface` channel too; see [Sounds](interfaces.md#sounds) in the interface guide.
 
 | Argument | Meaning | Default |
 | --- | --- | --- |

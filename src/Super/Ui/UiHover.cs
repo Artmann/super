@@ -44,9 +44,15 @@ internal sealed class UiHover(UiTree tree, int ticksPerSecond)
             old.Value = default;
         }
 
-        if (look?.View is ClickModifier { Look: { } shown })
+        if (look?.View is ClickModifier { Look: { } shown } clickable)
         {
             shown.Value = state;
+
+            // The pointer coming onto something new it can press. A finger is pressing already, so it's heard then.
+            if (look != _look && !pressed && !clickable.Disabled && !look.Environment.Disabled)
+            {
+                tree.Cues.Raise(look, UiCue.Hover);
+            }
         }
 
         _look = look;

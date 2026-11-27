@@ -200,6 +200,7 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
         {
             int by = nav == UiNav.Left ? -1 : 1;
             callbacks.Add(() => adjust(by));
+            tree.Cues.Raise(node, UiCue.Step);
             return;
         }
 
@@ -213,6 +214,7 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
         if (next is not null)
         {
             Focus(next, true);
+            tree.Cues.Raise(next, UiCue.Focus);
         }
     }
 
@@ -232,6 +234,7 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
         }
 
         Focus(first, true);
+        tree.Cues.Raise(first, UiCue.Focus);
         return true;
     }
 
@@ -244,6 +247,7 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
         else if ((keys.Activate ?? UiFocusStops.ClickInside(node)) is { } activate)
         {
             callbacks.Add(activate);
+            tree.Cues.Raise(node, UiCue.Press);
         }
     }
 

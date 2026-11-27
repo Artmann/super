@@ -23,6 +23,31 @@ internal static class UiPointerSearch
         return null;
     }
 
+    /// <summary>
+    /// A press let go on this clickable node, which held <paramref name="click"/> when it went down. Returns the click,
+    /// and asks for its sound, while the node is still on, and asks for the sound for no when it isn't.
+    /// </summary>
+    public static Action? Clicked(UiNode node, Action? click)
+    {
+        if (node is not { Mounted: true, View: ClickModifier clickable })
+        {
+            return null;
+        }
+
+        if (clickable.Disabled || node.Environment.Disabled)
+        {
+            node.Tree.Cues.Raise(node, UiCue.Denied);
+            return null;
+        }
+
+        if (click is not null)
+        {
+            node.Tree.Cues.Raise(node, clickable.Cue);
+        }
+
+        return click;
+    }
+
     public static bool Inside(UiNode? node, UiNode ancestor)
     {
         for (; node is not null; node = Up(node))

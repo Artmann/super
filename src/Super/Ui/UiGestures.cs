@@ -50,7 +50,7 @@ internal sealed class UiGestures(UiTree tree, Input input)
         // What's under the cursor now is what counts, whatever the tree turns into while it's held.
         if (button == MouseButton.Left)
         {
-            _hold = UiPointerSearch.Clickable(hit) is { View: ClickModifier clickable } node ? new ClickHold(node, clickable.Click) : null;
+            _hold = UiPointerSearch.Find<ClickModifier>(hit) is { View: ClickModifier clickable } node ? new ClickHold(node, clickable.Click) : null;
         }
 
         ArmDrag(hit, button, position);
@@ -91,11 +91,9 @@ internal sealed class UiGestures(UiTree tree, Input input)
             object payload = moving.Payload;
             callback = () => target.Drop(payload);
         }
-        else if (button == MouseButton.Left
-            && _hold is ClickHold { Node: { View: ClickModifier { Disabled: false }, Environment.Disabled: false } node, Click: { } click }
-            && UiPointerSearch.Inside(hit, node))
+        else if (button == MouseButton.Left && _hold is ClickHold { Node: var node, Click: var click } && UiPointerSearch.Inside(hit, node))
         {
-            callback = click;
+            callback = UiPointerSearch.Clicked(node, click);
         }
 
         if (button == MouseButton.Left)

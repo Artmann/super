@@ -208,6 +208,7 @@ internal sealed class UiFocusTrap(UiTree tree)
         if (top is not null && (_open.Count == 0 || _open[^1].Layer != top))
         {
             _open.Add((top, current));
+            tree.Cues.Raise(top, UiCue.Open);
             return (true, UiFocusStops.Default(top) ?? UiFocusStops.All(top).FirstOrDefault());
         }
 
@@ -240,10 +241,11 @@ internal sealed class UiFocusTrap(UiTree tree)
         if (tree.Layers.GoBack is { } back)
         {
             callbacks.Add(back);
+            tree.Cues.Raise(Root!, UiCue.Back);
             return true;
         }
 
-        if (tree.Layers.Trapping is not { View: LayerView layer })
+        if (tree.Layers.Trapping is not { View: LayerView layer } top)
         {
             return false;
         }
@@ -251,6 +253,7 @@ internal sealed class UiFocusTrap(UiTree tree)
         if (layer.Dismiss is { } dismiss)
         {
             callbacks.Add(dismiss);
+            tree.Cues.Raise(top, UiCue.Back);
         }
 
         return true;
