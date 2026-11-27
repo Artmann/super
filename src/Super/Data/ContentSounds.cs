@@ -57,7 +57,7 @@ public sealed class ContentSounds
     /// <summary>The clip a sound names.</summary>
     internal SoundClip ClipOf(SoundRef sound) => _clips[sound.Index];
 
-    /// <summary>Names a clip made in code, for tests whose clip has to fail or be watched as it plays.</summary>
+    /// <summary>Names a clip made in code: the built-in interface sounds, and tests whose clip has to fail or be watched as it plays.</summary>
     internal SoundRef AddClip(SoundClip clip)
     {
         _clips.Add(clip);

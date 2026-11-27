@@ -64,13 +64,9 @@ internal sealed class HostServices : IDisposable
         services.AddSingleton<World>();
         services.AddSingleton<Scenes>();
         services.AddSingleton<Systems>();
-        services.AddSingleton<ITickHook>(provider => provider.GetRequiredService<World>());
         services.AddSingleton<Grids>();
         services.AddSingleton<DebugDraw>();
-        services.AddSingleton<ITickHook>(provider => provider.GetRequiredService<DebugDraw>());
-        services.AddSingleton<IStateHook>(provider => provider.GetRequiredService<World>());
-        services.AddSingleton<IDrawHook, SoundSync>();
-        services.AddSingleton<IDrawHook>(provider => provider.GetRequiredService<ArtStyle>());
+        AddHooks(services);
         services.AddSingleton<TGame>();
 
         // This comes last so a game or a test can replace the services above. Audio is the exception for a game: it
@@ -79,6 +75,17 @@ internal sealed class HostServices : IDisposable
         configure?.Invoke(services);
 
         return new HostServices(services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true }), time, throwawayFolder);
+    }
+
+    /// <summary>What the loop calls around each tick, state change and frame, in the order they run.</summary>
+    private static void AddHooks(ServiceCollection services)
+    {
+        services.AddSingleton<ITickHook>(provider => provider.GetRequiredService<World>());
+        services.AddSingleton<ITickHook>(provider => provider.GetRequiredService<DebugDraw>());
+        services.AddSingleton<IStateHook>(provider => provider.GetRequiredService<World>());
+        services.AddSingleton<IDrawHook, SoundSync>();
+        services.AddSingleton<IDrawHook, InterfaceSounds>();
+        services.AddSingleton<IDrawHook>(provider => provider.GetRequiredService<ArtStyle>());
     }
 
     /// <summary>Disposes the services, then deletes the throwaway folder, if there is one.</summary>

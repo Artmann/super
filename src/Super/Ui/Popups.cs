@@ -196,7 +196,7 @@ internal sealed record PopupModifier(UiView Child, LayerView? Layer) : Modifier(
 /// <summary>What covers the screen behind a popup: it dims it for a dialog, and a click on it closes a light popup.</summary>
 internal sealed record Backdrop(bool Scrim, Action? Dismiss) : UiView
 {
-    public override UiView Body => new ClickModifier(new Rectangle().Fill(Scrim ? Environment.Theme.Colors.Scrim : default), Dismiss);
+    public override UiView Body => new ClickModifier(new Rectangle().Fill(Scrim ? Environment.Theme.Colors.Scrim : default), Dismiss, Cue: UiCue.Back);
 }
 
 /// <summary>The raised card a popup sits in, with the theme's edge, corners and biggest shadow.</summary>

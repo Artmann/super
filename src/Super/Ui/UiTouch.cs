@@ -97,7 +97,7 @@ internal sealed class UiTouch(UiTree tree, int ticksPerSecond)
             return true;
         }
 
-        _gesture = new Press(id, hit, UiPointerSearch.Clickable(hit), at, at, Age: 0);
+        _gesture = new Press(id, hit, UiPointerSearch.Find<ClickModifier>(hit), at, at, Age: 0);
         return true;
     }
 
@@ -144,8 +144,8 @@ internal sealed class UiTouch(UiTree tree, int ticksPerSecond)
             case Press press when press.Id == id && !cancelled:
                 var hit = Hit(press.At);
                 // Like a mouse click, it only counts if the finger lifts on what it pressed, and that is still on.
-                bool onIt = press.Click is { Mounted: true, View: ClickModifier { Disabled: false }, Environment.Disabled: false } node && UiPointerSearch.Inside(hit, node);
-                tap = new Tap(hit, press.At, onIt ? ((ClickModifier)press.Click!.View).Click : null);
+                var click = press.Click is { } node && UiPointerSearch.Inside(hit, node) ? UiPointerSearch.Clicked(node, (node.View as ClickModifier)?.Click) : null;
+                tap = new Tap(hit, press.At, click);
                 break;
             case Panning panning when panning.Id == id && !cancelled:
                 _fling = panning.Velocity.Length() > FlingStop ? new Fling(panning.Scroll, panning.Velocity) : null;
@@ -222,7 +222,7 @@ internal sealed class UiTouch(UiTree tree, int ticksPerSecond)
         }
     }
 
-    private UiNode? Hit(Vector2 at) => tree.Hit(at.X, at.Y);
+    private UiNode? Hit(Vector2 at) => tree.Layers.Hit(at.X, at.Y);
 
     /// <summary>The nearest scroll view the finger can move this way, along the way it mostly went.</summary>
     private static UiNode? Pannable(UiNode hit, Vector2 moved)

@@ -23,6 +23,9 @@ public sealed record Theme
 
     public Typography Typography { get; init; } = Typography.Default;
 
+    /// <summary>The sounds the controls make when they're pressed, focused and opened. <see cref="UiSounds.None"/> is silent.</summary>
+    public UiSounds Sounds { get; init; } = UiSounds.Default;
+
     public ControlMetrics Small { get; init; } = new(Height: 28f, Padding: 10f, FontSize: 12f, Gap: 6f);
 
     public ControlMetrics Regular { get; init; } = new(Height: 36f, Padding: 16f, FontSize: 14f, Gap: 8f);

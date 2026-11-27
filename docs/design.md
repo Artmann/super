@@ -309,6 +309,17 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   a still interface does no work between changes. `.Transition(...)` is a `TransitionView`, a
   component that animates its own alpha and offset in from zero the first time it mounts, so
   it takes its full room at once; popups wrap their content and scrim in one.
+- Interface sounds are asked for where the thing happens: a click let go on its button
+  (`UiPointerSearch.Clicked`, which the mouse and touch share, and which asks for `Denied` on a
+  disabled one), the look changing to hover in `UiHover`, focus moving, stepping or activating
+  in `UiFocus`, and popups opening or going back in `UiFocusTrap`. Each goes to the tree's
+  `UiCues` as the sound from that node's theme. `UiCues` keeps a sound once however often it
+  was asked for, and drops an `Open` within a quarter second of a `Press`, so a button that
+  opens a sheet is heard once. `InterfaceSounds`, a draw hook, takes the queue each frame from
+  the tree the frame before drew and plays it flat on the `Interface` channel, so a sound comes
+  one frame after what made it. The built-in sounds are samples that `UiSynth` makes the first
+  time one plays, short gliding tones with a fast decay, added to the content as clips named
+  `interface/...`, so they need no files and go through the same mixer as any other sound.
 
 ## Audio mixer
 

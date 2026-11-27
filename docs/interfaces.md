@@ -195,7 +195,8 @@ Your own views can use the same colours through a `Tone`, so they change with th
 `.Disabled()` and `.ControlSize(...)` also reach everything inside them. A control turned off
 fades and ignores the mouse, and `ControlSize.Small`, `Regular` and `Large` set how tall
 controls are, their padding and their text size, from the theme's `Small`, `Regular` and
-`Large` metrics.
+`Large` metrics. The theme also holds the sounds the controls make, in `Sounds`; see
+[Sounds](#sounds).
 
 ### Text styles
 
@@ -748,6 +749,35 @@ run.Ticks(10);
 Assert.False(run.Animating);
 ```
 
+## Sounds
+
+The controls make small sounds, as game menus do: a tick when the pointer comes onto a button or
+focus moves, a click when something is pressed, a softer one going back, a blip when a popup
+opens by itself, a step as left and right change a slider, a stepper or a picker, and a low buzz
+for a press on something disabled. A popup that a press opens is heard as the press, so the two
+don't play on top of each other. The stock sounds are made in code, so a game has them before it
+has any audio files.
+
+They come from the theme's `Sounds`, one for each of `Hover`, `Focus`, `Press`, `Back`, `Open`,
+`Denied`, `Step` and `Confirm`. `UiSounds.None` is silent. Give a sound of your own with
+`UiSound.File`, and leave one null to keep that one quiet:
+
+```csharp
+var theme = Theme.Dark with
+{
+    Sounds = UiSounds.Default with
+    {
+        Press = UiSound.File("sounds/click.wav") with { Volume = 0.6f },
+        Hover = null,
+    },
+};
+```
+
+They play flat on the `Interface` channel, so `Audio.Volume(Channel.Interface, 0.5f)` sets how
+loud all of them are, and a settings screen can offer that as its own slider. Each sound's pitch
+moves a few percent each time, `PitchVariation`, so one heard over and over doesn't tire. In a
+headless run they show in `run.Sounds` with names such as `interface/press`.
+
 ## The mouse
 
 Clicks, drops and list picks run just before `Update`, on the tick they happened, so
@@ -1015,4 +1045,5 @@ keyframes. A lazy stack's rows all have one height, there's no lazy row or lazy
 grid, and when a lazy list scrolls far in one frame the new rows show a frame later.
 Going back in a navigation stack forgets the state of the page that was under it, and a tab
 view or a navigation stack under `.Hidden()` still takes the bumpers and Escape. There's no
-key on the keyboard that switches tabs from anywhere, as the bumpers do.
+key on the keyboard that switches tabs from anywhere, as the bumpers do. Nothing plays the
+`Confirm` sound yet.

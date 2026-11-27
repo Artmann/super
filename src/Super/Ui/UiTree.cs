@@ -171,8 +171,8 @@ public sealed class UiTree
     /// <summary>Writes the texture of each image quad, which only the renderer knows.</summary>
     internal void BindImages(Func<GameImage, int> textureIndex) => _draw.BindImages(textureIndex);
 
-    /// <summary>What the pointer touches at this point, in interface units: an open popup first, then the tree.</summary>
-    internal UiNode? Hit(float x, float y) => Layers.Hit(x, y);
+    /// <summary>The sounds the interface asked for since the frame last played them.</summary>
+    internal UiCues Cues => field ??= new UiCues(Clock);
 
     private void Layout()
     {
