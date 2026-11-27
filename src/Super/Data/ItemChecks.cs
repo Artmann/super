@@ -14,21 +14,27 @@ internal static class ItemChecks
         }
     }
 
-    /// <summary>Throws if the item at <paramref name="index"/> was let go.</summary>
-    public static void RequireLoaded(ContentItems items, int index, string field)
+    /// <summary>
+    /// Throws if the item at <paramref name="index"/> was let go, or if its slot has been given to another since the
+    /// ref was made, which its <paramref name="generation"/> tells. Kinds whose slot is never given again pass 0.
+    /// </summary>
+    public static void RequireLoaded(ContentItems items, int index, int generation, string field)
     {
-        if (items.IsUnloaded(index))
+        if (items.Slots.IsGone(index, generation))
         {
             throw new ArgumentException($"{field} names {index}, which was unloaded.", field);
         }
     }
 
-    /// <summary>The item at <paramref name="index"/>, which must be named, not let go, and a <typeparamref name="T"/>.</summary>
-    public static T Require<T>(ContentItems items, int index, string field, string kind)
+    /// <summary>
+    /// The item at <paramref name="index"/>, which must be named, not let go, and a <typeparamref name="T"/>. The
+    /// <paramref name="generation"/> is the ref's, as for <see cref="RequireLoaded"/>.
+    /// </summary>
+    public static T Require<T>(ContentItems items, int index, int generation, string field, string kind)
         where T : class
     {
         RequireNamed(items, index, field);
-        RequireLoaded(items, index, field);
+        RequireLoaded(items, index, generation, field);
         if (items.Items[index - 1] is not T item)
         {
             throw new ArgumentException($"{field} names {index}, which is not a {kind}.", field);
@@ -78,7 +84,7 @@ internal static class ItemChecks
 
     private static void RequireShader(ContentItems items, SurfaceShader shader)
     {
-        Require<ShaderItem>(items, shader.Fragment.Index, "Shader.Fragment", "shader");
+        Require<ShaderItem>(items, shader.Fragment.Index, 0, "Shader.Fragment", "shader");
         RequireCount(shader.Parameters.Length, SurfaceShader.MaxParameters, "Shader.Parameters");
         RequireCount(shader.Textures.Length, SurfaceShader.MaxTextures, "Shader.Textures");
         RequireCount(shader.Arrays.Length, SurfaceShader.MaxTextures, "Shader.Arrays");
@@ -89,7 +95,7 @@ internal static class ItemChecks
 
         for (int i = 0; i < shader.Arrays.Length; i++)
         {
-            Require<TextureArrayItem>(items, shader.Arrays[i].Index, $"Shader.Arrays[{i}]", "texture array");
+            Require<TextureArrayItem>(items, shader.Arrays[i].Index, 0, $"Shader.Arrays[{i}]", "texture array");
         }
     }
 
@@ -97,7 +103,7 @@ internal static class ItemChecks
     {
         if (texture is { } named)
         {
-            Require<TextureItem>(items, named.Index, field, "texture");
+            Require<TextureItem>(items, named.Index, named.Generation, field, "texture");
         }
     }
 

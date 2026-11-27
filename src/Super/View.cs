@@ -134,7 +134,7 @@ public sealed class View
             throw new ArgumentException($"Model {model.Index} is not a built-in shape. Use ModelRef.Sphere and the others, or a model from Content.", nameof(model));
         }
 
-        if (Sources.Content is { } content && content.Store.IsUnloaded(model.Index))
+        if (Sources.Content is { } content && content.Store.Slots.IsGone(model.Index, model.Generation))
         {
             throw new InvalidOperationException($"Model {model.Index} was unloaded, so it can't be drawn.");
         }

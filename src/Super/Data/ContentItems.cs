@@ -1,16 +1,13 @@
-using System.Runtime.InteropServices;
-
 namespace Super;
 
 /// <summary>
 /// Everything a game named, by the index its ref carries, with the names it was asked for by and what was let go.
-/// Index 0 is the built-in cube, and the other built-in shapes are below zero, so the first item is 1.
+/// Index 0 is the built-in cube, and the other built-in shapes are below zero, so the first item is 1. An unloaded
+/// model, texture or interface image gives its slot to a later one; <see cref="Slots"/> keeps track of that.
 /// </summary>
 internal sealed class ContentItems
 {
     private readonly List<object> _items = [];
-    private readonly HashSet<int> _unloaded = [];
-    private readonly List<int> _pendingUnloads = [];
 
     // What each name was asked for as, so naming it again gives the same one: a model, a rig, a texture and so on.
     private readonly Dictionary<(Type Kind, string Name), object> _named = [];
@@ -28,29 +25,46 @@ internal sealed class ContentItems
 
     public IReadOnlyList<object> Items => _items;
 
-    /// <summary>Adds an item and gives the ref of its index.</summary>
-    public ModelRef Add(object item)
-    {
-        _items.Add(item);
-        Loading.Added();
-        return new ModelRef(_items.Count);
-    }
+    /// <summary>Which slots were let go, which the window still has to free, and which can be taken again.</summary>
+    public ItemSlots Slots { get; } = new();
 
-    /// <summary>Whether an item was let go. Cheap, so drawing can ask every frame.</summary>
-    public bool IsUnloaded(int index) => _unloaded.Count > 0 && _unloaded.Contains(index);
+    /// <summary>Adds an item in a slot of its own for good, and gives the ref of its index.</summary>
+    public ModelRef Add(object item) => Place(item, reusable: false);
 
-    /// <summary>Items let go since the window last looked. Indices into the loader, not <see cref="Items"/>.</summary>
-    public ReadOnlySpan<int> PendingUnloads => CollectionsMarshal.AsSpan(_pendingUnloads);
+    /// <summary>
+    /// Adds a model, texture or interface image, in a slot an unloaded one gave back if there is one, and gives its
+    /// ref, which carries the slot's generation. <see cref="ItemSlots.Next"/> tells an item that holds its own
+    /// index which one it will get.
+    /// </summary>
+    public ModelRef AddReusable(object item) => Place(item, reusable: true);
 
-    public void ClearPendingUnloads() => _pendingUnloads.Clear();
-
-    /// <summary>Forgets an item's data and tells the window to free what it made of it.</summary>
+    /// <summary>
+    /// Forgets an item's data and tells the window to free what it made of it. One the window hasn't seen yet has
+    /// nothing to free, so it counts as loaded and its slot is given back at once.
+    /// </summary>
     public void MarkUnloaded(int index)
     {
         Identities.Forget(index);
-        _unloaded.Add(index);
-        _pendingUnloads.Add(index);
         _items[index - 1] = UnloadedItem.Instance;
+        if (Slots.Unload(index))
+        {
+            Loading.ItemLoaded(index);
+        }
+    }
+
+    private ModelRef Place(object item, bool reusable)
+    {
+        if (reusable && Slots.TryRetake(out int slot, out int generation))
+        {
+            _items[slot - 1] = item;
+            Loading.Added(slot);
+            return new ModelRef(slot) { Generation = generation };
+        }
+
+        _items.Add(item);
+        int index = Slots.Append(reusable);
+        Loading.Added(index);
+        return new ModelRef(index);
     }
 
     /// <summary>What <paramref name="name"/> was asked for as a <typeparamref name="T"/> before, if it was.</summary>

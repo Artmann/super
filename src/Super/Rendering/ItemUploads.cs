@@ -35,10 +35,13 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
         _ => throw new InvalidOperationException($"Content can't upload a {prepared.GetType().Name}."),
     };
 
-    /// <summary>Frees what each item the content let go of made, then clears the content's list of them.</summary>
+    /// <summary>
+    /// Frees what each item the content let go of made, then hands their slots back to the content, so later items
+    /// can take them.
+    /// </summary>
     public void UnloadPending(Content content)
     {
-        foreach (int index in content.Store.PendingUnloads)
+        foreach (int index in content.Store.Slots.PendingUnloads)
         {
             if (items.Take(index, content) is { } loaded)
             {
@@ -46,7 +49,7 @@ internal sealed class ItemUploads(Renderer renderer, UploadedItems items)
             }
         }
 
-        content.Store.ClearPendingUnloads();
+        content.Store.Slots.ReleasePendingUnloads();
     }
 
     /// <summary>
