@@ -24,16 +24,17 @@ internal static class UiShapeDrawing
     }
 
     /// <summary>
-    /// Draws part of a ring with round ends, touching the shorter sides of the rectangle, from
-    /// <paramref name="start"/> through <paramref name="sweep"/> in radians, clockwise from the top.
+    /// Draws part of a ring, touching the shorter sides of the rectangle, from <paramref name="start"/> through
+    /// <paramref name="sweep"/> in radians, clockwise from the top. Its ends are round, or cut straight towards the
+    /// middle when <paramref name="flatEnds"/> is set.
     /// </summary>
-    public static void AddArc(this UiDrawList list, UiRect frame, float start, float sweep, UiStroke line)
+    public static void AddArc(this UiDrawList list, UiRect frame, float start, float sweep, UiStroke line, bool flatEnds = false)
     {
         list.Add(frame, new OverlayQuad
         {
             Color = list.Nesting.Fade(line.Color),
             Kind = OverlayKind.Arc,
-            Params = new Vector4(start, sweep, 0f, 0f),
+            Params = new Vector4(start, sweep, flatEnds ? 1f : 0f, 0f),
             Thickness = line.Width,
         });
     }

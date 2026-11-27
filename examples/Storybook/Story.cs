@@ -67,6 +67,7 @@ public static class Stories
         new("Controls", "Sliders", "A number picked by dragging, smoothly or in steps.", Controls.Sliders),
         new("Controls", "Steppers", "A whole number with minus and plus.", Controls.Steppers),
         new("Controls", "Pickers", "One choice from several, segmented or as radio buttons.", Controls.Pickers),
+        new("Controls", "Game controls", "Arrow pickers, hold buttons, key binders and a radial menu.", GameControls.Story),
         new("Controls", "Progress", "How far along a task is, as a bar or a ring.", Controls.Progress),
         new("Controls", "Gauges", "A reading on a scale, as a ring or a bar.", Controls.Gauges),
         new("Keyboard and gamepad", "Text fields", "A line of text to type, plain or secure.", Typing.TextFields),

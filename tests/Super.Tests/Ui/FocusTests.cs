@@ -328,6 +328,23 @@ public sealed class FocusTests
     }
 
     [Fact]
+    public void Left_and_right_go_round_an_arrow_picker()
+    {
+        string difficulty = "Hard";
+        PickerOption<string>[] options = [new("Easy", "Easy"), new("Normal", "Normal"), new("Hard", "Hard")];
+        using var run = Run(_ => Corner(new Picker<string>("Difficulty", difficulty, options, value => difficulty = value) { Style = PickerStyle.Arrows }.Id("difficulty")));
+        Press(run, Key.Tab);
+        Assert.Equal("difficulty", FocusedId(run));
+
+        Press(run, Key.Right);
+        Assert.Equal("Easy", difficulty);
+        Press(run, Key.Left);
+        Assert.Equal("Hard", difficulty);
+        Press(run, Key.Left);
+        Assert.Equal("Normal", difficulty);
+    }
+
+    [Fact]
     public void A_default_focus_takes_focus_as_it_appears()
     {
         var log = new List<string>();

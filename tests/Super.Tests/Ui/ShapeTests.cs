@@ -209,6 +209,15 @@ public sealed class ShapeTests
         Assert.Equal(MathF.PI, quarter.Params.Y, 4);
         Assert.Equal(6f, quarter.Thickness);
         Assert.Equal(MathF.Tau, over.Params.Y, 4);
+        Assert.Equal(0f, quarter.Params.Z);
+    }
+
+    [Fact]
+    public void An_arc_with_flat_ends_tells_the_shader_to_cut_them_straight()
+    {
+        var slice = Assert.Single(Show(new Arc(0f, 0.25f) { FlatEnds = true }.Fill(Red).Frame(50f, 50f)));
+
+        Assert.Equal(1f, slice.Params.Z);
     }
 
     [Fact]
