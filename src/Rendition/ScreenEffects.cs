@@ -46,6 +46,12 @@ public struct ScreenEffects
     /// <summary>The colour of <see cref="Fade"/>, linear red, green and blue from 0 to 1. Zero is black.</summary>
     public Vector3 FadeColor;
 
+    /// <summary>
+    /// A soft blur over the whole picture, from 0, none, to 1, about as soft as the glow round a bright light, for the game
+    /// behind a pause menu or a dialogue. The interface on top stays sharp. <c>Super.Ui.Backdrop</c> sets it for you.
+    /// </summary>
+    public float Blur;
+
     /// <summary>A colour creeping in from the edges of the screen, such as red while the player is hurt.</summary>
     public EdgeTint EdgeTint;
 
@@ -105,6 +111,7 @@ public struct ScreenEffects
             FadeColor = Toward(from.FadeColor, from.Fade, to.FadeColor, to.Fade, t),
             EdgeTint = EdgeTint.Lerp(from.EdgeTint, to.EdgeTint, t),
             SecondEdgeTint = EdgeTint.Lerp(from.SecondEdgeTint, to.SecondEdgeTint, t),
+            Blur = Mix(from.Blur, to.Blur, t),
             Desaturate = Mix(from.Desaturate, to.Desaturate, t),
             Canvas = sameCanvas || t < 0.5f ? from.Canvas : to.Canvas,
             CanvasStrength = sameCanvas
@@ -135,6 +142,7 @@ public struct ScreenEffects
             FadeColor = Pick(fade, top.FadeColor, under.FadeColor),
             EdgeTint = Pick(top.EdgeTint.Strength != 0f, top.EdgeTint, under.EdgeTint),
             SecondEdgeTint = Pick(top.SecondEdgeTint.Strength != 0f, top.SecondEdgeTint, under.SecondEdgeTint),
+            Blur = Pick(top.Blur != 0f, top.Blur, under.Blur),
             Desaturate = Pick(top.Desaturate != 0f, top.Desaturate, under.Desaturate),
             Canvas = Pick(canvas, top.Canvas, under.Canvas),
             CanvasStrength = Pick(canvas, top.CanvasStrength, under.CanvasStrength),

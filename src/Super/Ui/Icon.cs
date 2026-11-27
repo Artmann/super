@@ -50,6 +50,9 @@ public enum IconName
     DPadDown,
     DPadLeft,
     DPadRight,
+
+    /// <summary>A five-pointed star, for a favourite or an achievement.</summary>
+    Star,
 }
 
 /// <summary>
@@ -165,6 +168,9 @@ internal static class IconDrawings
         pen => DPad(pen, (12f, 17.5f)),
         pen => DPad(pen, (6.5f, 12f)),
         pen => DPad(pen, (17.5f, 12f)),
+        pen => pen.Lines(
+            (12f, 2.5f), (14.9f, 8.6f), (21.5f, 9.4f), (16.6f, 14f), (17.9f, 20.6f),
+            (12f, 17.4f), (6.1f, 20.6f), (7.4f, 14f), (2.5f, 9.4f), (9.1f, 8.6f), (12f, 2.5f)),
     ];
 
     /// <summary>A mouse's outline and the line between its buttons, with the left (-1) or right (1) button filled in.</summary>

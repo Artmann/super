@@ -175,6 +175,7 @@ public sealed class UiTree
     {
         _draw.Clear();
         World.Anchored = 0;
+        World.Blur = 0f;
         Layers.Clear();
         Focus.StartDraw();
         if (Root is null)

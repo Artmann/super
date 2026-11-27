@@ -95,6 +95,7 @@ internal static class FinishChecks
         Amount(effects.EdgeTint.Strength, "edge tint's strength", parameter);
         Amount(effects.SecondEdgeTint.Strength, "second edge tint's strength", parameter);
         Amount(effects.Desaturate, "desaturation", parameter);
+        Amount(effects.Blur, "blur", parameter);
         Amount(effects.CanvasStrength, "canvas strength", parameter);
         if (!(float.IsFinite(effects.CanvasTileSize) && effects.CanvasTileSize >= 0f))
         {

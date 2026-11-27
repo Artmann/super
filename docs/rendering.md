@@ -1393,6 +1393,7 @@ screen.SpeedBlur = Math.Clamp((speed - 10f) / 30f, 0f, 0.5f);
 | `Fade`, `FadeColor` | Covers the picture with the colour, from 0 to 1. The colour zero is black |
 | `EdgeTint`, `SecondEdgeTint` | A colour creeping in from the edges and corners, with a strength from 0 to 1. The second goes over the first, so a green heal can show over a red hurt. At 1 the edges are all the colour |
 | `Desaturate` | How much colour the picture loses, from 0 to 1, grey. It comes after the grade, so it's on top of `PostSettings.Saturation` and a grade's colour table |
+| `Blur` | Softens the whole picture, from 0 to 1, as behind a pause menu. The interface drawn over it stays sharp. A [`Backdrop`](interfaces.md#a-pause-backdrop) sets it for you |
 | `Canvas`, `CanvasStrength`, `CanvasTileSize` | A texture laid over the picture, such as paper or canvas, multiplied, so white leaves it as it is. The strength runs from 0 to 1, and the tile size is how many pixels of the window one tile covers; 0 is the texture's own size. The paper stays put on the screen while the world moves under it |
 
 Every amount is off at 0 and costs nothing there, and changing them never bakes the
@@ -1408,14 +1409,16 @@ has the component, the one added or changed last wins. `PostSettings.Lerp` blend
 effects with the rest of the finish, so a blend between two looks fades a red edge in red rather
 than through black, and two different canvases cross through none at the halfway point.
 
-The fringes and the speed blur are worked out on the scene's light, before the grade, so a
+The fringes, the speed blur and the soft blur are worked out on the scene's light, before the grade, so a
 bright lamp streaks bright. The flash, the fade, the tints, the loss of colour and the paper come
 last, on the colours the screen shows, after the vignette and before the grain. A
 [debug view](#ray-tracing) shows none of them.
 
 The fringes read the picture three times a pixel and the blur 16 times, so those two cost GPU
 time while they show, more the larger the window; the rest is a few sums a pixel. At 0 they're
-skipped and the pass costs what it did without them.
+skipped and the pass costs what it did without them. `Blur` reads bloom's blurred copy of the
+picture nine times a pixel rather than blurring it again, so it costs little, and bloom's chain
+runs while it shows even with `Picture.Bloom` off.
 
 Four [graphics switches](#graphics-settings) turn them off. `Picture.ChromaticAberration` and
 `Picture.SpeedBlur` turn off the two that cost time, and `Graphics.Fastest()` turns both off.

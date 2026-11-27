@@ -1000,6 +1000,95 @@ all three.
 
 ![Outpost before and after health bars over the enemies that have been hit, placed with AtWorld](media/ui-world-health-bars.webp)
 
+## Telling a story
+
+A few views carry the story between the playing: someone talking, a title as a level starts,
+an achievement, the words being said, and a pause that sets the game aside.
+
+### Dialogue
+
+A `DialogueBox` shows who's speaking, an optional portrait beside them, and the line, which
+types itself out at `CharactersPerSecond`, 45 by default. The first press of Enter, Space, the
+gamepad's South button or a click shows the rest of the line at once, and the next press runs
+`OnNext`, where you move to the next line. The line takes its whole room from the start, so
+words don't jump to the next row as they type:
+
+```csharp
+new DialogueBox("Mira", lines[at])
+{
+    Portrait = new Image(mira),
+    OnNext = () => at++,
+    OnSkip = () => at = lines.Length,
+}
+```
+
+Give it `Choices` and they show under the line once it's out, the first focused, so the player
+picks with the arrows or the d-pad and Enter, or a click. Each `DialogueChoice` runs its own
+action. `OnSkip` puts a hold button over the box that skips the whole conversation when held,
+so a press meant for the line doesn't skip by accident. A new line types from the start, and
+inside `.Animations(false)`, or with `CharactersPerSecond` at 0, each line shows whole.
+
+![A dialogue box with a portrait, the speaker, the line and a hold to skip button](media/ui-dialogue.webp)
+
+### Title cards and achievements
+
+A `TitleCard` is a big title in the middle of the screen, such as a level's name or "Victory",
+with an optional `Subtitle` between two rules. It rises and fades in, and with `Seconds` set it
+fades away again once that long has passed; without it, it stays. An `Achievement` says the
+player earned something: "Achievement unlocked", or your own `Caption`, over its title and
+`Description`, with an icon or a `Picture` in a round badge. It drops in from above and lifts
+away after `Seconds`, 5 by default. A screen reader hears it as a toast. Both show at once and
+stay inside `.Animations(false)`. Take either off the interface once it's gone, and give it a
+new `.Id` to play it again.
+
+It's called `TitleCard`, not `Banner`, so a game that writes its own `Banner`, as
+[Outpost](../examples/Outpost) and the [guides](guides/README.md) do, keeps
+the name.
+
+![A title card for The Old Mill, Chapter 2, and an achievement for fixing the mill wheel](media/ui-title-cards.webp)
+
+### Subtitles
+
+`Subtitles` shows a `SubtitleLine` centred at the bottom of the screen, on a dark backing so it
+reads over anything, with the speaker's name before it in their colour. Null shows nothing. A
+`SubtitleTrack` holds a scene's lines and finds the one said at a time, the later one where two
+overlap, so start a clock with the speech and pass it `track.At(seconds)`:
+
+```csharp
+var track = new SubtitleTrack(
+[
+    new SubtitleLine("Did you hear that?", 0.5f, 2.5f) { Speaker = "Mira" },
+    new SubtitleLine("[water rushing]", 2.8f, 4.2f),
+]);
+
+new Subtitles(track.At(seconds)) { Size = 24f }
+```
+
+A line that doesn't end after it starts is refused with a message naming it. Give players a
+setting for `Size`, 22 by default, and `Backing`, 0.6, since subtitles too small or too faint are
+no use to the players who need them.
+
+![Oswin's line as a subtitle at the bottom of a dusky screen](media/ui-subtitles.webp)
+
+### A pause backdrop
+
+A `Backdrop` goes first in a `ZStack` under a pause menu or a conversation. It dims the game by
+`Dim`, 0.45, and blurs it by `Blur`, 0.8, fading both in over `Seconds`. The blur is the
+picture's own [`ScreenEffects.Blur`](rendering.md#screen-effects), so the interface over it stays
+sharp, and it goes when the backdrop does. A `Blur` of 0 leaves the game sharp, and the
+`Picture.ScreenEffects` [graphics switch](rendering.md#graphics-settings) turns it off. The
+[Forest](../examples/Forest) example pauses with P behind one:
+
+```csharp
+new ZStack
+{
+    new Backdrop(),
+    new TitleCard("Paused") { Subtitle = "P to carry on" },
+}
+```
+
+![Forest playing, sharp, and paused behind a backdrop, dimmed and blurred under the title](media/ui-pause-backdrop.webp)
+
 ## Sounds
 
 The controls make small sounds, as game menus do: a tick when the pointer comes onto a button or
@@ -1305,4 +1394,6 @@ A panel drawn from art has no shadow, sections, tab bars, fields and menu button
 of their own yet, and a 9-slice stretches its edges rather than repeating them.
 A view over the world points the way with an arc, not an arrow of art, ignores the offsets and
 scroll views around it, and isn't hidden behind walls. The minimap frame doesn't turn the map
-with the player.
+with the player. A dialogue box types a line in one style, with no bold or coloured words inside
+it and no pauses at full stops, and the scrim behind a popup dims without blurring; use a
+`Backdrop` for that.

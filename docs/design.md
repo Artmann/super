@@ -193,7 +193,7 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   clings goes to the edge along a line from the middle of the screen through its point. For a
   point behind the camera, that line comes from the point's offset along the camera's right and
   up. The modifier measures as zero and draws its arc in `EmitAfter`. The debug labels use the
-  same camera through `UiWorld.ShowDebugLabels`.
+  same camera through `UiWorld.Present`.
 - `UiNode` is one place in the tree. `UiChildren` pairs a node's new child views with its
   old children. `UiBodyHooks` holds a component's states and the states its last Body
   read: a `State<T>` tells each reader's hooks when it changes. A scroll view's position
@@ -1452,7 +1452,7 @@ pipeline. In the Courtyard this took the G-buffer pass from 3.15 to 2.89 ms at 1
 Debug shapes ([debugging.md](debugging.md)) reach the renderer as `FrameExtras.Lines`, a span
 of 48-byte `LineDraw`s: two ends, a width in window pixels, a colour and how much shows behind
 the scene. `DebugCanvas` breaks every shape into lines on the CPU, so a sphere is 96 of them,
-and the renderer only ever draws lines. Labels never reach it: `UiWorld.ShowDebugLabels` places
+and the renderer only ever draws lines. Labels never reach it: `UiWorld.Present` places
 them with `Camera.Pixel` and draws them into the interface's own draw list, after the overlays.
 
 `LinePass` draws them in the finish stage, after `FinishPass` and before the interface
@@ -4596,6 +4596,23 @@ and without the change. With the blur on, Cannonball's flight at 1080p measured 
 1.1 to 2.2 ms against 0.04 to 0.3 ms with `Picture.SpeedBlur` off, but that was with another
 program busy on the GPU, and 4 taps measured no less than 16, so the cost while it shows still
 needs measuring on an idle GPU.
+
+The soft blur behind a pause menu, `ScreenEffects.Blur`, borrows bloom's work rather than
+blurring again. Bloom's chain already ends in a wide blur of the scene's light, so `softened()`
+in `tonemap.frag` reads that texture at the pixel, counted twice, and at eight points on a ring
+`SOFTEN_REACH` (3) of its texels away, and `glowing()` mixes the sharp scene towards it by the
+amount. The amount rides in `screenRetro.w`, which the retro pixels leave free:
+`PostGrade.Screen` clamps it there, and `FrameUniformWriter` keeps it when it writes the retro
+settings over the same vec4. Since the blur needs bloom's texture, `PostStage` records bloom
+while the blur is above 0 even when `RenderEffects.Bloom` is off; the tonemap still adds no
+glow then, because the bloom mix reads its own switch. `PostGrade.Without` clears the blur with
+the other screen effects under `RenderEffects.ScreenEffects`.
+
+The interface asks for the blur without touching the world. A `Backdrop` wraps its cover in a
+`BlurModifier`, which writes the largest amount laid out this frame into `UiWorld.Blur`, reset
+at the start of each `UiTree.Layout`. `UiWorld.Present` then sets it on the view's look for the frame
+when it's above the finish's own `Screen.Blur`, so taking the backdrop off the interface takes
+the blur away on the next frame, and a game's own blur is never lowered.
 
 The rest is `screenEffects()` in `finish.frag`, after the vignette and before the dither and grain,
 on linear colour: the paper, the loss of colour (Rec. 709 luma), the two edge tints, the flash as

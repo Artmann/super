@@ -17,7 +17,7 @@ internal sealed class PostStage
     private readonly BloomPass _bloom;
     private readonly ExposureClock _clock = new();
     private readonly (FullscreenPass Pass, DescriptorSet Set) _tonemap;
-    private DepthOfFieldConstants? _lens;
+    private (DepthOfFieldConstants? Lens, bool Softens) _taken;
 
     public PostStage(VulkanContext context, DescriptorKit kit, GpuTimer timer, GBuffer targets, ImageView source)
     {
@@ -50,9 +50,14 @@ internal sealed class PostStage
     /// <summary>The oil-paint look, which takes the frame's paint before the frame is recorded and draws after bloom.</summary>
     public PaintPass Paint { get; }
 
-    /// <summary>Takes the lens the view asks for, or none when depth of field is left out or the lens is a pinhole.</summary>
-    public void TakeLens(in FrameView view, RenderEffects off, int sceneWidth) =>
-        _lens = DepthOfFieldConstants.For(view.Picture.Post, off, sceneWidth);
+    /// <summary>
+    /// Takes the lens the view asks for, or none when depth of field is left out or the lens is a pinhole, and whether
+    /// the picture is softened, which needs bloom's blur whether or not the glow shows.
+    /// </summary>
+    public void TakeLens(in FrameView view, RenderEffects off, int sceneWidth)
+    {
+        _taken = (DepthOfFieldConstants.For(view.Picture.Post, off, sceneWidth), PostGrade.Without(view.Picture.Post, off).Screen.Blur > 0f);
+    }
 
     /// <summary>
     /// Moves the exposure's clock on to the frame's time. Done just before the frame is recorded, so a frame that is
@@ -70,14 +75,15 @@ internal sealed class PostStage
 
         // After the history is kept, so anti-aliasing and reflections next frame see the scene sharp. Bloom
         // and the meter read the blurred picture. Probe captures never come here, so they stay sharp.
-        if (_lens is { } lens)
+        if (_taken.Lens is { } lens)
         {
             _depthOfField.Record(cmd, frameSet, (source.Image, source.View, extent), lens);
         }
 
         _timer.Mark(cmd);
         // Timed together: bloom and the flare are both light added onto the picture, which the tonemap reads.
-        _bloom.Record(cmd, display.Off);
+        // The soft blur reads bloom's blur, so bloom runs for it even with the glow off.
+        _bloom.Record(cmd, _taken.Softens ? display.Off & ~RenderEffects.Bloom : display.Off);
         Flare.Record(cmd);
         _timer.Mark(cmd);
 
