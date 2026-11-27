@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.3.0](https://github.com/Artmann/super/compare/v2.2.0...v2.3.0) (2026-11-27)
+
+
+### Features
+
+* let a window without focus draw nothing ([23838dc](https://github.com/Artmann/super/commit/23838dc2ec6338f276a353d145529652aa81c476))
+* let a window without focus draw nothing ([#217](https://github.com/Artmann/super/issues/217)) ([df92da7](https://github.com/Artmann/super/commit/df92da761d62ef41811dda5d24710d56c6410b7c))
+
+
+### Bug Fixes
+
+* keep the game's frame limits under a --graphics preset ([d0bef1b](https://github.com/Artmann/super/commit/d0bef1be1bd9c2849f1a9609327d5c31392f6c08))
+* keep the game's frame limits under a --graphics preset ([#219](https://github.com/Artmann/super/issues/219)) ([d57ae74](https://github.com/Artmann/super/commit/d57ae74bd60e6552c26cb926854d7ebbf27be7f9))
+
 ## [2.2.0](https://github.com/Artmann/super/compare/v2.1.0...v2.2.0) (2026-11-27)
 
 
