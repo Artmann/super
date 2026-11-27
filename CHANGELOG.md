@@ -1,5 +1,48 @@
 # Changelog
 
+## [2.2.0](https://github.com/Artmann/super/compare/v2.1.0...v2.2.0) (2026-11-27)
+
+
+### Features
+
+* art panels ([1e2a4e3](https://github.com/Artmann/super/commit/1e2a4e3d87d06b98021ccbe5fd3c4c506fe6ad0d))
+* auto exposure limits, a slower speed into the dark and centre-weighted metering ([385eac9](https://github.com/Artmann/super/commit/385eac9e5e86981e8c9f7493b0b573b6dede13ba)), closes [#20](https://github.com/Artmann/super/issues/20)
+* debug drawing in the world: lines, shapes and labels in channels ([#185](https://github.com/Artmann/super/issues/185)) ([2cdf67c](https://github.com/Artmann/super/commit/2cdf67c87fb0eb1e13760e70d36e26572f9d0f2c))
+* device prompts ([d238dee](https://github.com/Artmann/super/commit/d238dee96636c96183604c3d0e121e743232404e))
+* Doppler effect for moving sounds ([f2a5189](https://github.com/Artmann/super/commit/f2a51896757d55ea5d265db31e4588ad053dcd43))
+* duck music and ambience under dialogue, and channels under each other ([395eedc](https://github.com/Artmann/super/commit/395eedca0120bc163db8373d3c4b969c24b346ee))
+* game controls ([266301b](https://github.com/Artmann/super/commit/266301b304e1a99b54f0c6fbe0ee0b235fe242c3))
+* game focus ([de17a3c](https://github.com/Artmann/super/commit/de17a3cc3ccf6a3e4fd42cc72b2d9344e4d2c28f))
+* grid debug overlays for outlines, coordinates, heat maps and highlighted cells, with the Plots example ([886e7d9](https://github.com/Artmann/super/commit/886e7d9cf8f4c5e402646c6cd75bb4f74eb95030))
+* grid footprints, maps, named grids, floors, offsets, mirroring and flood fills ([ae1c983](https://github.com/Artmann/super/commit/ae1c983e30e84c2ef25b6dc7ad38bfb395baa25c))
+* grid overlays for the player, laid on the ground with lines, fills and a focus round the mouse ([2bd3852](https://github.com/Artmann/super/commit/2bd385213a84dac779e93925b3e5cee609ff707d))
+* interface sounds ([6690712](https://github.com/Artmann/super/commit/6690712854d34f15300b1e69f3154bac7f1780f3))
+* interface text in a game's own fonts, cooked from .ttf and .otf ([2b2a5f9](https://github.com/Artmann/super/commit/2b2a5f9cc04ab41af06c8a58cc6bc2989af6fdd5))
+* motion ([f672668](https://github.com/Artmann/super/commit/f672668bb791038120229520da9c7fc97419832c))
+* popups for the interface: menus, context menus, a menu picker, alerts, confirmation dialogs, sheets, popovers and toasts ([6cf1a86](https://github.com/Artmann/super/commit/6cf1a86ceeeaece358fb2d9c704f7c95c88b5964))
+* root motion that carries turns from the clips named as turning ([c63a353](https://github.com/Artmann/super/commit/c63a353627ac3e14bb917d448e3ceac61ec57836))
+* showcases ([9ba2941](https://github.com/Artmann/super/commit/9ba29416a348d33c83cdb8247ff0be338e14204e))
+* square and hex grids with picking, neighbours, lines, ranges, rings and turning ([2899d6a](https://github.com/Artmann/super/commit/2899d6ae88ea7fabc698581f2ac86f8f0411c452))
+* story and screens ([b0cb887](https://github.com/Artmann/super/commit/b0cb8877dcb35ac7c84d171a96da7b2fcd442af8))
+* tell the game when its window loses focus ([e2c5e83](https://github.com/Artmann/super/commit/e2c5e833e1339fe4d0c21c93e1a84148748c5353))
+* tile maps of modular pieces that fit their neighbours, loaded from JSON levels, with the Tiles example ([26cfa69](https://github.com/Artmann/super/commit/26cfa693ccef6d596296357d30992eb1f3e2b6f6))
+* touch for the interface: taps, drags that scroll and fling, long presses, and fingers for the game ([403f283](https://github.com/Artmann/super/commit/403f283a0f849980abeb41f3f1460ae0bee338d3))
+* UI animation and showcase screens ([828e986](https://github.com/Artmann/super/commit/828e986227433ad959b0c5f48ca378d32d354b97))
+* UI containers: cards, labelled content, forms and sections, disclosure groups, tab views and navigation stacks ([da0e9c7](https://github.com/Artmann/super/commit/da0e9c72726038298bf2befaf4e6e12ae27e8d23))
+* UI controls: button styles, toggles, sliders, steppers, pickers, progress, gauges and semantics for tests ([8a5c8a4](https://github.com/Artmann/super/commit/8a5c8a462e9cfa6dc0f1655cdea256161126b2d8))
+* UI focus with the keyboard and gamepad, and text fields ([8630455](https://github.com/Artmann/super/commit/8630455fb33108c8d9a3247312640ae09f6fef6d))
+* UI foundations: themes, text styles, gradients, shadows, shapes, icons, badges, labels, key hints and the Storybook example ([ee03e7d](https://github.com/Artmann/super/commit/ee03e7d7e5a6a5b5d195a1f0e8814a88b6d53fbb))
+* UI layout: overlays, view backgrounds, offsets, hiding, layout priority, aspect ratios, grids of rows, flow stacks, views that fit and lazy stacks ([4333927](https://github.com/Artmann/super/commit/4333927c875f57aeda48f66229ce2ab28fadbfac))
+* world on screen ([07418ab](https://github.com/Artmann/super/commit/07418ab2f408d4d3d13cfad809b08e988af94600))
+
+
+### Bug Fixes
+
+* reuse the slots of unloaded models, textures and images ([9508e53](https://github.com/Artmann/super/commit/9508e53b1fb3ae96c476108083ea53e86f75bd12))
+* review findings across the game UI ([55ebe4c](https://github.com/Artmann/super/commit/55ebe4ccb06fddc6489d26c11190ffd8b4f4b32d))
+* stream uploads until a per-frame time budget is used ([9669c83](https://github.com/Artmann/super/commit/9669c83222f979167eb467beac531ffe9dc86025)), closes [#203](https://github.com/Artmann/super/issues/203)
+* UI clock moves for trees updated by hand, and toasts keep their own cards ([82f60c2](https://github.com/Artmann/super/commit/82f60c26b6d79ebfaa0da93bffa65c8635c8fa0f))
+
 ## [2.1.0](https://github.com/Artmann/super/compare/v2.0.1...v2.1.0) (2026-11-21)
 
 
