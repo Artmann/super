@@ -47,6 +47,9 @@ internal sealed unsafe class OsWindow : IDisposable
     /// <summary>Whether the player asked to close the window.</summary>
     public bool ShouldClose => GlfwApi.WindowShouldClose(NativeWindow);
 
+    /// <summary>Whether the window has the keyboard, rather than another window on the desktop.</summary>
+    public bool HasFocus => GlfwApi.GetWindowAttrib(NativeWindow, WindowAttributeGetter.Focused);
+
     /// <summary>The window's size in pixels, which is what the renderer draws.</summary>
     public (int Width, int Height) FramebufferSize()
     {

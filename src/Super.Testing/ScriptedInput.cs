@@ -71,6 +71,12 @@ public sealed class ScriptedInput
     /// <summary>Takes the cursor off the window.</summary>
     public void LeaveWindow() => Queue(input => input.Mouse.Feed.MouseLeftWindow());
 
+    /// <summary>The player switching to another window, so <see cref="WindowInput.HasFocus"/> is false from the next tick.</summary>
+    public void LoseFocus() => Queue(input => input.Window.FocusChanged(false));
+
+    /// <summary>The player coming back to the game's window.</summary>
+    public void GainFocus() => Queue(input => input.Window.FocusChanged(true));
+
     public void Press(GamepadButton button)
     {
         Hold(button);
@@ -144,7 +150,7 @@ public sealed class ScriptedInput
     {
         foreach (char character in text)
         {
-            input.TypedCharacter(character);
+            input.Keys.Typed(character);
         }
     });
 

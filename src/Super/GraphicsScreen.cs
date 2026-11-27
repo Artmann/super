@@ -32,6 +32,20 @@ public sealed class GraphicsScreen
     }
 
     /// <summary>
+    /// The most frames drawn in a second while the player is in another window, or 0, the default, to keep to
+    /// <see cref="MaxFramesPerSecond"/>. A low limit, such as 10, saves power and keeps the fans quiet while the game
+    /// waits in the background. It never draws faster than <see cref="MaxFramesPerSecond"/>. The game still ticks at
+    /// its own rate; use <see cref="WindowInput.HasFocus"/> to pause it.
+    /// </summary>
+    public int UnfocusedMaxFramesPerSecond
+    {
+        get;
+        set => field = value >= 0
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "The unfocused frame limit can't be negative. Use 0 to keep to MaxFramesPerSecond.");
+    }
+
+    /// <summary>
     /// How large the scene is drawn against the window, from 0.5 to 2 each way; 1 draws it at the window's
     /// size. At 2 it's drawn with four times the pixels and shrunk to fit, which smooths thin things such as
     /// grass and railings, at about four times the cost of lighting and effects. At 0.5 it's drawn with a
@@ -73,11 +87,23 @@ public sealed class GraphicsScreen
     /// <summary>Smoothing jagged edges over several frames. Off, edges show their pixels, and nothing blurs as the camera moves.</summary>
     public bool AntiAliasing { get; set; } = true;
 
+    /// <summary>The frame limit to keep to, or 0 for none, as the window has focus or not.</summary>
+    internal int FrameLimit(bool focused)
+    {
+        if (focused || UnfocusedMaxFramesPerSecond == 0)
+        {
+            return MaxFramesPerSecond;
+        }
+
+        return MaxFramesPerSecond == 0 ? UnfocusedMaxFramesPerSecond : Math.Min(MaxFramesPerSecond, UnfocusedMaxFramesPerSecond);
+    }
+
     /// <summary>Takes every setting from <paramref name="other"/>.</summary>
     internal void CopyFrom(GraphicsScreen other)
     {
         Vsync = other.Vsync;
         MaxFramesPerSecond = other.MaxFramesPerSecond;
+        UnfocusedMaxFramesPerSecond = other.UnfocusedMaxFramesPerSecond;
         RenderScale = other.RenderScale;
         Upscaler = other.Upscaler;
         UploadBudget = other.UploadBudget;

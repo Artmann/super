@@ -89,6 +89,7 @@ class Console(Input input)
 | `Mouse` | The cursor and the wheel, below |
 | `Gamepad` | The first gamepad's sticks and triggers, below |
 | `Device` | What the player last played with: `KeyboardAndMouse`, `Gamepad` or `Touch`, for [button prompts](interfaces.md#button-prompts) |
+| `Window` | Whether the game's window has focus: `HasFocus`, and `FocusLost` and `FocusGained` for the tick it changes. See [pausing in the background](#pausing-in-the-background) |
 
 The mouse is on `input.Mouse`:
 
@@ -124,5 +125,23 @@ next tick and `Released` on the one after, so a quick tap never vanishes.
 Only `Update` may read input. `Draw` and `Ui` describe state and `Load` happens before
 play, so reading there throws. That keeps the picture a function of state, which is what
 lets a seed replay and a screenshot test stay stable.
+
+## Pausing in the background
+
+A game that should stop while the player is in another window reads `input.Window.HasFocus`, or acts
+once on `input.Window.FocusLost`, as when it opens a pause menu and quiets its music:
+
+```csharp
+if (input.Window.FocusLost)
+{
+    screen.Set(Screen.Paused);
+}
+```
+
+The window lets go of every key and button as it loses focus, so nothing stays held while the
+player is away. Set [`Screen.UnfocusedMaxFramesPerSecond`](rendering.md#graphics-settings) to
+draw fewer frames meanwhile. Tests take focus away with `run.Input.LoseFocus()` and give it
+back with `GainFocus()`. `FocusGained` is true on the tick after it comes back, and a
+blip between two ticks shows both.
 
 Tests play input through `run.Input`; see [Testing](testing.md#playing-input).

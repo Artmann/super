@@ -90,8 +90,8 @@ public class InputTests
     public void Typed_text_is_the_characters_since_the_last_tick()
     {
         var input = Create();
-        input.TypedCharacter('h');
-        input.TypedCharacter('i');
+        input.Keys.Typed('h');
+        input.Keys.Typed('i');
         input.Roll();
         Assert.Equal("hi", input.Typed);
 
