@@ -17,6 +17,12 @@ public enum PickerStyle
     /// takes the least room, so it suits a long list or a settings row.
     /// </summary>
     Menu,
+
+    /// <summary>
+    /// The picked one between two arrows, <c>◀ High ▶</c>, with a pip for each choice under it, as in a game's
+    /// settings. The arrows and left and right go round from the last to the first. It fills the width it's offered.
+    /// </summary>
+    Arrows,
 }
 
 /// <summary>
@@ -43,14 +49,16 @@ public sealed record Picker<T>(string Label, T Selection, IReadOnlyList<PickerOp
             {
                 PickerStyle.Radio => Radio(environment, off),
                 PickerStyle.Menu => Dropdown(open, picked, off),
+                PickerStyle.Arrows => Arrows(environment, picked, off),
                 _ => Segmented(environment, off),
             };
             var meaning = new SemanticsModifier(choices, new UiSemantics(UiRole.Picker, Label, picked?.Label) { Disabled = off });
 
             // One stop for the whole picker: left and right pick the one beside, and Enter the next, round to
-            // the first, or opens the menu.
+            // the first, or opens the menu. Arrows go round with left and right too, as their arrows do.
             Action activate = Style == PickerStyle.Menu ? () => open.Value = !open.Value : () => PickBeside(1, true);
-            var keys = new FocusKeys { Adjust = by => PickBeside(by, false), Activate = activate, Disabled = off };
+            bool round = Style == PickerStyle.Arrows;
+            var keys = new FocusKeys { Adjust = by => PickBeside(by, round), Activate = activate, Disabled = off };
             return new FocusModifier(meaning, keys);
         }
     }
@@ -130,6 +138,45 @@ public sealed record Picker<T>(string Label, T Selection, IReadOnlyList<PickerOp
         }
 
         return list.Opacity(off ? 0.5f : 1f);
+    }
+
+    /// <summary>The picked one's label between an arrow each way, and a pip for each choice under it.</summary>
+    private UiView Arrows(UiEnvironment environment, PickerOption<T>? picked, bool off)
+    {
+        var theme = environment.Theme;
+        var metrics = environment.Metrics;
+        var pips = new HStack(Spacing: MathF.Round(metrics.Gap * 0.5f));
+        foreach (var option in Options)
+        {
+            var color = IsPicked(option) ? theme.Colors.Primary : theme.Colors.Muted;
+            pips.Add(new Capsule().Fill(color).Frame(MathF.Round(metrics.FontSize), 3f));
+        }
+
+        var middle = new VStack(HorizontalAlignment.Center, MathF.Round(metrics.Gap * 0.5f))
+        {
+            new Text(picked?.Label ?? "").FontSize(metrics.FontSize).Weight(FontWeight.Medium).LineLimit(1),
+            pips,
+        };
+        return new HStack(Spacing: metrics.Gap)
+        {
+            Arrow(IconName.ChevronLeft, -1, environment, off),
+            middle.Frame(maxWidth: UiExtensions.Infinity),
+            Arrow(IconName.ChevronRight, 1, environment, off),
+        }.Frame(minHeight: metrics.Height).Opacity(off ? 0.5f : 1f);
+    }
+
+    /// <summary>An arrow that picks the one beside, going round at the ends.</summary>
+    private UiView Arrow(IconName icon, int by, UiEnvironment environment, bool off)
+    {
+        var theme = environment.Theme;
+        float side = environment.Metrics.Height;
+        var pressable = new Pressable(look => new Icon(icon)
+            .FontSize(environment.Metrics.FontSize * 1.25f)
+            .Foreground(look.Hovered ? theme.Colors.Foreground : theme.Colors.MutedForeground)
+            .Frame(side, side)
+            .Background(look.Pressed ? theme.Colors.Muted : default)
+            .CornerRadius(theme.Radius), Options.Count == 0 ? null : () => PickBeside(by, true), off);
+        return new SemanticsModifier(pressable, new UiSemantics(UiRole.Button, by < 0 ? "Previous" : "Next") { Disabled = off });
     }
 
     /// <summary>One choice, which picks its value when clicked and says whether it's the one picked.</summary>

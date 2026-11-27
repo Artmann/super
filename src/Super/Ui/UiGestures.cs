@@ -23,6 +23,9 @@ internal sealed class UiGestures(UiTree tree, Input input)
     /// <summary>The scroll view whose thumb the left button holds.</summary>
     public UiNode? HeldBar => (_hold as ThumbHold)?.Bar;
 
+    /// <summary>What the left button holds down, while the cursor is still on it, as <paramref name="hit"/> says.</summary>
+    public UiNode? Pressing(UiNode? hit) => _hold is ClickHold held && UiPointerSearch.Inside(hit, held.Node) ? held.Node : null;
+
     /// <summary>A button went down over this node, with the cursor here.</summary>
     public void Press(UiNode hit, MouseButton button, Vector2 position)
     {
@@ -135,10 +138,10 @@ internal sealed class UiGestures(UiTree tree, Input input)
             return (UiPointerSearch.DropTargetUnder(hit, moving.Source, moving.Payload) is null ? null : UiPointerSearch.Clickable(hit), false);
         }
 
-        if (_hold is ClickHold held)
+        if (_hold is ClickHold)
         {
-            bool pressed = UiPointerSearch.Inside(hit, held.Node);
-            return (pressed ? held.Node : null, pressed);
+            var pressing = Pressing(hit);
+            return (pressing, pressing is not null);
         }
 
         return (leftHeld ? null : UiPointerSearch.Clickable(hit), false);

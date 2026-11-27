@@ -23,9 +23,10 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
     private const int South = (int)GamepadButton.South;
     private const int East = (int)GamepadButton.East;
 
-    private readonly HashSet<Key> _taken = [];
+    private readonly UiTakenKeys _taken = new(input.Gamepad);
     private readonly UiPadRepeat _pad = new(ticksPerSecond);
     private readonly UiFocusTrap _trap = new(tree);
+    private readonly UiHolds _holds = new(tree, callbacks, ticksPerSecond);
     private UiNode? _defaulted;
 
     private UiFocusMark Mark => tree.Focus;
@@ -47,8 +48,11 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
         input.Keys.Events.Clear();
     }
 
-    /// <summary>Once a tick, before it rolls: the gamepad, and a default focus that just appeared.</summary>
-    public void Tick()
+    /// <summary>
+    /// Once a tick, before it rolls: the gamepad, a default focus that just appeared, and the hold button held down,
+    /// by <paramref name="pressed"/>, what the mouse or a finger holds, or else by the key or South that activated it.
+    /// </summary>
+    public void Tick(UiNode? pressed)
     {
         // A control that goes away or turns off lets focus go.
         if (Mark.Node is { } focused && !UiFocusStops.IsOn(focused))
@@ -65,14 +69,21 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
         FocusDefault();
         Pad();
         input.Gamepad.LeftStickTaken = Current is not null;
+        _holds.Tick(pressed ?? _taken.Holding(Current));
     }
 
     /// <summary>
-    /// The mouse went down on this node, or on the game with null. A text field takes focus and puts its caret
-    /// there; anything else lets focus go, and the ring hides until a key moves it again.
+    /// A mouse button or a finger went down on this node, or on the game with null. A key binder listening takes a
+    /// mouse button, wherever it is, and this returns true so it does nothing else. Otherwise a text field takes focus
+    /// and puts its caret there; anything else lets focus go, and the ring hides until a key moves it again.
     /// </summary>
-    public void Pointed(UiNode? hit, float x)
+    public bool Pointed(UiNode? hit, float x, MouseButton? button = null)
     {
+        if (button is { } pressed && UiListening.Mouse(_trap.Root, pressed, callbacks))
+        {
+            return true;
+        }
+
         var stop = UiFocusStops.Outermost(hit);
         if (stop is { View: FocusModifier { Keys: { Text: { } text, Disabled: false } } } && !stop.Environment.Disabled)
         {
@@ -82,15 +93,22 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
                 text.Apply(text.Edit.MoveTo(shown.IndexAt(field, x), input.Keys.Shift), callbacks);
             }
 
-            return;
+            return false;
         }
 
         Focus(null, false);
+        return false;
     }
 
     /// <summary>Whether focus takes this key event. Repeats only ever come here, and never reach the game.</summary>
     private bool Take(in KeyEvent key)
     {
+        // A key binder listening takes the next key, and Escape stops it.
+        if (UiListening.Key(_trap.Root, key, _taken, callbacks))
+        {
+            return true;
+        }
+
         switch (key.Kind)
         {
             case KeyEventKind.Up:
@@ -98,7 +116,8 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
             case KeyEventKind.Character:
                 return Typed(key.Character);
             case KeyEventKind.Repeat:
-                if (_taken.Contains(key.Key))
+                // A held hold button fills, and doesn't press again with each repeat.
+                if (_taken.Contains(key.Key) && _taken.Holding(Current) is null)
                 {
                     Press(key.Key);
                 }
@@ -122,20 +141,8 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
             return UiTextKeys.Press(key, text, input.Keys, callbacks);
         }
 
-        return Nav(key) is { } nav && Command(nav);
+        return UiNavKeys.Of(key, input.Keys.Shift) is { } nav && Command(nav);
     }
-
-    private UiNav? Nav(Key key) => key switch
-    {
-        Key.Tab => input.Keys.Shift ? UiNav.Previous : UiNav.Next,
-        Key.Up => UiNav.Up,
-        Key.Down => UiNav.Down,
-        Key.Left => UiNav.Left,
-        Key.Right => UiNav.Right,
-        Key.Enter or Key.KeyPadEnter or Key.Space => UiNav.Activate,
-        Key.Escape => UiNav.Back,
-        _ => null,
-    };
 
     private bool Typed(char character)
     {
@@ -240,6 +247,7 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
 
     private void Activate(UiNode node, FocusKeys keys)
     {
+        _taken.Activated(node);
         if (keys.Text is { } text)
         {
             text.Submit(callbacks);
@@ -304,34 +312,68 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
     {
         var buttons = input.Gamepad.Buttons;
         var (held, button) = UiPadRepeat.Held(input.Gamepad);
+        // A key binder listening takes the next button, and the pad moves nothing while it listens.
+        if (UiListening.Pad(_trap.Root, buttons, held is not null, callbacks))
+        {
+            return;
+        }
+
+        // A radial menu with focus aims along the stick, so the stick doesn't move focus off it.
+        if (button < 0 && UiRadial.Steer(Current, input.Gamepad.PendingLeftStick))
+        {
+            held = null;
+        }
+
         if (_pad.Next(held) is { } nav)
         {
-            if (Command(nav))
-            {
-                Mark.RingShown = true;
-                if (button >= 0)
-                {
-                    buttons.Take(button);
-                }
-            }
-            else
-            {
-                _pad.Refuse();
-            }
+            Move(nav, buttons, button);
         }
 
-        if (buttons.WentDown(South) && Command(UiNav.Activate))
-        {
-            buttons.Take(South);
-        }
-
-        if (buttons.WentDown(East) && Command(UiNav.Back))
-        {
-            buttons.Take(East);
-        }
-
+        Press(buttons, South, UiNav.Activate);
+        Press(buttons, East, UiNav.Back);
         TabKeys.Bumpers(buttons, tree.Layers, callbacks);
     }
+
+    /// <summary>Moves focus as the pad points, taking the d-pad button that did it, or refuses so it waits to repeat.</summary>
+    private void Move(UiNav nav, ButtonSet buttons, int button)
+    {
+        if (!Command(nav))
+        {
+            _pad.Refuse();
+            return;
+        }
+
+        Mark.RingShown = true;
+        if (button >= 0)
+        {
+            buttons.Take(button);
+        }
+    }
+
+    /// <summary>A face button that went down asks focus for this, and the game doesn't see it when focus takes it.</summary>
+    private void Press(ButtonSet buttons, int face, UiNav nav)
+    {
+        if (buttons.WentDown(face) && Command(nav))
+        {
+            buttons.Take(face);
+        }
+    }
+}
+
+/// <summary>What each key asks focus to do, if anything.</summary>
+internal static class UiNavKeys
+{
+    public static UiNav? Of(Key key, bool shift) => key switch
+    {
+        Key.Tab => shift ? UiNav.Previous : UiNav.Next,
+        Key.Up => UiNav.Up,
+        Key.Down => UiNav.Down,
+        Key.Left => UiNav.Left,
+        Key.Right => UiNav.Right,
+        Key.Enter or Key.KeyPadEnter or Key.Space => UiNav.Activate,
+        Key.Escape => UiNav.Back,
+        _ => null,
+    };
 }
 
 /// <summary>

@@ -252,7 +252,9 @@ new Arc(Start: 0f, Sweep: cooldown, Thickness: 3f).Frame(width: 32f, height: 32f
 ```
 
 An `Arc` runs clockwise from the top. Its start and sweep are fractions of a turn, so
-`new Arc(0f, 0.25f)` is the top right quarter.
+`new Arc(0f, 0.25f)` is the top right quarter. Its ends are round. With `FlatEnds` they're
+cut straight towards the middle, so arcs side by side make the slices of a wheel; keep each
+under half a turn.
 
 ## Controls
 
@@ -281,7 +283,7 @@ around it.
 | `Toggle` | `Style`: `Switch`, which fills its row with the label at the start, or `Checkbox`, a box before the label. Clicking the label toggles it too |
 | `Slider` | `Min`, `Max` and `Step`. A press on the track jumps there, and dragging follows the cursor even off the track. `Label` names it for tests |
 | `Stepper` | `Min`, `Max` and `Step`. Each button turns off at its end of the range |
-| `Picker<T>` | `Style`: `Segmented`, side by side with the picked one raised, `Radio`, one under the other, or `Menu`, a button showing the picked one that opens a menu with it checked |
+| `Picker<T>` | `Style`: `Segmented`, side by side with the picked one raised, `Radio`, one under the other, `Menu`, a button showing the picked one that opens a menu with it checked, or `Arrows`, the picked one between two arrows with a dot for each choice under it, which goes round at the ends |
 | `ProgressView` | `Style`: `Linear` or `Circular`. A bar with a label shows the percentage beside it, and a ring shows it inside. Made with only a label, `new ProgressView("Connecting")`, it doesn't know how far along it is, so a ring spins and a piece of the bar sweeps across |
 | `Gauge` | `Style`: `Circular` or `Linear`, `Tint` for its own colour, and `ValueLabel` for the reading shown in place of the number |
 
@@ -292,6 +294,41 @@ It used to be a quiet grey, so give the buttons beside the main one `ButtonStyle
 or `Outline`:
 
 ![The Crafting example's Craft button, grey before and filled with the primary colour after](media/ui-button-default.webp)
+
+### Game controls
+
+Four controls are made for games rather than apps:
+
+```csharp
+new Picker<Quality>("Shadows", settings.Shadows, Qualities, picked => settings.Shadows = picked) { Style = PickerStyle.Arrows },
+new HoldButton("Hold to delete save", () => saves.Delete(slot), Seconds: 1.5f),
+new KeyBinder("Jump", actions.Jump, binding => actions.Jump = binding) { Default = Key.Space, Clash = ClashWith(actions.Jump) },
+new RadialMenu("Quick items", [new RadialItem("Potion", Drink) { Icon = IconName.Circle }, new RadialItem("Torch", Light)]),
+```
+
+The arrow picker is the console settings row: left and right step through the choices and go
+round at the ends.
+
+A `HoldButton` fills a ring while the mouse, a finger, Enter, Space or South is held on it, and
+acts once it's full, playing the `Confirm` sound. Let go early and it empties. It's for actions
+that are hard to undo, such as deleting a save or skipping a cutscene, where a stray click or
+press shouldn't count.
+
+A `KeyBinder` is one row of a controls screen. A click, Enter or South sets it listening, and the
+next key or mouse button (or gamepad button, with `Device = InputDevice.Gamepad`) goes to
+`OnBind` on the next tick, without reaching the game or moving focus. A press from the other
+device is ignored, and Escape stops listening and changes nothing. With a `Default`, a Reset
+button shows while the binding is something else. `Clash` is yours to work out, from your other
+bindings, and shows as a warning beside it.
+
+A `RadialMenu` is a wheel of choices with the first at the top. The mouse aims at the slice it's
+over, and the hole in the middle aims at nothing. The left stick aims along the way it's pushed
+and keeps its aim when it springs back. Left and right step round, and a click, Enter or South
+picks the slice aimed at, running its `Action` on the next tick. It takes focus as it appears,
+so show it in a popup or while a button is held, and the stick steers it at once. Set
+`TakeFocus = false` for a wheel that sits among other controls.
+
+![Arrow pickers, hold buttons, key binders and a radial menu in the storybook](media/ui-game-controls.webp)
 
 ### Controls of your own
 
@@ -1106,6 +1143,7 @@ keyframes. A lazy stack's rows all have one height, there's no lazy row or lazy
 grid, and when a lazy list scrolls far in one frame the new rows show a frame later.
 Going back in a navigation stack forgets the state of the page that was under it, and a tab
 view or a navigation stack under `.Hidden()` still takes the bumpers and Escape. There's no
-key on the keyboard that switches tabs from anywhere, as the bumpers do. Nothing plays the
-`Confirm` sound yet. Button prompts know the first gamepad only, read its family from the
+key on the keyboard that switches tabs from anywhere, as the bumpers do. A key binder keeps
+listening when focus moves away, and a player with only a gamepad can't stop it listening
+without binding a button. A radial menu has no inner ring of sub-choices. Button prompts know the first gamepad only, read its family from the
 name the system gives it, and have no glyphs for a Steam Deck's back buttons or a touchpad.

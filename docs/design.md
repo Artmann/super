@@ -294,6 +294,25 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   in the frame the player does. `PromptGlyphs` and `PadGlyphs` turn a `Binding` into the glyphs
   `ButtonPrompt` draws. `ActionPrompt` copies its bindings when it's made, so a rebind makes it
   compare unequal and draw again.
+- The game controls hang their state on modifiers that the input code looks for. A
+  `HoldButton` is a `HoldModifier` holding its progress `State<float>`. Once a tick
+  `UiPointer.BeforeRoll` hands `UiFocus.Tick` the node held down: the finger's, else the
+  mouse's (`UiGestures.Pressing`, while the press is still over the node it started on).
+  When neither holds one, `UiTakenKeys.Holding` gives the focused stop while Enter, Space or
+  South is still down after activating it, and `UiHolds.Tick` gets the result. `UiHolds`
+  counts ticks on that node, so a hold replays exactly, empties the progress when the node
+  changes, and queues the action and the `Confirm` cue on the tick it fills. A focus repeat
+  doesn't press a hold button again. A listening `KeyBinder` wraps itself in a
+  `CaptureModifier`. `UiListening.In` searches the top popup, or the tree, for one only when
+  a key, a mouse button or a pad button goes down, or the stick is held. `UiListening.Key`
+  (from `UiFocus.Take`), `UiListening.Mouse` (from `UiFocus.Pointed`, which `UiPointer.Down`
+  asks first) and `UiListening.Pad` (at the start of `UiFocus.Pad`) hand it the press before
+  anything else sees it, and swallow presses from the other device. A `RadialMenu` is a
+  `RadialModifier` holding its aim. `UiPointer.Moved` aims it from the
+  angle to the middle of its frame through `UiRadial.Point`, and `UiFocus.Pad` asks
+  `UiRadial.Steer` next: while the focused stop holds a wheel, the stick aims it instead of
+  moving focus, and the aim stays when the stick springs back. Its slices are `Arc`s with
+  `FlatEnds`, which `overlay.frag` cuts along the lines from the middle.
 - Fingers come in through `TouchFeed`, routed the same way: with `Routes` on, downs, moves, ups
   and cancels wait in `Events`, and `UiPointer.Pump` hands each to `UiTouch`. A finger the
   interface doesn't take is applied to the feed's own fingers, which `TouchInput` rolls into

@@ -98,10 +98,16 @@ public sealed record Ellipse : ShapeView
 /// </summary>
 public sealed record Arc(float Start, float Sweep, float Thickness = 4f) : ShapeView
 {
+    /// <summary>
+    /// Cuts the ends straight, along lines from the middle, instead of rounding them, so arcs side by side make the
+    /// slices of a wheel. Keep each under half a turn.
+    /// </summary>
+    public bool FlatEnds { get; init; }
+
     private protected override void Draw(UiDrawList draw, UiRect frame, Paint? fill, float strokeWidth, Color stroke)
     {
         // A ring has no inside to fill, so its colour is the fill's, or the stroke's for an outline.
         var color = fill?.From ?? stroke;
-        draw.AddArc(Square(frame), Start * MathF.Tau, Math.Clamp(Sweep, 0f, 1f) * MathF.Tau, new UiStroke(Thickness, color));
+        draw.AddArc(Square(frame), Start * MathF.Tau, Math.Clamp(Sweep, 0f, 1f) * MathF.Tau, new UiStroke(Thickness, color), FlatEnds);
     }
 }

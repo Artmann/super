@@ -30,12 +30,13 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     public void BeforeRoll()
     {
         Pump();
-        Focus.Tick();
         if (_touch.Tick() is { } longPress)
         {
             _callbacks.Add(longPress);
         }
 
+        // A finger, then the mouse, holds a hold button down, and focus falls back on the key that activated it.
+        Focus.Tick(_touch.Pressed ?? _gestures.Pressing(Hit()));
         _hover.Tick();
         tree.Layers.Tick(1f / ticksPerSecond);
         input.Mouse.Feed.PendingMouseOverUi = _uiHeld != 0 || (_gameHeld == 0 && !input.Mouse.Locked && Hit() is not null);
@@ -120,6 +121,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     {
         _position = position;
         _inWindow = true;
+        UiRadial.Point(input.Mouse.Locked ? null : Hit(), position);
         if (_gestures.Follow(position))
         {
             _hover.HideTip();
@@ -130,7 +132,13 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     {
         int bit = 1 << (int)button;
         var hit = input.Mouse.Locked ? null : Hit();
-        Focus.Pointed(hit, _position.X);
+        // A key binder listening takes the button, wherever it's pressed, and the game sees none of it.
+        if (Focus.Pointed(hit, _position.X, button))
+        {
+            _uiHeld |= bit;
+            return;
+        }
+
         if (hit is null)
         {
             _gameHeld |= bit;

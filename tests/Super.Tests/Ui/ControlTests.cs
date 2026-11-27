@@ -355,6 +355,22 @@ public sealed class ControlTests
             run.Elements.Where(element => element.Role == UiRole.Option).Select(element => (element.Label, element.Checked ?? false)));
     }
 
+    [Theory]
+    [InlineData("Next", 1, 2)]
+    [InlineData("Next", 3, 1)]
+    [InlineData("Previous", 1, 3)]
+    [InlineData("Previous", 2, 1)]
+    public void An_arrow_picks_the_one_beside_and_goes_round_at_the_ends(string arrow, int from, int expected)
+    {
+        int level = from;
+        using var run = Run(_ => Corner(new Picker<int>("Difficulty", level, Levels, value => level = value) { Style = PickerStyle.Arrows }.Id("difficulty")));
+
+        Click(run, Middle(StepButton(run, arrow).Frame));
+
+        Assert.Equal(expected, level);
+        Assert.Equal(Levels[expected - 1].Label, run.Element("difficulty").Value);
+    }
+
     [Fact]
     public void A_picker_turned_off_ignores_clicks()
     {

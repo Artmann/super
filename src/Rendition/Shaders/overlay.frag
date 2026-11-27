@@ -62,8 +62,9 @@ float ellipseDistance(vec2 point, vec4 rectangle)
     return k1 > 0.0 ? k0 * (k0 - 1.0) / k1 : -min(axes.x, axes.y);
 }
 
-// Part of a ring with round ends, centered in the rectangle, from start through sweep, clockwise from the top.
-float arcDistance(vec2 point, vec4 rectangle, float start, float sweep, float thickness)
+// Part of a ring centered in the rectangle, from start through sweep, clockwise from the top. Its ends are round,
+// or cut straight along the line from the middle when straight is set, for slices of a wheel under half a turn each.
+float arcDistance(vec2 point, vec4 rectangle, float start, float sweep, float thickness, bool straight)
 {
     vec2 center = rectangle.xy + rectangle.zw * 0.5;
     float radius = min(rectangle.z, rectangle.w) * 0.5 - thickness * 0.5;
@@ -76,9 +77,20 @@ float arcDistance(vec2 point, vec4 rectangle, float start, float sweep, float th
 
     float angle = atan(local.x, -local.y);
     float along = mod(angle - start, Tau);
-    if (sweep >= Tau || along <= sweep)
+    bool within = sweep >= Tau || along <= sweep;
+    float ring = abs(length(local) - radius) - halfThickness;
+    if (straight && sweep < Tau)
     {
-        return abs(length(local) - radius) - halfThickness;
+        // How far the point is from each straight end, out from the middle along its angle.
+        float fromStart = abs(local.x * cos(start) + local.y * sin(start));
+        float fromEnd = abs(local.x * cos(start + sweep) + local.y * sin(start + sweep));
+        float edge = min(fromStart, fromEnd);
+        return max(ring, within ? -edge : edge);
+    }
+
+    if (within)
+    {
+        return ring;
     }
 
     vec2 first = radius * vec2(sin(start), -cos(start));
@@ -185,7 +197,7 @@ void main()
     }
     else if (kind == Arc)
     {
-        coverage = inside(arcDistance(pixel, quad, params.x, params.y, thickness));
+        coverage = inside(arcDistance(pixel, quad, params.x, params.y, thickness, params.z > 0.5));
     }
     else if (kind == Segment)
     {
