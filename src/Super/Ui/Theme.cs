@@ -26,6 +26,9 @@ public sealed record Theme
     /// <summary>The sounds the controls make when they're pressed, focused and opened. <see cref="UiSounds.None"/> is silent.</summary>
     public UiSounds Sounds { get; init; } = UiSounds.Default;
 
+    /// <summary>How the control with focus shows: a highlight that slides from control to control, or a thin ring.</summary>
+    public FocusLook Focus { get; init; } = FocusLook.Highlight;
+
     public ControlMetrics Small { get; init; } = new(Height: 28f, Padding: 10f, FontSize: 12f, Gap: 6f);
 
     public ControlMetrics Regular { get; init; } = new(Height: 36f, Padding: 16f, FontSize: 14f, Gap: 8f);

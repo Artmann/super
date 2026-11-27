@@ -123,7 +123,10 @@ public sealed class HeadlessRun<TGame> : IDisposable
     /// Whether something in the interface is still moving, such as a switch's knob, a view easing in or a
     /// spinner, so the next frame will look different. Tick until it's false to see where things settle.
     /// </summary>
-    public bool Animating => _host.Ui.Clock.Moving;
+    public bool Animating => _host.Ui.Clock.Moving || !_host.Ui.Focus.Landed;
+
+    /// <summary>Where the focus highlight or ring was drawn last frame, in interface units, or null when focus doesn't show.</summary>
+    public UiRect? FocusMarker => _host.Ui.Focus.Marker;
 
     /// <summary>Every control on screen, by what it means. See <see cref="UiTree.Elements"/>.</summary>
     public IReadOnlyList<UiElement> Elements => _host.Ui.Elements;

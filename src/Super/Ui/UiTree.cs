@@ -75,7 +75,7 @@ public sealed class UiTree
         // What's moving runs again at the new time.
         Clock.Advance(now ?? Clock.Now + UiClock.Step);
         var root = Root;
-        bool changed = UiLayers.Mount(this, ref root, view) | (width, height) != _screen | _layoutWanted;
+        bool changed = UiLayers.Mount(this, ref root, view) | (width, height) != _screen | _layoutWanted | !Focus.Landed;
         Root = root;
         _screen = (width, height);
         if (changed)
@@ -178,6 +178,7 @@ public sealed class UiTree
     {
         _draw.Clear();
         Layers.Clear();
+        Focus.StartDraw();
         if (Root is null)
         {
             return;

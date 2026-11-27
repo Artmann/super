@@ -185,7 +185,7 @@ The colours are in `theme.Colors`, and the shadows in `theme.Shadows`:
 | `Hover` | A row or quiet button under the pointer |
 | `Primary`, `Secondary`, `Destructive`, each with a `...Foreground` | Buttons and badges, and the text on them. `Primary` also fills a switch that's on, the filled part of a slider, and progress |
 | `Success`, `Warning` | Statuses |
-| `Border`, `Input`, `Ring` | Lines between things, the edge of a field, and the focus ring |
+| `Border`, `Input`, `Ring` | Lines between things, the edge of a field, and the focus highlight's edge and glow |
 | `Scrim` | Laid over the game behind a dialog |
 
 Your own views can use the same colours through a `Tone`, so they change with the theme:
@@ -196,7 +196,8 @@ Your own views can use the same colours through a `Tone`, so they change with th
 fades and ignores the mouse, and `ControlSize.Small`, `Regular` and `Large` set how tall
 controls are, their padding and their text size, from the theme's `Small`, `Regular` and
 `Large` metrics. The theme also holds the sounds the controls make, in `Sounds`; see
-[Sounds](#sounds).
+[Sounds](#sounds). `Focus` says how the focused control shows: `FocusLook.Highlight`, the
+default, or `FocusLook.Ring`; see [Focus](#focus-the-keyboard-and-the-gamepad).
 
 ### Text styles
 
@@ -276,7 +277,7 @@ around it.
 
 | Control | Choices |
 | --- | --- |
-| `Button` | `Style`: `Default` (filled with the primary colour, for the main action), `Secondary`, `Outline`, `Ghost`, `Destructive` and `Link`. `Icon` puts an icon before the label, and with an empty label it's a square icon button. `FullWidth` stretches it across its row with the label in the middle |
+| `Button` | `Style`: `Default` (filled with the primary colour, for the main action), `Secondary`, `Outline`, `Ghost`, `Destructive`, `Link` and `Menu`, a row as wide as its menu with the label at the start and nothing behind it until it's hovered or focused. `Icon` puts an icon before the label, and with an empty label it's a square icon button. `FullWidth` stretches it across its row with the label in the middle |
 | `Toggle` | `Style`: `Switch`, which fills its row with the label at the start, or `Checkbox`, a box before the label. Clicking the label toggles it too |
 | `Slider` | `Min`, `Max` and `Step`. A press on the track jumps there, and dragging follows the cursor even off the track. `Label` names it for tests |
 | `Stepper` | `Min`, `Max` and `Step`. Each button turns off at its end of the range |
@@ -310,7 +311,11 @@ range, for a thumb whose middle stops short of the edge.
 ## Focus, the keyboard and the gamepad
 
 Every built-in control can take focus, so a menu works without a mouse. The focused control
-has a ring round it:
+is highlighted: a soft glow and a fill behind it, with a thin edge, that slides from one
+control to the next as focus moves. It only slides within one screen or one popup: a popup
+that opens takes the highlight where it is, and with `.Animations(false)` it jumps. A theme
+with `Focus = FocusLook.Ring` shows a thin ring a little outside the control instead, as a web
+page does. Here's what moves focus:
 
 | Input | What it does |
 | --- | --- |
@@ -321,8 +326,8 @@ has a ring round it:
 
 Held, the d-pad and the stick move once, then after a short wait again and again. A control
 that's turned off, hidden or gone is passed by, and when the focused one goes, focus lets go.
-A click anywhere but a text field lets go too, and the ring stays hidden while the mouse is
-in use: the first arrow after a click only shows it again.
+A click anywhere but a text field lets go too, and the highlight stays hidden while the mouse
+is in use: the first arrow after a click only shows it again.
 
 ![Focus on a level button, passing the locked one by, and typing into a secure field](media/ui-focus-and-text-fields.webp)
 
@@ -333,7 +338,7 @@ centred while it steers. With nothing focused, every key and button goes to the 
 with no interface on screen sees all its input as before.
 
 `.DefaultFocus()` gives focus to the first control inside it as soon as it appears, with the
-ring hidden. A main menu wants that, so the gamepad's South button starts the game from the
+highlight hidden. A main menu wants that, so the gamepad's South button starts the game from the
 start. With nothing focused, the arrows come back to it:
 
 ```csharp
@@ -360,6 +365,26 @@ new Card(chest)
 ```
 
 A focused control inside a `ScrollView` is scrolled into view.
+
+A game's menu usually comes round: down from the last row goes to the first. Put
+`.FocusWraps()` on it, and the arrows that would leave it go round to the far end instead,
+even with other controls beyond it. Tab already comes round, so it isn't changed. With
+`ButtonStyle.Menu` rows it looks like a main menu or a pause menu:
+
+```csharp
+new VStack(Spacing: 2f)
+{
+    new Button("Continue", game.Continue) { Style = ButtonStyle.Menu },
+    new Button("Options", () => screen = Screen.Options) { Style = ButtonStyle.Menu },
+    new Button("Quit", game.Quit) { Style = ButtonStyle.Menu },
+}
+.FocusWraps()
+.DefaultFocus()
+.Frame(width: 260f)
+```
+
+In tests, `run.FocusMarker` is where the highlight was last drawn, or null when it's hidden,
+and `run.Animating` stays true while it slides.
 
 ## Text fields
 

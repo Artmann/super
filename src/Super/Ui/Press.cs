@@ -42,6 +42,12 @@ public enum ButtonStyle
 
     /// <summary>Text that underlines under the pointer.</summary>
     Link,
+
+    /// <summary>
+    /// A row as wide as it's offered with its label at the start, and nothing behind it until the pointer or focus is on
+    /// it, for a game's main menu or pause menu.
+    /// </summary>
+    Menu,
 }
 
 /// <summary>
@@ -68,8 +74,7 @@ public sealed record Button(string Label, Action? OnClick = null, bool Disabled 
             var metrics = environment.Metrics;
             bool off = Disabled || environment.Disabled;
             var button = new Pressable(
-                look => Face(look, theme, metrics)
-                    .Frame(maxWidth: FullWidth ? UiExtensions.Infinity : null, minWidth: Label.Length == 0 ? metrics.Height : null, minHeight: Style == ButtonStyle.Link ? null : metrics.Height)
+                look => Framed(Face(look, theme, metrics), metrics)
                     .Background(Fill(theme.Colors, look))
                     .Border(Style == ButtonStyle.Outline ? 1f : 0f, theme.Colors.Input)
                     .CornerRadius(theme.Radius)
@@ -84,6 +89,18 @@ public sealed record Button(string Label, Action? OnClick = null, bool Disabled 
     /// <summary>A fill a little towards the background when hovered, and further when held.</summary>
     internal static Color Shade(Color fill, ThemeColors colors, PressState look) =>
         look.Pressed ? fill.Mix(colors.Background, 0.2f) : look.Hovered ? fill.Mix(colors.Background, 0.1f) : fill;
+
+    /// <summary>The face at the control's height, square with no label, and a menu row stretched across with its label at the start.</summary>
+    private UiView Framed(UiView face, ControlMetrics metrics)
+    {
+        bool menu = Style == ButtonStyle.Menu;
+        float? height = Style == ButtonStyle.Link ? null : menu ? metrics.Height + metrics.Gap : metrics.Height;
+        return face.Frame(
+            maxWidth: FullWidth || menu ? UiExtensions.Infinity : null,
+            alignment: menu ? Alignment.Leading : Alignment.Center,
+            minWidth: Label.Length == 0 ? metrics.Height : null,
+            minHeight: height);
+    }
 
     /// <summary>The icon and label, in the style's text colour, padded at the sides.</summary>
     private UiView Face(PressState look, Theme theme, ControlMetrics metrics)
@@ -119,7 +136,7 @@ public sealed record Button(string Label, Action? OnClick = null, bool Disabled 
         ButtonStyle.Default => Shade(colors.Primary, colors, look),
         ButtonStyle.Secondary => Shade(colors.Secondary, colors, look),
         ButtonStyle.Destructive => Shade(colors.Destructive, colors, look),
-        ButtonStyle.Outline or ButtonStyle.Ghost => look.Pressed ? colors.Hover.Mix(colors.Foreground, 0.06f) : look.Hovered ? colors.Hover : default,
+        ButtonStyle.Outline or ButtonStyle.Ghost or ButtonStyle.Menu => look.Pressed ? colors.Hover.Mix(colors.Foreground, 0.06f) : look.Hovered ? colors.Hover : default,
         _ => default,
     };
 }

@@ -28,7 +28,7 @@ Each step is one PR, stacked, with stories in the Storybook and tests.
    slider key, a picker), and a finished hold. The default set is made in code: short soft
    ticks and blips. `UiSounds.None` turns them off, and a game names its own sound files.
    The tree gathers what to play during an update and the frame plays it on the
-   `Interface` channel. `run.InterfaceSounds` lists them in tests.
+   `Interface` channel. `run.Sounds` lists them in tests.
 2. Game focus. A theme's focus can be a ring, as now, or a highlight: the focused
    control lifts with a filled glow, and in a menu a marker slides from item to item
    instead of jumping. `ButtonStyle.Menu` is a full-width row for menus. `.FocusWraps()`

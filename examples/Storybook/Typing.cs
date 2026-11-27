@@ -50,6 +50,10 @@ internal static class Typing
             "Tab and Shift+Tab go in order. The arrows, the d-pad and the left stick go to the nearest control that way. Enter, Space or South presses.",
             new LevelSelect()),
         new Specimen(
+            "A game menu",
+            "Menu rows with .FocusWraps(), so down from Quit comes round to Continue. The highlight slides from row to row. Theme.Focus = FocusLook.Ring gives a thin ring instead.",
+            new Live<string>("nothing yet", GameMenu)),
+        new Specimen(
             "Settings rows",
             "Up and down move between rows, and left and right change a slider, stepper or picker.",
             new Live<Settings>(new Settings(0.7f, 2, "borderless", true), SettingsRows)),
@@ -57,6 +61,21 @@ internal static class Typing
             "Any view",
             ".Focusable(...) makes a view of your own a stop, with what Enter does and what left and right do.",
             new Live<int>(0, Chest)));
+
+    private static UiView GameMenu(string chosen, Action<string> set)
+    {
+        var menu = new VStack(Spacing: 2f);
+        foreach (string row in new[] { "Continue", "New game", "Options", "Quit" })
+        {
+            menu.Add(new Button(row, () => set(row)) { Style = ButtonStyle.Menu }.Id($"menu-{row.ToLowerInvariant().Replace(' ', '-')}"));
+        }
+
+        return new VStack(HorizontalAlignment.Leading, 12f)
+        {
+            menu.FocusWraps().Frame(width: 260f),
+            new Text($"Chose: {chosen}").Foreground(Tone.Muted),
+        };
+    }
 
     private static UiView SettingsRows(Settings settings, Action<Settings> set) => new VStack(HorizontalAlignment.Leading, 16f)
         {

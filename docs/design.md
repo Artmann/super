@@ -259,8 +259,17 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   each layout, and `GoBack` and `SwitchTab` only hand one out when its node is mounted and,
   while a popup traps, inside that popup. So a stack in a sheet goes back first, but a menu
   over a stack closes first. `TabKeys.Bumpers` takes the gamepad's bumpers for the tab
-  switch at the end of `UiFocus.Pad`, so the game doesn't see them. `UiFocusMark` holds the focused node and whether its ring shows; the ring is drawn
-  round the node's frame, always for a text field and otherwise once a key has moved focus.
+  switch at the end of `UiFocus.Pad`, so the game doesn't see them. `UiFocusMark` holds the focused node and whether its marker shows, always for a text
+  field and otherwise once a key has moved focus. `UiTree.Layout` calls `StartDraw`, which keeps
+  the last layout's marker as where a slide starts, and `FocusModifier` asks `Place` for the
+  marker while drawing: the highlight's glow and fill in `Emit`, behind the control, and the
+  edge or ring in `EmitAfter`. A new node starts a 0.14-second ease-out from the old marker
+  only when the old node is still mounted and in the same layer (the same root above it, which
+  stops at a popup's `LayerView`), and the environment isn't still. Until it lands, `Landed`
+  is false and `UiTree.Update` lays out every tick, as it does while the clock moves.
+  `UiFocusStops.Toward` picks an arrow's stop. Inside a `FocusWrapModifier`, when the nearest
+  stop that way is outside it or there's none, it searches again among the stops inside, from
+  a copy of the focused rect moved past the far edge, so the stop furthest back wins.
   Tab walks the list. An arrow picks a stop whose middle lies that way. Stops in line, overlapping it sideways,
   always win over the rest, so an arrow follows a row past a locked control rather than
   stepping into the next row. Among them it scores the gap plus twice how far a stop misses
