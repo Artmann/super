@@ -62,6 +62,13 @@ float ellipseDistance(vec2 point, vec4 rectangle)
     return k1 > 0.0 ? k0 * (k0 - 1.0) / k1 : -min(axes.x, axes.y);
 }
 
+// How far a point, from the middle, is from the ray out of the middle at this angle, clockwise from the top.
+float rayDistance(vec2 local, float angle)
+{
+    vec2 along = vec2(sin(angle), -cos(angle));
+    return dot(local, along) > 0.0 ? abs(local.x * along.y - local.y * along.x) : length(local);
+}
+
 // Part of a ring centered in the rectangle, from start through sweep, clockwise from the top. Its ends are round,
 // or cut straight along the line from the middle when straight is set, for slices of a wheel under half a turn each.
 float arcDistance(vec2 point, vec4 rectangle, float start, float sweep, float thickness, bool straight)
@@ -81,10 +88,9 @@ float arcDistance(vec2 point, vec4 rectangle, float start, float sweep, float th
     float ring = abs(length(local) - radius) - halfThickness;
     if (straight && sweep < Tau)
     {
-        // How far the point is from each straight end, out from the middle along its angle.
-        float fromStart = abs(local.x * cos(start) + local.y * sin(start));
-        float fromEnd = abs(local.x * cos(start + sweep) + local.y * sin(start + sweep));
-        float edge = min(fromStart, fromEnd);
+        // How far the point is from each straight end, a ray out from the middle along its angle. Behind the middle
+        // the nearest point of the ray is the middle itself, so the line's far side cuts nothing.
+        float edge = min(rayDistance(local, start), rayDistance(local, start + sweep));
         return max(ring, within ? -edge : edge);
     }
 

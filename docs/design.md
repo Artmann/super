@@ -303,10 +303,11 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   at once, after 0.4 s and then every 0.1 s, counted in ticks so it replays exactly, and
   `GamepadInput.LeftStickTaken` centres the stick for the game while focus is on.
 - The device in use is set by the feeds, not read from the tick, so input the interface takes
-  still counts: `KeyFeed`, `MouseFeed` (a button, the wheel, or a move over 4 pixels) and
-  `TouchFeed` set `InputTick.PendingDevice` as events arrive, and `GamepadInput.Polled` sets it
-  on a newly pressed button or a stick or trigger past half, so a button held from before
-  doesn't steal it back. `Input.Roll` copies it into the tick-gated `Input.Device`. The pad's
+  still counts: `KeyFeed`, `MouseFeed` (a button, the wheel, or 4 pixels of travel added up
+  while another device is in use, so a slow move counts and shaking doesn't) and `TouchFeed`
+  set `InputTick.PendingDevice` as events arrive, and `GamepadInput.Polled` sets it on a newly
+  pressed button or a stick or trigger newly past half (a trigger 0.1 past it), so a button or
+  stick held from before doesn't steal it back. `Input.Roll` copies it into the tick-gated `Input.Device`. The pad's
   family comes from its name in `Devices.FamilyOf`. `UiPointer.Pump` hands the pending device
   and family to `UiLayers.Root`, the `UiEnvironment` every layer starts from, so prompts switch
   in the frame the player does. `PromptGlyphs` and `PadGlyphs` turn a `Binding` into the glyphs

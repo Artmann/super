@@ -93,8 +93,9 @@ public sealed record Button(string Label, Action? OnClick = null, bool Disabled 
         bool filled = Style is ButtonStyle.Default or ButtonStyle.Secondary or ButtonStyle.Destructive;
         if (filled && theme.Panels.Button is { } art)
         {
-            // Art in its own colours still darkens under the pointer and when held.
-            return face.Background(art.Behind(fill, Shade(Color.White, theme.Colors, look)));
+            // Art in its own colours still darkens under the pointer and when held, whatever the theme's background.
+            var tint = look.Pressed ? Color.White.Mix(Color.Black, 0.2f) : look.Hovered ? Color.White.Mix(Color.Black, 0.1f) : Color.White;
+            return face.Background(art.Behind(fill, tint));
         }
 
         return face

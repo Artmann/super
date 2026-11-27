@@ -58,6 +58,7 @@ public sealed class DeviceTests
     [InlineData(0.3f, -1f, InputDevice.KeyboardAndMouse)]
     [InlineData(0.7f, -1f, InputDevice.Gamepad)]
     [InlineData(0f, -0.4f, InputDevice.KeyboardAndMouse)]
+    [InlineData(0f, 0.05f, InputDevice.KeyboardAndMouse)]
     [InlineData(0f, 0.4f, InputDevice.Gamepad)]
     public void A_stick_or_trigger_counts_once_it_is_past_halfway(float stick, float trigger, InputDevice expected)
     {
@@ -66,6 +67,25 @@ public sealed class DeviceTests
         input.Roll();
 
         Assert.Equal(expected, input.Device);
+    }
+
+    [Fact]
+    public void A_stick_still_held_over_does_not_take_the_device_back_until_it_is_pushed_again()
+    {
+        var input = Create();
+        input.Gamepad.Polled(true, Axes(leftX: 0.9f), NoButtons);
+        input.Roll();
+        input.KeyDown(Key.Space);
+        input.Roll();
+
+        input.Gamepad.Polled(true, Axes(leftX: 0.9f), NoButtons);
+        input.Roll();
+        Assert.Equal(InputDevice.KeyboardAndMouse, input.Device);
+
+        input.Gamepad.Polled(true, Axes(), NoButtons);
+        input.Gamepad.Polled(true, Axes(leftX: 0.9f), NoButtons);
+        input.Roll();
+        Assert.Equal(InputDevice.Gamepad, input.Device);
     }
 
     [Fact]
@@ -82,6 +102,29 @@ public sealed class DeviceTests
 
         input.Mouse.Feed.MouseMoved(new Vector2(130f, 101f));
         input.Roll();
+        Assert.Equal(InputDevice.KeyboardAndMouse, input.Device);
+    }
+
+    [Fact]
+    public void A_slow_move_of_the_mouse_takes_the_device_back_once_it_has_gone_far_enough()
+    {
+        var input = Create();
+        input.Mouse.Feed.MouseMoved(new Vector2(100f, 100f));
+        input.Gamepad.Polled(true, Axes(), Holding(GamepadButton.South));
+        input.Roll();
+
+        input.Mouse.Feed.MouseMoved(new Vector2(102f, 100f));
+        input.Roll();
+        input.Mouse.Feed.MouseMoved(new Vector2(100f, 100f));
+        input.Roll();
+        Assert.Equal(InputDevice.Gamepad, input.Device);
+
+        for (int step = 1; step <= 3; step++)
+        {
+            input.Mouse.Feed.MouseMoved(new Vector2(100f + 2f * step, 100f));
+            input.Roll();
+        }
+
         Assert.Equal(InputDevice.KeyboardAndMouse, input.Device);
     }
 

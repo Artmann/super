@@ -79,15 +79,15 @@ public sealed class Enemies(World world, Scenes scenes, Field field, Player play
     }
 
     /// <summary>Where each enemy that has been hit shows its health bar, just over its head, and the share of its health it has left.</summary>
-    public List<(Vector3 Head, float Left)> Wounded()
+    public List<(Entity Enemy, Vector3 Head, float Left)> Wounded()
     {
-        var wounded = new List<(Vector3, float)>();
+        var wounded = new List<(Entity, Vector3, float)>();
         foreach (var row in world.Query<Enemy, Transform>())
         {
             var stats = Stats(row.First.Kind);
             if (row.First.Health < stats.Health)
             {
-                wounded.Add((row.Second.Position + new Vector3(0f, stats.Size + 0.25f, 0f), row.First.Health / (float)stats.Health));
+                wounded.Add((row.Entity, row.Second.Position + new Vector3(0f, stats.Size + 0.25f, 0f), row.First.Health / (float)stats.Health));
             }
         }
 
