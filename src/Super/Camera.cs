@@ -153,7 +153,7 @@ public readonly record struct Camera(Vector3 Position, Vector3 Target, float Fie
     /// <summary>How far shadows should reach. An orthographic view shows everything at once, so it can't be less than the view.</summary>
     internal float ShadowRadius(float asked, float aspect) => MathF.Max(asked, Fitted(aspect).Size * MathF.Max(aspect, 1f));
 
-    private Vector3 Forward => Vector3.Normalize(Target - Position);
+    internal Vector3 Forward => Vector3.Normalize(Target - Position);
 }
 
 /// <summary>A line starting at a point. Direction must be one unit long, as a camera's rays are.</summary>

@@ -1,3 +1,4 @@
+using System.Numerics;
 using Super;
 using Super.Ui;
 
@@ -43,4 +44,32 @@ public sealed record Banner(string Title, string Hint) : UiView
     .FixedSize()
     .IgnoresPointer()
     .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity);
+}
+
+/// <summary>A bar over each enemy that has been hit, green when healthy and red when nearly dead.</summary>
+public sealed record HealthBars(List<(Vector3 Head, float Left)> Bars) : UiView
+{
+    private const float Width = 36f;
+    private static readonly Color Healthy = Color.Hex("#6CCB5F");
+    private static readonly Color Dying = Color.Hex("#E2513C");
+
+    public override UiView Body
+    {
+        get
+        {
+            var bars = new ZStack();
+            foreach (var (head, left) in Bars)
+            {
+                bars.Add(new ZStack(Alignment.Leading)
+                {
+                    new Capsule().Fill(Color.Hex("#10141C", 0.8f)).Frame(width: Width + 4f, height: 8f),
+                    new Capsule().Fill(Dying.Mix(Healthy, left)).Frame(width: Width * left, height: 4f).Padding(2f),
+                }
+                .Id("health")
+                .AtWorld(head));
+            }
+
+            return bars.IgnoresPointer();
+        }
+    }
 }

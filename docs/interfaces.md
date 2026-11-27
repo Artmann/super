@@ -943,6 +943,63 @@ new Presence(paused, pauseMenu) { Entrance = Entrance.Rise, Seconds = 0.3f }
 
 ![Presses, springs, counting gold, a gauge's trail, a leaving quest card and a sliding navigation stack in the Storybook's Game feel story](media/ui-motion.webp)
 
+## Over the world
+
+`.AtWorld(point)` places a view over a point in the world, such as a health bar over a head or
+a name plate over a door. It uses the frame's camera, so it follows the point as the camera and
+the point move. The anchor is the part of the view that sits on the point. The default,
+`Alignment.Bottom`, puts the view on top of it.
+
+```csharp
+public UiView? Ui => new ZStack
+{
+    new HealthBar(enemy.Health).AtWorld(enemy.Head),
+    new Text("Blacksmith").AtWorld(door, Alignment.Center, OffScreen.Edge),
+    new Hud(player.Gold),
+};
+```
+
+A view over the world takes no room where it's laid out, and its place counts from the top left
+of the screen. Put it in a full-screen layer such as the `ZStack` above, not in a scroll view
+or under an `.Offset`. With `OffScreen.Hide`, the default, it goes past the edge with its point,
+and it's left out when the point is behind the camera. `OffScreen.Edge` keeps it on screen at
+the edge nearest its point, with a short arc on its side that points the way, which suits a
+quest marker or a friend to find. While a view is over the world, the interface lays out again
+each frame the camera moves.
+
+`FloatingText` pops in, rises and fades, for damage numbers, pickups and points. It runs once
+when it appears, so each one needs its own id. `FloatingTexts` keeps them for you: add one where
+something is hit, age them each update, and show its `View` in a full-screen layer. Inside
+`.Animations(false)` the text stays put and fully shown.
+
+```csharp
+private readonly FloatingTexts _numbers = new() { Seconds = 1f };
+
+public void Update(GameTime time) => _numbers.Update(time.DeltaSeconds);
+
+public void Hit(Vector3 where, int damage) => _numbers.Add($"{damage}", where, Color.Hex("#F2C14E"));
+```
+
+`Compass` is a strip that shows which way the player faces. It has the points of the compass,
+a tick every 15° and `CompassMark`s for what's around, and a mark past the end waits at the end.
+Headings and bearings are in radians clockwise from north, which is -Z, so east is +X.
+`Compass.HeadingOf(camera)` and `Compass.BearingTo(from, to)` work them out.
+
+```csharp
+new Compass(Compass.HeadingOf(camera))
+{
+    Marks = [new CompassMark(Compass.BearingTo(player, quest), Color.Hex("#F2C14E"), "Quest")],
+}
+```
+
+`MinimapFrame` is a round frame for a map the game draws. It clips the map to a circle and adds
+a ring, north at the top, and the player in the middle facing `Heading`. `MinimapMark`s go from
+-1 to 1 across and down, and a mark past the rim waits on it. Pan the map with `.Offset` to
+follow the player. Its `Size` is 160 by default. The Storybook's Compass and map story shows
+all three.
+
+![Outpost before and after health bars over the enemies that have been hit, placed with AtWorld](media/ui-world-health-bars.webp)
+
 ## Sounds
 
 The controls make small sounds, as game menus do: a tick when the pointer comes onto a button or
@@ -1246,3 +1303,6 @@ without binding a button. A radial menu has no inner ring of sub-choices. Button
 name the system gives it, and have no glyphs for a Steam Deck's back buttons or a touchpad.
 A panel drawn from art has no shadow, sections, tab bars, fields and menu buttons have no art
 of their own yet, and a 9-slice stretches its edges rather than repeating them.
+A view over the world points the way with an arc, not an arrow of art, ignores the offsets and
+scroll views around it, and isn't hidden behind walls. The minimap frame doesn't turn the map
+with the player.

@@ -102,6 +102,7 @@ internal sealed class LoopDraw
         // The interface runs outside the measurement, so a stats panel reports the game and not itself.
         _stats.EndFrame();
         _pointer.Pump();
+        ui.World.Look(view.Shot);
         ui.Update(Interface(), width, height, view.Clock.Now);
         if (_pointer.Refresh())
         {
@@ -109,7 +110,7 @@ internal sealed class LoopDraw
         }
 
         _pointer.ShowOverlays();
-        ui.ShowDebugLabels(view.Debug.Labels, view.Shot);
+        ui.World.ShowDebugLabels(view.Debug.Labels);
         view.Effects.Ui = ui;
         _stats.Resume();
         _changes.Open = true;

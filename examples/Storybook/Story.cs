@@ -102,6 +102,7 @@ public static class Stories
         new("Containers", "Art panels", "Cards, buttons and popups drawn from images, and any image drawn as a 9-slice.", Dressing.ArtPanels),
         new("Motion", "Animation", "Controls that move, views that ease in, numbers of your own, and motion turned off.", Moving.Animation),
         new("Motion", "Game feel", "Presses that squash, springs, numbers that count, losses that trail, views that leave and pages that slide.", Feeling.GameFeel),
+        new("HUD", "Compass and map", "A compass bar, a round minimap frame and numbers that rise and fade.", Wayfinding.Story),
         new("Showcases", "Settings", "A settings screen: tabs of sections, sliders and switches, and a footer to apply.", Showcases.Settings),
         new("Showcases", "Inventory", "A grid of items to pick from, and the picked one's details.", Showcases.Inventory),
         new("Showcases", "Main menu", "A title screen with a column of choices and a quit that asks first.", Showcases.MainMenu),
