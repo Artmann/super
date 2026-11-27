@@ -95,10 +95,10 @@ public sealed record KeyBinder(string Label, Binding Binding, Action<Binding>? O
 }
 
 /// <summary>
-/// A view listening for a binding. The next key, mouse button or gamepad button that <paramref name="Device"/> takes goes
-/// to <paramref name="Capture"/>, and null goes there when listening stops without one.
+/// A view listening for a binding. The next key, mouse button or gamepad button that <paramref name="Device"/> takes,
+/// or any of them when it's null, goes to <paramref name="Capture"/>, and null goes there when Escape stops it.
 /// </summary>
-internal sealed record CaptureModifier(UiView Child, InputDevice Device, Action<Binding?> Capture) : Modifier(Child);
+internal sealed record CaptureModifier(UiView Child, InputDevice? Device, Action<Binding?> Capture) : Modifier(Child);
 
 /// <summary>Finds a <see cref="CaptureModifier"/> listening for a binding, and hands it what was pressed.</summary>
 internal static class UiListening
@@ -165,7 +165,7 @@ internal static class UiListening
     /// </summary>
     private static void Give(CaptureModifier listening, Binding? binding, InputDevice device, List<Action> callbacks)
     {
-        if (binding is null || listening.Device == device)
+        if (binding is null || listening.Device is null || listening.Device == device)
         {
             callbacks.Add(() => listening.Capture(binding));
         }

@@ -178,7 +178,7 @@ public sealed class StorybookTests
         var error = Assert.Throws<ArgumentException>(() => Stories.Find("tables"));
 
         Assert.StartsWith("There's no story \"tables\". The stories are typography, colours,", error.Message);
-        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, game-controls, progress, gauges, text-fields, focus, prompts, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists, cards, forms, tabs, navigation, art-panels, animation, game-feel, dialogue, title-cards, subtitles, compass-and-map, settings, inventory, main-menu, hud, character-creator.", error.Message);
+        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, game-controls, progress, gauges, text-fields, focus, prompts, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists, cards, forms, tabs, navigation, art-panels, animation, game-feel, dialogue, title-cards, subtitles, compass-and-map, title-screen, loading-screen, settings, inventory, main-menu, hud, character-creator.", error.Message);
     }
 
     /// <summary>Clicks a control this far across it, halfway down, and lets the click land.</summary>
@@ -488,8 +488,68 @@ public sealed class StorybookTests
         Assert.Equal(false, run.Element("fullscreen").Checked);
 
         ClickControl(run, "reset");
+        Assert.Equal(false, run.Element("fullscreen").Checked);
+
+        var reset = run.Element("reset").Frame;
+        run.Input.MoveMouse(new Vector2(reset.X + reset.Width / 2, reset.Y + reset.Height / 2) * run.UiScale);
+        run.Ticks(1);
+        run.Input.Hold(MouseButton.Left);
+        run.Ticks(60);
+        run.Input.Release(MouseButton.Left);
+        run.Ticks(2);
 
         Assert.Equal(true, run.Element("fullscreen").Checked);
+    }
+
+    [Fact]
+    public void The_settings_screen_warns_when_a_rebound_key_clashes()
+    {
+        using var run = Open(new StoryChoice("settings"));
+        ClickAt(run, run.Elements.Single(element => element.Role == UiRole.Tab && element.Label == "Controls").Frame);
+        Assert.False(Shows(run, "Also Interact"));
+
+        ClickAt(run, Role(run, UiRole.Button, "Jump").Frame);
+        Press(run, Key.E);
+
+        Assert.True(Shows(run, "Also Interact"));
+        Assert.True(Shows(run, "Also Jump"));
+    }
+
+    [Fact]
+    public void The_title_screen_goes_on_to_the_menu_and_the_press_picks_nothing_there()
+    {
+        using var run = Open(new StoryChoice("title-screen"));
+        Assert.True(Shows(run, "Press any button"));
+
+        Press(run, Key.Enter);
+        run.Ticks(30);
+
+        Assert.False(Shows(run, "Press any button"));
+        Assert.True(Shows(run, "Pick something to start."), "The menu should take the title's place, with nothing picked.");
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void The_loading_screen_asks_for_a_button_once_it_has_loaded()
+    {
+        using var run = Open(new StoryChoice("loading-screen"));
+        Assert.False(Shows(run, "Press any button"));
+
+        run.Ticks(9 * 60);
+
+        Assert.True(Shows(run, "Press any button"));
+        Assert.True(Shows(run, "100%"));
+    }
+
+    [Fact]
+    public void Opening_a_chest_on_the_hud_shows_the_achievement()
+    {
+        using var run = Open(new StoryChoice("hud"));
+        Assert.False(Shows(run, "Light fingers"));
+
+        ClickControl(run, "open-chest");
+
+        Assert.True(Shows(run, "Light fingers"));
     }
 
     [Fact]

@@ -15,7 +15,14 @@ internal sealed record SettingsValues(
     float Music = 0.5f,
     bool Subtitles = true,
     float Sensitivity = 5f,
-    bool InvertLook = false);
+    bool InvertLook = false)
+{
+    public Binding Jump { get; init; } = Key.Space;
+
+    public Binding Interact { get; init; } = Key.E;
+
+    public Binding Sprint { get; init; } = Key.LeftShift;
+}
 
 /// <summary>A settings screen: tabs of sections, with a footer to reset or apply.</summary>
 internal sealed record SettingsScreen : UiView
@@ -42,7 +49,7 @@ internal sealed record SettingsScreen : UiView
             var v = values.Value;
             return new VStack(HorizontalAlignment.Leading, 16f)
             {
-                new HStack { new Text("Settings").TextStyle(TextStyle.Title2), new Spacer(), ShowcaseParts.Hint("Esc", "Back") },
+                new HStack { new Text("Settings").TextStyle(TextStyle.Title2), new Spacer(), new Hint(Key.Escape, GamepadButton.East, "Back") },
                 new TabView
                 {
                     new Tab("Video", Video(v, Set)),
@@ -51,7 +58,7 @@ internal sealed record SettingsScreen : UiView
                 }.Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading),
                 new HStack(Spacing: 8f)
                 {
-                    new Button("Reset to defaults", () => Set(new SettingsValues())) { Style = ButtonStyle.Ghost }.Id("reset"),
+                    new HoldButton("Hold to reset", () => Set(new SettingsValues()), 0.8f).Id("reset"),
                     new Spacer(),
                     new Text(applied.Value ? "Applied." : "").Foreground(Tone.Muted).Id("applied"),
                     new Button("Apply", () => applied.Value = true).Id("apply"),
@@ -63,13 +70,13 @@ internal sealed record SettingsScreen : UiView
     private static UiView Video(SettingsValues v, Action<SettingsValues> set) => Page(
         new Section("Display")
         {
-            new LabeledContent("Resolution", new Picker<string>("Resolution", v.Resolution, Resolutions, value => set(v with { Resolution = value })) { Style = PickerStyle.Menu }),
+            new LabeledContent("Resolution", new Picker<string>("Resolution", v.Resolution, Resolutions, value => set(v with { Resolution = value })) { Style = PickerStyle.Arrows }.Frame(width: 260f)),
             new Toggle("Fullscreen", v.Fullscreen, on => set(v with { Fullscreen = on })).Id("fullscreen"),
             new Toggle("Vertical sync", v.VSync, on => set(v with { VSync = on })),
         },
         new Section("Quality", "Ultra needs a recent graphics card.")
         {
-            new Picker<string>("Preset", v.Preset, StorybookExample.Controls.Presets, value => set(v with { Preset = value })).Id("preset"),
+            new LabeledContent("Preset", new Picker<string>("Preset", v.Preset, StorybookExample.Controls.Presets, value => set(v with { Preset = value })) { Style = PickerStyle.Arrows }.Frame(width: 260f).Id("preset")),
             Labelled("Field of view", new Slider(v.FieldOfView, value => set(v with { FieldOfView = value }), 60f, 120f) { Step = 5f, Label = "Field of view" }, UiSemantics.Number(v.FieldOfView)),
         });
 
@@ -89,7 +96,22 @@ internal sealed record SettingsScreen : UiView
         {
             Labelled("Sensitivity", new Slider(v.Sensitivity, value => set(v with { Sensitivity = value }), 1f, 10f) { Step = 1f, Label = "Sensitivity" }, UiSemantics.Number(v.Sensitivity)),
             new Toggle("Invert look", v.InvertLook, on => set(v with { InvertLook = on })),
+        },
+        new Section("Keys", "Click a key, then press the new one. Escape keeps the old.")
+        {
+            Binder("Jump", values => values.Jump, (values, key) => values with { Jump = key }, v, set),
+            Binder("Interact", values => values.Interact, (values, key) => values with { Interact = key }, v, set),
+            Binder("Sprint", values => values.Sprint, (values, key) => values with { Sprint = key }, v, set),
         });
+
+    /// <summary>A key binder for one action, which warns when another action has the same key.</summary>
+    private static UiView Binder(string name, Func<SettingsValues, Binding> read, Func<SettingsValues, Binding, SettingsValues> change, SettingsValues v, Action<SettingsValues> set)
+    {
+        var key = read(v);
+        (string Name, Binding Key)[] all = [("Jump", v.Jump), ("Interact", v.Interact), ("Sprint", v.Sprint)];
+        string? clash = all.FirstOrDefault(other => other.Name != name && other.Key == key).Name;
+        return new KeyBinder(name, key, chosen => set(change(v, chosen))) { Default = read(new SettingsValues()), Clash = clash };
+    }
 
     private static UiView Page(params Section[] sections)
     {
@@ -158,7 +180,7 @@ internal sealed record InventoryScreen : UiView
                     Slots(picked.Value, slot => picked.Value = slot),
                     Details(Items[picked.Value]),
                 },
-                new HStack(Spacing: 20f) { new Spacer(), ShowcaseParts.Hint("Enter", "Use"), ShowcaseParts.Hint("X", "Drop"), ShowcaseParts.Hint("Esc", "Close") },
+                new HStack(Spacing: 20f) { new Spacer(), new Hint(Key.Enter, GamepadButton.South, "Use"), new Hint(Key.X, GamepadButton.West, "Drop"), new Hint(Key.Escape, GamepadButton.East, "Close") },
             };
         }
     }

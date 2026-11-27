@@ -321,11 +321,12 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   counts ticks on that node, so a hold replays exactly, empties the progress when the node
   changes, and queues the action and the `Confirm` cue on the tick it fills. A focus repeat
   doesn't press a hold button again. A listening `KeyBinder` wraps itself in a
-  `CaptureModifier`. `UiListening.In` searches the top popup, or the tree, for one only when
+  `CaptureModifier` for its device, and `.OnAnyPress` wraps its view in one with no device,
+  which takes a press from any. `UiListening.In` searches the top popup, or the tree, for one only when
   a key, a mouse button or a pad button goes down, or the stick is held. `UiListening.Key`
   (from `UiFocus.Take`), `UiListening.Mouse` (from `UiFocus.Pointed`, which `UiPointer.Down`
   asks first) and `UiListening.Pad` (at the start of `UiFocus.Pad`) hand it the press before
-  anything else sees it, and swallow presses from the other device. A `RadialMenu` is a
+  anything else sees it, and swallow presses from a device it doesn't take. A `RadialMenu` is a
   `RadialModifier` holding its aim. `UiPointer.Moved` aims it from the
   angle to the middle of its frame through `UiRadial.Point`, and `UiFocus.Pad` asks
   `UiRadial.Steer` next: while the focused stop holds a wheel, the stick aims it instead of

@@ -607,13 +607,33 @@ The `layers`, `grids`, `flows` and `lazy-lists` stories show the [layout](#layou
 `cards`, `forms`, `tabs` and `navigation` show the [containers](#containers). The `animation`
 story shows what moves, and has a switch that turns it off. `--theme textured` and the
 Textured switch use a theme drawn from [art panels](#art-panels), painted in code, which the
-`art-panels` story and its `rest` script show. The showcases, `settings`,
-`inventory`, `main-menu`, `hud` and `character-creator`, are whole screens a game would have,
-built only from these elements, and each one works.
+`art-panels` story and its `rest` script show. The showcases, `title-screen`,
+`loading-screen`, `settings`, `inventory`, `main-menu`, `hud` and `character-creator`, are
+whole screens a game would have, built only from these elements, and each one works. The
+title screen goes on to the main menu at the first press, even a click on the storybook's own
+list, so pick it again to see it again.
 
 ![The storybook's shapes page in the dark theme](media/storybook.webp)
 
 ![The main menu, heads-up display, inventory and character creator showcases](media/ui-showcases.webp)
+
+The settings screen uses arrow pickers, key binders on its Controls tab, and a held reset:
+
+![The settings showcase before, with a dropdown, a segmented picker and a plain reset, and after, with arrow pickers and a hold-to-reset button](media/showcase-settings.webp)
+
+![The settings showcase's Controls tab with key binders, beside its Video tab](media/showcase-settings-tabs.webp)
+
+The main menu sits on a dusk sky over hills, with menu choices in a column that wraps and the
+title dropping in:
+
+![The main menu showcase before, with filled buttons on a plain gradient, and after, on a starry dusk sky with menu-style choices](media/showcase-main-menu.webp)
+
+The heads-up display has bars whose losses trail, gold that counts up, a compass, a minimap,
+subtitles and an achievement when the chest is opened:
+
+![The heads-up display showcase before, with bars, a quest and a hotbar, and after, adding a compass, a minimap, gold and a subtitle](media/showcase-hud.webp)
+
+![The title screen, with the game's name and "Press any button", and the loading screen, with a tip, a spinner and a filling bar](media/showcase-openings.webp)
 
 ## Layout
 
@@ -1088,6 +1108,24 @@ new ZStack
 ```
 
 ![Forest playing, sharp, and paused behind a backdrop, dimmed and blurred under the title](media/ui-pause-backdrop.webp)
+
+### Press any button
+
+A title screen waits for any key, mouse button or gamepad button. `.OnAnyPress(...)` calls
+its action on the tick after one goes down, wherever the mouse is:
+
+```csharp
+var started = UseState(false);
+return started.Value
+    ? new MainMenu()
+    : new Text("Press any button").OnAnyPress(() => started.Value = true);
+```
+
+The press goes nowhere else, so the menu that takes its place doesn't pick its first choice
+with the same Enter. While it shows, the interface and the game get no keys or buttons at all.
+It listens the way a [`KeyBinder`](#game-controls) does, so only one view listens at a time:
+the first in the popup on top, or else in the tree. The storybook's `title-screen` and
+`loading-screen` showcases use it.
 
 ## Sounds
 
