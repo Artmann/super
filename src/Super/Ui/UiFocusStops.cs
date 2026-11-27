@@ -84,12 +84,36 @@ internal static class UiFocusStops
     }
 
     /// <summary>
-    /// The nearest stop that way: the smallest gap ahead, with a sideways miss counting double, and the
-    /// lined-up one when two tie. Null at the edge.
+    /// The stop an arrow moves to: the nearest that way, or inside <see cref="ControlExtensions.FocusWraps"/> with
+    /// nothing more that way inside it, the one furthest back the other way, as if it came in from the far edge.
     /// </summary>
-    public static UiNode? Nearest(List<UiNode> stops, UiNode from, UiNav way)
+    public static UiNode? Toward(List<UiNode> stops, UiNode from, UiNav way)
     {
-        var start = PrimitiveView.ShownArea(from);
+        var next = Nearest(stops, from, PrimitiveView.ShownArea(from), way);
+        if (UiPointerSearch.Find<FocusWrapModifier>(from) is not { } wrap || next is not null && UiPointerSearch.Inside(next, wrap))
+        {
+            return next;
+        }
+
+        var inside = stops.FindAll(stop => UiPointerSearch.Inside(stop, wrap));
+        var edge = PrimitiveView.ShownArea(wrap);
+        var area = PrimitiveView.ShownArea(from);
+        var start = way switch
+        {
+            UiNav.Down => area with { Y = edge.Y - area.Height - 1f },
+            UiNav.Up => area with { Y = edge.Bottom + 1f },
+            UiNav.Right => area with { X = edge.X - area.Width - 1f },
+            _ => area with { X = edge.Right + 1f },
+        };
+        return Nearest(inside, null, start, way) is { } round && round != from ? round : next;
+    }
+
+    /// <summary>
+    /// The nearest stop that way from <paramref name="start"/>, other than <paramref name="from"/>: the smallest gap
+    /// ahead, with a sideways miss counting double, and the lined-up one when two tie. Null at the edge.
+    /// </summary>
+    private static UiNode? Nearest(List<UiNode> stops, UiNode? from, UiRect start, UiNav way)
+    {
         UiNode? best = null;
         float bestScore = float.MaxValue;
         foreach (var stop in stops)

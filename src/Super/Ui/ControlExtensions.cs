@@ -20,7 +20,7 @@ public static class ControlExtensions
     public static UiView OnSlide(this UiView view, Action<float> slide, float inset = 0f) => new SlideModifier(view, slide, inset);
 
     /// <summary>
-    /// Lets Tab, the arrows and the gamepad stop on this view, with a ring round it. Enter, Space and the
+    /// Lets Tab, the arrows and the gamepad stop on this view, with the theme's focus look on it. Enter, Space and the
     /// gamepad's South button call <paramref name="onActivate"/>, or press the click inside when it's null.
     /// <paramref name="onAdjust"/> gets -1 or 1 for left and right, for a control that changes a value. Every
     /// built-in control can take focus already. A view that can take focus inside this one is part of it.
@@ -34,6 +34,12 @@ public static class ControlExtensions
     /// focused, the arrows, the d-pad and the stick come back here.
     /// </summary>
     public static UiView DefaultFocus(this UiView view) => new DefaultFocusModifier(view);
+
+    /// <summary>
+    /// Lets the arrows, the d-pad and the stick come round inside this view: down from the last item goes to the
+    /// first, and up from the first to the last, as in a game's menu. Tab comes round on its own already.
+    /// </summary>
+    public static UiView FocusWraps(this UiView view) => new FocusWrapModifier(view);
 
     /// <summary>
     /// Calls <paramref name="action"/> when a finger rests on this view for half a second without moving, on the

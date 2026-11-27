@@ -27,10 +27,11 @@ public sealed class StorybookGame : IGame
     {
     }
 
-    /// <summary>For shots: focus moved with the keys on the Focus story, and typing on the Text fields story.</summary>
+    /// <summary>For shots: focus moved with the keys on the Focus story and in its game menu, and typing on the Text fields story.</summary>
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
     {
         ["focus"] = new InputScript().Wait(2).Press(Key.Right).Press(Key.Right).Press(Key.Right).Press(Key.Down).Wait(2),
+        ["game-menu"] = new InputScript().Wait(2).Press(Key.Down).Press(Key.Down).Press(Key.Down).Press(Key.Down).Press(Key.Up).Wait(10),
         ["typing"] = new InputScript().Wait(2).Click("name").Type("Ada Lovelace").Click("password").Type("hunter2").Wait(2),
         ["touch"] = new InputScript().Wait(2).Swipe("quests", new Vector2(0f, -150f)).Wait(30).Tap("quest-17").TouchDown("quest-15").Wait(20).TouchUp().Wait(2),
         ["menu"] = new InputScript().Wait(2).Click("game-menu").Wait(2).Press(Key.Down).Wait(2),

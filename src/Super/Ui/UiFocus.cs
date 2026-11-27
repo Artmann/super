@@ -209,7 +209,7 @@ internal sealed class UiFocus(UiTree tree, Input input, List<Action> callbacks, 
         {
             UiNav.Next => UiFocusStops.InOrder(stops, node, 1),
             UiNav.Previous => UiFocusStops.InOrder(stops, node, -1),
-            _ => UiFocusStops.Nearest(stops, node, nav),
+            _ => UiFocusStops.Toward(stops, node, nav),
         };
         if (next is not null)
         {

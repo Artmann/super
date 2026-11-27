@@ -10,10 +10,10 @@ public sealed class FocusTests
 {
     private static HeadlessRun<PointerGame> Run(Func<PointerGame, UiView> screen) => PointerGame.Show(screen);
 
-    private static UiView Corner(UiView view) =>
+    internal static UiView Corner(UiView view) =>
         view.Frame(width: 300f).Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);
 
-    private static object? FocusedId(HeadlessRun<PointerGame> run) => run.Elements.SingleOrDefault(element => element.Focused)?.Id;
+    internal static object? FocusedId(HeadlessRun<PointerGame> run) => run.Elements.SingleOrDefault(element => element.Focused)?.Id;
 
     private static UiView ThreeButtons(List<string> log) => Corner(new VStack
     {
