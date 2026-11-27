@@ -290,7 +290,11 @@ public static class Game
     {
         if (arguments.GraphicsProfile is { } name && GameArguments.GraphicsFor(name, gpu) is { } profile)
         {
+            // Vsync and the frame limits are the game's choice, not a quality, so only a profile file that names them changes them.
+            var before = new GraphicsScreen();
+            before.CopyFrom(graphics.Screen);
             graphics.Apply(profile);
+            graphics.Screen.KeepPacing(before, GraphicsProfile.ScreenSettingsIn(name));
         }
 
         if (arguments.Vsync)

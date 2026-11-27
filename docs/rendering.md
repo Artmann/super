@@ -238,7 +238,9 @@ later version changes the presets. A profile that extends anything else is refus
 A name the profile doesn't know, or a value a setting refuses, stops the load with an
 `InvalidDataException` naming the file. `--graphics` picks a preset or profile from the
 [command line](command-line.md): `low`, `medium`, `high`, `ultra`, `fastest`, `auto` for the
-recommended quality, or a path ending in `.json`.
+recommended quality, or a path ending in `.json`. It keeps the game's `Screen.Vsync`,
+`MaxFramesPerSecond` and `UnfocusedMaxFramesPerSecond`, since a preset holds no choice for them. A profile
+file changes only those of them it names in `"Screen"`.
 
 A background bake costs up to `Baking.BakeBudget` milliseconds a frame while it runs, 4 from source by
 default, which shows on a slow GPU right after arriving somewhere new. `Low` and `Medium` give it
