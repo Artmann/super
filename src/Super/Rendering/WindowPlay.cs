@@ -87,6 +87,8 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
         _last = now;
         _played += step;
 
+        host.Content.Store.Loading.UploadBudget = TimeSpan.FromMilliseconds(host.Graphics.Screen.UploadBudget);
+
         int ticks = clock.Advance(step);
         for (int i = 0; i < ticks; i++)
         {

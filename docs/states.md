@@ -107,8 +107,9 @@ if (screen.Is(Screen.Loading) && content.IsLoaded)
 new Text($"Loading {content.Progress:P0}")
 ```
 
-Files are read on background threads and sent to the GPU one per frame, so the screen
-keeps moving. `Progress` runs from 0 to 1 over everything named since the last time
+Files are read on background threads and sent to the GPU a little each frame, so the screen
+keeps moving. Each frame spends up to `Graphics.Screen.UploadBudget`, 2 milliseconds by
+default, sending what's ready, and always sends at least one item. `Progress` runs from 0 to 1 over everything named since the last time
 loading finished, so a second loading screen starts from 0 again.
 
 You don't need a loading screen. A model that's drawn before it's ready is waited for, so

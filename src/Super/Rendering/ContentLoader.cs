@@ -4,7 +4,8 @@ namespace Super;
 /// Turns what <see cref="Content"/> names into something drawable. The slow part of each
 /// item runs on a background thread, and the upload runs on the main thread inside
 /// <see cref="Update"/> or <see cref="Get"/>, since only that thread may touch the GPU.
-/// While streaming, one finished item uploads per frame, so a loading screen keeps moving.
+/// While streaming, finished items upload until the frame's <see cref="ItemProgress.UploadBudget"/> is used, and at
+/// least one does, so a loading screen keeps moving and many small items still land in a few frames.
 /// Otherwise everything uploads before the frame is drawn, in the order it was named.
 /// </summary>
 internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object> prepare, Func<object, Content, TLoaded> upload)
@@ -20,9 +21,13 @@ internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object>
     /// </summary>
     public Func<Func<object>, Task<object>> Start { get; init; } = work => Task.Run(work);
 
+    /// <summary>What the uploads are timed by, so a test can say how long each one takes.</summary>
+    public TimeProvider Clock { get; init; } = TimeProvider.System;
+
     /// <summary>Starts anything newly named, then uploads what this frame should.</summary>
     public void Update(Content content)
     {
+        long started = Clock.GetTimestamp();
         var items = content.Store.Items;
         while (_loaded.Count <= items.Count)
         {
@@ -50,7 +55,10 @@ internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object>
             else if (_preparing[i]!.IsCompleted)
             {
                 Finish(i, content);
-                return;
+                if (Clock.GetElapsedTime(started) >= content.Store.Loading.UploadBudget)
+                {
+                    return;
+                }
             }
         }
     }

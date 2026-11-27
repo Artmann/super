@@ -420,6 +420,17 @@ public class GraphicsTests
     }
 
     [Fact]
+    public void An_upload_budget_outside_its_range_is_refused_and_the_old_one_kept()
+    {
+        var graphics = new Graphics();
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => graphics.Screen.UploadBudget = 0f);
+
+        Assert.StartsWith("The upload budget can be from 0.25 to 33 milliseconds.", error.Message);
+        Assert.Equal(2f, graphics.Screen.UploadBudget);
+    }
+
+    [Fact]
     public void A_negative_frame_limit_is_refused_with_how_to_have_none()
     {
         var graphics = new Graphics();

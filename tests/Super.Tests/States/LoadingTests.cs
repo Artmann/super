@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Time.Testing;
 using Super.Testing;
 
 namespace Super.Tests;
@@ -38,6 +39,11 @@ public class LoadingTests
         public List<string> Uploaded { get; } = [];
         public Dictionary<string, TaskCompletionSource> Gates { get; } = [];
 
+        /// <summary>The clock the loader times its uploads by. Each upload moves it on by <see cref="UploadTime"/>.</summary>
+        public FakeTimeProvider Clock { get; } = new();
+
+        public TimeSpan UploadTime { get; set; }
+
         public ContentLoader<string> Loader { get; }
 
         public Fake()
@@ -58,12 +64,19 @@ public class LoadingTests
                 (prepared, _) =>
                 {
                     Uploaded.Add((string)prepared);
+                    Clock.Advance(UploadTime);
                     return (string)prepared;
                 })
             {
+                Clock = Clock,
                 // The work blocks until the test finishes it. On the thread pool, a pool kept busy by the
                 // tests running alongside could leave it unstarted past every deadline here.
-                Start = OwnThread,
+                Start = work =>
+                {
+                    var task = OwnThread(work);
+                    Started.Add(task);
+                    return task;
+                },
             };
         }
 
@@ -81,6 +94,20 @@ public class LoadingTests
         {
             Gates[path].SetResult();
         }
+
+        /// <summary>Opens every gate and waits until all background work started so far has ended, so the next frame can upload it all.</summary>
+        public void FinishAll()
+        {
+            foreach (var gate in Gates.Values)
+            {
+                gate.TrySetResult();
+            }
+
+            Assert.True(Task.WaitAll([.. Started], TimeSpan.FromSeconds(10)), "The background work never ended.");
+        }
+
+        /// <summary>The background work the loader started, in the order it started it.</summary>
+        public List<Task<object>> Started { get; } = [];
 
         public void Fail(string path)
         {
@@ -176,20 +203,42 @@ public class LoadingTests
     }
 
     [Fact]
-    public void Finished_work_uploads_one_item_a_frame()
+    public void Finished_work_uploads_until_the_frame_budget_is_used()
     {
-        var fake = new Fake();
+        var fake = new Fake { UploadTime = TimeSpan.FromMilliseconds(0.75) };
+        fake.Content.Store.Loading.UploadBudget = TimeSpan.FromMilliseconds(2);
+        foreach (string name in new[] { "a", "b", "slow", "quick", "rock" })
+        {
+            fake.Name(name);
+        }
+
+        fake.Loader.Update(fake.Content);
+        fake.FinishAll();
+
+        // 0.75, 1.5 and 2.25 ms: the third upload uses the budget up, so the frame stops there.
+        fake.Loader.Update(fake.Content);
+        Assert.Equal(3, fake.Uploaded.Count);
+
+        fake.Loader.Update(fake.Content);
+        Assert.Equal(["a", "b", "quick", "rock", "slow"], fake.Uploaded.Order());
+        Assert.True(fake.Content.IsLoaded);
+    }
+
+    [Fact]
+    public void An_upload_longer_than_the_budget_still_goes_one_a_frame()
+    {
+        var fake = new Fake { UploadTime = TimeSpan.FromMilliseconds(10) };
+        fake.Content.Store.Loading.UploadBudget = TimeSpan.FromMilliseconds(2);
         fake.Name("a");
         fake.Name("b");
         fake.Loader.Update(fake.Content);
-        fake.Finish("a");
-        fake.Finish("b");
-        fake.FramesUntil(uploads: 1);
+        fake.FinishAll();
+
+        fake.Loader.Update(fake.Content);
         Assert.Single(fake.Uploaded);
 
-        fake.FramesUntil(uploads: 2);
+        fake.Loader.Update(fake.Content);
         Assert.Equal(["a", "b"], fake.Uploaded.Order());
-        Assert.True(fake.Content.IsLoaded);
     }
 
     [Fact]

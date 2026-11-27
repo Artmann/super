@@ -13,6 +13,12 @@ internal sealed class ItemProgress
     /// <summary>True only in the interactive window, where loading happens over real time.</summary>
     public bool Streaming { get; set; }
 
+    /// <summary>
+    /// How long a frame may spend sending finished items to the GPU while streaming, from
+    /// <see cref="GraphicsScreen.UploadBudget"/>. One item always goes, however long it takes.
+    /// </summary>
+    public TimeSpan UploadBudget { get; set; } = TimeSpan.FromMilliseconds(GraphicsScreen.DefaultUploadBudget);
+
     /// <summary>Set by tests, to keep a loading screen up for as long as they need it.</summary>
     public bool Held { get; set; }
 
