@@ -48,7 +48,9 @@ public sealed record StoryChoice(string? Story = null, bool Light = false)
 /// <summary>Every story, in the order the sidebar shows them.</summary>
 public static class Stories
 {
-    public static IReadOnlyList<Story> All { get; } =
+    public static IReadOnlyList<Story> All { get; } = [.. Basics(), .. Bigger()];
+
+    private static Story[] Basics() =>
     [
         new("Foundations", "Typography", "Text styles, weights, alignment and colours from the theme.", Foundations.Typography),
         new("Foundations", "Colours", "Every colour in the theme, which built-in controls take.", Foundations.Colours),
@@ -69,7 +71,12 @@ public static class Stories
         new("Controls", "Gauges", "A reading on a scale, as a ring or a bar.", Controls.Gauges),
         new("Keyboard and gamepad", "Text fields", "A line of text to type, plain or secure.", Typing.TextFields),
         new("Keyboard and gamepad", "Focus", "Moving between controls with the keys, the d-pad or the stick.", Typing.Focus),
+        new("Keyboard and gamepad", "Prompts", "The key or button that does something, drawn for the device in use.", Prompting.Prompts),
         new("Fingers", "Touch", "Taps, long presses, and drags that scroll and fling.", Touching.Touch),
+    ];
+
+    private static Story[] Bigger() =>
+    [
         new("Popups", "Menus", "Menus from a button, a picker as a menu, and a context menu.", Popping.Menus),
         new("Popups", "Dialogs", "Alerts and confirmation dialogs that need an answer.", Popping.Dialogs),
         new("Popups", "Sheets", "A form in a card over a scrim, and a popover under a button.", Popping.Sheets),

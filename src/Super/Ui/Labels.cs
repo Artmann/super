@@ -96,23 +96,29 @@ public sealed record Label(string Title, UiView Icon) : UiView
 /// <summary>A key drawn as a small keycap, for hints such as "Press E to open" or a shortcut beside a menu row.</summary>
 public sealed record KeyHint(string Key) : UiView
 {
-    public override UiView Body
+    public override UiView Body => Cap(new Text(Key), Environment);
+
+    /// <summary>The size of the text on a keycap here, and how tall the cap is.</summary>
+    internal static (float Size, float Side) Sizes(UiEnvironment environment)
     {
-        get
-        {
-            var theme = Environment.Theme;
-            float size = MathF.Round(Environment.FontSize * 0.85f);
-            float side = MathF.Round(size * 1.7f);
-            return new Text(Key)
-                .FontSize(size)
-                .Weight(FontWeight.Medium)
-                .Foreground(theme.Colors.MutedForeground)
-                .LineLimit(1)
-                .Padding(MathF.Round(size * 0.4f), 0f)
-                .Frame(minWidth: side, minHeight: side)
-                .Background(theme.Colors.Muted)
-                .Border(1f, theme.Colors.Border)
-                .CornerRadius(theme.RadiusSmall);
-        }
+        float size = MathF.Round(environment.FontSize * 0.85f);
+        return (size, MathF.Round(size * 1.7f));
+    }
+
+    /// <summary>A keycap round a face, which may be text or an icon.</summary>
+    internal static UiView Cap(UiView face, UiEnvironment environment)
+    {
+        var theme = environment.Theme;
+        var (size, side) = Sizes(environment);
+        return face
+            .FontSize(size)
+            .Weight(FontWeight.Medium)
+            .Foreground(theme.Colors.MutedForeground)
+            .LineLimit(1)
+            .Padding(MathF.Round(size * 0.4f), 0f)
+            .Frame(minWidth: side, minHeight: side)
+            .Background(theme.Colors.Muted)
+            .Border(1f, theme.Colors.Border)
+            .CornerRadius(theme.RadiusSmall);
     }
 }

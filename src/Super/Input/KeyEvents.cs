@@ -30,7 +30,7 @@ internal class GameClipboard
 /// The keyboard as the window and scripts feed it. While <see cref="Routes"/> is on, each key waits in
 /// <see cref="Events"/> for the interface, which takes what it uses and applies the rest with <see cref="Apply"/>.
 /// </summary>
-internal sealed class KeyFeed
+internal sealed class KeyFeed(InputTick tick)
 {
     private readonly StringBuilder _typing = new();
 
@@ -54,7 +54,11 @@ internal sealed class KeyFeed
 
     public bool Alt => Held(Key.LeftAlt) || Held(Key.RightAlt);
 
-    public void Down(Key key) => Route(new KeyEvent(KeyEventKind.Down, key));
+    public void Down(Key key)
+    {
+        tick.PendingDevice = InputDevice.KeyboardAndMouse;
+        Route(new KeyEvent(KeyEventKind.Down, key));
+    }
 
     public void Up(Key key) => Route(new KeyEvent(KeyEventKind.Up, key));
 

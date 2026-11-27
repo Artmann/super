@@ -28,7 +28,18 @@ public sealed class Input
         Mouse = new MouseInput(_tick);
         Gamepad = new GamepadInput(_tick);
         Touches = new TouchInput(_tick);
+        Keys = new KeyFeed(_tick);
     }
+
+    /// <summary>
+    /// What the player last played with, for showing the buttons in their hand. It changes on a key, a mouse
+    /// button, the wheel or a real move of the mouse, a gamepad button or a stick or trigger past halfway, and
+    /// a finger landing.
+    /// </summary>
+    public InputDevice Device { get => _tick.Read(field); private set; }
+
+    /// <summary>The device in use as fed so far, ahead of the next tick, for the interface to draw prompts with.</summary>
+    internal InputDevice PendingDevice => _tick.PendingDevice;
 
     /// <summary>The cursor, the wheel, and how the system shows the cursor.</summary>
     public MouseInput Mouse { get; }
@@ -78,7 +89,7 @@ public sealed class Input
     internal List<IInputListener> Listeners { get; } = [];
 
     /// <summary>The keyboard as it's fed, before a tick reads it.</summary>
-    internal KeyFeed Keys { get; } = new();
+    internal KeyFeed Keys { get; }
 
     internal void KeyDown(Key key) => Keys.Down(key);
 
@@ -90,6 +101,7 @@ public sealed class Input
     internal void Roll()
     {
         Typed = Keys.Roll();
+        Device = _tick.PendingDevice;
         Mouse.Roll();
         Gamepad.Roll();
         Touches.Roll();

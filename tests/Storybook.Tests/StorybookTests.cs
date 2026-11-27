@@ -127,7 +127,7 @@ public sealed class StorybookTests
         var error = Assert.Throws<ArgumentException>(() => Stories.Find("tables"));
 
         Assert.StartsWith("There's no story \"tables\". The stories are typography, colours,", error.Message);
-        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists, cards, forms, tabs, navigation, animation, settings, inventory, main-menu, hud, character-creator.", error.Message);
+        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus, prompts, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists, cards, forms, tabs, navigation, animation, settings, inventory, main-menu, hud, character-creator.", error.Message);
     }
 
     /// <summary>Clicks a control this far across it, halfway down, and lets the click land.</summary>

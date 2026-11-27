@@ -262,6 +262,12 @@ public readonly record struct UiEnvironment
     /// <summary>Whether things move here, which <c>.Animations(false)</c> turns off. Controls jump to where they're going without it.</summary>
     public bool Animates => !Still;
 
+    /// <summary>What the player last played with, which <see cref="ButtonPrompt"/> and <see cref="ActionPrompt{TControl}"/> draw for.</summary>
+    public InputDevice Device { get; init; }
+
+    /// <summary>Whose gamepad is plugged in, which decides how gamepad prompts are drawn.</summary>
+    public GamepadFamily Gamepad { get; init; } = GamepadFamily.Other;
+
     internal TextLook Text { get; init; }
 
     /// <summary>Whether motion is off here, so animations jump straight to where they're going.</summary>
@@ -274,7 +280,7 @@ public readonly record struct UiEnvironment
         new(TextLook.Default with { Size = theme.Typography.Body.Size, Weight = theme.Typography.Body.Weight, Color = theme.Colors.Foreground }, theme, false, ControlSize.Regular);
 
     internal UiEnvironment With(Theme? theme = null, bool? disabled = null, ControlSize? controlSize = null) =>
-        new(Text, theme ?? Theme, disabled ?? Disabled, controlSize ?? ControlSize) { Still = Still };
+        new(Text, theme ?? Theme, disabled ?? Disabled, controlSize ?? ControlSize) { Still = Still, Device = Device, Gamepad = Gamepad };
 }
 
 internal static class AlignmentFractions

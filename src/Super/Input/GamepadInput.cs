@@ -16,6 +16,7 @@ public sealed class GamepadInput
     private readonly float[] _pendingAxes = RestingAxes();
     private readonly float[] _axes = RestingAxes();
     private bool _pendingConnected;
+    private string? _pendingName;
 
     internal GamepadInput(InputTick tick)
     {
@@ -23,6 +24,15 @@ public sealed class GamepadInput
     }
 
     public bool Connected { get => _tick.Read(field); private set; }
+
+    /// <summary>What the pad calls itself, such as "Xbox Controller", or null when none is connected or it gave no name.</summary>
+    public string? Name { get => _tick.Read(field); private set; }
+
+    /// <summary>Whose pad it is, from its <see cref="Name"/>, which says what its buttons are called.</summary>
+    public GamepadFamily Family { get => _tick.Read(field); private set; } = GamepadFamily.Other;
+
+    /// <summary>The family of the pad as polled so far, ahead of the next tick, for the interface to draw prompts with.</summary>
+    internal GamepadFamily PendingFamily { get; private set; } = GamepadFamily.Other;
 
     /// <summary>How far a stick must move before it counts, as a fraction of its travel.</summary>
     public float DeadZone { get; set; } = 0.2f;
@@ -61,20 +71,42 @@ public sealed class GamepadInput
     /// <summary>
     /// The gamepad as it is now. Axes come in GLFW's order and ranges: left x and y,
     /// right x and y, then the triggers from -1 to 1. Buttons are in <see cref="GamepadButton"/> order.
+    /// A button going down, or a stick or trigger past halfway, makes the gamepad the device in use.
     /// </summary>
-    internal void Polled(bool connected, ReadOnlySpan<float> axes, ReadOnlySpan<bool> buttons)
+    internal void Polled(bool connected, ReadOnlySpan<float> axes, ReadOnlySpan<bool> buttons, string? name = null)
     {
         _pendingConnected = connected;
+        if (_pendingName != name || !connected)
+        {
+            _pendingName = connected ? name : null;
+            PendingFamily = Devices.FamilyOf(_pendingName);
+        }
+
         for (int i = 0; i < AxisCount; i++)
         {
             float centred = i >= 4 ? -1f : 0f;
             _pendingAxes[i] = connected ? axes[i] : centred;
         }
 
+        if (connected && Devices.Pushed(axes))
+        {
+            _tick.PendingDevice = InputDevice.Gamepad;
+        }
+
+        PollButtons(connected, buttons);
+    }
+
+    private void PollButtons(bool connected, ReadOnlySpan<bool> buttons)
+    {
         for (int i = 0; i < ButtonCount; i++)
         {
             if (connected && buttons[i])
             {
+                if (!Buttons.Physical(i))
+                {
+                    _tick.PendingDevice = InputDevice.Gamepad;
+                }
+
                 Buttons.Press(i);
             }
             else
@@ -96,6 +128,8 @@ public sealed class GamepadInput
         }
 
         Connected = _pendingConnected;
+        Name = _pendingName;
+        Family = PendingFamily;
     }
 
     /// <summary>Sticks centred and triggers at rest, which GLFW reports as -1.</summary>
