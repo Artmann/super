@@ -207,13 +207,12 @@ internal sealed record PopupCard(UiView Content, float Inset, float? MinWidth = 
         get
         {
             var theme = Environment.Theme;
-            return Content
-                .Padding(Inset)
-                .Frame(minWidth: MinWidth, maxWidth: MaxWidth)
+            var content = Content.Padding(Inset).Frame(minWidth: MinWidth, maxWidth: MaxWidth);
+            return ThemePanel.On(content, theme.Panels.Popup, theme.Colors.Raised, box => box
                 .Background(theme.Colors.Raised)
                 .Border(1f, theme.Colors.Border)
                 .CornerRadius(theme.RadiusLarge)
-                .Shadow(theme.Shadows.Large);
+                .Shadow(theme.Shadows.Large));
         }
     }
 }

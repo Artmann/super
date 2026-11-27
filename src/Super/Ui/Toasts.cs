@@ -126,13 +126,11 @@ internal sealed record ToastStack(Toasts Toasts, IReadOnlyList<ShownToast> Shown
             new Spacer(),
         };
         var toasts = Toasts;
-        var card = row
-            .Padding(14f, 12f)
-            .Frame(minWidth: 260f, maxWidth: 360f)
+        var card = ThemePanel.On(row.Padding(14f, 12f).Frame(minWidth: 260f, maxWidth: 360f), theme.Panels.Popup, theme.Colors.Raised, box => box
             .Background(theme.Colors.Raised)
             .Border(1f, theme.Colors.Border)
             .CornerRadius(theme.RadiusLarge)
-            .Shadow(theme.Shadows.Medium);
+            .Shadow(theme.Shadows.Medium));
         var click = new ClickModifier(card, () => toasts.Dismiss(shown));
         return new SemanticsModifier(click, new UiSemantics(UiRole.Toast, toast.Title, toast.Message));
     }

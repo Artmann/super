@@ -178,6 +178,13 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   `UiPointerSearch.Up` stops at a `LayerView`, so a click inside a popup never runs a handler
   of the view it hangs off. Toasts age in `UiLayers.Tick`, which `UiPointer` calls once a
   tick with the tick's length, so a run replays.
+- Art panels go through `ThemePanel.On`, which puts a `PanelArt` behind the content as a
+  `.Background(Image)` when the theme has one and builds the usual box when not, so `Card`,
+  `PopupCard` and the toast card share one choice. `Button.Panel` does the same for the
+  filled styles. A sliced `Image` draws through `NineSlice.Draw`, which works out the four
+  x and y edges and their UVs in `stackalloc` spans and emits up to nine image quads, skipping
+  any with no width or height, so it allocates nothing a frame. `NineSlice.Fit` shrinks both
+  corners by the same share when they don't fit across the frame.
 - `UiNode` is one place in the tree. `UiChildren` pairs a node's new child views with its
   old children. `UiBodyHooks` holds a component's states and the states its last Body
   read: a `State<T>` tells each reader's hooks when it changes. A scroll view's position

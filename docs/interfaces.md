@@ -56,7 +56,7 @@ Interface code runs on the CPU only. Layout and text are real in headless runs, 
 | `VStack`, `HStack` | Children top to bottom, or left to right |
 | `ZStack` | Children on top of each other, the last one in front |
 | `Spacer()` | Pushes its neighbors apart along the stack |
-| `Image(content.UiImages.Image("icon.png"), ImageFit.Contain)` | An image, stretched, fitted (`Contain`) or filling (`Cover`), with an optional tint |
+| `Image(content.UiImages.Image("icon.png"), ImageFit.Contain)` | An image, stretched, fitted (`Contain`) or filling (`Cover`), with an optional tint. With `Slices` it's a 9-slice; see [Art panels](#art-panels) |
 | `ScrollView()` | Scrolls what's inside it with the wheel or a draggable bar. Give it a height, or it grows to fit |
 | `ListView<T>(items, row, selected, onSelect)` | A scrolling list of rows you can hover and pick |
 | `Grid { new GridRow { ... } }`, `Grid(Columns: 6)` | A table whose columns line up, or equal columns filled left to right. See [Grids](#grids) |
@@ -258,6 +258,48 @@ An `Arc` runs clockwise from the top. Its start and sweep are fractions of a tur
 `new Arc(0f, 0.25f)` is the top right quarter. Its ends are round. With `FlatEnds` they're
 cut straight towards the middle, so arcs side by side make the slices of a wheel; keep each
 under half a turn.
+
+### Art panels
+
+A game's panels are often pictures: a leather card with rivets, a stone frame round a dialog,
+a bevelled button. Give the theme those pictures in `Panels`, and cards, popups and buttons
+are drawn on them in place of their boxes:
+
+```csharp
+var theme = Theme.Dark with
+{
+    Panels = new ThemePanels
+    {
+        Card = new PanelArt(content.UiImages.Image("ui/card.png"), 16f),
+        Popup = new PanelArt(content.UiImages.Image("ui/frame.png"), new ImageSlices(24f, 20f, 24f, 20f)),
+        Button = new PanelArt(content.UiImages.Image("ui/button.png"), 10f) { Tinted = true },
+    },
+};
+```
+
+Each picture is drawn as a 9-slice, so one small image fits a panel of any size. The second
+argument says how far in from each edge the corners reach, in the image's pixels: the corners
+keep their size, the edges stretch along, and the middle stretches both ways. `Scale` draws
+the corners bigger or smaller, for art made at another size. Corners too big for a small
+panel shrink together, and then the middle goes.
+
+`Card` is behind every `Card`. `Popup` is behind dialogs, sheets, popovers, menus and toasts.
+`Button` is behind the filled buttons, `Default`, `Secondary` and `Destructive`; outline,
+ghost, link and menu buttons keep their look. Art is drawn in its own colours, but a
+`Tinted` picture takes the colour the box would have had, so one pale button picture makes
+the primary, secondary and destructive buttons, and they lighten and darken under the pointer
+as the boxes do. Leave a panel null to keep its box. `ThemePanels.None`, the default, keeps
+them all.
+
+Any `Image` can be drawn the same way, without a theme:
+
+```csharp
+new Image(frame) { Slices = 12f, SliceScale = 2f }.Frame(width: 300f, height: 120f);
+```
+
+A sliced image fills the room it's offered instead of keeping its own shape.
+
+![The art panels story in the dark theme, with boxes, and the textured one, with art](media/ui-art-panels.webp)
 
 ## Controls
 
@@ -554,7 +596,7 @@ dialog `UiRole.Dialog` with its message as its `Value`, and a toast `UiRole.Toas
 ## The storybook
 
 The [Storybook example](../examples/Storybook) shows every element on its own and in its
-variations, in both themes. Run it to see what's there, or with `--story badges --theme light`
+variations, in each theme. Run it to see what's there, or with `--story badges --theme light`
 to open one page. The `buttons`, `toggles`, `sliders`, `steppers`, `pickers`, `progress`
 and `gauges` stories keep their values, so you can try each control, and `text-fields` and
 `focus` show typing and moving with the keys. The `focus` and `typing` input scripts play
@@ -563,7 +605,9 @@ long presses and flings. The `menus`, `dialogs`, `sheets` and `toasts` stories h
 and the `menu`, `context`, `alert`, `confirm`, `sheet`, `popover` and `toasts` scripts open them.
 The `layers`, `grids`, `flows` and `lazy-lists` stories show the [layout](#layout) views, and
 `cards`, `forms`, `tabs` and `navigation` show the [containers](#containers). The `animation`
-story shows what moves, and has a switch that turns it off. The showcases, `settings`,
+story shows what moves, and has a switch that turns it off. `--theme textured` and the
+Textured switch use a theme drawn from [art panels](#art-panels), painted in code, which the
+`art-panels` story and its `rest` script show. The showcases, `settings`,
 `inventory`, `main-menu`, `hud` and `character-creator`, are whole screens a game would have,
 built only from these elements, and each one works.
 
@@ -1200,3 +1244,5 @@ key on the keyboard that switches tabs from anywhere, as the bumpers do. A key b
 listening when focus moves away, and a player with only a gamepad can't stop it listening
 without binding a button. A radial menu has no inner ring of sub-choices. Button prompts know the first gamepad only, read its family from the
 name the system gives it, and have no glyphs for a Steam Deck's back buttons or a touchpad.
+A panel drawn from art has no shadow, sections, tab bars, fields and menu buttons have no art
+of their own yet, and a 9-slice stretches its edges rather than repeating them.

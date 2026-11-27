@@ -12,16 +12,28 @@ public sealed class StorybookGame : IGame
 {
     private const float SidebarWidth = 232f;
 
-    public StorybookGame(StoryChoice? choice = null)
+    public StorybookGame(Content content, StoryChoice? choice = null)
     {
         Story = choice?.Story is { } id ? Stories.Find(id) : Stories.All[0];
-        Theme = choice?.Light == true ? Theme.Light : Theme.Dark;
+        TexturedTheme = Textured.Paint(content);
+        Theme = ThemeFor(choice?.Theme ?? StoryTheme.Dark);
     }
 
     /// <summary>The story on screen.</summary>
     public Story Story { get; set; }
 
     public Theme Theme { get; set; }
+
+    /// <summary>The theme drawn from art, painted into this game's content.</summary>
+    public Theme TexturedTheme { get; }
+
+    /// <summary>The theme a choice names.</summary>
+    public Theme ThemeFor(StoryTheme choice) => choice switch
+    {
+        StoryTheme.Light => Theme.Light,
+        StoryTheme.Textured => TexturedTheme,
+        _ => Theme.Dark,
+    };
 
     public void Update(GameTime time)
     {
@@ -37,6 +49,7 @@ public sealed class StorybookGame : IGame
         ["menu"] = new InputScript().Wait(2).Click("game-menu").Wait(2).Press(Key.Down).Wait(2),
         ["context"] = new InputScript().Wait(2).MoveMouse("sword").Wait(1).Hold(MouseButton.Right).Release(MouseButton.Right).Wait(2),
         ["alert"] = new InputScript().Wait(2).Click("delete-save").Wait(2),
+        ["rest"] = new InputScript().Wait(2).Click("art-rest").Wait(2),
         ["confirm"] = new InputScript().Wait(2).Click("quit").Wait(2),
         ["sheet"] = new InputScript().Wait(2).Click("new-character").Wait(2),
         ["popover"] = new InputScript().Wait(2).Click("stamina").Wait(2),
@@ -111,11 +124,12 @@ public sealed class StorybookGame : IGame
     }
     .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);
 
-    /// <summary>Dark and light, side by side in a track, the one in use raised.</summary>
+    /// <summary>Dark, light and textured, side by side in a track, the one in use raised.</summary>
     private UiView ThemeSwitch() => new HStack(Spacing: 2f)
     {
         ThemeOption("Dark", Theme.Dark),
         ThemeOption("Light", Theme.Light),
+        ThemeOption("Textured", TexturedTheme),
     }
     .Padding(3f)
     .Background(Theme.Colors.Muted)

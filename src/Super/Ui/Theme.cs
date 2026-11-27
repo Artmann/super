@@ -32,6 +32,9 @@ public sealed record Theme
     /// <summary>The motion the controls add for feel: presses that squash, losses that trail and pages that slide. <see cref="ThemeMotion.None"/> is plain.</summary>
     public ThemeMotion Motion { get; init; } = ThemeMotion.Default;
 
+    /// <summary>The pictures cards, popups and buttons are drawn from instead of boxes. <see cref="ThemePanels.None"/>, the default, draws boxes.</summary>
+    public ThemePanels Panels { get; init; } = ThemePanels.None;
+
     public ControlMetrics Small { get; init; } = new(Height: 28f, Padding: 10f, FontSize: 12f, Gap: 6f);
 
     public ControlMetrics Regular { get; init; } = new(Height: 36f, Padding: 16f, FontSize: 14f, Gap: 8f);

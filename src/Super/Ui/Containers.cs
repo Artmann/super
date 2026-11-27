@@ -56,13 +56,12 @@ public sealed record Card : ViewList
         get
         {
             var theme = Environment.Theme;
-            var stack = Fill(new VStack(HorizontalAlignment.Leading, Spacing));
-            return stack
-                .Padding(Inset)
+            var stack = Fill(new VStack(HorizontalAlignment.Leading, Spacing)).Padding(Inset);
+            return ThemePanel.On(stack, theme.Panels.Card, theme.Colors.Surface, box => box
                 .Background(theme.Colors.Surface)
                 .Border(1f, theme.Colors.Border)
                 .CornerRadius(theme.RadiusLarge)
-                .Shadow(theme.Shadows.Small);
+                .Shadow(theme.Shadows.Small));
         }
     }
 }
