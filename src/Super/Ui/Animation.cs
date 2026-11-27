@@ -13,6 +13,52 @@ public enum Entrance
     Drop,
 }
 
+/// <summary>
+/// The motion a theme's controls add for feel, each with its own switch. <c>.Animations(false)</c> turns all of it
+/// off as well, for a player who asked for less motion.
+/// </summary>
+public sealed record ThemeMotion
+{
+    /// <summary>All of it on.</summary>
+    public static ThemeMotion Default { get; } = new();
+
+    /// <summary>None of it: presses don't squash, losses don't trail and pages swap at once.</summary>
+    public static ThemeMotion None { get; } = new() { PressScale = 1f, TrailsLoss = false, SlidesPages = false };
+
+    /// <summary>How big a button is drawn while it's held down, where 1 doesn't squash it. It springs back when let go.</summary>
+    public float PressScale { get; init; } = 0.95f;
+
+    /// <summary>Whether a <see cref="Gauge"/> that drops shows what it lost as a pale piece that drains away after it.</summary>
+    public bool TrailsLoss { get; init; } = true;
+
+    /// <summary>Whether a <see cref="NavigationStack{T}"/> slides a pushed page in from the side and the page it covers out.</summary>
+    public bool SlidesPages { get; init; } = true;
+}
+
+/// <summary>
+/// A number that counts to a new value instead of jumping there, as a score, gold or experience does. It shows
+/// <paramref name="Value"/> at once when it appears, and counts over <see cref="Seconds"/> each time the value changes,
+/// from wherever it's got to. Its digits are all as wide, so the number doesn't shake as it counts. Text modifiers
+/// such as <c>.FontSize</c> style it as they do <see cref="Text"/>.
+/// </summary>
+public sealed record CountingText(float Value) : UiView
+{
+    public float Seconds { get; init; } = 0.6f;
+
+    /// <summary>How the number reads, such as <c>n => $"{n:0} gold"</c>. Without it, it's a whole number.</summary>
+    public Func<float, string>? Format { get; init; }
+
+    public override UiView Body
+    {
+        get
+        {
+            float shown = UseAnimation(Value, Seconds, Easing.Out);
+            string text = Format?.Invoke(shown) ?? MathF.Round(shown).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+            return new Text(text).MonospacedDigit();
+        }
+    }
+}
+
 /// <summary>Modifiers for motion: views that ease in when they appear, and a switch for turning motion off.</summary>
 public static class AnimationExtensions
 {
@@ -133,16 +179,67 @@ internal sealed record TransitionView(UiView Child, Entrance Kind, float Seconds
         get
         {
             float shown = UseAnimation(1f, Seconds, Easing.Out, from: 0f);
-            float rise = Kind switch
-            {
-                Entrance.Rise => (1f - shown) * Travel,
-                Entrance.Drop => (shown - 1f) * Travel,
-                _ => 0f,
-            };
-
-            // The same views however far along, so what's inside keeps its state when it arrives.
-            // A box of its own, so a fade of the view's own isn't replaced.
-            return new OffsetModifier(new BoxModifier(Child) { Alpha = shown }, 0f, rise);
+            return Partway(Child, Kind, shown);
         }
+    }
+
+    /// <summary>
+    /// A view <paramref name="shown"/> of the way in, from 0 to 1. The same views however far along, so what's inside
+    /// keeps its state as it moves, and a box of its own, so a fade of the view's own isn't replaced.
+    /// </summary>
+    internal static UiView Partway(UiView child, Entrance kind, float shown)
+    {
+        float rise = kind switch
+        {
+            Entrance.Rise => (1f - shown) * Travel,
+            Entrance.Drop => (shown - 1f) * Travel,
+            _ => 0f,
+        };
+        return new OffsetModifier(new BoxModifier(child) { Alpha = shown }, 0f, rise);
+    }
+}
+
+/// <summary>
+/// <paramref name="Content"/> while <paramref name="Shown"/> is true, which eases in the way <see cref="Entrance"/>
+/// says, as <c>.Transition</c> does, and when it turns false plays that backwards before it goes, so a menu or a panel
+/// can leave as well as arrive. While it leaves it's drawn but lets the mouse through. Once it's gone it takes no room
+/// and keeps no state, though a stack still puts its spacing beside it.
+/// </summary>
+public sealed record Presence(bool Shown, UiView Content) : UiView
+{
+    public Entrance Entrance { get; init; } = Entrance.Fade;
+
+    public float Seconds { get; init; } = 0.2f;
+
+    public override UiView Body
+    {
+        get
+        {
+            float shown = UseAnimation(Shown ? 1f : 0f, Seconds, Easing.Out, from: 0f);
+            if (!Shown && shown <= 0f)
+            {
+                return new NothingView();
+            }
+
+            return new LeavingModifier(TransitionView.Partway(Content, Entrance, shown), !Shown);
+        }
+    }
+}
+
+/// <summary>A view on its way out, which the mouse goes through.</summary>
+internal sealed record LeavingModifier(UiView Child, bool Leaving) : Modifier(Child)
+{
+    internal override bool PassesPointer => Leaving;
+}
+
+/// <summary>A view with nothing in it and no room, for a component that has nothing to show.</summary>
+internal sealed record NothingView : PrimitiveView
+{
+    internal override IReadOnlyList<UiView?> Children => [];
+
+    internal override UiSize Measure(UiNode node, Proposal proposal) => default;
+
+    internal override void Place(UiNode node, UiRect frame)
+    {
     }
 }

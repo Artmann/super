@@ -97,6 +97,9 @@ public sealed record Gauge(string Label, float Value, float Min = 0f, float Max 
     private const float RingStart = 0.625f;
     private const float RingSweep = 0.75f;
 
+    // How long what a gauge lost takes to drain away after it.
+    private const float TrailSeconds = 0.8f;
+
     public MeterStyle Style { get; init; } = MeterStyle.Circular;
 
     /// <summary>The colour of the filled part, instead of the theme's primary colour.</summary>
@@ -115,11 +118,14 @@ public sealed record Gauge(string Label, float Value, float Min = 0f, float Max 
             var metrics = environment.Metrics;
             var tint = Tint ?? environment.Theme.Colors.Primary;
             string reading = ValueLabel ?? UiSemantics.Number(Value);
+            // What it lost stays a moment, then drains after it. Going up, the trail is under the fill and doesn't show.
+            float trail = UseAnimation(Fraction, TrailSeconds, Easing.InOut);
+            trail = environment.Theme.Motion.TrailsLoss ? trail : 0f;
             UiView shown = Style == MeterStyle.Circular
-                ? Circular(tint, reading, metrics)
+                ? Circular(tint, reading, metrics, trail)
                 : new VStack(HorizontalAlignment.Leading, 6f)
                 {
-                    Meters.Bar(Label, reading, new MeterBar(Fraction, tint, 6f), metrics),
+                    Meters.Bar(Label, reading, new MeterBar(Fraction, tint, 6f) { Trail = trail }, metrics),
                     new HStack
                     {
                         new Text(UiSemantics.Number(Min)),
@@ -131,7 +137,7 @@ public sealed record Gauge(string Label, float Value, float Min = 0f, float Max 
         }
     }
 
-    private UiView Circular(Color tint, string reading, ControlMetrics metrics)
+    private UiView Circular(Color tint, string reading, ControlMetrics metrics, float trail)
     {
         float side = metrics.Height * 2f;
         var middle = new VStack(Spacing: 0f)
@@ -139,7 +145,7 @@ public sealed record Gauge(string Label, float Value, float Min = 0f, float Max 
             new Text(reading).FontSize(MathF.Round(side * 0.24f)).Weight(FontWeight.SemiBold).MonospacedDigit().LineLimit(1),
             new Text(Label).FontSize(MathF.Round(side * 0.14f)).Foreground(Tone.Muted).LineLimit(1),
         };
-        return new MeterRing(Fraction, tint, side, middle) { Start = RingStart, Sweep = RingSweep };
+        return new MeterRing(Fraction, tint, side, middle) { Start = RingStart, Sweep = RingSweep, Trail = trail };
     }
 }
 
@@ -153,14 +159,19 @@ internal sealed record MeterRing(float Fraction, Color Fill, float Side, UiView 
 
     public float Sweep { get; init; } = 1f;
 
+    /// <summary>Where a loss that's still draining away ends, as a fraction of the sweep, drawn pale past the fill.</summary>
+    public float Trail { get; init; }
+
     public override UiView Body
     {
         get
         {
             float thickness = MathF.Round(Side / 11f);
+            var colors = Environment.Theme.Colors;
             return new ZStack
             {
-                new Arc(Start, Sweep, thickness).Fill(Environment.Theme.Colors.Muted),
+                new Arc(Start, Sweep, thickness).Fill(colors.Muted),
+                Trail > Fraction ? new Arc(Start, Sweep * Trail, thickness).Fill(Meters.TrailColor(colors)) : null,
                 Fraction > 0f ? new Arc(Start, Sweep * Fraction, thickness).Fill(Fill) : null,
                 Middle.Padding(thickness),
             }.Frame(Side, Side);
@@ -171,6 +182,9 @@ internal sealed record MeterRing(float Fraction, Color Fill, float Side, UiView 
 /// <summary>The layout progress views and gauges share.</summary>
 internal static class Meters
 {
+    /// <summary>The pale colour of what a gauge just lost, while it drains away.</summary>
+    public static Color TrailColor(ThemeColors colors) => colors.Foreground with { A = 0.45f };
+
     /// <summary>A bar under a line with the label before and the reading after, or only the bar without a label.</summary>
     public static UiView Bar(string label, string reading, MeterBar bar, ControlMetrics metrics)
     {

@@ -28,6 +28,12 @@ public static class LayoutExtensions
     public static UiView Offset(this UiView view, float x = 0f, float y = 0f) => new OffsetModifier(view, x, y);
 
     /// <summary>
+    /// Draws this view <paramref name="factor"/> times its size about its middle, as a button squashed by a press or a
+    /// card that pops. Only the drawing changes: it keeps its room, and the mouse finds it where it's laid out.
+    /// </summary>
+    public static UiView Scale(this UiView view, float factor) => new ScaleModifier(view, factor);
+
+    /// <summary>
     /// Keeps this view's room in the layout but shows nothing there: it draws nothing, takes no pointer, and holds no
     /// focus or control. To take the room away too, leave the view out with null.
     /// </summary>
@@ -77,6 +83,18 @@ internal sealed record LayeredModifier(UiView Child, UiView Extra, Alignment Ali
 internal sealed record OffsetModifier(UiView Child, float X, float Y) : Modifier(Child)
 {
     internal override void Place(UiNode node, UiRect frame) => Inner(node).Place(frame with { X = frame.X + X, Y = frame.Y + Y });
+}
+
+/// <summary>Draws a view scaled about its middle, from <see cref="LayoutExtensions.Scale"/>.</summary>
+internal sealed record ScaleModifier(UiView Child, float Factor) : Modifier(Child)
+{
+    internal override void Emit(UiNode node, UiDrawList draw)
+    {
+        var frame = node.Frame;
+        draw.Nesting.PushScale(new System.Numerics.Vector2(frame.X + frame.Width / 2f, frame.Y + frame.Height / 2f), Factor);
+    }
+
+    internal override void EmitAfter(UiNode node, UiDrawList draw) => draw.Nesting.PopScale();
 }
 
 /// <summary>Lays a view out and shows none of it.</summary>

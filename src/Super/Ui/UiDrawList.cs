@@ -81,9 +81,10 @@ internal sealed class UiDrawList
 
     public void AddText(string text, UiRect frame, in TextLook style)
     {
+        frame = Nesting.Place(frame);
         if (!Nesting.Hides(frame))
         {
-            _shownText.Add(new ShownText(text, frame, style.Color with { A = style.Color.A * Nesting.Opacity }, style.Size, style.Bold, style.Font, style.Weight, style.Italic));
+            _shownText.Add(new ShownText(text, frame, style.Color with { A = style.Color.A * Nesting.Opacity }, style.Size * Nesting.Zoom, style.Bold, style.Font, style.Weight, style.Italic));
         }
     }
 
@@ -91,6 +92,7 @@ internal sealed class UiDrawList
     public void Add(UiRect frame, OverlayQuad quad)
     {
         // Rows out of sight are still laid out, but they cost the renderer nothing.
+        frame = Nesting.Place(frame);
         if (Nesting.Hides(frame))
         {
             return;
@@ -105,17 +107,7 @@ internal sealed class UiDrawList
         // Laid out in interface units, drawn in pixels.
         quad.Position = new Vector2(frame.X, frame.Y) * Scale;
         quad.Size = new Vector2(frame.Width, frame.Height) * Scale;
-        quad.Radii *= Scale;
-        quad.BorderWidth *= Scale;
-        quad.Thickness *= Scale;
-        quad.GradientPoints *= Scale;
-
-        // An arc's are angles. Everything else's are lengths.
-        if (quad.Kind != OverlayKind.Arc)
-        {
-            quad.Params *= Scale;
-        }
-
+        ToPixels(ref quad);
         if (Nesting.Clip is { } active)
         {
             quad.Clip = new Vector4(active.Rect.X, active.Rect.Y, active.Rect.Width, active.Rect.Height) * Scale;
@@ -123,6 +115,37 @@ internal sealed class UiDrawList
         }
 
         _quads.Add(quad);
+    }
+
+    /// <summary>Turns a quad's lengths and places into pixels. Lengths shrink with a scaled view too, and a shadow's rectangles are places, which move with it.</summary>
+    private void ToPixels(ref OverlayQuad quad)
+    {
+        float length = Scale * Nesting.Zoom;
+        quad.Radii *= length;
+        quad.BorderWidth *= length;
+        quad.Thickness *= length;
+        if (quad.Kind == OverlayKind.Shadow)
+        {
+            quad.Params = Pixels(quad.Params);
+            quad.GradientPoints = Pixels(quad.GradientPoints);
+        }
+        else
+        {
+            quad.GradientPoints *= length;
+        }
+
+        // An arc's are angles. Everything else's are lengths.
+        if (quad.Kind is not (OverlayKind.Arc or OverlayKind.Shadow))
+        {
+            quad.Params *= length;
+        }
+    }
+
+    /// <summary>A rectangle laid out in interface units, as x, y, width and height, where it's drawn in pixels.</summary>
+    private Vector4 Pixels(Vector4 rectangle)
+    {
+        var drawn = Nesting.Place(new UiRect(rectangle.X, rectangle.Y, rectangle.Z, rectangle.W));
+        return new Vector4(drawn.X, drawn.Y, drawn.Width, drawn.Height) * Scale;
     }
 
     private void ReportTooManyQuads()

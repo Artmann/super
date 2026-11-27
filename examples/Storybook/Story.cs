@@ -91,6 +91,7 @@ public static class Stories
         new("Containers", "Tabs", "Pages a bar of tabs switches between.", Containing.Tabs),
         new("Containers", "Navigation", "Pages that go deeper, with a way back.", Containing.Navigation),
         new("Motion", "Animation", "Controls that move, views that ease in, numbers of your own, and motion turned off.", Moving.Animation),
+        new("Motion", "Game feel", "Presses that squash, springs, numbers that count, losses that trail, views that leave and pages that slide.", Feeling.GameFeel),
         new("Showcases", "Settings", "A settings screen: tabs of sections, sliders and switches, and a footer to apply.", Showcases.Settings),
         new("Showcases", "Inventory", "A grid of items to pick from, and the picked one's details.", Showcases.Inventory),
         new("Showcases", "Main menu", "A title screen with a column of choices and a quit that asks first.", Showcases.MainMenu),

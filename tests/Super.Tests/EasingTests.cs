@@ -40,6 +40,7 @@ public class EasingTests
     [InlineData(Easing.BounceOut, 0.95f, 0.98453125f)] // 7.5625 × (0.95 - 2.625/2.75)² + 0.984375
     [InlineData(Easing.BounceIn, 0.5f, 0.234375f)]
     [InlineData(Easing.BounceInOut, 0.25f, 0.1171875f)] // (1 - 0.765625) / 2
+    [InlineData(Easing.Spring, 0.5f, 1.0429405f)] // 1 + e⁻³ × (−cos 4.5 − ⅔ sin 4.5)
     public void Easing_matches_a_hand_worked_value(Easing easing, float amount, float expected)
     {
         Assert.Equal(expected, Ease.Apply(easing, amount), Tolerance);
@@ -71,7 +72,8 @@ public class EasingTests
     [Theory]
     [InlineData(Easing.BackOut)]
     [InlineData(Easing.ElasticOut)]
-    public void Back_and_elastic_go_past_the_end_on_the_way(Easing easing)
+    [InlineData(Easing.Spring)]
+    public void Back_elastic_and_spring_go_past_the_end_on_the_way(Easing easing)
     {
         float highest = 0f;
         for (int i = 0; i <= 100; i++)

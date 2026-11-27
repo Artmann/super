@@ -29,6 +29,9 @@ public sealed record Theme
     /// <summary>How the control with focus shows: a highlight that slides from control to control, or a thin ring.</summary>
     public FocusLook Focus { get; init; } = FocusLook.Highlight;
 
+    /// <summary>The motion the controls add for feel: presses that squash, losses that trail and pages that slide. <see cref="ThemeMotion.None"/> is plain.</summary>
+    public ThemeMotion Motion { get; init; } = ThemeMotion.Default;
+
     public ControlMetrics Small { get; init; } = new(Height: 28f, Padding: 10f, FontSize: 12f, Gap: 6f);
 
     public ControlMetrics Regular { get; init; } = new(Height: 36f, Padding: 16f, FontSize: 14f, Gap: 8f);

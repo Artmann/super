@@ -16,7 +16,10 @@ public sealed record Pressable(Func<PressState, UiView> Content, Action? OnClick
         {
             var look = UseState(default(PressState));
             bool off = Disabled || Environment.Disabled;
-            var click = new ClickModifier(Content(off ? default : look.Value), OnClick, look, off);
+            bool down = look.Value.Pressed && !off;
+            // Squashes quickly while it's held and springs back when it's let go.
+            float squash = UseAnimation(down ? Environment.Theme.Motion.PressScale : 1f, down ? 0.06f : 0.3f, down ? Easing.Out : Easing.Spring);
+            var click = new ClickModifier(new ScaleModifier(Content(off ? default : look.Value), squash), OnClick, look, off);
             return new FocusModifier(click, new FocusKeys { Disabled = off });
         }
     }

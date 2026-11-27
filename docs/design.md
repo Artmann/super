@@ -213,7 +213,9 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   everything inside. A `Tone` becomes a colour where `.Foreground(tone)` is, from the theme in
   force there, so a `.Theme(...)` further in doesn't recolour it.
 - Views draw into a `UiDrawList`, which holds the quads, the shown text and which quads are
-  images. Its `UiDrawNesting` keeps the clips and opacities that wrap what's drawn now. The
+  images. Its `UiDrawNesting` keeps the clips and opacities that wrap what's drawn now, and a
+  scale: `.Scale` pushes a zoom about a centre, and `Place` turns each laid-out rect into the
+  drawn one before it's clipped, so text is drawn at the scaled size and the layout never knows. The
   shapes (`AddBox`, `AddEllipse`, `AddArc`, `AddSegment`, `AddShadow`) are extensions in
   `UiShapeDrawing`, which build one `OverlayQuad` each and hand it to `UiDrawList.Add`.
 - `GlyphAtlas` measures and draws text. `UiFontFace` is one font at one size and draws its
@@ -346,7 +348,11 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   animations retarget with no seconds and `UseTime` returns zero without asking for a frame, so
   a still interface does no work between changes. `.Transition(...)` is a `TransitionView`, a
   component that animates its own alpha and offset in from zero the first time it mounts, so
-  it takes its full room at once; popups wrap their content and scrim in one.
+  it takes its full room at once; popups wrap their content and scrim in one. The reconciler
+  drops a removed child at once, so an exit lives in a component that stays: `Presence` animates
+  towards 0 and only turns into an empty `NothingView` once it gets there, and a
+  `NavigationStack` keeps the page it left in a `PageSlide` and draws both pages under their own
+  ids until the slide ends, so each keeps its state while it moves.
 - Interface sounds are asked for where the thing happens: a click let go on its button
   (`UiPointerSearch.Clicked`, which the mouse and touch share, and which asks for `Denied` on a
   disabled one), the look changing to hover in `UiHover`, focus moving, stepping or activating
