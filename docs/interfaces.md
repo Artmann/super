@@ -719,7 +719,8 @@ It takes the seconds, 0.2 by default, an `Easing`, `Easing.Out` by default, and 
 a view can move in from somewhere the first time it shows. While a number is on its way,
 only that component's `Body` runs again each frame, and it stops once the number arrives.
 `UseTime()` is the interface's time in seconds, for something that never stops, like a
-spinner; its `Body` runs every frame for as long as it reads it.
+spinner; its `Body` runs every frame for as long as it reads it, even under `.Hidden()`, so
+leave a spinner out of the tree when nothing is loading.
 
 `.Transition(...)` eases a view in when it appears: `Entrance.Fade`, `Rise` or `Drop`, over
 the seconds you pass. It takes its full room from the first frame, so nothing around it

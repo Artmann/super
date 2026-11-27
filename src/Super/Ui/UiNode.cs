@@ -164,7 +164,12 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view) : IUiReco
     public void Unmount()
     {
         Mounted = false;
-        _hooks?.StopReading();
+        if (_hooks is not null)
+        {
+            _hooks.StopReading();
+            Tree.Clock.Forget(_hooks);
+        }
+
         foreach (var child in Children)
         {
             child?.Unmount();

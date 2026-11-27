@@ -68,8 +68,16 @@ public sealed class Toasts
     }
 }
 
-/// <summary>A toast on screen, and when its time is up, on its <see cref="Toasts"/>' clock.</summary>
-internal sealed record ShownToast(Toast Toast, float Until);
+/// <summary>
+/// A toast on screen, and when its time is up, on its <see cref="Toasts"/>' clock. A class, not a record, so
+/// the same toast shown twice is two cards, each with its own identity.
+/// </summary>
+internal sealed class ShownToast(Toast toast, float until)
+{
+    public Toast Toast { get; } = toast;
+
+    public float Until { get; } = until;
+}
 
 /// <summary>A view with the toasts floating over the bottom trailing corner of the screen.</summary>
 internal sealed record ToastsView(UiView Child, Toasts Toasts) : UiView
@@ -94,8 +102,8 @@ internal sealed record ToastStack(Toasts Toasts, IReadOnlyList<ShownToast> Shown
             var stack = new VStack(HorizontalAlignment.Trailing, 8f);
             foreach (var shown in Shown)
             {
-                // Each rises in as it arrives. The newest is always added at the end, so it's the one that's new.
-                stack.Add(Card(shown).Transition(Entrance.Rise));
+                // Each rises in as it arrives, and keeps its own card as others come and go.
+                stack.Add(Card(shown).Transition(Entrance.Rise).Id(shown));
             }
 
             return stack;

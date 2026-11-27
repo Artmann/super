@@ -294,13 +294,15 @@ The interface code in `src/Super/Ui` splits into small parts with one job each:
   new edit, and `UiTextInput.Apply` queues one `OnChange` a tick with the text as it ends up.
   Copy and paste go through `KeyFeed.Clipboard`, which only holds the text in a headless run,
   so tests never touch the system's clipboard.
-- Motion runs on `UiClock`, which `UiTree` owns. `LoopDraw` sets `UiTree.Clock.Now` to the
-  frame's clock before each update, so a headless run moves on exactly with its ticks. A
+- Motion runs on `UiClock`, which `UiTree` owns. `LoopDraw` passes the frame's clock to
+  `UiTree.Update`, so a headless run moves on exactly with its ticks. A tree updated without a
+  time moves a 60th of a second each update, and a second update at the same time, as after
+  the pointer moves, wakes nothing. An unmounted node takes its hooks off the clock. A
   `UseAnimation` slot is a `UiAnimation` in the component's `UiBodyHooks`: it keeps where it
   set off from, when, the target, the seconds and the easing, and `At(now)` works out where it
   is. A new target retargets from where it is now, so a change halfway turns round. While
   one hasn't arrived, the hooks call `UiClock.NextFrame`, and at the start of the next update
-  `Wake` marks those components changed, so only they run again; they ask again for as long
+  `Advance` marks those components changed, so only they run again; they ask again for as long
   as they're moving. `UseTime` asks every frame. `UiClock.Moving` (`HeadlessRun.Animating` in
   tests) is whether anything asked. Inside `.Animations(false)`, `UiEnvironment.Still` is set:
   animations retarget with no seconds and `UseTime` returns zero without asking for a frame, so

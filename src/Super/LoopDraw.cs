@@ -102,11 +102,10 @@ internal sealed class LoopDraw
         // The interface runs outside the measurement, so a stats panel reports the game and not itself.
         _stats.EndFrame();
         _pointer.Pump();
-        ui.Clock.Now = view.Clock.Now;
-        ui.Update(Interface(), width, height);
+        ui.Update(Interface(), width, height, view.Clock.Now);
         if (_pointer.Refresh())
         {
-            ui.Update(Interface(), width, height);
+            ui.Update(Interface(), width, height, view.Clock.Now);
         }
 
         _pointer.ShowOverlays();
@@ -121,7 +120,7 @@ internal sealed class LoopDraw
     {
         view.Begin(blend, _time.Tick, _time.TickSeconds, _time.Scale);
         _audio.EndFrame(view.Shot, _time.Scale, view.Clock.Now);
-        ui.Update(StoppedPanel.For(_halts.Stopped!), width, height);
+        ui.Update(StoppedPanel.For(_halts.Stopped!), width, height, view.Clock.Now);
         view.Effects.Ui = ui;
         _changes.Open = true;
     }

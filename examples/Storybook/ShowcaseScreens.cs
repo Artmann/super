@@ -234,7 +234,12 @@ internal sealed record CreatorScreen : UiView
             var made = UseState(new Character());
             var created = UseState(false);
             var c = made.Value;
-            Action<Character> set = changed => made.Value = changed;
+            // A change after creating makes a new character, which hasn't set out yet.
+            Action<Character> set = changed =>
+            {
+                made.Value = changed;
+                created.Value = false;
+            };
             return new VStack(HorizontalAlignment.Leading, 20f)
             {
                 new Text("Create your character").TextStyle(TextStyle.Title2),

@@ -505,5 +505,9 @@ public sealed class StorybookTests
         ClickControl(run, "create");
 
         Assert.True(Shows(run, "Wren sets out from the coast."));
+
+        // A colour picked after creating makes a new character, who hasn't set out yet.
+        ClickControl(run, "colour-2");
+        Assert.False(Shows(run, "Wren sets out from the coast."));
     }
 }

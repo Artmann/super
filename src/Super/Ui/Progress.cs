@@ -78,8 +78,9 @@ public sealed record ProgressView(string Label, float Value, float Total = 1f) :
                 : new HStack(Spacing: metrics.Gap) { ring, new Text(Label).FontSize(metrics.FontSize).Foreground(Tone.Muted) };
         }
 
-        // The piece runs from off the start to off the end, so it enters and leaves rather than bouncing.
-        float across = (float)(now / Sweep % 1.0) * 1.3f - 0.3f;
+        // The piece runs from off the start to off the end, so it enters and leaves rather than bouncing. It
+        // starts halfway, so at time 0, where it rests with motion off, it sits in the middle of the bar.
+        float across = (float)((now / Sweep + 0.5) % 1.0) * 1.3f - 0.3f;
         var bar = new MeterBar(Math.Min(across + 0.3f, 1f), colors.Primary, 8f) { From = Math.Max(across, 0f) };
         return Meters.Bar(Label, "", bar, metrics);
     }

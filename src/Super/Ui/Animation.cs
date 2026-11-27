@@ -35,15 +35,18 @@ public static class AnimationExtensions
 }
 
 /// <summary>
-/// The interface's time, in seconds, which the frame sets before each update. Components that are moving ask
-/// for the next frame here, and it runs them again then even though nothing else changed.
+/// The interface's time, in seconds, which each update moves on. Components that are moving ask for the next
+/// frame here, and it runs them again then even though nothing else changed.
 /// </summary>
 internal sealed class UiClock
 {
+    /// <summary>How far an update moves the time when nobody says what time it is.</summary>
+    public const double Step = 1.0 / 60.0;
+
     private List<UiBodyHooks> _waiting = [];
     private List<UiBodyHooks> _waking = [];
 
-    public double Now { get; set; }
+    public double Now { get; private set; }
 
     /// <summary>Whether something is moving, and the frame after this one will look different.</summary>
     public bool Moving => _waiting.Count > 0;
@@ -57,9 +60,22 @@ internal sealed class UiClock
         }
     }
 
-    /// <summary>Marks each component that asked for this frame to run again. Those still moving ask again as they run.</summary>
-    public void Wake()
+    /// <summary>Stops waiting on a component that has left the tree.</summary>
+    public void Forget(UiBodyHooks hooks) => _waiting.Remove(hooks);
+
+    /// <summary>
+    /// Moves to this time and marks each component that asked for the next frame to run again. Those still
+    /// moving ask again as they run. A second update at the same time, as when the pointer moved, wakes nothing,
+    /// since nothing would look different.
+    /// </summary>
+    public void Advance(double now)
     {
+        if (now == Now)
+        {
+            return;
+        }
+
+        Now = now;
         (_waiting, _waking) = (_waking, _waiting);
         foreach (var hooks in _waking)
         {

@@ -67,11 +67,13 @@ public sealed class UiTree
     /// <summary>
     /// Shows this description on a screen of this size in pixels. The interface lays itself
     /// out in that size divided by <see cref="Scale"/>. Pass null to show nothing.
+    /// <paramref name="now"/> is the interface's time in seconds, which animations follow.
+    /// The game passes it for you. Leave it out and each update counts as a 60th of a second.
     /// </summary>
-    public void Update(UiView? view, int width, int height)
+    public void Update(UiView? view, int width, int height, double? now = null)
     {
         // What's moving runs again at the new time.
-        Clock.Wake();
+        Clock.Advance(now ?? Clock.Now + UiClock.Step);
         var root = Root;
         bool changed = UiLayers.Mount(this, ref root, view) | (width, height) != _screen | _layoutWanted;
         Root = root;
