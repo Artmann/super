@@ -29,6 +29,20 @@ To see a game, use `--screenshot` or `--record` from `docs/command-line.md`, or 
 from code. They use the renderer's own frames, so they stay clean and repeatable.
 Never capture the desktop: that can pick up the user's other windows.
 
+## Issues
+
+Give every new issue labels when you create it. Run `gh label list` first and pick from
+what is there; don't make new labels.
+
+- One type: `bug` for something that's broken or wrong, `enhancement` for a new feature
+  or an improvement, `performance` when it's slow or uses too much memory,
+  `documentation` when only the docs need to change.
+- Plus every area it touches, such as `rendering`, `physics`, `audio`, `animation` or
+  `tools`.
+
+For example, a slowdown in the renderer gets `performance` and `rendering`. Title the
+issue with what goes wrong or what is wanted, not with the fix.
+
 ## Commits
 
 Use conventional commits (`feat:`, `fix:`, `docs:`, `chore:`). Don't list Claude

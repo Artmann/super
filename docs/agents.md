@@ -107,6 +107,10 @@ A game built on Super, a C# game engine used as a library. Docs: <path to super>
 - To see the game, use `--screenshot` or `--record`. Never capture the desktop.
 - Every new behaviour gets a headless test in `MyGame.Tests`, using `HeadlessGame` and
   `[Seeds]`.
+- To report a Super bug or ask for a feature, open an issue on Artmann/super with
+  `gh issue create`, and add labels from `gh label list -R Artmann/super`: one type
+  (`bug`, `enhancement`, `performance` or `documentation`) plus each area it touches,
+  such as `rendering` or `audio`.
 ````
 
 ## Where to look next
