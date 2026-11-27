@@ -47,4 +47,12 @@ public static class ControlExtensions
     /// <see cref="UiExtensions.Disabled"/> ignores it.
     /// </summary>
     public static UiView OnLongPress(this UiView view, Action action) => new LongPressModifier(view, action);
+
+    /// <summary>
+    /// Calls <paramref name="press"/> on the tick after any key, mouse button or gamepad button goes down, wherever the
+    /// mouse is, for a title screen's "Press any button". The press goes nowhere else, so it doesn't also pick
+    /// something on the screen that comes next, and the game doesn't see it. While this shows, the interface and the
+    /// game get no keys or buttons at all. Only one view listens: the first in the popup on top, or else in the tree.
+    /// </summary>
+    public static UiView OnAnyPress(this UiView view, Action press) => new CaptureModifier(view, null, _ => press());
 }

@@ -41,3 +41,4 @@ dotnet run -c Release --project examples/Storybook -- --story badges --theme lig
 | `Textured.cs` | The textured theme, with its card, popup and button pictures painted in code |
 | `Showcases.cs` | Whole screens a game would have, the frame they sit in, the main menu and the heads-up display |
 | `ShowcaseScreens.cs` | The settings screen, the inventory and the character creator |
+| `Openings.cs` | The title screen ("Press any button") and the loading screen with tips |

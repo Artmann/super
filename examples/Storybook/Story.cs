@@ -106,10 +106,12 @@ public static class Stories
         new("Story", "Title cards", "Big titles that rise and fade, and achievements that drop in and lift away.", Telling.TitleCards),
         new("Story", "Subtitles", "The line said at a time, at the bottom on a dark backing, with who says it.", Telling.Subtitles),
         new("HUD", "Compass and map", "A compass bar, a round minimap frame and numbers that rise and fade.", Wayfinding.Story),
-        new("Showcases", "Settings", "A settings screen: tabs of sections, sliders and switches, and a footer to apply.", Showcases.Settings),
+        new("Showcases", "Title screen", "The game's name and \"Press any button\". The first key, pad button or click anywhere, even on this list, goes on to the menu.", Showcases.TitleScreen),
+        new("Showcases", "Loading screen", "A chapter loading, tips that change and a bar that fills, then any button to go on.", Showcases.Loading),
+        new("Showcases", "Settings", "A settings screen: tabs of sections, arrow pickers, key binders and a held reset.", Showcases.Settings),
         new("Showcases", "Inventory", "A grid of items to pick from, and the picked one's details.", Showcases.Inventory),
-        new("Showcases", "Main menu", "A title screen with a column of choices and a quit that asks first.", Showcases.MainMenu),
-        new("Showcases", "HUD", "Health, a quest, a hotbar and a prompt over the game.", Showcases.Hud),
+        new("Showcases", "Main menu", "A title with a column of menu choices that wrap, and a quit that asks first.", Showcases.MainMenu),
+        new("Showcases", "HUD", "Bars that trail, gold that counts, a compass, a minimap, subtitles, a hotbar and a chest to open.", Showcases.Hud),
         new("Showcases", "Character creator", "A name, a calling, points to spend and a card that shows it all.", Showcases.CharacterCreator),
     ];
 
