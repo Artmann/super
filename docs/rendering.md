@@ -72,6 +72,7 @@ next frame follows, so it can back an options menu.
 |---|---|
 | `Screen.Vsync` | Off is the default: frames come as fast as the machine draws them, and fast movement may tear. On, each frame waits for the display. `--vsync` turns it on too |
 | `Screen.MaxFramesPerSecond` | The most frames drawn a second. 0, the default, is no limit. It saves power, and with vsync off it holds a steady rate |
+| `Screen.UploadBudget` | Milliseconds a frame for sending models and textures to the GPU as they [stream in](states.md#loading-screens), from 0.25 to 33. 2, the default, lands hundreds of small meshes made in code in a few frames. More loads faster for a slower frame while it does. One item goes each frame however long it takes. Only play in a window streams |
 | `Shadowing.SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
 | `Shadowing.ShadowResolution` | How many texels across each of the sun's shadow maps is: 1024, 2048 (the default) or 4096. Each step up sharpens shadow edges for four times the memory. A change rebuilds the maps before the next frame, which waits for the GPU once |
 | `Shadowing.ShadowCascades` | How many of the sun's shadow maps are drawn, from 1 to 4, the default. Each map covers three times the ground of the one before, and each draws the scene again, so fewer save GPU time. The sun casts no shadow past the last map drawn, so with 2 its shadows reach about a ninth as far as with 4. A frame that asks for fewer in [`Shadows`](#shadows) keeps its number |

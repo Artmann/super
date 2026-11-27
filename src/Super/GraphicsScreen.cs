@@ -1,3 +1,4 @@
+using System.Globalization;
 using Rendition;
 
 namespace Super;
@@ -5,6 +6,10 @@ namespace Super;
 /// <summary>How frames reach the screen: how fast they come, how large the scene is drawn and what smooths its edges.</summary>
 public sealed class GraphicsScreen
 {
+    internal const float DefaultUploadBudget = 2f;
+    private const float MinUploadBudget = 0.25f;
+    private const float MaxUploadBudget = 33f;
+
     /// <summary>
     /// Waits for the display before showing each frame, so the picture never tears and the frame rate
     /// stops at the display's, often 60. Off, the default, frames come as fast as the computer can draw
@@ -50,6 +55,21 @@ public sealed class GraphicsScreen
     /// </summary>
     public Upscaler Upscaler { get; set; } = Upscaler.Taa;
 
+    /// <summary>
+    /// Milliseconds a frame for sending loaded models and textures to the GPU while they stream in, from 0.25 to 33.
+    /// The default, 2, lets hundreds of small meshes made in code land in a few frames while a loading screen keeps
+    /// moving. More loads faster and costs frame rate while it does. One item goes each frame however long it takes.
+    /// Only play in a window streams; screenshots, recordings and profiles load everything before the first frame.
+    /// </summary>
+    public float UploadBudget
+    {
+        get;
+        set => field = value is >= MinUploadBudget and <= MaxUploadBudget
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, string.Create(CultureInfo.InvariantCulture,
+                $"The upload budget can be from {MinUploadBudget} to {MaxUploadBudget} milliseconds."));
+    } = DefaultUploadBudget;
+
     /// <summary>Smoothing jagged edges over several frames. Off, edges show their pixels, and nothing blurs as the camera moves.</summary>
     public bool AntiAliasing { get; set; } = true;
 
@@ -60,6 +80,7 @@ public sealed class GraphicsScreen
         MaxFramesPerSecond = other.MaxFramesPerSecond;
         RenderScale = other.RenderScale;
         Upscaler = other.Upscaler;
+        UploadBudget = other.UploadBudget;
         AntiAliasing = other.AntiAliasing;
     }
 }

@@ -11,7 +11,7 @@ public class GraphicsProfileTests
     // Every setting moved away from its default, so a copy or a round trip that drops one shows.
     private static Graphics Unusual() => new()
     {
-        Screen = { Vsync = true, MaxFramesPerSecond = 90, RenderScale = 0.75f, Upscaler = Upscaler.Fsr, AntiAliasing = false },
+        Screen = { Vsync = true, MaxFramesPerSecond = 90, RenderScale = 0.75f, Upscaler = Upscaler.Fsr, UploadBudget = 5f, AntiAliasing = false },
         Shadowing = { SunShadows = false, ShadowResolution = 4096, ShadowCascades = 2, ContactShadows = false, LightShadows = false },
         Lighting =
         {
@@ -99,7 +99,7 @@ public class GraphicsProfileTests
         var defaults = new Graphics();
         var unusual = Unusual();
 
-        Assert.Equal(69, Settings().Length);
+        Assert.Equal(70, Settings().Length);
         Assert.All(Settings(), setting => Assert.NotEqual(Value(defaults, setting), Value(unusual, setting)));
     }
 
