@@ -43,6 +43,19 @@ internal static class GraphicsProfile
         }
     }
 
+    // The names a --graphics profile file sets in its "Screen" group, matched exactly as reading does. A preset names none.
+    public static IReadOnlySet<string> ScreenSettingsIn(string profile)
+    {
+        if (!profile.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+            || JsonNode.Parse(File.ReadAllText(profile)) is not JsonObject root
+            || root["Screen"] is not JsonObject screen)
+        {
+            return new HashSet<string>();
+        }
+
+        return screen.Select(setting => setting.Key).ToHashSet(StringComparer.Ordinal);
+    }
+
     // The quality a profile extends, or null for Fastest.
     private static GraphicsQuality? Quality(JsonNode? name, string source)
     {

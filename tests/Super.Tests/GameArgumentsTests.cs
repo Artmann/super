@@ -529,6 +529,57 @@ public class GameArgumentsTests
         }
     }
 
+    [Theory]
+    [InlineData("fastest")]
+    [InlineData("low")]
+    [InlineData("ultra")]
+    public void A_graphics_preset_keeps_the_games_vsync_and_frame_limits(string preset)
+    {
+        var graphics = new Graphics { Screen = { Vsync = true, MaxFramesPerSecond = 120, UnfocusedMaxFramesPerSecond = 0 } };
+
+        Game.ApplyGraphicsArguments(graphics, GameArguments.Parse(["--graphics", preset]), gpu: null);
+
+        Assert.True(graphics.Screen.Vsync);
+        Assert.Equal(120, graphics.Screen.MaxFramesPerSecond);
+        Assert.Equal(0, graphics.Screen.UnfocusedMaxFramesPerSecond);
+    }
+
+    [Fact]
+    public void Auto_graphics_keeps_the_games_frame_limits_once_the_gpu_is_known()
+    {
+        var graphics = new Graphics { Screen = { MaxFramesPerSecond = 120, UnfocusedMaxFramesPerSecond = 0 } };
+
+        Game.ApplyGraphicsArguments(graphics, GameArguments.Parse(["--graphics", "auto"]), new GpuInfo("Laptop GPU", GpuKind.Integrated, 1L << 30, false));
+
+        Assert.Equal(0.75f, graphics.Screen.RenderScale);
+        Assert.Equal(120, graphics.Screen.MaxFramesPerSecond);
+        Assert.Equal(0, graphics.Screen.UnfocusedMaxFramesPerSecond);
+    }
+
+    [Fact]
+    public void A_graphics_profile_file_changes_only_the_frame_limits_it_names()
+    {
+        string folder = Directory.CreateTempSubdirectory("super-arguments-").FullName;
+        try
+        {
+            string path = Path.Combine(folder, "mine.json");
+            File.WriteAllText(path, """{ "Extends": "Low", "Screen": { "MaxFramesPerSecond": 60, "RenderScale": 1 } }""");
+            var graphics = new Graphics { Screen = { Vsync = true, MaxFramesPerSecond = 120, UnfocusedMaxFramesPerSecond = 0 } };
+
+            Game.ApplyGraphicsArguments(graphics, GameArguments.Parse(["--graphics", path]), gpu: null);
+
+            Assert.Equal(60, graphics.Screen.MaxFramesPerSecond);
+            Assert.Equal(1f, graphics.Screen.RenderScale);
+            Assert.True(graphics.Screen.Vsync);
+            Assert.Equal(0, graphics.Screen.UnfocusedMaxFramesPerSecond);
+            Assert.Equal(1024, graphics.Shadowing.ShadowResolution);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
     [Fact]
     public void A_missing_graphics_profile_file_is_named()
     {

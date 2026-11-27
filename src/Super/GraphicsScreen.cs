@@ -111,6 +111,25 @@ public sealed class GraphicsScreen
         return MaxFramesPerSecond == 0 ? UnfocusedMaxFramesPerSecond : Math.Min(MaxFramesPerSecond, UnfocusedMaxFramesPerSecond);
     }
 
+    /// <summary>Takes back vsync and the frame limits from <paramref name="before"/>, except those <paramref name="named"/> holds.</summary>
+    internal void KeepPacing(GraphicsScreen before, IReadOnlySet<string> named)
+    {
+        if (!named.Contains(nameof(Vsync)))
+        {
+            Vsync = before.Vsync;
+        }
+
+        if (!named.Contains(nameof(MaxFramesPerSecond)))
+        {
+            MaxFramesPerSecond = before.MaxFramesPerSecond;
+        }
+
+        if (!named.Contains(nameof(UnfocusedMaxFramesPerSecond)))
+        {
+            UnfocusedMaxFramesPerSecond = before.UnfocusedMaxFramesPerSecond;
+        }
+    }
+
     /// <summary>Takes every setting from <paramref name="other"/>.</summary>
     internal void CopyFrom(GraphicsScreen other)
     {
