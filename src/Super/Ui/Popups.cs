@@ -101,7 +101,20 @@ internal sealed record LayerView(UiView Content, LayerPlace Spot, Action? Dismis
     /// <summary>Whether a click outside calls <see cref="Dismiss"/>.</summary>
     public bool Light { get; init; }
 
-    internal override IReadOnlyList<UiView?> Children => [Traps ? new Backdrop(Scrim, Light ? Dismiss : null) : null, Content];
+    /// <summary>The backdrop, which fades in, and the content, which eases in from the way it opens.</summary>
+    internal override IReadOnlyList<UiView?> Children =>
+        [Traps ? new Backdrop(Scrim, Light ? Dismiss : null).Transition(Entrance.Fade, Fade) : null, Spot == LayerPlace.Corner ? Content : Content.Transition(Arrival, Fade)];
+
+    // How long a popup takes to come in, in seconds.
+    private const float Fade = 0.15f;
+
+    /// <summary>A menu drops from its button, a sheet rises from the bottom, and a dialog fades in where it is.</summary>
+    private Entrance Arrival => Spot switch
+    {
+        LayerPlace.Below or LayerPlace.At => Entrance.Drop,
+        LayerPlace.Bottom => Entrance.Rise,
+        _ => Entrance.Fade,
+    };
 
     /// <summary>The pointer goes past it in the tree. The tree's layers ask it with <see cref="HitInside"/>.</summary>
     internal override bool PassesPointer => true;

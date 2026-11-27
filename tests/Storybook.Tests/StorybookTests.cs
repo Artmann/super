@@ -38,8 +38,9 @@ public sealed class StorybookTests
 
             Assert.Equal(id, run.Game.Story.Id);
             Assert.Equal(light ? Theme.Light : Theme.Dark, run.Game.Theme);
-            // As the page's title, right of the sidebar, which scrolls, so a story far down it can be out of sight there.
-            Assert.Single(run.ShownText, shown => shown.Text == run.Game.Story.Name && shown.Frame.X > 232f);
+            // As the page's title, right of the sidebar, which scrolls, so a story far down it can be out of sight there,
+            // and in the header, since a showcase such as Settings has a heading of its own with the same name.
+            Assert.Single(run.ShownText, shown => shown.Text == run.Game.Story.Name && shown.Frame.X > 232f && shown.Frame.Y < 100f);
         }
     }
 
@@ -126,7 +127,7 @@ public sealed class StorybookTests
         var error = Assert.Throws<ArgumentException>(() => Stories.Find("tables"));
 
         Assert.StartsWith("There's no story \"tables\". The stories are typography, colours,", error.Message);
-        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists, cards, forms, tabs, navigation.", error.Message);
+        Assert.EndsWith("key-hints, buttons, toggles, sliders, steppers, pickers, progress, gauges, text-fields, focus, touch, menus, dialogs, sheets, toasts, layers, grids, flows, lazy-lists, cards, forms, tabs, navigation, animation, settings, inventory, main-menu, hud, character-creator.", error.Message);
     }
 
     /// <summary>Clicks a control this far across it, halfway down, and lets the click land.</summary>
@@ -380,5 +381,129 @@ public sealed class StorybookTests
 
         Assert.True(Shows(run, "Quality"));
         Assert.Equal("Graphics", run.Elements.Single(element => element.Role == UiRole.Navigation).Label);
+    }
+
+    [Fact]
+    public void Turning_animations_off_on_the_animation_page_stops_everything_on_it_moving()
+    {
+        using var run = Open(new StoryChoice("animation"));
+        // The spinner and the sweeping bar under Waiting keep moving for as long as they show.
+        Assert.True(run.Animating, "The page should be moving with animations on.");
+
+        ClickControl(run, "animations");
+
+        Assert.Equal(false, run.Element("animations").Checked);
+        Assert.False(run.Animating, "Nothing should move with animations off.");
+    }
+
+    [Fact]
+    public void The_animation_pages_health_drops_by_30_a_hit_and_heals_to_full()
+    {
+        using var run = Open(new StoryChoice("animation"));
+        // The health bar is the last specimen, below the fold of a small window.
+        run.Input.MoveMouse(new Vector2(run.ScreenSize.X / 2, run.ScreenSize.Y / 2));
+        run.Input.Scroll(-40f);
+        run.Ticks(2);
+        Assert.True(Shows(run, "100"), "The health should be in sight once scrolled to.");
+
+        ClickControl(run, "hit");
+        ClickControl(run, "hit");
+        Assert.True(Shows(run, "40"));
+
+        ClickControl(run, "heal");
+
+        Assert.True(Shows(run, "100"));
+    }
+
+    [Fact]
+    public void The_settings_screen_says_applied_until_something_changes()
+    {
+        using var run = Open(new StoryChoice("settings"));
+        Assert.False(Shows(run, "Applied."));
+
+        ClickControl(run, "apply");
+        Assert.True(Shows(run, "Applied."));
+
+        ClickControl(run, "fullscreen");
+        Assert.Equal(false, run.Element("fullscreen").Checked);
+        Assert.False(Shows(run, "Applied."), "A change after applying should take the note away.");
+    }
+
+    [Fact]
+    public void The_settings_screen_resets_to_its_defaults()
+    {
+        using var run = Open(new StoryChoice("settings"));
+        ClickControl(run, "fullscreen");
+        Assert.Equal(false, run.Element("fullscreen").Checked);
+
+        ClickControl(run, "reset");
+
+        Assert.Equal(true, run.Element("fullscreen").Checked);
+    }
+
+    [Fact]
+    public void The_inventory_shows_the_details_of_the_item_picked()
+    {
+        using var run = Open(new StoryChoice("inventory"));
+        Assert.True(Shows(run, "A plain blade, well kept. It holds an edge."));
+
+        ClickControl(run, "item-3");
+
+        Assert.True(Shows(run, "Mends a third of your health over a few seconds."));
+        Assert.True(Shows(run, "Drink"), "A potion is drunk, not equipped.");
+    }
+
+    [Fact]
+    public void The_main_menu_asks_before_quitting_and_cancel_stays()
+    {
+        using var run = Open(new StoryChoice("main-menu"));
+        ClickControl(run, "menu-quit");
+        Assert.True(Shows(run, "Quit to the desktop?"));
+
+        Press(run, Key.Escape);
+
+        Assert.True(Shows(run, "You stayed."));
+        Assert.False(Shows(run, "Quit to the desktop?"));
+    }
+
+    [Fact]
+    public void The_hud_hotbar_picks_the_slot_clicked()
+    {
+        using var run = Open(new StoryChoice("hud"));
+        Assert.Equal(true, run.Element("hotbar-1").Checked);
+
+        ClickControl(run, "hotbar-4");
+
+        Assert.Equal(true, run.Element("hotbar-4").Checked);
+        Assert.Equal(false, run.Element("hotbar-1").Checked);
+    }
+
+    [Fact]
+    public void The_character_creator_creates_only_with_a_name_and_every_point_spent()
+    {
+        using var run = Open(new StoryChoice("character-creator"));
+        Assert.True(run.Element("create").Disabled);
+        Assert.True(Shows(run, "Give them a name."));
+
+        ClickControl(run, "hero-name");
+        run.Input.Type("Wren");
+        run.Ticks(2);
+        Assert.True(Shows(run, "6 points to spend."));
+        Assert.True(run.Element("create").Disabled);
+
+        for (int i = 0; i < 6; i++)
+        {
+            // The plus button is the last thing along the stepper's row.
+            var stepper = run.Element("strength").Frame;
+            ClickAt(run, stepper, across: 1f - 12f / stepper.Width);
+        }
+
+        Assert.Equal("7", run.Element("strength").Value);
+        Assert.True(Shows(run, "Ready."));
+        Assert.False(run.Element("create").Disabled);
+
+        ClickControl(run, "create");
+
+        Assert.True(Shows(run, "Wren sets out from the coast."));
     }
 }

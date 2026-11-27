@@ -94,7 +94,8 @@ internal sealed record ToastStack(Toasts Toasts, IReadOnlyList<ShownToast> Shown
             var stack = new VStack(HorizontalAlignment.Trailing, 8f);
             foreach (var shown in Shown)
             {
-                stack.Add(Card(shown));
+                // Each rises in as it arrives. The newest is always added at the end, so it's the one that's new.
+                stack.Add(Card(shown).Transition(Entrance.Rise));
             }
 
             return stack;

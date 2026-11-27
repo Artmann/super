@@ -280,7 +280,7 @@ around it.
 | `Slider` | `Min`, `Max` and `Step`. A press on the track jumps there, and dragging follows the cursor even off the track. `Label` names it for tests |
 | `Stepper` | `Min`, `Max` and `Step`. Each button turns off at its end of the range |
 | `Picker<T>` | `Style`: `Segmented`, side by side with the picked one raised, `Radio`, one under the other, or `Menu`, a button showing the picked one that opens a menu with it checked |
-| `ProgressView` | `Style`: `Linear` or `Circular`. A bar with a label shows the percentage beside it, and a ring shows it inside |
+| `ProgressView` | `Style`: `Linear` or `Circular`. A bar with a label shows the percentage beside it, and a ring shows it inside. Made with only a label, `new ProgressView("Connecting")`, it doesn't know how far along it is, so a ring spins and a piece of the bar sweeps across |
 | `Gauge` | `Style`: `Circular` or `Linear`, `Tint` for its own colour, and `ValueLabel` for the reading shown in place of the number |
 
 ![Button styles, toggles, sliders and pickers in the storybook](media/ui-controls.webp)
@@ -460,9 +460,14 @@ those for a shot, with `--story focus --script focus`. The `touch` story and scr
 long presses and flings. The `menus`, `dialogs`, `sheets` and `toasts` stories have every popup,
 and the `menu`, `context`, `alert`, `confirm`, `sheet`, `popover` and `toasts` scripts open them.
 The `layers`, `grids`, `flows` and `lazy-lists` stories show the [layout](#layout) views, and
-`cards`, `forms`, `tabs` and `navigation` show the [containers](#containers).
+`cards`, `forms`, `tabs` and `navigation` show the [containers](#containers). The `animation`
+story shows what moves, and has a switch that turns it off. The showcases, `settings`,
+`inventory`, `main-menu`, `hud` and `character-creator`, are whole screens a game would have,
+built only from these elements, and each one works.
 
 ![The storybook's shapes page in the dark theme](media/storybook.webp)
+
+![The main menu, heads-up display, inventory and character creator showcases](media/ui-showcases.webp)
 
 ## Layout
 
@@ -680,6 +685,67 @@ same order on each run. Hand a `State<T>` to a child to let the child use it too
 
 The rule is the same as for views: if gameplay cares, it's game state, and it belongs in
 your own classes, not in `UseState`.
+
+## Animation
+
+The built-in controls move on their own. A switch's knob slides across, a slider's thumb eases
+to where the track was pressed, menus drop from their buttons, sheets rise, and dialogs and
+their scrims fade in. What a control says it's set to changes at once, so a test or a game
+reading it never waits for the motion.
+
+`UseAnimation` eases a number of your own toward a target. Give it the target every frame, and
+it returns where the number is on its way there. Change the target and it sets off from where
+it is, so a change halfway turns round smoothly:
+
+```csharp
+record HealthBar(float Health) : UiView
+{
+    public override UiView Body
+    {
+        get
+        {
+            float shown = UseAnimation(Health / 100f, 0.4f);
+            return new ZStack(Alignment.Leading)
+            {
+                new Capsule().Fill(Color.Hex("#EF4444", 0.2f)),
+                new Capsule().Fill(Color.Hex("#EF4444")).Frame(width: 320f * shown),
+            }.Frame(320f, 10f);
+        }
+    }
+}
+```
+
+It takes the seconds, 0.2 by default, an `Easing`, `Easing.Out` by default, and `from:` for where a new one starts, so
+a view can move in from somewhere the first time it shows. While a number is on its way,
+only that component's `Body` runs again each frame, and it stops once the number arrives.
+`UseTime()` is the interface's time in seconds, for something that never stops, like a
+spinner; its `Body` runs every frame for as long as it reads it.
+
+`.Transition(...)` eases a view in when it appears: `Entrance.Fade`, `Rise` or `Drop`, over
+the seconds you pass. It takes its full room from the first frame, so nothing around it
+jumps, and it takes clicks all the way in. To play it again, give the view a new `.Id(...)`.
+
+```csharp
+new Text("Quest complete").Transition(Entrance.Rise, 0.4f)
+```
+
+`.Animations(false)` turns motion off for everything inside, for a player who wants less of
+it: controls jump straight to where they're going, `UseAnimation` returns its target, and
+`UseTime()` stays at zero, so nothing runs again each frame. Read `Environment.Animates` in
+a view of your own to do the same.
+
+The interface's clock is the frame's, which moves on with each tick in a headless run. Tick
+past the motion to see where things end up, and `run.Animating` says whether anything is
+still moving:
+
+```csharp
+run.Input.Click("music");
+run.Ticks(1);
+Assert.True(run.Element("music").Checked);   // at once
+Assert.True(run.Animating);                  // the knob is on its way
+run.Ticks(10);
+Assert.False(run.Animating);
+```
 
 ## The mouse
 
@@ -941,8 +1007,10 @@ stops repeating.
 Touch is read on Windows only, and only tried with scripts so far, not on a real touch screen.
 A finger can't drag and drop, there's no pinch or rotate, and a long press is for fingers only.
 Text fields are one line only. Menus have no submenus, a context menu has no key to open it from
-the keyboard or the gamepad, toasts have no buttons of their own, and popups appear and leave at
-once, with no animation. A lazy stack's rows all have one height, there's no lazy row or lazy
+the keyboard or the gamepad, toasts have no buttons of their own, and views ease in when they
+appear but leave at once: there are no exit transitions, and no transition that slides a whole
+page across. Animations ease numbers and come in fixed entrances; there are no springs or
+keyframes. A lazy stack's rows all have one height, there's no lazy row or lazy
 grid, and when a lazy list scrolls far in one frame the new rows show a frame later.
 Going back in a navigation stack forgets the state of the page that was under it, and a tab
 view or a navigation stack under `.Hidden()` still takes the bumpers and Escape. There's no

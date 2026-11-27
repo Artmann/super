@@ -99,10 +99,10 @@ internal sealed class LoopDraw
         // Last of the frame's own work, so the listener is the camera the frame showed and the hooks' changes go too.
         _audio.EndFrame(view.Shot, _time.Scale, view.Clock.Now);
 
-        // The interface runs outside the measurement, so a stats panel reports the game
-        // and not itself.
+        // The interface runs outside the measurement, so a stats panel reports the game and not itself.
         _stats.EndFrame();
         _pointer.Pump();
+        ui.Clock.Now = view.Clock.Now;
         ui.Update(Interface(), width, height);
         if (_pointer.Refresh())
         {

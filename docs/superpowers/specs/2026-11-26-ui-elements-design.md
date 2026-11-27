@@ -76,7 +76,7 @@ in a corner and time out.
 UI time is its own clock, advanced per frame, and set by hand in tests. `UseAnimation(target,
 duration, easing)` returns the value moving toward the target and keeps the component
 running until it arrives. Controls use it for knobs, thumbs, fades and expanding sections.
-`.Transition(...)` fades, slides or scales a view in when it appears.
+`.Transition(...)` fades a view in when it appears, or fades it in as it rises or drops into place.
 
 ### Semantics
 
@@ -132,4 +132,7 @@ that isn't meant to be cut, and clashing ids.
    with Escape and East going back and the bumpers switching tabs. Going back forgets the
    page underneath's state.
 7. Animation and transitions, including the spinning `ProgressView` and the switch's and
-   slider's moving knobs; showcase screens; polish passes.
+   slider's moving knobs; showcase screens; polish passes. Done: `UseAnimation`, `UseTime`,
+   `.Transition(Entrance)` with fade, rise and drop, popups and their scrims easing in, and
+   `.Animations(false)`. The five showcases are stories. Views don't animate out, and there's
+   no slide or scale transition yet.

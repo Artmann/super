@@ -61,7 +61,7 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view) : IUiReco
         else
         {
             // A component's one child is what its Body describes, run with its hooks.
-            _hooks ??= new UiBodyHooks(MarkDirty);
+            _hooks ??= new UiBodyHooks(MarkDirty, Tree.Clock);
             var body = _hooks.Run(view, style, static component => component.Body);
             Children = UiChildren.Reconcile(this, Children, [body], style, static (parent, child) => new UiNode(parent.Tree, parent, child));
         }
