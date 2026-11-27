@@ -28,10 +28,12 @@ for an amount of its time from 0 to 1. Time outside 0 to 1 is held at the ends.
 | `BackIn`, `BackOut`, `BackInOut` | Pulls back a little before going, or goes a little past and settles |
 | `ElasticIn`, `ElasticOut`, `ElasticInOut` | Springs and wobbles |
 | `BounceIn`, `BounceOut`, `BounceInOut` | Lands and bounces like a dropped ball |
+| `Spring` | Goes about a tenth past the end, swings back a little and settles, gentler than `ElasticOut` |
 
 Each family comes as `In`, `Out` and `InOut`, for example `QuadIn`, `QuadOut` and
 `QuadInOut`. They are the usual Penner curves. `Back` and `Elastic` go past 0 and 1 on
-the way, so a tween using them overshoots its end before it settles.
+the way, so a tween using them overshoots its end before it settles. `Spring` comes on its
+own, a damped spring let go at the start, and overshoots too.
 
 ## Curves
 

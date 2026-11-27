@@ -35,5 +35,6 @@ dotnet run -c Release --project examples/Storybook -- --story badges --theme lig
 | `Arranging.cs` | Pages for overlays, offsets, hiding, aspect ratios, grids, flows, views that fit and lazy lists |
 | `Containing.cs` | Pages for cards, labelled content, forms, disclosure groups, tab views and navigation stacks |
 | `Moving.cs` | The animation page: controls that move, spinners, transitions, a health bar of your own, and motion turned off |
+| `Feeling.cs` | The game feel page: presses that squash, springs, counting gold, a gauge's trail, a quest card that leaves and pages that slide |
 | `Showcases.cs` | Whole screens a game would have, the frame they sit in, the main menu and the heads-up display |
 | `ShowcaseScreens.cs` | The settings screen, the inventory and the character creator |

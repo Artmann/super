@@ -71,6 +71,8 @@ Interface code runs on the CPU only. Layout and text are real in headless runs, 
 | `Picker<T>("Difficulty", picked, options, set)` | One of a few `PickerOption`s, segmented or as radio buttons |
 | `ProgressView("Loading", done, total)` | How far along something is, as a bar or a ring |
 | `Gauge("Health", value, min, max)` | A reading on a scale, as a ring open at the bottom or a bar |
+| `CountingText(value)` | A number that counts to a new value. See [Game feel](#game-feel) |
+| `Presence(shown, content)` | A view that eases in, and out again before it goes. See [Game feel](#game-feel) |
 | `Rectangle`, `RoundedRectangle(radius)`, `Capsule`, `Circle`, `Ellipse` | A shape that fills the space it's offered. See [Shapes](#shapes) |
 | `Arc(start, sweep, thickness)` | Part of a ring, for progress rings, cooldowns and gauges |
 | `new Icon(IconName.Search)` | A line icon, sized and coloured like the text around it |
@@ -98,6 +100,7 @@ Modifiers wrap a view, so their order usually matters.
 | `.Background(color)`, `.Background(Paint.Linear(...))` | Fills the view's area with a colour or a [gradient](#gradients) |
 | `.Background(view, alignment)`, `.Overlay(view, alignment)` | Puts a view behind or in front, at the size of this one. Neither changes the size |
 | `.Offset(x, y)` | Moves where the view is drawn and clicked, and leaves its neighbours where they were |
+| `.Scale(factor)` | Draws the view bigger or smaller round its middle, without changing the layout or where it's clicked |
 | `.Hidden()` | Hides the view but keeps its room. It can't be clicked or focused, and tests don't see it |
 | `.LayoutPriority(priority)` | Lets a stack serve this view first when it's short of room |
 | `.AspectRatio(ratio, ContentMode.Fit)` | Keeps the view at one width to height, the biggest that fits or, with `Fill`, the smallest that covers |
@@ -727,7 +730,8 @@ new NavigationStack<SettingsPage>(_path, "Settings", mainMenu, page => page swit
 `Push` opens a page, `Back` goes back one and says whether there was one, and `BackToRoot`
 empties the path. A page's title is its `ToString`, or what `TitleOf` gives. Tests find the
 stack as `UiRole.Navigation`, with the title shown as its `Label` and the depth as its
-`Value`.
+`Value`. A new page slides in from the side over a quarter of a second, as in
+[Game feel](#game-feel), so a test ticks past that before it checks the page under is gone.
 
 ### Text that doesn't fit
 
@@ -846,6 +850,54 @@ Assert.True(run.Animating);                  // the knob is on its way
 run.Ticks(10);
 Assert.False(run.Animating);
 ```
+
+### Game feel
+
+Game menus move more than an app's do, so the controls add a little motion of their own. Every
+button shrinks a little while it's held and springs back when it's let go. A `Gauge` that drops
+leaves what it lost behind as a pale piece that drains away after it, so a big hit reads as big.
+A navigation stack slides a pushed page in from the trailing side while the page under it fades
+out, and going back slides the other way. Each one has a switch on the theme's `Motion`:
+
+```csharp
+var calm = Theme.Dark with { Motion = Theme.Dark.Motion with { PressScale = 0.98f, SlidesPages = false } };
+```
+
+`PressScale` is how big a held button is drawn, where 1 doesn't squash it. `TrailsLoss` and
+`SlidesPages` turn the trail and the slide on and off. `ThemeMotion.None` turns all three off,
+and `.Animations(false)` turns them off along with everything else.
+
+`.Scale(factor)` draws a view bigger or smaller round its middle. Unlike `.Offset`, it only
+changes where the view is drawn: the layout and the mouse still see it at its full size. Text
+inside is drawn at the scaled size, so it stays sharp. `Easing.Spring` goes about a tenth past
+its end and settles, which suits something popping into place:
+
+```csharp
+record PopIn(UiView Content) : UiView
+{
+    public override UiView Body => Content.Scale(UseAnimation(1f, 0.5f, Easing.Spring, from: 0f));
+}
+```
+
+`CountingText(value)` is a number that counts to a new value over `Seconds`, 0.6 by default,
+instead of jumping there, for a score, gold or experience. Its digits are all as wide, so it
+doesn't shake as it counts. `Format` says how it reads:
+
+```csharp
+new CountingText(gold) { Format = n => $"{n:0} gold" }.FontSize(22f)
+```
+
+`Presence(shown, content)` lets a view leave as well as arrive. It eases `content` in the way its
+`Entrance` says while `shown` is true, and when `shown` turns false it plays that backwards
+before the view goes. While it leaves, it's drawn but the mouse goes through it. Once it's gone
+it takes no room and keeps no state. Keep the `Presence` in the tree all the time and change
+`shown`; leaving it out removes the view at once, as before.
+
+```csharp
+new Presence(paused, pauseMenu) { Entrance = Entrance.Rise, Seconds = 0.3f }
+```
+
+![Presses, springs, counting gold, a gauge's trail, a leaving quest card and a sliding navigation stack in the Storybook's Game feel story](media/ui-motion.webp)
 
 ## Sounds
 
@@ -1136,10 +1188,11 @@ stops repeating.
 Touch is read on Windows only, and only tried with scripts so far, not on a real touch screen.
 A finger can't drag and drop, there's no pinch or rotate, and a long press is for fingers only.
 Text fields are one line only. Menus have no submenus, a context menu has no key to open it from
-the keyboard or the gamepad, toasts have no buttons of their own, and views ease in when they
-appear but leave at once: there are no exit transitions, and no transition that slides a whole
-page across. Animations ease numbers and come in fixed entrances; there are no springs or
-keyframes. A lazy stack's rows all have one height, there's no lazy row or lazy
+the keyboard or the gamepad, toasts have no buttons of their own. Only a `Presence` plays an exit:
+popups and toasts still go at once, a view on its way out keeps focus if it had it, and a stack
+still puts its spacing beside a `Presence` that's gone. Animations ease numbers and come in
+fixed entrances; there are no keyframes, and `Easing.Spring` is a fixed curve rather than a
+spring that keeps its speed when its target changes. A lazy stack's rows all have one height, there's no lazy row or lazy
 grid, and when a lazy list scrolls far in one frame the new rows show a frame later.
 Going back in a navigation stack forgets the state of the page that was under it, and a tab
 view or a navigation stack under `.Hidden()` still takes the bumpers and Escape. There's no

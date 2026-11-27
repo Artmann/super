@@ -219,13 +219,65 @@ public sealed class ContainerTests
         Assert.DoesNotContain(run.Elements, element => element.Role == UiRole.Button);
 
         path.Push(Page.Video);
-        run.Ticks(1);
+        run.Ticks(10);
 
         Assert.True(Shows(run, "Video page"));
         Assert.False(Shows(run, "Root page"));
         var stack = run.Elements.Single(element => element.Role == UiRole.Navigation);
         Assert.Equal(("Video", "1"), (stack.Label, stack.Value));
         Assert.Single(run.Elements, element => element is { Role: UiRole.Button, Label: "Settings" });
+    }
+
+    [Fact]
+    public void A_pushed_page_slides_in_from_the_trailing_side_while_the_page_under_fades_out()
+    {
+        var path = new NavigationPath<Page>();
+        using var run = Run(_ => Settings(path));
+        float rootX = FrameOf(run, "Root page").X;
+
+        path.Push(Page.Video);
+        run.Ticks(2);
+        var coming = run.ShownText.Single(shown => shown.Text == "Video page");
+        var going = run.ShownText.Single(shown => shown.Text == "Root page");
+
+        Assert.True(coming.Frame.X > rootX, $"The new page is at {coming.Frame.X}, the root was at {rootX}.");
+        Assert.True(going.Frame.X < rootX, $"The page going out is at {going.Frame.X}.");
+        Assert.InRange(going.Color.A, 0.01f, 0.99f);
+        Assert.InRange(coming.Color.A, 0.01f, 0.99f);
+
+        run.Ticks(10);
+        Assert.Equal(rootX, FrameOf(run, "Video page").X, 0.01f);
+        Assert.Equal(1f, run.ShownText.Single(shown => shown.Text == "Video page").Color.A);
+        Assert.False(run.Animating);
+    }
+
+    [Fact]
+    public void Going_back_slides_the_page_under_in_from_the_leading_side()
+    {
+        var path = new NavigationPath<Page>();
+        path.Push(Page.Video);
+        using var run = Run(_ => Settings(path));
+        float videoX = FrameOf(run, "Video page").X;
+
+        path.Back();
+        run.Ticks(2);
+
+        Assert.True(FrameOf(run, "Root page").X < videoX);
+        Assert.True(FrameOf(run, "Video page").X > videoX);
+    }
+
+    [Fact]
+    public void Without_sliding_pages_a_pushed_page_shows_at_once()
+    {
+        var path = new NavigationPath<Page>();
+        var still = Theme.Dark with { Motion = ThemeMotion.None };
+        using var run = Run(_ => Settings(path).Theme(still));
+
+        path.Push(Page.Video);
+        run.Ticks(1);
+
+        Assert.False(Shows(run, "Root page"));
+        Assert.Equal(1f, run.ShownText.Single(shown => shown.Text == "Video page").Color.A);
     }
 
     [Fact]

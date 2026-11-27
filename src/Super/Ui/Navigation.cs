@@ -68,12 +68,13 @@ public sealed record NavigationStack<T>(NavigationPath<T> Path, string Title, Ui
             };
 
             // Each depth is its own place, so a page pushed where another was starts afresh.
-            var page = (depth == 0 ? Root : Destination(pages[^1])).Id(depth == 0 ? "root" : (depth, pages[^1]));
+            object key = depth == 0 ? "root" : (depth, pages[^1]);
+            var page = (depth == 0 ? Root : Destination(pages[^1])).Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);
             var view = new VStack(HorizontalAlignment.Leading, 0f)
             {
                 Bar(title, under),
                 new Divider(),
-                page.Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading),
+                Pages(key, depth, page),
             };
             var path = Path;
             var meaning = new SemanticsModifier(view, new UiSemantics(UiRole.Navigation, title, depth.ToString(CultureInfo.InvariantCulture)));
@@ -97,4 +98,71 @@ public sealed record NavigationStack<T>(NavigationPath<T> Path, string Title, Ui
             .Padding(8f, 6f)
             .Frame(maxWidth: UiExtensions.Infinity, minHeight: metrics.Height + 12f);
     }
+
+    /// <summary>
+    /// The page on top, and while it slides in, the page it took over from sliding out: a page pushed comes in from
+    /// the trailing side and one gone back to from the leading side. Both keep their places by their keys, so the page
+    /// going out is the same one that was showing and the page that comes back is the one that was left.
+    /// </summary>
+    private UiView Pages(object key, int depth, UiView page)
+    {
+        var slide = UseState(new PageSlide()).Value;
+        if (!Equals(slide.Key, key))
+        {
+            if (slide.Key is not null)
+            {
+                (slide.LeavingKey, slide.Leaving, slide.Forward) = (slide.Key, slide.Page, depth >= slide.Depth);
+                slide.Changes++;
+            }
+
+            (slide.Key, slide.Depth) = (key, depth);
+        }
+
+        slide.Page = page;
+        bool slides = Environment.Theme.Motion.SlidesPages;
+        float moved = UseAnimation(slide.Changes, PageSlide.Seconds, Easing.Out);
+        float shown = slides ? 1f - Math.Clamp(slide.Changes - moved, 0f, 1f) : 1f;
+        if (shown >= 1f)
+        {
+            slide.Leaving = null;
+        }
+
+        float way = slide.Forward ? PageSlide.Travel : -PageSlide.Travel;
+        return new ZStack(Alignment.TopLeading)
+        {
+            slide.Leaving is { } leaving ? PageSlide.At(leaving, -way * shown, 1f - shown, true).Id(slide.LeavingKey!) : null,
+            PageSlide.At(page, way * (1f - shown), shown, false).Id(key),
+        };
+    }
+}
+
+/// <summary>What a navigation stack remembers between frames to slide from one page to the next.</summary>
+internal sealed class PageSlide
+{
+    /// <summary>How long a page takes to slide in, in seconds.</summary>
+    public const float Seconds = 0.25f;
+
+    /// <summary>How far a page slides, in units.</summary>
+    public const float Travel = 40f;
+
+    public object? Key { get; set; }
+
+    public int Depth { get; set; }
+
+    public UiView? Page { get; set; }
+
+    public object? LeavingKey { get; set; }
+
+    /// <summary>The page going out, until the new one is all the way in.</summary>
+    public UiView? Leaving { get; set; }
+
+    /// <summary>Whether the last change went deeper, so the new page comes in from the trailing side.</summary>
+    public bool Forward { get; set; } = true;
+
+    /// <summary>How many times the page has changed, which the slide counts towards.</summary>
+    public int Changes { get; set; }
+
+    /// <summary>A page this far across and this faded, in the same views however far along so it keeps its state.</summary>
+    public static UiView At(UiView page, float x, float alpha, bool leaving) =>
+        new LeavingModifier(new OffsetModifier(new BoxModifier(page) { Alpha = alpha }, x, 0f), leaving);
 }

@@ -86,6 +86,9 @@ internal sealed record MeterBar(float Fraction, Paint Fill, float Thickness, flo
     /// <summary>Where the fill starts, as a fraction of the track, for a bar that doesn't know how far along it is.</summary>
     public float From { get; init; }
 
+    /// <summary>Where a loss that's still draining away ends, as a fraction of the track, drawn pale past the fill.</summary>
+    public float Trail { get; init; }
+
     internal override IReadOnlyList<UiView?> Children => [];
 
     internal override bool Blocks => true;
@@ -107,6 +110,12 @@ internal sealed record MeterBar(float Fraction, Paint Fill, float Thickness, flo
         // The thumb's middle runs from half a thumb in at one end to half a thumb in at the other.
         float end = Thumb > 0f ? Thumb / 2f + f * (frame.Width - Thumb) : f * frame.Width;
         float start = Math.Clamp(From, 0f, f) * frame.Width;
+        float trail = Math.Clamp(Trail, 0f, 1f) * frame.Width;
+        if (trail > end)
+        {
+            draw.AddBox(track with { X = track.X + start, Width = trail - start }, Meters.TrailColor(colors), Thickness / 2f);
+        }
+
         if (end > start)
         {
             draw.AddBox(track with { X = track.X + start, Width = end - start }, Fill, Thickness / 2f);

@@ -64,6 +64,12 @@ public enum Easing
     BounceOut,
 
     BounceInOut,
+
+    /// <summary>
+    /// Shoots past the end by about a tenth, swings back a little short and settles, like a damped spring. Gentler
+    /// than <see cref="ElasticOut"/>, for a panel or a button popping into place.
+    /// </summary>
+    Spring,
 }
 
 /// <summary>The sums behind <see cref="Easing"/>.</summary>
@@ -91,6 +97,7 @@ public static class Ease
             Easing.BounceIn => 1f - Bounce(1f - t),
             Easing.BounceOut => Bounce(t),
             Easing.BounceInOut => BounceInOut(t),
+            Easing.Spring => Spring(t),
             _ => FromInCurve(easing, t),
         };
     }
@@ -158,6 +165,24 @@ public static class Ease
         }
 
         return -MathF.Pow(2f, 10f * t - 10f) * MathF.Sin((10f * t - 10.75f) * ElasticPeriod);
+    }
+
+    /// <summary>
+    /// An underdamped spring let go at 0 and pulled to 1. It dies away by e^-6 by the end, and the end is pinned to
+    /// 1 so it lands exactly.
+    /// </summary>
+    private static float Spring(float t)
+    {
+        if (t >= 1f)
+        {
+            return 1f;
+        }
+
+        // Dies away this fast, and swings this fast, in radians per unit of time: about a tenth past at the peak.
+        const float decay = 6f;
+        const float swing = 9f;
+        float fade = MathF.Exp(-decay * t);
+        return 1f - fade * (MathF.Cos(swing * t) + decay / swing * MathF.Sin(swing * t));
     }
 
     private static float BounceInOut(float t)
