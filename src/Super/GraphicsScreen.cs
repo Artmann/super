@@ -32,18 +32,20 @@ public sealed class GraphicsScreen
     }
 
     /// <summary>
-    /// The most frames drawn in a second while the player is in another window, or 0, the default, to keep to
-    /// <see cref="MaxFramesPerSecond"/>. A low limit, such as 10, saves power and keeps the fans quiet while the game
-    /// waits in the background. It never draws faster than <see cref="MaxFramesPerSecond"/>. The game still ticks at
-    /// its own rate; use <see cref="WindowInput.HasFocus"/> to pause it.
+    /// The most frames drawn in a second while the player is in another window. -1, the default, keeps to
+    /// <see cref="MaxFramesPerSecond"/>, and 0 draws nothing until the window has focus again, so the GPU rests. A low
+    /// limit, such as 10, saves power and keeps the fans quiet while the game waits in the background. It never draws
+    /// faster than <see cref="MaxFramesPerSecond"/>. The game still ticks at its own rate; use
+    /// <see cref="WindowInput.HasFocus"/> to pause it.
     /// </summary>
     public int UnfocusedMaxFramesPerSecond
     {
         get;
-        set => field = value >= 0
+        set => field = value >= -1
             ? value
-            : throw new ArgumentOutOfRangeException(nameof(value), value, "The unfocused frame limit can't be negative. Use 0 to keep to MaxFramesPerSecond.");
-    }
+            : throw new ArgumentOutOfRangeException(nameof(value), value,
+                "The unfocused frame limit can be -1 to keep to MaxFramesPerSecond, 0 to draw nothing, or a frame rate.");
+    } = -1;
 
     /// <summary>
     /// How large the scene is drawn against the window, from 0.5 to 2 each way; 1 draws it at the window's
@@ -87,10 +89,21 @@ public sealed class GraphicsScreen
     /// <summary>Smoothing jagged edges over several frames. Off, edges show their pixels, and nothing blurs as the camera moves.</summary>
     public bool AntiAliasing { get; set; } = true;
 
-    /// <summary>The frame limit to keep to, or 0 for none, as the window has focus or not.</summary>
-    internal int FrameLimit(bool focused)
+    /// <summary>Whether frames are drawn, as the window has focus or not.</summary>
+    internal bool Draws(bool focused) => focused || UnfocusedMaxFramesPerSecond != 0;
+
+    /// <summary>
+    /// How many times a second the loop runs, or 0 for no limit, as the window has focus or not. While nothing is
+    /// drawn it wakes once a tick, so the game keeps its pace without spinning.
+    /// </summary>
+    internal int FrameLimit(bool focused, int ticksPerSecond)
     {
-        if (focused || UnfocusedMaxFramesPerSecond == 0)
+        if (!Draws(focused))
+        {
+            return ticksPerSecond;
+        }
+
+        if (focused || UnfocusedMaxFramesPerSecond == -1)
         {
             return MaxFramesPerSecond;
         }

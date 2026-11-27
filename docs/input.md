@@ -140,7 +140,7 @@ if (input.Window.FocusLost)
 
 The window lets go of every key and button as it loses focus, so nothing stays held while the
 player is away. Set [`Screen.UnfocusedMaxFramesPerSecond`](rendering.md#graphics-settings) to
-draw fewer frames meanwhile. Tests take focus away with `run.Input.LoseFocus()` and give it
+draw fewer frames meanwhile, or 0 to draw none. Tests take focus away with `run.Input.LoseFocus()` and give it
 back with `GainFocus()`. `FocusGained` is true on the tick after it comes back, and a
 blip between two ticks shows both.
 
