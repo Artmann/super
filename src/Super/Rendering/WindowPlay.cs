@@ -153,9 +153,9 @@ internal sealed class WindowPlay(OsWindow window, SceneRenderer scene, WindowFra
         }
 
         var dev = DevOf(host);
-        scene.Baking.BakeOnArrival(AutoBakePolicy.For(dev, scene.Renderer.CanTrace, host.Graphics));
+        scene.Baking.BakeOnArrival(AutoBakePolicy.For(dev, scene.Renderer.Gpu.CanTrace, host.Graphics));
 
         // From source, a GPU that can't trace says once why the lighting stays live; a player isn't told.
-        scene.Baking.SaysWhyNotBaking = host.Graphics.Baking.BakeOnArrival && !scene.Renderer.CanTrace && dev is not null;
+        scene.Baking.SaysWhyNotBaking = host.Graphics.Baking.BakeOnArrival && !scene.Renderer.Gpu.CanTrace && dev is not null;
     }
 }

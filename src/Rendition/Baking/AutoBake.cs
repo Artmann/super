@@ -6,7 +6,7 @@ namespace Rendition;
 /// What the renderer bakes by itself, set on <see cref="RendererBaking.AutoBake"/>. Each frame it looks for areas the frame
 /// names whose bake is missing or stale and bakes them in the background, one at a time, nearest to the camera first,
 /// a slice a frame within <see cref="BudgetMilliseconds"/> of GPU time. Null on <see cref="RendererBaking.AutoBake"/> bakes
-/// nothing. Ignored where <see cref="Renderer.CanTrace"/> is false. See "Baking in the background" in
+/// nothing. Ignored where <see cref="GpuInfo.CanTrace"/> is false. See "Baking in the background" in
 /// docs/rendering.md.
 /// </summary>
 /// <param name="BudgetMilliseconds">The GPU time a frame's slice of the bake may take, measured by timestamps.</param>

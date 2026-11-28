@@ -703,7 +703,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
     // Bakes the one copy of the chunk named, with only its own draw and lamp in the frame.
     private LightBakeFile Bake(DrawItem wall, Matrix4x4 chunk, LocalLight[] lamps)
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         var view = View(chunk, lamps, [Chunk(chunk)]);
         return LightBakeFile.Read(gpu.Renderer.Baking.BakeChunk(view, [wall], 0, new BakeSettings(Density, BakeQuality.Preview)));
     }

@@ -317,7 +317,7 @@ every frame.
 
 On a GPU that supports ray queries (`VK_KHR_ray_query` with `VK_KHR_acceleration_structure`,
 `VK_KHR_deferred_host_operations` and `bufferDeviceAddress`) the renderer turns them on when it
-makes the device, and `Renderer.CanTrace` is true. Some players have a GPU that
+makes the device, and `Renderer.Gpu.CanTrace` is true. Some players have a GPU that
 can't, so nothing requires it: those players get the same game without tracing. So far rays
 update the [light probes](#bounced-light), many more a frame than drawing them can, and draw the
 debug view below; nothing else uses them.
@@ -3595,6 +3595,44 @@ splat texture. More detail is in [design.md](design.md#custom-shaders).
 
 Rendition knows nothing of Super and can be used directly, with your own loop and
 window. Its [README](../src/Rendition/README.md) covers the API and the sample, and [design.md](design.md#rendition-design) explains the frame structure.
+
+Give it the window to draw into with `RendererOptions.Surface`. `RendererSurface.Window(handle)`
+takes a GLFW window made with no OpenGL context (`ClientApi.NoApi`), and the renderer makes its
+Vulkan surface. Start GLFW on the renderer's Vulkan loader first, by handing
+`VulkanLibrary.ShareWithGlfw` GLFW's `glfwInitVulkanLoader`, as the sample does. `RendererSurface.Headless` draws into nothing a window shows, for tests and
+machines without a display; it needs a driver with `VK_EXT_headless_surface`.
+
+```csharp
+using var renderer = new Renderer(new RendererOptions
+{
+    Width = width,
+    Height = height,
+    Surface = RendererSurface.Window((nint)glfwWindow),
+});
+```
+
+### Capturing a frame
+
+`Renderer.Capture(view, draws, out width, out height)` draws a frame and returns its picture as
+RGBA bytes, opaque, at the window's size. It waits for the GPU to finish, which suits tests and
+tools.
+
+A game that captures while it plays, such as a photo mode, asks with `RequestCapture()` instead.
+It returns a `FrameCapture` at once and copies the next frame drawn. That copy is read once a
+later frame has waited for it, a couple of frames on, so check `IsReady` each frame. Until
+then, `Pixels` throws. Asking again before the next frame gives the same capture, and so does
+a `Capture` call in that time, which completes it too. A frame that isn't drawn, such as while
+the window is minimized, leaves the capture waiting for the next one that is. Disposing the
+renderer drops captures that aren't ready.
+
+```csharp
+var photo = renderer.RequestCapture();
+// ...each frame:
+if (photo.IsReady)
+{
+    Save(photo.Pixels, photo.Width, photo.Height);
+}
+```
 
 ## Moving lights
 

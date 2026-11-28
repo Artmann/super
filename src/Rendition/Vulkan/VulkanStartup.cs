@@ -10,7 +10,7 @@ internal static unsafe class VulkanStartup
 {
     public static Instance CreateInstance(Vk api, RendererOptions options, bool validation)
     {
-        var extensions = new List<string>(options.InstanceExtensions);
+        var extensions = new List<string>(WindowSurfaces.Extensions(options.Surface));
         if (validation)
         {
             extensions.Add(ExtDebugUtils.ExtensionName);

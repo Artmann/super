@@ -37,7 +37,7 @@ internal sealed unsafe class Swapchain : IDisposable
             ImageColorSpace = surfaceFormat.ColorSpace,
             ImageExtent = Extent,
             ImageArrayLayers = 1,
-            ImageUsage = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, // Transfer: Renderer.Capture.
+            ImageUsage = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, // Transfer: a capture copies it; see VulkanSurface.
             ImageSharingMode = SharingMode.Exclusive,
             PreTransform = capabilities.CurrentTransform,
             CompositeAlpha = CompositeAlphaFlagsKHR.OpaqueBitKhr,

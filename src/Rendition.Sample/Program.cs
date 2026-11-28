@@ -1,9 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
-using System.Runtime.InteropServices;
 using Rendition;
-using Silk.NET.Core.Native;
 using Silk.NET.GLFW;
 
 // --check runs a fixed number of frames with validation on, then fails if the
@@ -49,15 +47,7 @@ unsafe
 
     var renderer = new Renderer(new RendererOptions
     {
-        InstanceExtensions = GetInstanceExtensions(glfw),
-        CreateSurface = instance =>
-        {
-            VkNonDispatchableHandle surface;
-            int result = glfw.CreateWindowSurface(new VkHandle(instance), window, null, &surface);
-            return result == 0
-                ? surface.Handle
-                : throw new InvalidOperationException($"Could not create a window surface: {result}");
-        },
+        Surface = RendererSurface.Window((nint)window),
         Width = width,
         Height = height,
         EnableValidation = validation,
@@ -445,15 +435,3 @@ static string? StringOption(string[] args, string name)
 
 static float NumberOption(string[] args, string name, float fallback) =>
     StringOption(args, name) is { } text ? float.Parse(text, CultureInfo.InvariantCulture) : fallback;
-
-static unsafe string[] GetInstanceExtensions(Glfw glfw)
-{
-    byte** names = glfw.GetRequiredInstanceExtensions(out uint count);
-    var extensions = new string[count];
-    for (int i = 0; i < count; i++)
-    {
-        extensions[i] = Marshal.PtrToStringUTF8((nint)names[i])!;
-    }
-
-    return extensions;
-}

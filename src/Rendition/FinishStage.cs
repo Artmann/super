@@ -4,17 +4,15 @@ using Rendition.Gpu;
 using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
-using static Rendition.PassStages;
 
 namespace Rendition;
 
 /// <summary>
-/// Draws the picture into the swapchain image at the window's size, with the transition and the overlay over it, and
-/// copies the image out when the frame is a capture.
+/// Draws the picture into the window's image at the window's size, with the transition and the overlay over it. The
+/// surface readies the image and copies it out for a capture.
 /// </summary>
 internal sealed unsafe class FinishStage
 {
-    private readonly VulkanContext _context;
     private readonly FrameRing _ring;
     private readonly GpuTimer _timer;
     private readonly FinishPass _finishPass;
@@ -27,8 +25,6 @@ internal sealed unsafe class FinishStage
     public FinishStage(
         (VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, FrameRing ring, GpuTimer timer, (Format Format, ResourceTable Resources) window)
     {
-        var context = device.Context;
-        _context = context;
         _ring = ring;
         _timer = timer;
         _resources = window.Resources;
@@ -38,12 +34,6 @@ internal sealed unsafe class FinishStage
         _overlayPass = new OverlayPass(device, format, window.Resources, FrameRing.Count);
         _marks = new SceneMarks(device, format, FrameRing.Count);
     }
-
-    /// <summary>Where the frame being drawn copies its picture for a capture, or null when it isn't one.</summary>
-    public GpuBuffer? Capture { get; set; }
-
-    /// <summary>Whether a frame copied its picture into <see cref="Capture"/>.</summary>
-    public bool CaptureRecorded { get; set; }
 
     /// <summary>Uploads the frame's overlay quads, and returns how many it draws: none before an atlas is set.</summary>
     public int UploadOverlay(ReadOnlySpan<OverlayQuad> quads) => _overlayPass.Upload(_ring.Index, quads);
@@ -68,50 +58,37 @@ internal sealed unsafe class FinishStage
     }
 
     /// <summary>
-    /// Draws the picture into the swapchain image at the window's size, with the transition and the overlay over it,
-    /// and leaves the image to present, or copies it out for a capture.
+    /// Draws the picture into the surface's acquired image at the window's size, with the transition and the overlay
+    /// over it, and leaves the image to present, copied first when a capture was asked for.
     /// </summary>
     public void Record(
-        CommandBuffer cmd, DescriptorSet frameSet, (Swapchain Swapchain, uint Image) window,
+        CommandBuffer cmd, DescriptorSet frameSet, (VulkanSurface Surface, ViewId Image) window,
         (GBuffer Targets, TransitionConstants Transition) picture, int overlayQuads)
     {
-        var api = _context.Api;
-        var swapchain = window.Swapchain;
-        uint imageIndex = window.Image;
+        var (surface, image) = window;
         var extent = picture.Targets.Picture.Display;
-        var swapchainImage = swapchain.Images[imageIndex];
-        api.Transition(cmd, new ImageTransition(swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal), (ColorStage, AccessFlags2.None), (ColorStage, ColorWrite));
+        surface.Begin(cmd);
 
         // From here on the picture is the window's size, which the scene may not be.
-        var size = swapchain.Extent;
+        var size = surface.Extent;
         var transition = picture.Transition;
         transition.Style.Z = extent.Width != size.Width || extent.Height != size.Height ? 1f : 0f;
         // The resources' textures are there for the screen effects' paper.
-        var surface = _finishPass.Record(cmd, window, (frameSet, _resources.Set), new ReadOnlySpan<byte>(&transition, (int)TransitionConstants.Size));
+        _finishPass.Record(cmd, image, (frameSet, _resources.Set), new ReadOnlySpan<byte>(&transition, (int)TransitionConstants.Size));
         picture.Targets.Picture.LdrReady = true;
         _timer.Mark(cmd);
 
         // Timed with the overlay: all three are drawn over the finished picture, the grids under the lines.
         _commands.Reset();
-        _marks.Record(_commands, surface, size);
+        _marks.Record(_commands, image, size);
         if (overlayQuads > 0)
         {
-            _overlayPass.Record(_commands, surface, size, _ring.Index, overlayQuads);
+            _overlayPass.Record(_commands, image, size, _ring.Index, overlayQuads);
         }
 
         _gpu.Play(_commands, cmd);
         _timer.Mark(cmd);
-
-        if (Capture is not null)
-        {
-            RecordCapture(cmd, swapchainImage, size, Capture);
-            return;
-        }
-
-        api.Transition(cmd, new ImageTransition(swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr), (ColorStage, ColorWrite),
-            (PipelineStageFlags2.None, AccessFlags2.None));
+        surface.End(cmd);
     }
 
     public void Dispose()
@@ -119,43 +96,5 @@ internal sealed unsafe class FinishStage
         _overlayPass.Dispose();
         _marks.Dispose();
         _finishPass.Dispose();
-    }
-
-    /// <summary>Copies the finished frame into a buffer the CPU can read, then readies it for display.</summary>
-    private void RecordCapture(CommandBuffer cmd, Image swapchainImage, Extent2D extent, GpuBuffer capture)
-    {
-        var api = _context.Api;
-        api.Transition(cmd, new ImageTransition(swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal),
-            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit),
-            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
-
-        var region = new BufferImageCopy
-        {
-            ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-            ImageExtent = new Extent3D(extent.Width, extent.Height, 1),
-        };
-        api.CmdCopyImageToBuffer(cmd, swapchainImage, ImageLayout.TransferSrcOptimal, capture.Handle, 1, &region);
-
-        var hostBarrier = new MemoryBarrier2
-        {
-            SType = StructureType.MemoryBarrier2,
-            SrcStageMask = PipelineStageFlags2.CopyBit,
-            SrcAccessMask = AccessFlags2.TransferWriteBit,
-            DstStageMask = PipelineStageFlags2.HostBit,
-            DstAccessMask = AccessFlags2.HostReadBit,
-        };
-        var dependency = new DependencyInfo
-        {
-            SType = StructureType.DependencyInfo,
-            MemoryBarrierCount = 1,
-            PMemoryBarriers = &hostBarrier,
-        };
-        api.CmdPipelineBarrier2(cmd, &dependency);
-
-        api.Transition(cmd, new ImageTransition(swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.PresentSrcKhr),
-            (PipelineStageFlags2.CopyBit, AccessFlags2.None), (PipelineStageFlags2.None, AccessFlags2.None));
-        CaptureRecorded = true;
     }
 }

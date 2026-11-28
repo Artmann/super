@@ -24,7 +24,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     [Fact]
     public void Plane_chunk_under_a_white_sky_transfers_pi_l()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -66,7 +66,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     [Fact]
     public void Turned_plane_chunk_transfers_the_same()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -100,7 +100,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     [Fact]
     public void Chunk_bake_leaves_out_draws_it_does_not_own()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -136,7 +136,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     [Fact]
     public void Closed_box_chunk_has_no_sky_transfer_inside()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -192,7 +192,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     [Fact]
     public void Chunk_sun_transfer_holds_only_bounce()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         var white = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = Vector4.One, Roughness = 0.8f });
@@ -235,7 +235,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     [Fact]
     public void Chunk_lights_its_plane_from_its_own_lamp_wherever_it_stands()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -293,7 +293,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     [Fact]
     public void Chunk_placed_twice_bakes_as_if_placed_once_from_either_copy()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -352,7 +352,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     [Fact]
     public void Mixed_chunk_light_gets_mask_channel_0_under_the_chunks_hash()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -387,7 +387,7 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     [Fact]
     public void Chunk_keeps_its_plain_light_only_with_a_glowing_surface()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         var glow = gpu.Renderer.Assets.CreateMaterial(new Material

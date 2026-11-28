@@ -44,7 +44,7 @@ public sealed class BakeTooManyDrawsGpuTests(GpuFixture gpu)
     [Fact]
     public void A_chunk_with_more_draws_than_its_page_holds_is_refused()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try

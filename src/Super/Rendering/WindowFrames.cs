@@ -236,7 +236,7 @@ internal sealed class WindowFrames(OsWindow window, SceneRenderer scene, bool hi
         (scene.Off, settings.Vsync, settings.ShadowResolution, settings.MaxShadowCascades, settings.MeshDetailScale, settings.GrassDetail,
             settings.RenderScale, settings.Upscaler, settings.ProbeQuality, settings.ReflectionResolution,
             settings.OcclusionResolution, settings.VolumetricFogCellSize, settings.VolumetricFogSlices, scene.DebugView) =
-            RendererSettings(graphics, hidden, _takingShot, CommandLineDebugView, scene.Renderer.CanTrace);
+            RendererSettings(graphics, hidden, _takingShot, CommandLineDebugView, scene.Renderer.Gpu.CanTrace);
     }
 
     /// <summary>

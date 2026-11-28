@@ -1,8 +1,4 @@
-using System.Runtime.InteropServices;
-using Silk.NET.Core.Native;
 using Silk.NET.GLFW;
-using Silk.NET.Vulkan;
-using Silk.NET.Vulkan.Extensions.EXT;
 
 namespace Rendition.Gpu.Tests;
 
@@ -15,8 +11,7 @@ internal interface ITestSurface : IDisposable
 {
     int Width { get; }
     int Height { get; }
-    IReadOnlyList<string> InstanceExtensions { get; }
-    ulong CreateSurface(nint instance);
+    RendererSurface Surface { get; }
 
     static ITestSurface Create(int size) => OperatingSystem.IsMacOS() ? new HeadlessSurface(size) : new GlfwSurface(size);
 }
@@ -58,28 +53,12 @@ internal sealed unsafe class GlfwSurface : ITestSurface
         _glfw.GetFramebufferSize(_window, out int width, out int height);
         Width = width;
         Height = height;
-        byte** names = _glfw.GetRequiredInstanceExtensions(out uint count);
-        var extensions = new string[count];
-        for (int i = 0; i < count; i++)
-        {
-            extensions[i] = Marshal.PtrToStringUTF8((nint)names[i])!;
-        }
-
-        InstanceExtensions = extensions;
+        Surface = RendererSurface.Window((nint)_window);
     }
 
     public int Width { get; }
     public int Height { get; }
-    public IReadOnlyList<string> InstanceExtensions { get; }
-
-    public ulong CreateSurface(nint instance)
-    {
-        VkNonDispatchableHandle surface;
-        int result = _glfw.CreateWindowSurface(new VkHandle(instance), _window, null, &surface);
-        return result == 0
-            ? surface.Handle
-            : throw new InvalidOperationException($"Could not create a window surface: {result}");
-    }
+    public RendererSurface Surface { get; }
 
     public void Dispose()
     {
@@ -104,28 +83,13 @@ internal sealed unsafe class GlfwSurface : ITestSurface
 /// A surface no window shows, from VK_EXT_headless_surface. Its swapchain takes the size the renderer asks for, and
 /// presenting shows nothing, which suits tests that read their frames back.
 /// </summary>
-internal sealed unsafe class HeadlessSurface(int size) : ITestSurface
+internal sealed class HeadlessSurface(int size) : ITestSurface
 {
-    private readonly Vk _api = VulkanLibrary.CreateApi();
-
     public int Width => size;
     public int Height => size;
-    public IReadOnlyList<string> InstanceExtensions { get; } = ["VK_KHR_surface", ExtHeadlessSurface.ExtensionName];
+    public RendererSurface Surface => RendererSurface.Headless;
 
-    public ulong CreateSurface(nint instance)
+    public void Dispose()
     {
-        var handle = new Instance(instance);
-        if (!_api.TryGetInstanceExtension(handle, out ExtHeadlessSurface headless))
-        {
-            throw new InvalidOperationException($"{ExtHeadlessSurface.ExtensionName} is not available.");
-        }
-
-        var info = new HeadlessSurfaceCreateInfoEXT { SType = StructureType.HeadlessSurfaceCreateInfoExt };
-        var result = headless.CreateHeadlessSurface(handle, &info, null, out var surface);
-        return result == Result.Success
-            ? surface.Handle
-            : throw new InvalidOperationException($"Could not create a headless surface: {result}");
     }
-
-    public void Dispose() => _api.Dispose();
 }

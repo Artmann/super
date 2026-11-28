@@ -1,4 +1,5 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
 using Rendition.Passes;
 using Rendition.Vulkan;
 using static Rendition.PassStages;
@@ -16,7 +17,7 @@ internal sealed unsafe class FrameRecorder(
     /// Records the frame's command buffer: the uploads, a bake slice, the sky, and then the frame itself. Counts its
     /// draw calls while the GPU is measured.
     /// </summary>
-    public CommandBuffer Record(in FrameSlot frame, in FrameView view, uint imageIndex, in FrameDraws draws, bool timed)
+    public CommandBuffer Record(in FrameSlot frame, in FrameView view, ViewId image, in FrameDraws draws, bool timed)
     {
         var (stores, stages) = (parts.SceneStores, parts.FrameStages);
         long issued = DrawCallCount.Issued;
@@ -46,7 +47,7 @@ internal sealed unsafe class FrameRecorder(
 
         // Worked out here, just before the frame is recorded, so a frame that is never drawn doesn't move the clock.
         stages.PostStage.StepExposure(view, stores.Switches.Off);
-        RecordFrame(cmd, frame.Set, imageIndex, new FrameDraws(draws.Camera, draws.Scene, traced), overlayQuads);
+        RecordFrame(cmd, frame.Set, image, new FrameDraws(draws.Camera, draws.Scene, traced), overlayQuads);
         stages.GpuTimer.End(cmd);
         stores.Context.Api.EndCommandBuffer(cmd).Check();
         stats.DrawCalls = stores.Settings.MeasureGpu ? (int)(DrawCallCount.Issued - issued) : 0;
@@ -93,7 +94,7 @@ internal sealed unsafe class FrameRecorder(
         return cmd;
     }
 
-    private void RecordFrame(CommandBuffer cmd, DescriptorSet frameSet, uint imageIndex, in FrameDraws draws, int overlayQuads)
+    private void RecordFrame(CommandBuffer cmd, DescriptorSet frameSet, ViewId image, in FrameDraws draws, int overlayQuads)
     {
         var (stages, targets) = (parts.FrameStages, parts.FrameTargets);
         var gBuffer = targets.GBuffer;
@@ -105,7 +106,7 @@ internal sealed unsafe class FrameRecorder(
         stages.ResolveStage.Record(cmd, frameSet, gBuffer, targets.Upscaling ? (stages.FsrPass, steps.Cameras.FsrFrame, stages.PostStage.Meter.Set) : null, display);
         stages.GpuTimer.Mark(cmd);
         stages.PostStage.Record(cmd, frameSet, gBuffer, display);
-        stages.FinishStage.Record(cmd, frameSet, (targets.Swapchain, imageIndex), (gBuffer, stages.HeldPicture.Transition), overlayQuads);
+        stages.FinishStage.Record(cmd, frameSet, (targets.Surface, image), (gBuffer, stages.HeldPicture.Transition), overlayQuads);
     }
 
     /// <summary>

@@ -21,7 +21,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
     [Fact]
     public void Bake_in_single_passes_matches_a_whole_bake()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         gpu.Renderer.Baking.Jobs.Bakers.Prepare(probes: true);
@@ -52,7 +52,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
     [Fact]
     public void Chunk_job_matches_bake_chunk()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         gpu.Renderer.Baking.Jobs.Bakers.Prepare(probes: true);
@@ -85,7 +85,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
     [Fact]
     public void Every_readback_step_asks_to_await_the_gpu()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         gpu.Renderer.Baking.Jobs.Bakers.Prepare(probes: true);
@@ -136,7 +136,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
     [Fact]
     public void Job_reports_progress_from_zero_to_one()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         gpu.Renderer.Baking.Jobs.Bakers.Prepare(probes: true);
@@ -172,7 +172,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
     [Fact]
     public void Finish_before_done_explains_itself()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         gpu.Renderer.Baking.Jobs.Bakers.Prepare(probes: true);
@@ -196,7 +196,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
     [Fact]
     public void Frames_drawn_between_steps_leave_the_bake_alone()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         gpu.Renderer.Baking.Jobs.Bakers.Prepare(probes: true);
@@ -244,7 +244,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
     [Fact]
     public void Job_before_prepare_baking_explains_itself()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
 
         // A renderer of its own, since the shared one may already be prepared.
         using var fresh = new GpuFixture(disableRayTracing: false);

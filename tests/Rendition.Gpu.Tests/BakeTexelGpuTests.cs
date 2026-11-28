@@ -19,7 +19,7 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
     [InlineData(true)]
     public void A_quad_covers_its_rectangle_with_its_positions(bool forceMultisample)
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateMesh(LightmappedQuad());
         var draws = new[] { StaticDraw(quad, 6, Matrix4x4.CreateTranslation(1, 2, 3), 1) };
@@ -79,7 +79,7 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
     [InlineData(true)]
     public void A_texel_inside_a_wall_is_invalid(bool forceMultisample)
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateMesh(LightmappedQuad());
         var (boxVertices, boxIndices) = TestMeshes.Cube();
@@ -133,7 +133,7 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
     [InlineData(true)]
     public void A_thin_triangle_still_covers_a_texel(bool forceMultisample)
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
 
         // A sliver so small its rectangle is the smallest, 8 texels a side. In texel (3, 3) of the rectangle it runs

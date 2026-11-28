@@ -49,7 +49,11 @@ What exists today:
 - A small public API: `Renderer.Assets` with `CreateModel`, `CreateDrawItem`, `CreateMesh`,
   `CreateTexture`, `CreateTextureArray`, `CreateMaterial`, `UpdateMaterial`,
   `CreateSurfaceShader` and the matching `Destroy` calls, `Renderer.Baking`,
-  `Renderer.Reflections`, `Renderer.Stats` and `Render(in FrameView, ReadOnlySpan<DrawItem>)`
+  `Renderer.Reflections`, `Renderer.Stats`, `Render(in FrameView, ReadOnlySpan<DrawItem>)`,
+  and `Capture` and `RequestCapture` to read a frame back
+- No Vulkan types in the API: `RendererOptions.Surface` names what it draws into, a GLFW
+  window with `RendererSurface.Window(handle)` or nothing a window shows with
+  `RendererSurface.Headless`
 
 Decisions, the G-buffer layout and known simplifications are in
 [docs/design.md](../../docs/design.md).

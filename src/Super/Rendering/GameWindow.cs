@@ -27,8 +27,7 @@ internal sealed class GameWindow : IDisposable
         var (width, height) = _window.FramebufferSize();
         _scene = new SceneRenderer(new RendererOptions
         {
-            InstanceExtensions = _window.InstanceExtensions(),
-            CreateSurface = _window.CreateSurface,
+            Surface = RendererSurface.Window(_window.Handle),
             Width = width,
             Height = height,
             EnableValidation = setup.Validate,
@@ -68,7 +67,7 @@ internal sealed class GameWindow : IDisposable
     }
 
     /// <summary>Whether the GPU can trace rays.</summary>
-    public bool CanTrace => _scene.Renderer.CanTrace;
+    public bool CanTrace => _scene.Renderer.Gpu.CanTrace;
 
     /// <summary>Why <see cref="CanTrace"/> is false, or null when it is true.</summary>
     public string? NoTraceReason => _scene.Renderer.NoTraceReason;

@@ -14,7 +14,7 @@ public sealed class Renderer : IDisposable
         var stores = new SceneStores(options);
         var first = FrameTargets.Start(stores, options);
         var lights = new SceneLighting(stores);
-        var stages = new FrameStages(stores, lights, first.Scene, first.Window.Format);
+        var stages = new FrameStages(stores, lights, first.Scene, Rendition.Gpu.Vulkan.VulkanFormats.Of(first.Window.Format));
         var targets = new FrameTargets(stores, (lights, stages), first);
         FrameParts = new FrameParts(stores, lights, stages, targets);
         Stats = new RendererStats(stores.Context, stages.GpuTimer, stages.GpuWork, () => targets.UpscalerVersion);
@@ -42,15 +42,12 @@ public sealed class Renderer : IDisposable
     public int ValidationErrors => FrameParts.SceneStores.Context.Validation?.Errors ?? 0;
 
     /// <summary>
-    /// Whether the GPU can trace rays, with ray queries turned on for the device. Nothing requires it: a GPU
-    /// that can't, or <see cref="RendererOptions.DisableRayTracing"/>, just draws without tracing.
+    /// Why <see cref="GpuInfo.CanTrace"/> is false for <see cref="Gpu"/>, such as "no VK_KHR_ray_query", or null when
+    /// it is true.
     /// </summary>
-    public bool CanTrace => FrameParts.SceneStores.Context.CanTrace;
-
-    /// <summary>Why <see cref="CanTrace"/> is false, such as "no VK_KHR_ray_query", or null when it is true.</summary>
     public string? NoTraceReason => FrameParts.SceneStores.Context.Abilities.NoTraceReason;
 
-    /// <summary>The GPU this renderer draws with: its name, kind and memory.</summary>
+    /// <summary>The GPU this renderer draws with: its name, kind and memory, and whether it traces rays.</summary>
     public GpuInfo Gpu => FrameParts.SceneStores.Context.Gpu;
 
     /// <summary>How the renderer draws: the quality and cost settings that take effect on the next frame.</summary>
@@ -118,8 +115,19 @@ public sealed class Renderer : IDisposable
 
     public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws) => FrameDrawer.Render(view, draws);
 
+    /// <summary>
+    /// Draws the frame at the view's size and reads its picture back as RGBA bytes, waiting for the GPU to finish it.
+    /// For tests and tools; a game that captures while it plays uses <see cref="RequestCapture"/>.
+    /// </summary>
     public byte[] Capture(in FrameView view, ReadOnlySpan<DrawItem> draws, out int width, out int height) =>
         FrameDrawer.Capture(view, draws, out width, out height);
+
+    /// <summary>
+    /// Asks for the next frame drawn to be read back, without waiting for the GPU. The capture is ready a couple of
+    /// frames later, once a later frame has waited for that one. Asking again before a frame is drawn gives the same
+    /// capture. See "Capturing a frame" in docs/rendering.md.
+    /// </summary>
+    public FrameCapture RequestCapture() => FrameDrawer.RequestCapture();
 
     public void Dispose()
     {

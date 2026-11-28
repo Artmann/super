@@ -5,7 +5,7 @@ using Semaphore = Silk.NET.Vulkan.Semaphore;
 namespace Rendition;
 
 /// <summary>
-/// One of the frames that can be in flight at once: its command buffer, its fence and semaphore, and the buffers its
+/// One of the frames that can be in flight at once: its command buffer, its fence, and the buffers its
 /// shaders read, with the descriptor set that binds them.
 /// </summary>
 internal struct FrameSlot
@@ -13,7 +13,6 @@ internal struct FrameSlot
     public CommandPool CommandPool;
     public CommandBuffer CommandBuffer;
     public Fence InFlight;
-    public Semaphore ImageAvailable;
     public GpuBuffer Uniforms;
     public GpuBuffer Bones;
     public InstanceBuffer Instances;
@@ -36,7 +35,6 @@ internal struct FrameSlot
         Clusters.Dispose();
         ReflectionProbes.Dispose();
         Chunks.Dispose();
-        api.DestroySemaphore(device, ImageAvailable, null);
         api.DestroyFence(device, InFlight, null);
         api.DestroyCommandPool(device, CommandPool, null);
     }
