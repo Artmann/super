@@ -21,7 +21,7 @@ public sealed class RendererStats
         _upscalerVersion = upscalerVersion;
     }
 
-    /// <summary>The FSR version in use, such as "FSR 3.1.4", or null while FSR isn't drawing the picture.</summary>
+    /// <summary>The FSR version in use, such as "3.1.4", or null while FSR isn't drawing the picture.</summary>
     public string? UpscalerVersion => _upscalerVersion();
 
     /// <summary>Times from the newest finished frame, while <see cref="RenderSettings.MeasureGpu"/> is on. Empty if the GPU can't time passes.</summary>

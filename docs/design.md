@@ -4893,7 +4893,7 @@ through P/Invoke on the four calls of the FidelityFX API (`ffxCreateContext`,
 written out by hand. The library is looked for once; when it can't be loaded,
 `Upscale.Choose` falls back to TAA and says so once on the error stream, and when the
 context can't be made, `FrameTargets.Rebuild` does the same. The library reports the provider it
-picked, FSR 3.1.4 here, and `Renderer.Stats.UpscalerVersion` returns it.
+picked, version 3.1.4 here, and `Renderer.Stats.UpscalerVersion` returns it as "3.1.4".
 
 FSR draws only while anti-aliasing is on and the render scale is 1 or less. It then owns
 both TAA's job and the finish pass's stretch: the G-buffer, HDR and depth stay at the scene

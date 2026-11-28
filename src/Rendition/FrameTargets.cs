@@ -39,7 +39,7 @@ internal sealed class FrameTargets
     /// <summary>What tonemapping and bloom read: the anti-aliased image, or the lit one when anti-aliasing is left out.</summary>
     public ImageView DisplaySource => ReadsAntiAliased ? GBuffer.Picture.Resolved.View : GBuffer.Hdr.View;
 
-    /// <summary>The FSR version in use, such as "FSR 3.1.4", or null while FSR isn't drawing the picture.</summary>
+    /// <summary>The FSR version in use, such as "3.1.4", or null while FSR isn't drawing the picture.</summary>
     public string? UpscalerVersion => Upscaling ? _stages.FsrPass.Version : null;
 
     /// <summary>The first swapchain, for the window's size and vsync, and the first scene targets.</summary>
@@ -60,11 +60,14 @@ internal sealed class FrameTargets
         bool upscaling = settings.UpscalerUsed == Upscaler.Fsr && settings.RenderScale <= 1f && !viewOff.HasFlag(RenderEffects.AntiAliasing);
         bool upscalingChanged = upscaling != Upscaling;
         Upscaling = upscaling;
+        bool rebuilt = false;
         if (settings.VsyncChanged || (uint)view.Width != Swapchain.Extent.Width || (uint)view.Height != Swapchain.Extent.Height)
         {
-            Resize((uint)view.Width, (uint)view.Height);
+            rebuilt = Resize((uint)view.Width, (uint)view.Height);
         }
-        else if (upscalingChanged || TargetsChanged())
+
+        // A new swapchain of the same size keeps the targets, so the upscaler starting or stopping still asks for them.
+        if (!rebuilt && (upscalingChanged || TargetsChanged()))
         {
             // Frames in flight still read the targets being replaced. Changing the scale, the upscaler or the
             // resolution of the reflections or the occlusion is rare.
@@ -98,19 +101,22 @@ internal sealed class FrameTargets
     /// <summary>
     /// Makes a new swapchain for the window's size and vsync. The scene's targets are only made again when
     /// the size changed, so switching vsync keeps the anti-aliasing history and the next picture is the
-    /// same as it would have been.
+    /// same as it would have been. Returns whether the scene's targets were made again.
     /// </summary>
-    public void Resize(uint width, uint height)
+    public bool Resize(uint width, uint height)
     {
         _stores.Context.WaitIdle();
         var extent = Swapchain.Extent;
         Swapchain.Dispose();
         Swapchain = new Swapchain(_stores.Context, width, height, !_stores.Settings.Vsync);
         _stores.Settings.VsyncChanged = false;
-        if (Swapchain.Extent.Width != extent.Width || Swapchain.Extent.Height != extent.Height)
+        if (Swapchain.Extent.Width == extent.Width && Swapchain.Extent.Height == extent.Height)
         {
-            Rebuild();
+            return false;
         }
+
+        Rebuild();
+        return true;
     }
 
     /// <summary>Points the fullscreen passes at the current render targets.</summary>
