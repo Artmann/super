@@ -89,7 +89,7 @@ internal sealed class ResolveStage
     /// <summary>Keeps this frame, which rests ready to sample, for the next one, and leaves it ready to sample.</summary>
     private void RecordHistoryCopy(CommandBuffer cmd, GBuffer targets, Image frame)
     {
-        _copier.RecordCopy(cmd, frame, targets.Picture.History.Image, targets.Extent, drawnJustNow: false);
+        _copier.RecordCopy(cmd, frame, targets.Picture.History.Image, targets.Extent);
         targets.Picture.HistoryReady = true;
     }
 }

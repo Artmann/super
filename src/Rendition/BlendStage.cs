@@ -67,7 +67,7 @@ internal sealed unsafe class BlendStage
         (InstanceBuffer Instances, LightProbes Probes, DescriptorSet LightingSet) lit)
     {
         _api.Transition(cmd, new ImageTransition(targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal), (ColorStage, ColorWrite),
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.ColorAttachmentOptimal), (SampledStage, SampledAccess),
             (ColorStage, ColorWrite | AccessFlags2.ColorAttachmentReadBit));
         _api.Transition(cmd, new ImageTransition(targets.Depth.Image, ImageAspectFlags.DepthBit,
             ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal), (SampledStage, SampledAccess),

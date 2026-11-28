@@ -158,6 +158,30 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void A_pass_with_two_targets_writes_both()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var first = Target();
+        using var second = Target();
+        using var firstTarget = new AdoptedTarget(device);
+        using var secondTarget = new AdoptedTarget(device);
+        using var pass = new FullscreenPass(device, "solid_colors.frag", [GpuFormat.Rgba8Unorm, GpuFormat.Rgba8Unorm]);
+        var extent = new Extent2D(Size, Size);
+        ReadOnlySpan<Vector4> colors = [new(1f, 0f, 0f, 1f), new(0f, 0f, 1f, 1f)];
+        var commands = new CommandList();
+        pass.Record(commands,
+            [new ColorTarget(firstTarget.For(first, extent), LoadOp.DontCare, default), new ColorTarget(secondTarget.For(second, extent), LoadOp.DontCare, default)],
+            [], MemoryMarshal.AsBytes(colors));
+
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+
+        Assert.Equal([255, 0, 0, 255], Read(first).Take(4));
+        Assert.Equal([0, 0, 255, 255], Read(second).Take(4));
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void A_blended_pass_adds_onto_what_the_target_held()
     {
         using var device = new VulkanGpu(gpu.Context);

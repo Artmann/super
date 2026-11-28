@@ -1,3 +1,5 @@
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 using Silk.NET.Vulkan;
@@ -7,40 +9,47 @@ namespace Rendition;
 
 /// <summary>
 /// Lights the G-buffer: the screen-space reflections the lighting reads, the lighting pass itself, and the spread of
-/// skin and wax across the screen and down it, with their passes and sets.
+/// skin and wax across the screen and down it, drawn through the GPU layer.
 /// </summary>
 internal sealed unsafe class LightingStage : IDisposable
 {
     private readonly VulkanContext _context;
-    private readonly Vk _api;
+    private readonly VulkanGpu _gpu;
     private readonly DescriptorKit _kit;
     private readonly LightingStage.Sources _sources;
     private readonly FullscreenPass _reflectionPass;
     private readonly FullscreenPass _lightingPass;
     private readonly FullscreenPass _scatterAcrossPass;
     private readonly FullscreenPass _scatterDownPass;
-    private readonly DescriptorSet _reflectionSet;
-    private readonly DescriptorSet _scatterAcrossSet;
-    private readonly DescriptorSet _scatterDownSet;
+    private readonly CommandList _commands = new();
+    private readonly AdoptedTargets _targets;
 
-    public LightingStage(VulkanContext context, DescriptorKit kit, Sources sources)
+    // The reflections' images, and the spread's: across from the lit scatter, then down from the blurred one.
+    private readonly (ImageGroup Reflection, ImageGroup Across, ImageGroup Down, SamplerId Linear) _inputs;
+
+    /// <summary>
+    /// The lighting pass is lent the lighting set's layout, which the probe debug view's spheres read too, and the
+    /// material table's. The reflections and the spread lay out their own images from their shaders.
+    /// </summary>
+    public LightingStage((VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, Sources sources)
     {
+        var (context, gpu) = device;
         _context = context;
-        _api = context.Api;
+        _gpu = gpu;
         _kit = kit;
         _sources = sources;
-        _scatterAcrossSet = kit.NewSet(kit.TwoTextureLayout);
-        _scatterDownSet = kit.NewSet(kit.TwoTextureLayout);
+        _targets = new AdoptedTargets(gpu);
         LightingSet = kit.NewLightingSet();
-        _reflectionSet = kit.NewSet(kit.FourTextureLayout);
-        var resources = sources.Resources;
-        _reflectionPass = new FullscreenPass(context, "reflections.frag", GBuffer.HdrFormat, [kit.FrameSetLayout, kit.FourTextureLayout], sizeof(int));
-        _lightingPass = new FullscreenPass(context, "lighting.frag", [GBuffer.HdrFormat, GBuffer.HdrFormat],
-            [kit.FrameSetLayout, kit.LightingSetLayout, resources.Layout]);
-        _scatterAcrossPass = new FullscreenPass(context, "sss_blur.frag", [GBuffer.HdrFormat],
-            [kit.FrameSetLayout, kit.TwoTextureLayout, resources.Layout], BlurConstants.Size);
-        _scatterDownPass = new FullscreenPass(context, "sss_blur.frag", [GBuffer.HdrFormat],
-            [kit.FrameSetLayout, kit.TwoTextureLayout, resources.Layout], BlurConstants.Size, blend: true);
+        var nearest = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Nearest));
+        _inputs = (new ImageGroup(gpu, nearest), new ImageGroup(gpu, nearest), new ImageGroup(gpu, nearest),
+            gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear)));
+
+        var hdr = VulkanFormats.ToGpu(GBuffer.HdrFormat);
+        var materials = sources.Resources.Layout;
+        _reflectionPass = new FullscreenPass(gpu, "reflections.frag", [hdr], borrowed: [kit.FrameSetLayout, default]);
+        _lightingPass = new FullscreenPass(gpu, "lighting.frag", [hdr, hdr], borrowed: [kit.FrameSetLayout, kit.LightingSetLayout, materials]);
+        _scatterAcrossPass = new FullscreenPass(gpu, "sss_blur.frag", [hdr], borrowed: [kit.FrameSetLayout, default, materials]);
+        _scatterDownPass = new FullscreenPass(gpu, "sss_blur.frag", [hdr], blend: true, borrowed: [kit.FrameSetLayout, default, materials]);
     }
 
     /// <summary>The lighting pass's set, which the probe debug view's spheres read too.</summary>
@@ -56,59 +65,72 @@ internal sealed unsafe class LightingStage : IDisposable
     {
         if (!targets.Picture.HistoryReady || (off & (RenderEffects.Reflections | RenderEffects.Specular)) != 0)
         {
-            _api.Transition(cmd, new ImageTransition(targets.Traced.Image, ImageAspectFlags.ColorBit,
+            _context.Api.Transition(cmd, new ImageTransition(targets.Traced.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (SampledStage, SampledAccess), (SampledStage, SampledAccess));
             timer.Mark(cmd);
             return;
         }
 
         int scale = targets.Reflections == ReflectionResolution.Full ? 1 : 2;
-        ReadOnlySpan<DescriptorSet> sets = [frameSet, _reflectionSet];
-        _api.BeginColorTarget(cmd, targets.Traced.Image);
-        _reflectionPass.Record(cmd, targets.Traced.View, targets.TracedExtent, sets, new ReadOnlySpan<byte>(&scale, sizeof(int)));
-        _api.EndColorTarget(cmd, targets.Traced.Image);
+        _commands.Reset();
+        _reflectionPass.Record(_commands, [_targets.For(targets.Traced, targets.TracedExtent)],
+            [_gpu.Adopt(frameSet), _inputs.Reflection.Id], new ReadOnlySpan<byte>(&scale, sizeof(int)));
+        _gpu.Play(_commands, cmd);
         timer.Mark(cmd);
     }
 
     /// <summary>
     /// Lights the G-buffer into Hdr, and spreads the diffuse light of skin and wax across the screen, then down it and
-    /// onto the lit image. Nothing to spread when no material scatters, or while subsurface is off. Leaves Hdr a target.
+    /// onto the lit image. Nothing to spread when no material scatters, or while subsurface is off. Leaves Hdr ready to
+    /// sample, as the layer leaves every target.
     /// </summary>
     public void RecordLighting(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, RenderEffects off, GpuTimer timer)
     {
         var extent = targets.Extent;
         var resources = _sources.Resources;
-        _api.BeginColorTarget(cmd, targets.Hdr.Image);
-        _api.BeginColorTarget(cmd, targets.Scatter.Image);
-
-        ReadOnlySpan<DescriptorSet> lightingSets = [frameSet, LightingSet, resources.Set];
-        _lightingPass.Record(cmd, [targets.Hdr.View, targets.Scatter.View], extent, lightingSets, []);
-        _api.EndColorTarget(cmd, targets.Scatter.Image);
+        var frame = _gpu.Adopt(frameSet);
+        var materials = _gpu.Adopt(resources.Set);
+        _commands.Reset();
+        _lightingPass.Record(_commands, [_targets.For(targets.Hdr, extent), _targets.For(targets.Scatter, extent)],
+            [frame, _gpu.Adopt(LightingSet), materials], []);
+        _gpu.Play(_commands, cmd);
         timer.Mark(cmd);
 
         if (resources.Materials.AnySubsurface && !off.HasFlag(RenderEffects.Subsurface))
         {
             var across = BlurConstants.Across;
-            ReadOnlySpan<DescriptorSet> acrossSets = [frameSet, _scatterAcrossSet, resources.Set];
-            _api.BeginColorTarget(cmd, targets.ScatterBlurred.Image);
-            _scatterAcrossPass.Record(cmd, targets.ScatterBlurred.View, extent, acrossSets,
-                new ReadOnlySpan<byte>(&across, (int)BlurConstants.Size));
-            _api.EndColorTarget(cmd, targets.ScatterBlurred.Image);
-
             var down = BlurConstants.Down;
-            ReadOnlySpan<DescriptorSet> downSets = [frameSet, _scatterDownSet, resources.Set];
-            _api.Transition(cmd, new ImageTransition(targets.Hdr.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal), (ColorStage, ColorWrite),
-                (ColorStage, ColorWrite | AccessFlags2.ColorAttachmentReadBit));
-            _scatterDownPass.Record(cmd, targets.Hdr.View, extent, downSets,
+            _commands.Reset();
+            _scatterAcrossPass.Record(_commands, [_targets.For(targets.ScatterBlurred, extent)], [frame, _inputs.Across.Id, materials],
+                new ReadOnlySpan<byte>(&across, (int)BlurConstants.Size));
+            _scatterDownPass.Record(_commands, [_targets.For(targets.Hdr, extent, LoadOp.Load)], [frame, _inputs.Down.Id, materials],
                 new ReadOnlySpan<byte>(&down, (int)BlurConstants.Size));
+            _gpu.Play(_commands, cmd);
         }
 
         timer.Mark(cmd);
     }
 
-    /// <summary>Points the lighting pass, the screen reflections and the spread of skin and wax at the targets.</summary>
+    /// <summary>
+    /// Points the lighting pass, the screen reflections and the spread of skin and wax at the targets. Makes the bind
+    /// groups again, so it must only be called while the GPU is idle.
+    /// </summary>
     public void WriteSets(GBuffer targets, DescriptorImageInfo depth, DescriptorImageInfo normal, DescriptorImageInfo shadowDepth)
+    {
+        WriteLightingSet(targets, depth, normal, shadowDepth);
+        _targets.Clear();
+        _inputs.Reflection.Make(_reflectionPass.Pipeline, 1,
+        [
+            ("depthTexture", depth.ImageView),
+            ("normalRoughnessAoTexture", normal.ImageView),
+            ("emissiveClearcoatTexture", targets.Emissive.View),
+            new GroupImage("historyTexture", targets.Picture.History.View, _inputs.Linear),
+        ]);
+        _inputs.Across.Make(_scatterAcrossPass.Pipeline, 1, [("scatterTexture", targets.Scatter.View), ("depthTexture", depth.ImageView)]);
+        _inputs.Down.Make(_scatterDownPass.Pipeline, 1, [("scatterTexture", targets.ScatterBlurred.View), ("depthTexture", depth.ImageView)]);
+    }
+
+    private void WriteLightingSet(GBuffer targets, DescriptorImageInfo depth, DescriptorImageInfo normal, DescriptorImageInfo shadowDepth)
     {
         var nearest = _kit.NearestSampler;
         var environment = _sources.Environment;
@@ -135,19 +157,14 @@ internal sealed unsafe class LightingStage : IDisposable
             new(environment.Sampler, environment.Background, ImageLayout.ShaderReadOnlyOptimal),
             new(_kit.MipSampler, _sources.Planar.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
-        ImageSets.Write(_context, _reflectionSet,
-        [
-            depth,
-            normal,
-            new(nearest, targets.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, targets.Picture.History.View, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
-        ImageSets.Write(_context, _scatterAcrossSet, [new(nearest, targets.Scatter.View, ImageLayout.ShaderReadOnlyOptimal), depth]);
-        ImageSets.Write(_context, _scatterDownSet, [new(nearest, targets.ScatterBlurred.View, ImageLayout.ShaderReadOnlyOptimal), depth]);
     }
 
     public void Dispose()
     {
+        _inputs.Reflection.Dispose();
+        _inputs.Across.Dispose();
+        _inputs.Down.Dispose();
+        _targets.Dispose();
         _lightingPass.Dispose();
         _reflectionPass.Dispose();
         _scatterAcrossPass.Dispose();

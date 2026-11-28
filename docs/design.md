@@ -5086,6 +5086,18 @@ leaves a surface's layout to its caller: `FinishStage` moves it to `ColorAttachm
 before the pass and on after the overlay. Its format comes from `VulkanFormats.ToGpu`, and a
 test in `Super.Tests` checks every format the swapchain can pick has a layer format.
 
+Ambient occlusion, reflections, lighting and the spread of skin and wax draw this way as
+well. A stage that draws to many targets keeps them in `AdoptedTargets`, one `AdoptedTarget`
+for each target, found by the target and let go of together when `WriteSets` makes the
+targets again. The occlusion trace, average and blur, the reflections and the two spread
+blurs each read a group of their own made by name. The lighting pass is lent the lighting
+set's layout, because the probe debug view's spheres read that set too, and the material
+table's, and adopts both sets. The lighting pass writes Hdr and the scatter in one pass with
+two targets, and the downward spread blends back onto Hdr with `LoadOp.Load`. Hdr now rests
+ready to sample after lighting, so `BlendStage` moves it to `ColorAttachmentOptimal` from
+`ShaderReadOnlyOptimal`. The occlusion average rests ready to sample too, so
+`HistoryCopier.RecordCopy` always reads its frame from `ShaderReadOnlyOptimal`.
+
 ## Resource lifetime
 
 Meshes and textures are made during play, so neither creating nor destroying one

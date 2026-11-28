@@ -19,8 +19,8 @@ internal sealed class FrameStages
         TraceDebugPass = stores.Tracing is null ? null
             : new TraceDebugPass(context, stores.Tracing, FrameRing.Count, kit.FrameSetLayout, resources.Layout);
         var copier = new HistoryCopier(context.Api);
-        OcclusionStage = new OcclusionStage(context, kit, copier);
-        LightingStage = new LightingStage(context, kit,
+        OcclusionStage = new OcclusionStage((context, stores.Gpu), kit, copier);
+        LightingStage = new LightingStage((context, stores.Gpu), kit,
             new LightingStage.Sources(resources, map, lights.ReflectionProbes, lights.ProbeVolume, lights.ShadowPass, lights.Planar));
         // Counting each pass's shaders needs a device feature; without it the frame is only timed.
         GpuWork = context.Abilities.PipelineStatistics ? new GpuWorkCounter(context, FrameRing.Count, GpuTimer.FramePasses) : null;
