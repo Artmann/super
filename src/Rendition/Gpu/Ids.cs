@@ -10,3 +10,7 @@ internal readonly record struct ViewId(int Value);
 internal readonly record struct PipelineId(int Value);
 
 internal readonly record struct BindGroupId(int Value);
+
+internal readonly record struct SamplerId(int Value);
+
+internal readonly record struct ShaderId(int Value);

@@ -5020,6 +5020,40 @@ the far higher update-after-bind limits, so the device needs
 A hidden window asks GLFW for no Retina framebuffer, so a picture has the pixels asked for, and in
 a shown one `Game` multiplies the interface scale by `GameWindow.PixelsPerPoint`.
 
+## GPU layer
+
+The renderer is moving onto a small GPU layer in `src/Rendition/Gpu`, shaped like WebGPU, so
+a browser backend can stand in for Vulkan. The plan is
+`docs/superpowers/plans/2026-11-27-browser-target.md`. Passes move one at a time, and a pass
+that has moved shares the frame with passes that haven't.
+
+Everything the layer makes is an id, a small struct around an int where 0 means none, so the
+browser backend can hand ids to JavaScript as they are. `GpuDevice` makes samplers, shaders,
+render pipelines and bind groups. Drawing is recorded into a `CommandList`, an int array kept
+between frames, and a backend plays it. Push constants are `SetConstants`, which Vulkan plays as
+push constants and WebGPU will play through a uniform ring.
+
+A bind group is filled by name. `CreateShader` reads the shader's `<name>.layout.spv`, which
+keeps the names the optimized `.spv` loses, and `ShaderLayout` finds each binding's group,
+number and kind in it. A name the shaders lack, or one in another group, throws with the
+shader's name in the message. `VulkanGpu` lays out each group's descriptor set from what the
+shaders declare, with the stages that declare each binding, and gives each bind group a pool
+of its own sized to it, so destroying a group frees it at once.
+
+`VulkanPlayer` plays a list into the frame's command buffer. Images rest in
+`ShaderReadOnlyOptimal` between passes, as the renderer's other passes leave them, so a render
+pass moves its targets to `ColorAttachmentOptimal` as it begins (from `Undefined` unless it
+loads them) and back as it ends, and every image in a bind group is already readable. The
+viewport and render area are the first target's size. Bind groups are bound at the next draw,
+so they can be set before or after the pipeline, as in WebGPU. Depth targets, buffers, compute
+and labels aren't played yet; each stage adds what its passes need.
+
+Two bridges last until every pass has moved. `VulkanGpu.Adopt` takes an image view or a
+descriptor set made outside the layer and gives it an id, and `CreateRenderPipeline` can be
+lent the set layouts of groups whose sets an old pass makes, since a layout built from the
+shader wouldn't match theirs. `VulkanGpu.Play` records into a command buffer the old passes
+also record into.
+
 ## Resource lifetime
 
 Meshes and textures are made during play, so neither creating nor destroying one
