@@ -3595,7 +3595,7 @@ material slots. `Renderer.Assets.DestroyMaterial` holds the slot until the frame
 160-byte `GpuDecal`: the box, its inverse, the four weights and the material index.
 `DecalPass` keeps those in a host-visible vertex buffer for each frame in flight, read as
 per-instance attributes, so the frame set is unchanged, and draws all of them in one
-`vkCmdDraw` of 36 vertices per instance. `decal.vert` builds the cube from
+draw of 36 vertices per instance, through the GPU layer. `decal.vert` builds the cube from
 `gl_VertexIndex` and swaps two corners of every triangle when the box is mirrored, so its
 winding stays the same.
 
@@ -5051,8 +5051,11 @@ loads them) and back as it ends, and every image in a bind group is already read
 moves wait for, and make the image ready for, compute shaders as well as fragment shaders,
 since the exposure meter and paint's filter read the picture from compute. The
 viewport and render area are the first target's size. Bind groups are bound at the next draw,
-so they can be set before or after the pipeline, as in WebGPU. Depth targets and labels
-aren't played yet; each stage adds what its passes need.
+so they can be set before or after the pipeline, as in WebGPU. A writable depth target moves
+to `DepthAttachmentOptimal` as the pass begins (from `Undefined` unless it loads) and back to
+`ShaderReadOnlyOptimal` as it ends, waiting for and readying the depth tests as well as the
+shaders. Testing against read-only depth throws for now; the passes that need it bring it.
+Labels aren't played yet.
 
 Two bridges last until every pass has moved. `VulkanGpu.Adopt` takes an image view or a
 descriptor set made outside the layer and gives it an id, and `CreateRenderPipeline` can be
@@ -5085,9 +5088,9 @@ anti-aliased image now rests ready to sample after TAA, so the history copy read
 `ShaderReadOnlyOptimal` as it does the lit image. The finish draws into the window's image,
 which the layer must not move, because the marks and the overlay draw into it after and
 `FinishStage` then moves it to present or copies it out. So `FinishPass` adopts each
-swapchain image as a `Surface` `AdoptedView`, one `AdoptedTarget` per image, and the player
-leaves a surface's layout to its caller: `FinishStage` moves it to `ColorAttachmentOptimal`
-before the pass and on after the overlay. Its format comes from `VulkanFormats.ToGpu`, and a
+swapchain image as a `Held` `AdoptedView` (`AdoptedTarget.ForHeld`), one `AdoptedTarget` per
+image, and the player leaves a held target's layout to its caller, colour or depth:
+`FinishStage` moves it to `ColorAttachmentOptimal` before the pass and on after the overlay. Its format comes from `VulkanFormats.ToGpu`, and a
 test in `Super.Tests` checks every format the swapchain can pick has a layer format.
 
 Ambient occlusion, reflections, lighting and the spread of skin and wax draw this way as
@@ -5105,9 +5108,34 @@ ready to sample after lighting, so `BlendStage` moves it to `ColorAttachmentOpti
 Every fullscreen pass now draws through the layer, so `FullscreenPass` has only its layer
 constructor, and the descriptor kit keeps only the layouts something still borrows: the
 frame's, the lighting set's and the one-texture layout. What waits is the rest of the frame.
-Compute passes moved in stage 1c, below. Passes with vertex input or scene geometry, such as the G-buffer, shadows, glass,
-the lens flare's quads and the overlay, move in stage 1d with the draw-data buffer and
-material binding. FSR itself is AMD's code and stays outside the layer.
+Compute passes moved in stage 1c, below. Passes with vertex input moved in stage 1d, below,
+and passes with scene geometry, such as the G-buffer, shadows and glass, follow them with the
+draw-data buffer and material binding. FSR itself is AMD's code and stays outside the layer.
+
+Meshes draw through the layer as WebGPU draws them. A `RenderPipelineDescription` gives each
+colour target as a `ColorTargetState`, with its format, an optional `BlendState` and the
+`ColorWrites` it may change, so a decal can leave alpha alone. `Vertices` lists one
+`VertexLayout` per vertex buffer slot, with its stride, whether it steps per instance, and its
+attributes' locations, formats and offsets. `Depth` sets the depth format, compare and whether
+the pass writes depth, and `Cull` picks the faces to drop. Every state is given, so none of
+`PipelineFactory`'s own guesses apply. `Overrides` are the shader's specialization constants by
+id; with none the shader keeps its own defaults, as WebGPU does, and when there are some they
+go on both stages. A list sets vertex and index buffers (32-bit indices only), draws indexed,
+and sets a viewport and scissor inside a render pass; until it does, both cover the first
+target. Clip space is Vulkan's: y points down and counter-clockwise faces are the front, so
+the WebGPU backend flips y and the front face to match. Depth is reversed, cleared to 0 and
+tested with `Greater`.
+
+The instanced passes draw this way: the debug lines, the grid overlays, the overlay's quads,
+decals, the probe debug view's spheres and the lens flare's quads. Each keeps its instances in
+`FrameBuffers`, one host-visible buffer for each frame in flight adopted into the layer, which
+the lines grow when a frame draws more than fit. Their own images are bind groups made by name.
+The frame's set, the bindless resource table, the lighting set and the flare's visibility set
+are made outside the layer, so their layouts are lent and the sets adopted. Decals draw into
+the G-buffer's base colour and normals, and the probe spheres into Hdr with depth, while
+`OpaqueStage` and `BlendStage` still move those layouts by hand, so those targets are adopted
+held. Particles draw inside glass's pass, in one back-to-front order with it, so they move with
+glass.
 
 Compute runs through `ComputePass`, which makes a compute pipeline from one shader and can
 be lent set layouts as `FullscreenPass` can. Each `Record` is a compute pass of its own with

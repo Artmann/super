@@ -88,20 +88,30 @@ internal sealed unsafe class VulkanGpu : GpuDevice
             : [vertex, _shaders[description.FragmentShader.Value]];
 
         var (layout, setLayouts, owned, constantStages) = CreateLayout(shaders, borrowed);
-        Span<Format> formats = stackalloc Format[description.ColorFormats.Length];
-        for (int i = 0; i < formats.Length; i++)
-        {
-            formats[i] = VulkanFormats.Of(description.ColorFormats[i]);
-        }
+        var targets = description.Targets;
+        Span<Format> formats = stackalloc Format[targets.Length];
+        Span<PipelineColorBlendAttachmentState> blends = stackalloc PipelineColorBlendAttachmentState[targets.Length];
+        VulkanStates.Fill(targets, formats, blends);
+        var vertices = description.Vertices;
+        Span<VertexInputBindingDescription> bindings = stackalloc VertexInputBindingDescription[vertices.Length];
+        Span<VertexInputAttributeDescription> attributes = stackalloc VertexInputAttributeDescription[VulkanStates.AttributeCount(vertices)];
+        VulkanStates.Fill(vertices, bindings, attributes);
+        var depth = description.Depth;
 
+        // Every state is given, so none of the factory's own choices apply; and so are the override constants,
+        // which leaves a shader's defaults alone when there are none, as WebGPU does.
         var pipeline = PipelineFactory.Create(_context, new PipelineDescription
         {
             VertexShader = vertex.Name,
             FragmentShader = shaders.Length > 1 ? shaders[1].Name : null,
             Layout = layout,
             ColorFormats = formats,
-            DepthFormat = Format.Undefined,
-            Transparent = description.Blend,
+            Blends = blends,
+            VertexBindings = bindings,
+            VertexAttributes = attributes,
+            DepthFormat = depth is { } state ? VulkanFormats.Of(state.Format) : Format.Undefined,
+            CullMode = VulkanStates.Of(description.Cull),
+            Given = new GivenStates(description.Overrides.ToArray(), depth is { } test ? (VulkanStates.Of(test.Compare), test.Write) : null),
         });
         return new PipelineId(_pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, owned, shaders, constantStages)));
     }

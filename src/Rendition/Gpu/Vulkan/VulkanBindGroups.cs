@@ -52,12 +52,13 @@ internal sealed record VulkanPipeline(
 /// <summary>
 /// An image view made outside the layer, with what the layer needs to move its image between layouts. A
 /// <see cref="ReadOnlyDepth"/> view is depth that rests in <see cref="ImageLayout.DepthReadOnlyOptimal"/> and is only sampled.
-/// A <see cref="Surface"/> is drawn to in the layout its caller leaves it in, as the window's image is.
+/// A <see cref="Held"/> view is drawn to in the layout its caller leaves it in, and left there: the window's image is
+/// one, and so is a G-buffer target while the passes that move it are outside the layer.
 /// A <see cref="Storage"/> image is one compute shaders write; it rests in <see cref="ImageLayout.General"/> between passes
 /// so it can be written and read without moving, and render passes can't draw to it.
 /// </summary>
 internal readonly record struct AdoptedView(
-    ImageView View, Image Image, Extent2D Extent, bool ReadOnlyDepth = false, bool Surface = false, bool Storage = false);
+    ImageView View, Image Image, Extent2D Extent, bool ReadOnlyDepth = false, bool Held = false, bool Storage = false);
 
 /// <summary>A buffer made outside the layer, and how many bytes of it bind groups and clears see.</summary>
 internal readonly record struct AdoptedBuffer(Silk.NET.Vulkan.Buffer Buffer, long Size);

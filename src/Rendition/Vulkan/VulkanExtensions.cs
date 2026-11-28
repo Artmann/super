@@ -71,15 +71,6 @@ internal static unsafe class VulkanExtensions
         api.CmdPipelineBarrier2(cmd, &dependency);
     }
 
-    /// <summary>
-    /// Readies an image for a pass to draw over all of it. Targets are shared between
-    /// frames in flight, so this waits for the previous frame's sampling to finish.
-    /// </summary>
-    public static void BeginColorTarget(this Vk api, CommandBuffer cmd, Image image) =>
-        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal),
-            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit),
-            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit));
-
     /// <summary>Makes a finished target ready for the next pass to sample.</summary>
     public static void EndColorTarget(this Vk api, CommandBuffer cmd, Image image) =>
         api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal),
@@ -99,33 +90,6 @@ internal static unsafe class VulkanExtensions
         var scissor = new Rect2D(default, extent);
         api.CmdSetViewport(cmd, 0, 1, &viewport);
         api.CmdSetScissor(cmd, 0, 1, &scissor);
-    }
-
-    /// <summary>
-    /// Begins drawing over a picture already in the colour attachment layout, keeping what's there, with the viewport
-    /// covering it all. End it with CmdEndRendering.
-    /// </summary>
-    public static void BeginOver(this Vk api, CommandBuffer cmd, (ImageView View, Extent2D Extent) target)
-    {
-        var attachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = target.View,
-            ImageLayout = ImageLayout.ColorAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Load,
-            StoreOp = AttachmentStoreOp.Store,
-        };
-        var rendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, target.Extent),
-            LayerCount = 1,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &attachment,
-        };
-
-        api.CmdBeginRendering(cmd, &rendering);
-        api.SetFullViewport(cmd, target.Extent);
     }
 
     /// <summary>An attachment cleared to <paramref name="clear"/> when drawing begins and kept after it.</summary>

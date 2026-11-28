@@ -486,6 +486,146 @@ WebGPU makes every dispatch see what the dispatch before it wrote. The Vulkan pl
 - [ ] **Step 3:** Run CI's tests and the GPU suite. Expected: they pass, apart from the known `LiveProbeTests` allocation failure that `main` also has. Commit with `refactor: remove the old compute pass path`.
 - [ ] **Step 4:** Open the pull request. Write what moved, what stays and why, the timings and the shot comparison, with no pictures. Then run one review of the whole branch, fix what it finds, and write the task-level plan for stage 1d.
 
+## Stage 1d: geometry passes on the layer
+
+Stage 1d is three pull requests, because each is a separate risk:
+
+- 1d1 teaches the layer to draw meshes and moves the small instanced passes.
+- 1d2 moves the scene's draws, where the frame time budget is at risk.
+- 1d3 moves grass, with its scatter and indirect draws.
+
+Branches are `feat/gpu-layer-draws`, `feat/gpu-layer-scene` and `feat/gpu-layer-grass`. Each is stacked on the one before, and the first is on `feat/gpu-layer-compute`.
+
+Some passes stay where they are:
+
+- The multiview cube captures (probe capture, reflection capture) move in 1f, which makes multiview optional.
+- `TexelDraw` bakes with conservative raster on Vulkan only, and stage 1g fences it in.
+- Mesh and instance buffers are still made and uploaded outside the layer and adopted, until 1e.
+
+Three decisions, taken here against the design above:
+
+- Per-draw constants go through `CommandList.SetConstants`, not a new draw-data buffer. On Vulkan that stays push constants, so desktop speed and shaders don't change. On the web it is the uniform ring with one dynamic offset a batch.
+  - Instances are already in a storage buffer that the vertex shader reads by its instance index, which includes the first instance on both APIs.
+  - What remains is the 64-byte `Draw` block, which is per batch.
+  - WGSL has no base-instance built-in, so a draw buffer couldn't be indexed by it anyway.
+  - If the ring is slow in the browser, stage 4 moves the block into the instance records.
+- Material binding becomes `MaterialBinding` with `BindGroupId For(MaterialHandle material)`. The draw loop binds group 1 only when the answer changes.
+  - In 1d there is one implementation, `GlobalMaterialBinding`, which returns the adopted global set for every material.
+  - The per-material shape comes with the `SUPER_WEB` material shaders in stage 2, because without them nothing on desktop can draw with it or test it.
+- WebGPU has no `clearAttachments`, so a shadow atlas tile is cleared by a depth-only draw of `depth_clear.vert`. It is a fullscreen triangle at the far depth, with compare Always, in the tile's viewport.
+
+### Stage 1d1, Task 1: Drawing meshes in the layer
+
+**Files:**
+- Create: `src/Rendition/Shaders/test_mesh.vert`, `src/Rendition/Shaders/test_mesh.frag`
+- Modify: `src/Rendition/Gpu/Descriptions.cs`, `src/Rendition/Gpu/CommandList.cs`, `src/Rendition/Gpu/Vulkan/VulkanGpu.cs`, `src/Rendition/Gpu/Vulkan/VulkanPlayer.cs`, `src/Rendition/Vulkan/PipelineFactory.cs`, every `RenderPipelineDescription` caller, `docs/design.md`
+- Test: `tests/Rendition.Gpu.Tests/GpuLayerGpuTests.cs`, `tests/Super.Tests/Gpu/CommandListTests.cs`
+
+**Interfaces:**
+- Produces, shaped like WebGPU:
+  - `enum VertexFormat { Float32, Float32x2, Float32x3, Float32x4, Uint32, Uint8x4, Unorm8x4 }`
+  - `readonly record struct VertexAttribute(int Location, VertexFormat Format, int Offset)`
+  - `readonly record struct VertexLayout(int Stride, bool PerInstance, VertexAttribute[] Attributes)`
+  - `enum CullMode { None, Back, Front }`
+  - `enum CompareFunction { Always, Greater, GreaterEqual, Equal }`
+  - `readonly record struct DepthState(GpuFormat Format, CompareFunction Compare, bool Write)`
+  - `enum BlendFactor` (the factors decals and transparency use) and `readonly record struct BlendState(BlendFactor ColorSource, BlendFactor ColorTarget, BlendFactor AlphaSource, BlendFactor AlphaTarget)`, with `static BlendState Premultiplied`
+  - `readonly record struct ColorTargetState(GpuFormat Format, BlendState? Blend = null, bool Writes = true)`
+- `RenderPipelineDescription` changes:
+  - `ColorFormats` and `Blend` are replaced by `Targets`, a list of `ColorTargetState`.
+  - It gains `Vertices` (vertex layouts), `DepthState? Depth`, `CullMode Cull` (default `None`) and `Overrides`, the specialization constant values by id, which are WebGPU's override constants.
+- `CommandList` gains `SetViewport(float x, float y, float width, float height)` and `SetScissor(int x, int y, int width, int height)`, both valid only inside a render pass. The existing `SetVertexBuffer`, `SetIndexBuffer` (32-bit indices only), `Draw` and `DrawIndexed` are now played.
+- Topology stays triangle lists, counter-clockwise front faces. A render pass sets the full target as its viewport and scissor when it begins, as WebGPU does.
+
+- [ ] **Step 1: Write the failing tests** in `GpuLayerGpuTests`. Each uses `test_mesh.vert` (position plus a per-instance offset and colour) and `test_mesh.frag`, at 64×64:
+  - `The_nearer_of_two_triangles_wins_the_depth_test`: two full-target triangles at depth 0.25 and 0.75, drawn in both orders, with reversed-Z Greater. The centre reads as the 0.75 triangle's colour both times.
+  - `A_back_facing_triangle_is_culled_unless_culling_is_off`: a clockwise triangle draws nothing with `CullMode.Back` and its colour with `None`.
+  - `Each_instance_reads_its_own_attributes`: four instances of a quarter-size quad, each with its own offset and colour from a per-instance vertex buffer. Each quadrant reads its own colour.
+  - `An_indexed_draw_uses_the_index_buffer_and_first_instance`: a quad drawn from 4 vertices and 6 indices, with first instance 2. It reads instance 2's colour.
+  - `A_scissor_keeps_the_draw_inside_its_rectangle`: a full-target draw under a 16×16 scissor at (8, 8). Pixels outside keep the clear colour.
+  - `A_target_whose_writes_are_off_keeps_what_it_held`: two targets, the second with `Writes = false`. The second reads its clear colour.
+  - `An_override_constant_changes_what_the_shader_does`: `test_mesh.frag` outputs blue when constant 0 is 1. Draw with `Overrides = [1]` and with `[0]`.
+  - Extend `Recording_and_playing_a_pass_again_allocates_nothing` with an indexed, instanced draw.
+  - In `CommandListTests`: `Setting_a_viewport_outside_a_render_pass_throws` checks that the message names the command.
+- [ ] **Step 2: Run them.** Expected: they fail to compile.
+- [ ] **Step 3: Write it.**
+  - `PipelineFactory`'s `PipelineDescription` takes the vertex layouts, depth, cull, per-target blend and write masks, and specialization values from the layer's description.
+  - Existing callers of `PipelineDescription` keep their meaning, and the CPU-side tests that cover it still pass.
+  - The player binds vertex and index buffers, draws, and sets the viewport and scissor.
+  - `FullscreenPass` and its callers move to `Targets`.
+- [ ] **Step 4: Run the new tests and the CI tests.** Expected: they pass, with 0 validation messages. Prove each test can fail: for example, flip `CullMode` in the player, or skip the scissor, and watch the test fail.
+- [ ] **Step 5: Commit.** `feat: draw meshes through the GPU layer`
+
+### Stage 1d1, Task 2: The instanced passes
+
+**Files:**
+- Modify: `LinePass.cs`, `OverlayPass.cs`, `GridOverlayPass.cs`, the lens flare draw, `ParticlePass.cs`, `DecalPass.cs` and `ProbeDebugPass.cs` (in `src/Rendition/Passes/` or wherever they live), and the sets they bind
+
+**Interfaces:**
+- Consumes: Task 1's description and commands. It also uses `VulkanGpu.Adopt(Buffer, long)` for each instance buffer and `Adopt(DescriptorSet)` with borrowed layouts for sets the layer can't make yet.
+
+- [ ] **Step 1: Move each pass.**
+  - A pass's instance buffer is adopted once for each ring slot.
+  - Its own sets become bind groups made by name where the layer can make them. Where it can't, they are adopted with their layout lent, and the ledger says why for each one.
+  - Push constants become `SetConstants`.
+  - Its hand-recorded rendering begin and end become `BeginRenderPass` and `EndPass` on adopted targets.
+- [ ] **Step 2: Run the GPU suite and the shots** with seed 1, 120 ticks, 1280×720, `--validate`.
+  - Use Shapes, Courtyard, Hamlet and Reef, plus a scene for each moved pass: lines and the grid overlay from the debug drawing examples, the overlay from a UI showcase, decals, particles and the lens flare.
+  - Expected: byte-identical to the branch's base where the base is identical from run to run, and otherwise within the base's own PSNR from run to run, with 0 validation messages.
+- [ ] **Step 3: Commit.** `refactor: run the instanced passes through the GPU layer`
+
+### Stage 1d1, Task 3: Pull request
+
+- [ ] Delete what only the moved passes used (`dotnet roe`), update `design.md`, run CI's tests and the GPU suite, then open the pull request. Write what moved, what stays and the shot comparison, with no pictures. Run one review of the whole branch and fix what it finds.
+
+### Stage 1d2, Task 1: Measure first
+
+- [ ] Measure the CPU frame time of Reef and Hamlet, as `docs/profiling.md` describes, at seed 7, 420 ticks and 300 frames. Measure it on the base of 1d2 and on `main` before stage 1 began (the stage's budget is 0.2 ms over `main`). Write both in the ledger, along with the draw call count for each.
+
+### Stage 1d2, Task 2: Material binding and the scene draws
+
+**Files:**
+- Create: `src/Rendition/Passes/MaterialBinding.cs`
+- Modify: `SceneDraws.cs`, the G-buffer, shadow, transparent and mirror passes, `MeshAssets.cs`, and the material assets
+- Test: `tests/Rendition.Gpu.Tests/`, which already covers G-buffer, shadow, transparency, mirrors and surface shaders
+
+**Interfaces:**
+- Produces:
+  - `abstract class MaterialBinding { BindGroupId For(MaterialHandle material); }` and `sealed class GlobalMaterialBinding : MaterialBinding`.
+  - A mesh carries `BufferId Vertices, Indices`, adopted when it is made and released when it is destroyed.
+  - `SceneDraws.Record` takes a `CommandList`, not a `CommandBuffer`.
+- Consumes: Task 1 of 1d1.
+
+- [ ] **Step 1: Write the failing test** `A_mesh_destroyed_and_made_again_draws_without_validation_errors`: make, draw, destroy, then make a mesh of another size and draw it. Watch it fail by not releasing the adopted buffers, with the layer's live buffer count read through a test hook.
+- [ ] **Step 2: Move the scene draws.**
+  - `SceneDraws.Recorder` records `SetPipeline`, `SetVertexBuffer` and `SetIndexBuffer` only when they change, plus `SetBindGroup(1, binding.For(material))` when that changes, and `SetConstants` and `DrawIndexed` per batch.
+  - The G-buffer, shadow, transparent and mirror pipelines, and every surface shader's six, are layer pipelines with the frame set's and pass sets' layouts lent. Live reload keeps working, because the layer's pipelines are `LivePipeline`s. Show it with the existing reload test.
+  - Shadow tiles clear with `depth_clear.vert` (see the decisions above).
+  - The depth-first round stays.
+- [ ] **Step 3: Run the GPU suite and the shots,** adding Crypt and Skylark (skinned draws) and an example with a material graph. Expected: as in 1d1 Task 2.
+- [ ] **Step 4: Measure again** as in Task 1. Expected: within the budget.
+  - If the recording costs more, the Vulkan backend gets a `CommandList` mode that records straight into the command buffer behind the same methods, as the design allows. Tests run both modes.
+  - Write the timings in the ledger.
+- [ ] **Step 5: Commit.** `refactor: draw the scene through the GPU layer`
+
+### Stage 1d2, Task 3: Pull request
+
+- [ ] As 1d1 Task 3, with the timings from Tasks 1 and 2 in the description.
+
+### Stage 1d3, Task 1: Grass
+
+**Files:**
+- Modify: the grass stage, its pipelines and field, the grass scatter's compute pass, and `CommandList` and `VulkanPlayer` for `DrawIndirect`
+- Test: `tests/Rendition.Gpu.Tests/GpuLayerGpuTests.cs` and the existing grass GPU tests
+
+**Interfaces:**
+- Produces: `CommandList.DrawIndirect(BufferId buffer, int offset)`, which reads the four ints WebGPU and Vulkan share. An indirect buffer written by a dispatch is visible to the draw through the per-dispatch barrier from 1c.
+
+- [ ] **Step 1: Write the failing test** `An_indirect_draw_draws_as_many_instances_as_a_dispatch_wrote`: a compute pass writes `(6, 2, 0, 0)` into a buffer, and an instanced quad draw of `test_mesh` reads it. Two quadrants show and the other two stay clear.
+- [ ] **Step 2: Move the scatter, the ground draws, the blade draws and the grass shadow.** The grass set's per-ring-slot copies become bind groups, one for each ring slot.
+- [ ] **Step 3: Run the GPU suite and the shots,** adding the grass example. Expected: as in 1d1 Task 2.
+- [ ] **Step 4: Commit and open the pull request** as 1d1 Task 3 describes. The commit is `refactor: draw grass through the GPU layer`.
+
 ---
 
 ## Stage 0 findings

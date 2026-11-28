@@ -63,12 +63,18 @@ internal ref struct PipelineDescription
     /// </summary>
     public bool DepthDrawn;
 
-    /// <summary>Whether what the pipeline draws goes into the depth image, when there is one.</summary>
-    public readonly bool WritesDepth => !Transparent && !DepthDrawn;
-
-    /// <summary>What a pixel's depth must be to the depth already there. Reversed-Z: nearer surfaces have larger depth.</summary>
-    public readonly CompareOp DepthCompare => DepthDrawn ? CompareOp.Equal : CompareOp.Greater;
+    /// <summary>The states the GPU layer gives, in place of what the fields above pick.</summary>
+    public GivenStates? Given;
 }
+
+/// <summary>
+/// What the GPU layer sets itself. <paramref name="Constants"/> are the specialization constants of both stages, where
+/// value i is for constant_id i, in place of the fragment stage's one that <see cref="PipelineDescription.Solid"/>
+/// sets; empty keeps every shader default. <paramref name="Depth"/> is how the depth test compares and whether it
+/// writes, in place of what <see cref="PipelineDescription.DepthDrawn"/> and
+/// <see cref="PipelineDescription.Transparent"/> pick.
+/// </summary>
+internal readonly record struct GivenStates(uint[] Constants, (CompareOp Compare, bool Write)? Depth);
 
 /// <summary>
 /// A pipeline, used wherever its handle is. With <see cref="RendererOptions.LiveShaders"/> it also remembers how it
@@ -106,20 +112,6 @@ internal sealed class LivePipeline(
 
 internal static unsafe class PipelineFactory
 {
-    private static readonly PipelineInputAssemblyStateCreateInfo TriangleList = new()
-    {
-        SType = StructureType.PipelineInputAssemblyStateCreateInfo,
-        Topology = PrimitiveTopology.TriangleList,
-    };
-
-    // One viewport and scissor, both set while drawing.
-    private static readonly PipelineViewportStateCreateInfo OneViewport = new()
-    {
-        SType = StructureType.PipelineViewportStateCreateInfo,
-        ViewportCount = 1,
-        ScissorCount = 1,
-    };
-
     public static LivePipeline Create(VulkanContext context, in PipelineDescription description)
     {
         var handle = Build(context, description);
@@ -157,6 +149,7 @@ internal static unsafe class PipelineFactory
         Conservative = description.Conservative,
         Solid = description.Solid,
         DepthDrawn = description.DepthDrawn,
+        Given = description.Given,
     };
 
     /// <summary>A <see cref="PipelineDescription"/> that can be kept, to build its pipeline again.</summary>
@@ -180,6 +173,7 @@ internal static unsafe class PipelineFactory
         public bool Conservative;
         public bool Solid;
         public bool DepthDrawn;
+        public GivenStates? Given;
 
         /// <summary>The description again. Code that has a file is read from it as it is now.</summary>
         public PipelineDescription Restore() => new()
@@ -202,6 +196,7 @@ internal static unsafe class PipelineFactory
             Conservative = Conservative,
             Solid = Solid,
             DepthDrawn = DepthDrawn,
+            Given = Given,
         };
     }
 
@@ -247,7 +242,6 @@ internal static unsafe class PipelineFactory
 
     private static Pipeline Build(VulkanContext context, in PipelineDescription description)
     {
-        var api = context.Api;
         var vertexModule = LoadShader(context, description.VertexShader);
         var fragmentModule = LoadFragment(context, description);
         bool hasFragment = fragmentModule.Handle != 0;
@@ -255,29 +249,48 @@ internal static unsafe class PipelineFactory
 
         var stages = stackalloc PipelineShaderStageCreateInfo[2];
         stages[0] = ShaderStep(ShaderStageFlags.VertexBit, vertexModule, entryPoint);
-        // Always given: for a shader without the constant it changes nothing.
-        uint cutOuts = Convert.ToUInt32(!description.Solid);
-        var cutOutsEntry = new SpecializationMapEntry(0, 0, sizeof(uint));
-        var specialization = new SpecializationInfo
-        {
-            MapEntryCount = 1,
-            PMapEntries = &cutOutsEntry,
-            DataSize = sizeof(uint),
-            PData = &cutOuts,
-        };
         stages[1] = ShaderStep(ShaderStageFlags.FragmentBit, fragmentModule, entryPoint);
-        stages[1].PSpecializationInfo = &specialization;
 
-        var pipeline = CreateGraphics(context, description, stages, hasFragment ? 2u : 1u);
-
-        SilkMarshal.Free(entryPoint);
-        api.DestroyShaderModule(context.Device, vertexModule, null);
-        if (hasFragment)
+        // Without its own constants, CUT_OUTS is always given to the fragment stage: for a shader without it, it
+        // changes nothing.
+        uint cutOuts = Convert.ToUInt32(!description.Solid);
+        ReadOnlySpan<uint> values = description.Given is { } given ? given.Constants : new ReadOnlySpan<uint>(&cutOuts, 1);
+        var entries = stackalloc SpecializationMapEntry[Math.Max(values.Length, 1)];
+        for (int i = 0; i < values.Length; i++)
         {
-            api.DestroyShaderModule(context.Device, fragmentModule, null);
+            entries[i] = new SpecializationMapEntry((uint)i, (uint)(i * sizeof(uint)), sizeof(uint));
         }
 
-        return pipeline;
+        fixed (uint* data = values)
+        {
+            var specialization = new SpecializationInfo
+            {
+                MapEntryCount = (uint)values.Length,
+                PMapEntries = entries,
+                DataSize = (nuint)(values.Length * sizeof(uint)),
+                PData = data,
+            };
+            stages[1].PSpecializationInfo = &specialization;
+            if (description.Given is not null)
+            {
+                stages[0].PSpecializationInfo = &specialization;
+            }
+
+            var pipeline = CreateGraphics(context, description, stages, hasFragment ? 2u : 1u);
+            Free(context, entryPoint, vertexModule, fragmentModule);
+            return pipeline;
+        }
+    }
+
+    // What building needed and the pipeline doesn't.
+    private static void Free(VulkanContext context, nint entryPoint, ShaderModule vertex, ShaderModule fragment)
+    {
+        SilkMarshal.Free(entryPoint);
+        context.Api.DestroyShaderModule(context.Device, vertex, null);
+        if (fragment.Handle != 0)
+        {
+            context.Api.DestroyShaderModule(context.Device, fragment, null);
+        }
     }
 
     // No module (a null handle) for a pass that only writes depth.
@@ -383,13 +396,18 @@ internal static unsafe class PipelineFactory
         PVertexAttributeDescriptions = attributes,
     };
 
-    private static PipelineDepthStencilStateCreateInfo DepthStencil(in PipelineDescription description, bool hasDepth) => new()
+    // Reversed-Z: nearer surfaces have larger depth.
+    private static PipelineDepthStencilStateCreateInfo DepthStencil(in PipelineDescription description, bool hasDepth)
     {
-        SType = StructureType.PipelineDepthStencilStateCreateInfo,
-        DepthTestEnable = hasDepth,
-        DepthWriteEnable = hasDepth && description.WritesDepth,
-        DepthCompareOp = description.DepthCompare,
-    };
+        var given = description.Given?.Depth;
+        return new PipelineDepthStencilStateCreateInfo
+        {
+            SType = StructureType.PipelineDepthStencilStateCreateInfo,
+            DepthTestEnable = hasDepth,
+            DepthWriteEnable = hasDepth && (given?.Write ?? (!description.Transparent && !description.DepthDrawn)),
+            DepthCompareOp = given?.Compare ?? (description.DepthDrawn ? CompareOp.Equal : CompareOp.Greater),
+        };
+    }
 
     // The description's own blend states, or else premultiplied blending when it is transparent and none when not.
     private static void FillBlends(in PipelineDescription description, Span<PipelineColorBlendAttachmentState> blends)
@@ -422,8 +440,8 @@ internal static unsafe class PipelineFactory
     private static Pipeline CreateWithSharedState(
         VulkanContext context, in PipelineDescription description, GraphicsPipelineCreateInfo createInfo)
     {
-        var inputAssembly = TriangleList;
-        var viewport = OneViewport;
+        var inputAssembly = new PipelineInputAssemblyStateCreateInfo(topology: PrimitiveTopology.TriangleList);
+        var viewport = new PipelineViewportStateCreateInfo(viewportCount: 1, scissorCount: 1);
         var dynamicStates = stackalloc DynamicState[] { DynamicState.Viewport, DynamicState.Scissor };
         var dynamicState = new PipelineDynamicStateCreateInfo
         {

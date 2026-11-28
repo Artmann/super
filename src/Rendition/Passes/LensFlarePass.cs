@@ -23,7 +23,7 @@ internal sealed class LensFlarePass : IDisposable
     public LensFlarePass((VulkanContext Context, VulkanGpu Gpu) device, Sampler depthSampler, Extent2D display)
     {
         _visibility = new LensFlareVisibility(device, depthSampler);
-        _draw = new LensFlareDraw(device.Context, _visibility.SetLayout, display);
+        _draw = new LensFlareDraw(device, _visibility.SetLayout, display);
     }
 
     /// <summary>The flare, half the picture's size, ready to sample once <see cref="Record"/> has run.</summary>

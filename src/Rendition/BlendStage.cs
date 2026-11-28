@@ -1,5 +1,6 @@
 using System.Numerics;
 using Silk.NET.Vulkan;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 using static Rendition.PassStages;
@@ -25,16 +26,17 @@ internal sealed unsafe class BlendStage
     private int _particleCount;
 
     public BlendStage(
-        VulkanContext context, DescriptorKit kit, (FrameRing Ring, GpuTimer Timer, MeshStore Meshes) frame,
+        (VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, (FrameRing Ring, GpuTimer Timer, MeshStore Meshes) frame,
         (ResourceTable Resources, EnvironmentMap Environment, ReflectionProbes Probes) sources, FrameSwitches switches)
     {
+        var context = device.Context;
         _api = context.Api;
         _kit = kit;
         (_ring, _timer, _meshes) = frame;
         _switches = switches;
         _particlePass = new ParticlePass(context, kit.FrameSetLayout, FrameRing.Count);
         _transparentPass = new TransparentPass(context, kit.FrameSetLayout, sources.Resources, sources.Environment, sources.Probes);
-        _probeDebugPass = new ProbeDebugPass(context, kit.FrameSetLayout, kit.LightingSetLayout);
+        _probeDebugPass = new ProbeDebugPass(device, kit.FrameSetLayout, kit.LightingSetLayout);
     }
 
     /// <summary>
