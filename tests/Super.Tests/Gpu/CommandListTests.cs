@@ -133,6 +133,32 @@ public class CommandListTests
         Assert.Equal("BeginComputePass was called inside a pass that has not ended.", error.Message);
     }
 
+    [Fact]
+    public void Setting_a_viewport_or_scissor_outside_a_render_pass_throws()
+    {
+        var commands = new CommandList();
+        var outside = Assert.Throws<InvalidOperationException>(() => commands.SetViewport(0f, 0f, 1f, 1f));
+        commands.BeginComputePass();
+        var inCompute = Assert.Throws<InvalidOperationException>(() => commands.SetScissor(0, 0, 1, 1));
+
+        Assert.Equal("SetViewport was called outside a render pass.", outside.Message);
+        Assert.Equal("SetScissor was called outside a render pass.", inCompute.Message);
+    }
+
+    [Fact]
+    public void A_viewport_and_scissor_record_their_rectangles()
+    {
+        var commands = new CommandList();
+        commands.BeginRenderPass([new ColorTarget(new ViewId(2), LoadOp.Load, Vector4.Zero)], null);
+        int start = commands.Words.Length;
+        commands.SetViewport(1f, 2f, 3f, 4f);
+        commands.SetScissor(5, 6, 7, 8);
+
+        Assert.Equal(
+            [(int)Command.SetViewport, Bits(1f), Bits(2f), Bits(3f), Bits(4f), (int)Command.SetScissor, 5, 6, 7, 8],
+            commands.Words[start..].ToArray());
+    }
+
     private static void Record(CommandList commands)
     {
         commands.PushLabel("Tonemap");

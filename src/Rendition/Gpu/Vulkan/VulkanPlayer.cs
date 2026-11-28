@@ -5,19 +5,17 @@ namespace Rendition.Gpu.Vulkan;
 
 /// <summary>
 /// Plays a <see cref="CommandList"/> into a Vulkan command buffer. Images rest ready to be read by shaders between
-/// passes, as the renderer's other passes leave them: a render pass moves its targets to the attachment layout as it
-/// begins and back as it ends, so every image a bind group holds is already readable. Bind groups are bound when a
+/// passes, as the renderer's other passes leave them: <see cref="VulkanTargets"/> moves a render pass's targets to the
+/// attachment layouts as it begins and back as it ends, so every image a bind group holds is already readable. Bind groups are bound when a
 /// draw needs them, so they can be set before or after the pipeline, as in WebGPU.
 /// </summary>
 internal sealed unsafe class VulkanPlayer(
     Vk api, (IdTable<AdoptedView> Views, IdTable<AdoptedBuffer> Buffers) resources, IdTable<VulkanPipeline> pipelines, VulkanBindGroups groups)
 {
-    private const int MaxTargets = 8;
     private const int MaxGroups = 8;
 
-    private readonly Image[] _targets = new Image[MaxTargets];
+    private readonly VulkanTargets _targets = new(api, resources.Views);
     private readonly BindGroupId[] _bound = new BindGroupId[MaxGroups];
-    private int _targetCount;
     private int _unbound;
     private VulkanPipeline? _pipeline;
     private bool _computing;
@@ -28,7 +26,7 @@ internal sealed unsafe class VulkanPlayer(
         _pipeline = null;
         Array.Clear(_bound);
         _unbound = 0;
-        _targetCount = 0;
+        _targets.Clear();
         _computing = false;
 
         var words = commands.Words;
@@ -46,7 +44,7 @@ internal sealed unsafe class VulkanPlayer(
         switch (command)
         {
             case Command.BeginRenderPass:
-                return BeginRenderPass(cmd, words);
+                return _targets.Begin(cmd, words);
             case Command.EndPass:
                 EndPass(cmd);
                 return 1;
@@ -69,6 +67,38 @@ internal sealed unsafe class VulkanPlayer(
                 return 2;
             case Command.PopLabel:
                 return 1;
+            default:
+                return StepGeometry(cmd, command, words);
+        }
+    }
+
+    /// <summary>The commands that feed draws their vertices and say where on the targets they land.</summary>
+    private int StepGeometry(CommandBuffer cmd, Command command, ReadOnlySpan<int> words)
+    {
+        switch (command)
+        {
+            case Command.SetVertexBuffer:
+                var vertices = resources.Buffers[words[2]].Buffer;
+                ulong offset = (ulong)words[3];
+                api.CmdBindVertexBuffers(cmd, (uint)words[1], 1, &vertices, &offset);
+                return 4;
+            case Command.SetIndexBuffer:
+                api.CmdBindIndexBuffer(cmd, resources.Buffers[words[1]].Buffer, (ulong)words[2], IndexType.Uint32);
+                return 3;
+            case Command.DrawIndexed:
+                BindGroups(cmd);
+                api.CmdDrawIndexed(cmd, (uint)words[1], (uint)words[2], (uint)words[3], words[4], (uint)words[5]);
+                return 6;
+            case Command.SetViewport:
+                var viewport = new Viewport(
+                    BitConverter.Int32BitsToSingle(words[1]), BitConverter.Int32BitsToSingle(words[2]),
+                    BitConverter.Int32BitsToSingle(words[3]), BitConverter.Int32BitsToSingle(words[4]), 0f, 1f);
+                api.CmdSetViewport(cmd, 0, 1, &viewport);
+                return 5;
+            case Command.SetScissor:
+                var scissor = new Rect2D(new Offset2D(words[1], words[2]), new Extent2D((uint)words[3], (uint)words[4]));
+                api.CmdSetScissor(cmd, 0, 1, &scissor);
+                return 5;
             default:
                 return StepCompute(cmd, command, words);
         }
@@ -96,101 +126,6 @@ internal sealed unsafe class VulkanPlayer(
         }
     }
 
-    private int BeginRenderPass(CommandBuffer cmd, ReadOnlySpan<int> words)
-    {
-        int count = words[1];
-        if (count is < 1 or > MaxTargets)
-        {
-            throw new NotSupportedException($"A render pass needs 1 to {MaxTargets} colour targets, not {count}.");
-        }
-
-        int length = 2 + count * 6 + 4;
-        if (words[length - 4] != 0)
-        {
-            throw new NotSupportedException("The Vulkan backend of the GPU layer can't draw to depth targets yet.");
-        }
-
-        // The pass covers the first target, as WebGPU's default viewport does.
-        var extent = resources.Views[words[2]].Extent;
-        var attachments = stackalloc RenderingAttachmentInfo[count];
-        for (int i = 0; i < count; i++)
-        {
-            attachments[i] = Attachment(cmd, words.Slice(2 + i * 6, 6), i);
-        }
-
-        _targetCount = count;
-        var rendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, extent),
-            LayerCount = 1,
-            ColorAttachmentCount = (uint)count,
-            PColorAttachments = attachments,
-        };
-        api.CmdBeginRendering(cmd, &rendering);
-        api.SetFullViewport(cmd, extent);
-        return length;
-    }
-
-    /// <summary>Readies the colour target that <paramref name="target"/>'s six words describe, the <paramref name="index"/>th of its pass.</summary>
-    private RenderingAttachmentInfo Attachment(CommandBuffer cmd, ReadOnlySpan<int> target, int index)
-    {
-        var view = resources.Views[target[0]];
-        if (view.Image.Handle == 0)
-        {
-            throw new InvalidOperationException($"View {target[0]} was adopted without its image, to be read, so it can't be drawn to.");
-        }
-
-        if (view.Storage)
-        {
-            throw new InvalidOperationException($"View {target[0]} was adopted as Storage, for compute shaders to write, so render passes can't draw to it.");
-        }
-
-        var load = (LoadOp)target[1];
-        if (view.Surface)
-        {
-            // Its caller moves it in and out, so EndPass skips it.
-            _targets[index] = default;
-        }
-        else
-        {
-            MoveToTarget(cmd, view.Image, load);
-            _targets[index] = view.Image;
-        }
-        return new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = view.View,
-            ImageLayout = ImageLayout.ColorAttachmentOptimal,
-            LoadOp = load switch
-            {
-                LoadOp.Load => AttachmentLoadOp.Load,
-                LoadOp.Clear => AttachmentLoadOp.Clear,
-                _ => AttachmentLoadOp.DontCare,
-            },
-            StoreOp = AttachmentStoreOp.Store,
-            ClearValue = new ClearValue(new ClearColorValue(
-                BitConverter.Int32BitsToSingle(target[2]), BitConverter.Int32BitsToSingle(target[3]),
-                BitConverter.Int32BitsToSingle(target[4]), BitConverter.Int32BitsToSingle(target[5]))),
-        };
-    }
-
-    /// <summary>
-    /// Moves a target from resting, ready for shaders, to drawing. What it held is only kept when the pass loads it;
-    /// otherwise its old contents are thrown away, which is cheaper.
-    /// </summary>
-    private void MoveToTarget(CommandBuffer cmd, Image image, LoadOp load)
-    {
-        // Compute shaders read resting images too, such as the exposure meter reading the picture, so the waits on
-        // both sides of a pass cover them as well as fragment shaders.
-        var from = load == LoadOp.Load ? ImageLayout.ShaderReadOnlyOptimal : ImageLayout.Undefined;
-        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, from, ImageLayout.ColorAttachmentOptimal),
-            (Readers, AccessFlags2.ShaderSampledReadBit),
-            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentReadBit | AccessFlags2.ColorAttachmentWriteBit));
-    }
-
-    private const PipelineStageFlags2 Readers = PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit;
-
     private void EndPass(CommandBuffer cmd)
     {
         if (_computing)
@@ -199,16 +134,7 @@ internal sealed unsafe class VulkanPlayer(
             return;
         }
 
-        api.CmdEndRendering(cmd);
-        for (int i = 0; i < _targetCount; i++)
-        {
-            if (_targets[i].Handle != 0)
-            {
-                api.EndBlendOnto(cmd, _targets[i]);
-            }
-        }
-
-        _targetCount = 0;
+        _targets.End(cmd);
     }
 
     private int SetConstants(CommandBuffer cmd, ReadOnlySpan<int> words)

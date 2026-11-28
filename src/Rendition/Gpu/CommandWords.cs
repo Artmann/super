@@ -3,16 +3,48 @@ using System.Runtime.InteropServices;
 namespace Rendition.Gpu;
 
 /// <summary>
-/// The storage behind a <see cref="CommandList"/>: a growing int array, and the label names the
-/// words refer to by index. Both are kept between frames, so once grown they allocate nothing.
+/// The storage behind a <see cref="CommandList"/>: a growing int array, the label names the
+/// words refer to by index, and which kind of pass is open. The array and names are kept between
+/// frames, so once grown they allocate nothing.
 /// </summary>
 internal sealed class CommandWords
 {
     private readonly List<string> _labels = [];
     private int[] _words = new int[256];
     private int _count;
+    private PassKind _pass;
 
     public ReadOnlySpan<int> All => _words.AsSpan(0, _count);
+
+    /// <summary>Opens a pass of <paramref name="kind"/>, throwing when one is open already.</summary>
+    public void Begin(PassKind kind, string command)
+    {
+        if (_pass != PassKind.None)
+        {
+            throw new InvalidOperationException($"{command} was called inside a pass that has not ended.");
+        }
+
+        _pass = kind;
+    }
+
+    public void End()
+    {
+        if (_pass == PassKind.None)
+        {
+            throw new InvalidOperationException("EndPass was called with no pass begun.");
+        }
+
+        _pass = PassKind.None;
+    }
+
+    /// <summary>Throws <paramref name="message"/> unless the open pass is <paramref name="kind"/>.</summary>
+    public void Require(PassKind kind, string message)
+    {
+        if (_pass != kind)
+        {
+            throw new InvalidOperationException(message);
+        }
+    }
 
     public string Label(int index) => _labels[index];
 
@@ -27,6 +59,7 @@ internal sealed class CommandWords
     {
         _count = 0;
         _labels.Clear();
+        _pass = PassKind.None;
     }
 
     public void Write(Command command, ReadOnlySpan<int> arguments)
@@ -62,4 +95,12 @@ internal sealed class CommandWords
         _count += count;
         return words;
     }
+}
+
+/// <summary>Which kind of pass a <see cref="CommandList"/> has open.</summary>
+internal enum PassKind
+{
+    None,
+    Render,
+    Compute,
 }

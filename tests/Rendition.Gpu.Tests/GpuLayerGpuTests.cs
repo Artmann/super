@@ -227,25 +227,8 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         var set = kit.NewSet(kit.OneTextureLayout);
         ImageSets.Write(gpu.Context, set, [new(kit.LinearSampler, source.View, ImageLayout.ShaderReadOnlyOptimal)]);
         var view = device.Adopt(target.View, target.Image, new Extent2D(Size, Size));
-        var commands = new CommandList();
-        long allocated = 0;
-
-        gpu.Context.SubmitAndWait(cmd =>
-        {
-            for (int round = 0; round < 2; round++)
-            {
-                long before = GC.GetAllocatedBytesForCurrentThread();
-                for (int i = 0; i < 50; i++)
-                {
-                    commands.Reset();
-                    pass.Record(commands, [new ColorTarget(view, LoadOp.DontCare, default)], [device.Adopt(set)], []);
-                    device.Play(commands, cmd);
-                }
-
-                // The first round warms up; the second is the one a frame pays.
-                allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-            }
-        });
+        long allocated = LayerImages.AllocatedPlaying(gpu.Context, device, commands =>
+            pass.Record(commands, [new ColorTarget(view, LoadOp.DontCare, default)], [device.Adopt(set)], []));
 
         Assert.Equal(0, allocated);
     }
@@ -423,7 +406,7 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         {
             VertexShader = device.CreateShader("fullscreen.vert"),
             FragmentShader = device.CreateShader("solid_color.frag"),
-            ColorFormats = [GpuFormat.Rgba8Unorm],
+            Targets = [new ColorTargetState(GpuFormat.Rgba8Unorm)],
         });
 
         var commands = new CommandList();
@@ -454,7 +437,7 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         {
             VertexShader = device.CreateShader("fullscreen.vert"),
             FragmentShader = device.CreateShader("tonemap.frag"),
-            ColorFormats = [GpuFormat.Rgba8Unorm],
+            Targets = [new ColorTargetState(GpuFormat.Rgba8Unorm)],
         });
 
         return Assert.Throws<ArgumentException>(() => device.CreateBindGroup(pipeline, group, [Bind.Image(name, view, sampler)]));
@@ -473,25 +456,9 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         return Read(target);
     }
 
-    // Every pixel different, so filtering between them shows.
-    private static byte[] Pattern(int size)
-    {
-        var bytes = new byte[size * size * 4];
-        for (int i = 0; i < size * size; i++)
-        {
-            bytes[i * 4] = (byte)(i * 4);
-            bytes[i * 4 + 1] = (byte)(255 - i * 3);
-            bytes[i * 4 + 2] = (byte)(i * 37 % 256);
-            bytes[i * 4 + 3] = 255;
-        }
+    private static byte[] Pattern(int size) => LayerImages.Pattern(size);
 
-        return bytes;
-    }
-
-    private RenderTarget Target(int size = Size) => new(
-        gpu.Context, Format.R8G8B8A8Unorm, new Extent2D((uint)size, (uint)size),
-        ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
-        ImageAspectFlags.ColorBit);
+    private RenderTarget Target(int size = Size) => LayerImages.Color(gpu.Context, size);
 
     // An image compute writes, left resting in General, as a Storage view expects.
     private RenderTarget StorageTarget()
@@ -506,55 +473,8 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         return target;
     }
 
-    // Leaves the target ready to be read by shaders, as the layer expects.
-    private unsafe void Upload(RenderTarget target, int size, byte[] pixels)
-    {
-        using var buffer = GpuBuffer.CreateHostVisible(gpu.Context, (ulong)pixels.Length, BufferUsageFlags.TransferSrcBit);
-        pixels.CopyTo(new Span<byte>(buffer.Mapped, pixels.Length));
-        var api = gpu.Context.Api;
-        var handle = buffer.Handle;
-        var image = target.Image;
-        gpu.Context.SubmitAndWait(cmd =>
-        {
-            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.TransferDstOptimal),
-                (PipelineStageFlags2.None, AccessFlags2.None), (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit));
-            var region = new BufferImageCopy
-            {
-                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-                ImageExtent = new Extent3D((uint)size, (uint)size, 1),
-            };
-            api.CmdCopyBufferToImage(cmd, handle, image, ImageLayout.TransferDstOptimal, 1, &region);
-            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal),
-                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit), (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
-        });
-    }
+    private void Upload(RenderTarget target, int size, byte[] pixels) => LayerImages.Upload(gpu.Context, target, size, pixels);
 
-    // The layer leaves a target it drew to ready to be read by shaders, and so does this.
-    private unsafe byte[] Read(RenderTarget target, ImageLayout resting = ImageLayout.ShaderReadOnlyOptimal)
-    {
-        using var buffer = GpuBuffer.CreateHostVisible(gpu.Context, Size * Size * 4, BufferUsageFlags.TransferDstBit);
-        var api = gpu.Context.Api;
-        var handle = buffer.Handle;
-        var image = target.Image;
-        gpu.Context.SubmitAndWait(cmd =>
-        {
-            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
-                resting, ImageLayout.TransferSrcOptimal),
-                (PipelineStageFlags2.AllCommandsBit, AccessFlags2.MemoryWriteBit),
-                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
-            var region = new BufferImageCopy
-            {
-                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-                ImageExtent = new Extent3D(Size, Size, 1),
-            };
-            api.CmdCopyImageToBuffer(cmd, image, ImageLayout.TransferSrcOptimal, handle, 1, &region);
-            // Back to resting, so the layer can draw to it or read it again.
-            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferSrcOptimal, resting),
-                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit),
-                (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
-        });
-
-        return new ReadOnlySpan<byte>(buffer.Mapped, Size * Size * 4).ToArray();
-    }
+    private byte[] Read(RenderTarget target, ImageLayout resting = ImageLayout.ShaderReadOnlyOptimal) =>
+        LayerImages.Read(gpu.Context, target, Size, resting);
 }

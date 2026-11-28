@@ -5051,8 +5051,11 @@ loads them) and back as it ends, and every image in a bind group is already read
 moves wait for, and make the image ready for, compute shaders as well as fragment shaders,
 since the exposure meter and paint's filter read the picture from compute. The
 viewport and render area are the first target's size. Bind groups are bound at the next draw,
-so they can be set before or after the pipeline, as in WebGPU. Depth targets and labels
-aren't played yet; each stage adds what its passes need.
+so they can be set before or after the pipeline, as in WebGPU. A writable depth target moves
+to `DepthAttachmentOptimal` as the pass begins (from `Undefined` unless it loads) and back to
+`ShaderReadOnlyOptimal` as it ends, waiting for and readying the depth tests as well as the
+shaders. Testing against read-only depth throws for now; the passes that need it bring it.
+Labels aren't played yet.
 
 Two bridges last until every pass has moved. `VulkanGpu.Adopt` takes an image view or a
 descriptor set made outside the layer and gives it an id, and `CreateRenderPipeline` can be
@@ -5108,6 +5111,20 @@ frame's, the lighting set's and the one-texture layout. What waits is the rest o
 Compute passes moved in stage 1c, below. Passes with vertex input or scene geometry, such as the G-buffer, shadows, glass,
 the lens flare's quads and the overlay, move in stage 1d with the draw-data buffer and
 material binding. FSR itself is AMD's code and stays outside the layer.
+
+Meshes draw through the layer as WebGPU draws them. A `RenderPipelineDescription` gives each
+colour target as a `ColorTargetState`, with its format, an optional `BlendState` and the
+`ColorWrites` it may change, so a decal can leave alpha alone. `Vertices` lists one
+`VertexLayout` per vertex buffer slot, with its stride, whether it steps per instance, and its
+attributes' locations, formats and offsets. `Depth` sets the depth format, compare and whether
+the pass writes depth, and `Cull` picks the faces to drop. Every state is given, so none of
+`PipelineFactory`'s own guesses apply. `Overrides` are the shader's specialization constants by
+id; with none the shader keeps its own defaults, as WebGPU does, and when there are some they
+go on both stages. A list sets vertex and index buffers (32-bit indices only), draws indexed,
+and sets a viewport and scissor inside a render pass; until it does, both cover the first
+target. Clip space is Vulkan's: y points down and counter-clockwise faces are the front, so
+the WebGPU backend flips y and the front face to match. Depth is reversed, cleared to 0 and
+tested with `Greater`.
 
 Compute runs through `ComputePass`, which makes a compute pipeline from one shader and can
 be lent set layouts as `FullscreenPass` can. Each `Record` is a compute pass of its own with

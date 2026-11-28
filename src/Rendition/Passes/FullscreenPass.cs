@@ -28,12 +28,17 @@ internal sealed class FullscreenPass : IDisposable
     {
         _device = device;
         _targetCount = targetFormats.Length;
+        Span<ColorTargetState> targets = stackalloc ColorTargetState[targetFormats.Length];
+        for (int i = 0; i < targets.Length; i++)
+        {
+            targets[i] = new ColorTargetState(targetFormats[i], blend ? BlendState.Premultiplied : null);
+        }
+
         var description = new RenderPipelineDescription
         {
             VertexShader = device.CreateShader("fullscreen.vert"),
             FragmentShader = device.CreateShader(fragmentShader),
-            ColorFormats = targetFormats,
-            Blend = blend,
+            Targets = targets,
         };
         if (borrowed.IsEmpty)
         {
