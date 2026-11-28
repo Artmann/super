@@ -5257,9 +5257,10 @@ layer and the passes that stay make their pipelines the same way.
 
 WebGPU has no blits, so every mip chain outside baking is drawn instead, by `MipDraws`. It
 adopts one 2D view of each mip of each layer, and each pass draws a mip with `mip_down.frag`,
-which samples the mip above it linearly at the pixel's centre. A linear sample at the centre
-of a half-size pixel lands between four texels and averages them, which is the box filter a
-linear blit gives, odd sizes included (a 5×3 chain matches the blit within one step of 8 bits).
+which samples the mip above it linearly at the pixel's centre. That weighs the texels exactly
+as a linear blit does: at even sizes the sample lands between four texels and averages them,
+and at odd sizes it leans the same way the blit does (a 5×3 chain matches the blit within one
+step of 8 bits).
 An `AdoptedView` carries the `Mip` and `Layer` it covers, and a pass moves only those, so one
 pass draws a mip while the mip above rests ready to be sampled. Given a view to copy from,
 `MipDraws` first draws that into the first mip with a nearest sampler, which keeps every texel,

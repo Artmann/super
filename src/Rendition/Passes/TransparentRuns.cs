@@ -8,7 +8,8 @@ namespace Rendition.Passes;
 
 /// <summary>
 /// Records <see cref="TransparentPass"/>'s plan through the GPU layer, as runs between the copies of the scene. Each
-/// run is one list played into a pass over Hdr and read-only depth; the copies are made by hand between plays. Glass
+/// run is one list played into a pass over Hdr and read-only depth; between plays, each copy is drawn
+/// through the layer by <see cref="MipDraws"/>, with only Hdr's moves around it made by hand. Glass
 /// and particles have different layouts, so each sets every group it reads whenever the kind of draw changes.
 /// </summary>
 internal sealed class TransparentRuns((VulkanGpu Gpu, VulkanContext Context) device, SceneList list, ScenePipelines pipelines, DescriptorSet environment)

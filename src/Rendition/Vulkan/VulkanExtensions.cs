@@ -77,12 +77,6 @@ internal static unsafe class VulkanExtensions
             (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit),
             (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
 
-    /// <summary>Makes a picture blended onto ready for fragment and compute shaders, such as the exposure meter, to sample.</summary>
-    public static void EndBlendOnto(this Vk api, CommandBuffer cmd, Image image) =>
-        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal),
-            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit),
-            (PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
-
     /// <summary>Sets the viewport and scissor to cover the whole target.</summary>
     public static void SetFullViewport(this Vk api, CommandBuffer cmd, Extent2D extent)
     {
