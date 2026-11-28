@@ -5052,7 +5052,16 @@ Two bridges last until every pass has moved. `VulkanGpu.Adopt` takes an image vi
 descriptor set made outside the layer and gives it an id, and `CreateRenderPipeline` can be
 lent the set layouts of groups whose sets an old pass makes, since a layout built from the
 shader wouldn't match theirs. `VulkanGpu.Play` records into a command buffer the old passes
-also record into.
+also record into. A view only shaders read can be adopted without its image, and drawing to
+one throws. `Release` lets go of an adopted view. Adopting the same descriptor set again gives
+the same id, so a pass can adopt the frame's sets every frame without the table growing.
+
+The tonemap was the first pass to move. `TonemapPass` draws through `FullscreenPass`'s layer
+constructor: its own group, the picture, bloom and the flare, is a bind group made by name,
+and the frame's, the meter's and the grade's sets are adopted beside it. It makes that group
+again whenever `PostStage.WriteSets` runs, which only happens while the GPU is idle, and adopts
+Ldr again when the targets change. Recording and playing it allocates nothing, and the
+`GpuLayerGpuTests` check that.
 
 ## Resource lifetime
 

@@ -30,6 +30,20 @@ internal sealed record VulkanPipeline(
 {
     /// <summary>The shader errors name: the fragment shader when there is one.</summary>
     public string Name => Shaders[^1].Name;
+
+    /// <summary>Destroys the pipeline, its layout and the set layouts the layer made for it, but not borrowed ones.</summary>
+    public unsafe void Destroy(VulkanContext context)
+    {
+        Pipeline.Destroy();
+        context.Api.DestroyPipelineLayout(context.Device, Layout, null);
+        for (int group = 0; group < SetLayouts.Length; group++)
+        {
+            if (Owned[group])
+            {
+                context.Api.DestroyDescriptorSetLayout(context.Device, SetLayouts[group], null);
+            }
+        }
+    }
 }
 
 /// <summary>An image view made outside the layer, with what the layer needs to move its image between layouts.</summary>
@@ -56,6 +70,7 @@ internal sealed unsafe class VulkanBindGroups(VulkanContext context, IdTable<Ado
     };
 
     private readonly IdTable<VulkanBindGroup> _groups = new();
+    private readonly Dictionary<ulong, BindGroupId> _adopted = [];
 
     public DescriptorSet this[BindGroupId group] => _groups[group.Value].Set;
 
@@ -156,13 +171,26 @@ internal sealed unsafe class VulkanBindGroups(VulkanContext context, IdTable<Ado
         throw new ArgumentException($"Shader '{pipeline.Name}' has no binding named '{name}'.");
     }
 
-    /// <summary>A set made outside the layer, for a layer pass to bind beside its own until every pass has moved.</summary>
-    public BindGroupId Adopt(DescriptorSet set) => new(_groups.Add(new VulkanBindGroup(set, default)));
+    /// <summary>
+    /// A set made outside the layer, for a layer pass to bind beside its own until every pass has moved. Adopting the
+    /// same set again gives the same id, so a pass can adopt the frame's sets every frame without the table growing.
+    /// </summary>
+    public BindGroupId Adopt(DescriptorSet set)
+    {
+        if (!_adopted.TryGetValue(set.Handle, out var id))
+        {
+            id = new BindGroupId(_groups.Add(new VulkanBindGroup(set, default)));
+            _adopted[set.Handle] = id;
+        }
+
+        return id;
+    }
 
     public void Destroy(BindGroupId group)
     {
         var entry = _groups[group.Value];
         _groups.Remove(group.Value);
+        _adopted.Remove(entry.Set.Handle);
         DestroyPool(entry);
     }
 

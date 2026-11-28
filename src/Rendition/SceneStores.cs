@@ -1,4 +1,5 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition;
@@ -18,6 +19,7 @@ internal sealed class SceneStores
         Context.Api.GetPhysicalDeviceProperties(Context.PhysicalDevice, out var deviceProperties);
         MaxImageSize = (int)Math.Min(deviceProperties.Limits.MaxImageDimension2D, int.MaxValue);
         Kit = new DescriptorKit(Context);
+        Gpu = new VulkanGpu(Context);
         Frames = new FrameSlots(Context, Kit);
         Resources = new ResourceTable(Context);
         Retired = new RetiredResources(Ring, Meshes, Resources);
@@ -62,6 +64,9 @@ internal sealed class SceneStores
     /// <summary>The samplers and set layouts every pass shares.</summary>
     public DescriptorKit Kit { get; }
 
+    /// <summary>The GPU layer, which the passes that have moved to it draw through.</summary>
+    public VulkanGpu Gpu { get; }
+
     /// <summary>Each frame in flight's command buffer, uniforms, instances and bones.</summary>
     public FrameSlots Frames { get; }
 
@@ -81,9 +86,13 @@ internal sealed class SceneStores
     public TraceFlags TraceFlagsOf(MaterialHandle material) =>
         TraceEncoding.TraceFlagsFor(Resources.Materials[material].Cutouts, Resources.Materials[material].Flags);
 
-    /// <summary>Frees the bindless table, the meshes, the frame slots and the shared samplers, but not the device.</summary>
+    /// <summary>
+    /// Frees the GPU layer, the bindless table, the meshes, the frame slots and the shared samplers, but not the
+    /// device. The passes go first, so nothing drawn through the layer is left.
+    /// </summary>
     public void DisposeStores()
     {
+        Gpu.Dispose();
         Resources.Dispose();
         Meshes.Dispose();
         Frames.Dispose();

@@ -27,9 +27,14 @@ internal sealed unsafe class VulkanGpu : GpuDevice
 
     /// <summary>
     /// An image view made outside the layer, such as a render target. Its image must rest in
-    /// <see cref="ImageLayout.ShaderReadOnlyOptimal"/> between passes, as the layer leaves it.
+    /// <see cref="ImageLayout.ShaderReadOnlyOptimal"/> between passes, as the layer leaves it. A view only shaders read
+    /// can leave out its image and size; drawing to it throws.
     /// </summary>
-    public ViewId Adopt(ImageView view, Image image, Extent2D extent) => new(_views.Add(new AdoptedView(view, image, extent)));
+    public ViewId Adopt(ImageView view, Image image = default, Extent2D extent = default) =>
+        new(_views.Add(new AdoptedView(view, image, extent)));
+
+    /// <summary>Lets go of an adopted view, whose image stays its maker's to destroy.</summary>
+    public void Release(ViewId view) => _views.Remove(view.Value);
 
     /// <inheritdoc cref="VulkanBindGroups.Adopt"/>
     public BindGroupId Adopt(DescriptorSet set) => _groups.Adopt(set);
@@ -103,7 +108,7 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     {
         var entry = _pipelines[pipeline.Value];
         _pipelines.Remove(pipeline.Value);
-        DestroyPipeline(entry);
+        entry.Destroy(_context);
     }
 
     public override void Destroy(BindGroupId bindGroup) => _groups.Destroy(bindGroup);
@@ -111,25 +116,12 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     /// <summary>Records <paramref name="commands"/> into <paramref name="into"/>, which the caller submits.</summary>
     public void Play(CommandList commands, CommandBuffer into) => _player.Play(commands, into);
 
-    private void DestroyPipeline(VulkanPipeline pipeline)
-    {
-        pipeline.Pipeline.Destroy();
-        _context.Api.DestroyPipelineLayout(_context.Device, pipeline.Layout, null);
-        for (int group = 0; group < pipeline.SetLayouts.Length; group++)
-        {
-            if (pipeline.Owned[group])
-            {
-                _context.Api.DestroyDescriptorSetLayout(_context.Device, pipeline.SetLayouts[group], null);
-            }
-        }
-    }
-
     public override void Dispose()
     {
         _groups.Dispose();
         foreach (var pipeline in _pipelines.Items)
         {
-            DestroyPipeline(pipeline);
+            pipeline.Destroy(_context);
         }
 
         foreach (var sampler in _samplers.Items)

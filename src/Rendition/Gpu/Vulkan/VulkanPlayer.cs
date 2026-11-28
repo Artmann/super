@@ -22,16 +22,18 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
 
     public void Play(CommandList commands, CommandBuffer cmd)
     {
+        // Cleared first, so a list that threw part way leaves nothing behind for the next.
+        _pipeline = null;
+        Array.Clear(_bound);
+        _unbound = 0;
+        _targetCount = 0;
+
         var words = commands.Words;
         int at = 0;
         while (at < words.Length)
         {
             at += Step(cmd, words[at..]);
         }
-
-        _pipeline = null;
-        Array.Clear(_bound);
-        _unbound = 0;
     }
 
     /// <summary>Plays the command at the start of <paramref name="words"/> and returns how many words it took.</summary>
@@ -109,6 +111,11 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
     private RenderingAttachmentInfo Attachment(CommandBuffer cmd, ReadOnlySpan<int> target, int index)
     {
         var view = views[target[0]];
+        if (view.Image.Handle == 0)
+        {
+            throw new InvalidOperationException($"View {target[0]} was adopted without its image, to be read, so it can't be drawn to.");
+        }
+
         var load = (LoadOp)target[1];
         MoveToTarget(cmd, view.Image, load);
         _targets[index] = view.Image;

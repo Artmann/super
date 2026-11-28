@@ -1,4 +1,5 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 
@@ -10,19 +11,16 @@ namespace Rendition;
 /// </summary>
 internal sealed class PostStage
 {
-    private readonly VulkanContext _context;
-    private readonly DescriptorKit _kit;
     private readonly GpuTimer _timer;
     private readonly DepthOfFieldPass _depthOfField;
     private readonly BloomPass _bloom;
     private readonly ExposureClock _clock = new();
-    private readonly (FullscreenPass Pass, DescriptorSet Set) _tonemap;
+    private readonly TonemapPass _tonemap;
     private (DepthOfFieldConstants? Lens, bool Softens) _taken;
 
-    public PostStage(VulkanContext context, DescriptorKit kit, GpuTimer timer, GBuffer targets, ImageView source)
+    public PostStage((VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, GpuTimer timer, GBuffer targets, ImageView source)
     {
-        _context = context;
-        _kit = kit;
+        var context = device.Context;
         _timer = timer;
         _bloom = new BloomPass(context, kit.LinearSampler, targets.Picture.Resolved.View, targets.Picture.Display);
         Flare = new LensFlarePass(context, kit.NearestSampler, targets.Picture.Display);
@@ -31,9 +29,7 @@ internal sealed class PostStage
         _depthOfField = new DepthOfFieldPass(context, kit.NearestSampler, kit.LinearSampler, kit.FrameSetLayout);
         _depthOfField.SetTargets(source, targets.Depth.View, targets.Extent);
         Grade = new GradeLut(context, kit);
-        // The tonemap's set holds the picture, bloom and the lens flare. The fourth binding is free: tonemap.frag never reads it.
-        _tonemap = (new FullscreenPass(context, "tonemap.frag", GBuffer.LdrFormat,
-            [kit.FrameSetLayout, kit.FourTextureLayout, Meter.SetLayout, kit.OneTextureLayout]), kit.NewSet(kit.FourTextureLayout));
+        _tonemap = new TonemapPass(device.Gpu, kit, Meter.SetLayout);
         Paint = new PaintPass(context, (kit.NearestSampler, kit.LinearSampler), kit.FrameSetLayout, Meter.SetLayout);
         Paint.SetTargets(source, targets.Depth.View, targets.Picture.Display);
     }
@@ -102,10 +98,7 @@ internal sealed class PostStage
         }
 
         Grade.Record(cmd, frameSet);
-        ReadOnlySpan<DescriptorSet> tonemapSets = [frameSet, _tonemap.Set, Meter.Set, Grade.ReadSet];
-        _context.Api.BeginColorTarget(cmd, targets.Picture.Ldr.Image);
-        _tonemap.Pass.Record(cmd, targets.Picture.Ldr.View, extent, tonemapSets);
-        _context.Api.EndColorTarget(cmd, targets.Picture.Ldr.Image);
+        _tonemap.Record(cmd, (targets.Picture.Ldr, extent), (frameSet, Meter.Set, Grade.ReadSet));
         _timer.Mark(cmd);
     }
 
@@ -116,12 +109,7 @@ internal sealed class PostStage
     /// </summary>
     public void WriteSets(ImageView source, GBuffer targets)
     {
-        ImageSets.Write(_context, _tonemap.Set,
-        [
-            new(_kit.LinearSampler, source, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, _bloom.Result, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, Flare.Result, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
+        _tonemap.SetSources(source, _bloom.Result, Flare.Result);
         Meter.SetSource(source, targets.Picture.Display);
     }
 
@@ -147,7 +135,7 @@ internal sealed class PostStage
 
     public void Dispose()
     {
-        _tonemap.Pass.Dispose();
+        _tonemap.Dispose();
         Paint.Dispose();
         Grade.Dispose();
         Meter.Dispose();
