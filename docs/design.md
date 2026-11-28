@@ -1831,10 +1831,8 @@ buffers, sync objects and the uniform buffer.
 A skipped pass records nothing but still calls `GpuTimer.Mark`, since the timer's pass names
 are fixed. Where the GPU has `pipelineStatisticsQuery`, the frame's timer also counts the
 vertex, fragment and compute shaders each pass runs, with one pipeline statistics query a pass
-begun and ended at the marks. A mark inside a render pass (`GpuTimer.Mark` with `insidePass`, round
-the grass's blades in the G-buffer pass) writes its timestamp but leaves the running count
-alone, since a query can't begin or end there, so the passes it ends count nothing of their own.
-`Renderer.Stats.GpuWork` hands them out beside `GpuTimes`. A skipped
+begun and ended at the marks. Marks go only between render passes, since WebGPU writes
+timestamps only there and a query can't begin or end inside one. `Renderer.Stats.GpuWork` hands them out beside `GpuTimes`. A skipped
 pass counts exactly zero, while a pass that still runs counts every shader, even those that
 return at once, so `EffectsOffGpuTests` checks each switch by its count, not its time. Every image a later pass binds must still be in a valid layout, so a skipped
 pass moves its output from `Undefined` to `ShaderReadOnlyOptimal` instead (the sun's shadow
@@ -3792,19 +3790,30 @@ translucency goes negated into the clearcoat channel through the same
 so the lighting lets a low sun behind the grass shine through it. For foliage, `lighting.frag`
 adds a forward-scattering term to that, `FOLIAGE_SCATTER` times the view's alignment with the
 sun to the power `FOLIAGE_SCATTER_POWER`, so leaves and blades seen against a low sun glow
-most. The blades draw two-sided, inside the G-buffer pass after its own draws, so the ground is
-already in the depth buffer; marks inside the pass (`insidePass`) before and after them time them as
-"Grass blades". After the sun's cascades are drawn, `SunShadows.Finish` draws the blades of the
-two nearer details over cascades 0 and 1 (`GrassStage.ShadowDetails` and `ShadowCascades`),
-loading what the casters left, timed as "Grass shadows". Further cascades and the one-triangle
+most. The blades draw two-sided, in a pass of their own over the G-buffer right after its own
+draws, loading what they left, so the ground is already in the depth buffer. The marks before
+and after that pass time it as "Grass blades". After the sun's cascades are drawn,
+`SunShadows.Finish` draws the blades of the two nearer details over cascades 0 and 1
+(`GrassStage.ShadowDetails` and `ShadowCascades`), one pass for each that loads what the
+casters left, timed as "Grass shadows". Further cascades and the one-triangle
 blades cast none, as their shadows would be under a texel. Only blades in the camera's view
 were scattered, so a blade just off screen casts no shadow.
 
 The descriptor set holds the uniforms, the planned squares, the blades, the indirect args and
 the two ground maps, written through `Descriptors`. The buffers and maps are made the first
 frame with grass and kept. The uniforms and squares sit in one host-visible buffer per frame in
-flight; the blades and args are one device buffer shared by the frames, so `Record` puts a
-barrier after last frame's draws before resetting the args.
+flight; the blades and args are one device buffer shared by the frames. `Record` resets the
+args by copying them from `ArgsStart`, a small buffer holding each detail's vertex count and no
+instances, since WebGPU can't write a buffer from inside a command encoder. The copy waits for
+last frame's indirect draws, and the scatter's dispatch is waited on by this frame's, so the
+grass places no barriers of its own.
+
+The grass draws through the GPU layer. `GrassPipelines` adopts its three draw pipelines and
+makes the scatter a `ComputePass` lent the grass's set layouts. Each ring slot's set is adopted
+as a bind group of its own, and every grass pipeline sets groups 0 to 2 itself, since its push
+range differs from the scene's and Vulkan won't keep sets bound across layouts that differ.
+`GrassTargets` adopts the args, `ArgsStart` and the two ground maps, which the layer moves
+in and out of their passes. The ground map is a pass with both maps cleared first.
 
 `RenderEffects.Grass` off, or no grass in the frame, leaves `Active` false and every step and
 draw returns at once, so a frame without grass costs nothing. `RenderSettings.GrassDetail`, from
@@ -5057,8 +5066,9 @@ to `DepthAttachmentOptimal` as the pass begins (from `Undefined` unless it loads
 `ShaderReadOnlyOptimal` as it ends, waiting for and readying the depth tests as well as the
 shaders. A read-only depth target must load, moves to `DepthReadOnlyOptimal` instead, so shaders
 may sample it in the same pass, and stores nothing. A held one is left in that layout by its
-caller, as glass's depth is.
-Labels aren't played yet.
+caller, as glass's depth is. A pass that loads a held target begins with a barrier from
+drawn colour and depth, since no move orders it after the pass that drew there. The list has
+no debug labels yet; they come back when a backend plays them.
 
 Two bridges last until every pass has moved. `VulkanGpu.Adopt` takes an image view or a
 descriptor set made outside the layer and gives it an id, and `CreateRenderPipeline` can be
@@ -5158,19 +5168,24 @@ around the grass and the other cascades, and the light probes' sun map is adopte
 ordinary target, so the layer moves it and leaves it ready to sample. The atlas is one pass:
 each redrawn tile sets its viewport and scissor and is cleared by drawing `depth_clear.vert`, a
 fullscreen triangle at the far plane with compare `Always`, since WebGPU has no way to clear
-part of a target. The grass's blades still begin over a cascade by hand
-(`ShadowPass.BeginOver`) until the grass moves. The mirror begins its pass through the layer
+part of a target. The grass's blades begin their own pass over each of the nearer
+cascades, loading it, through `ShadowPass.Cascade`. A pass that loads a held target begins
+with a barrier from drawn colour and depth to the attachments' reads and writes, since a held
+target gets no moves that would order it after the pass that drew it, and WebGPU orders them.
+The mirror begins its pass through the layer
 too, with its two layers and its depth adopted held: `MirrorTargets` moves them to drawing
 first and on to the mip blits after, since two views of one image are drawn at once. Glass
 and particles begin their pass through the layer over Hdr and read-only depth, both held,
 with one list for each run between the copies of the scene, which are still made by hand
 between plays. Their layouts differ, so each sets every group it reads through the layer
 whenever the kind of draw changes, and glass forgets the pipeline, mesh and materials it had
-bound. The G-buffer and the light and reflection probes' captures each still begin their
-rendering and bind their own sets by hand, then play the list into it; the cube captures
-keep their multiview rendering and their probe constants, pushed after the draw constants.
-Those lists have draws but no begin-pass word, so they only play on Vulkan: WebGPU draws
-only inside a pass its encoder began. They move when the grass does.
+bound. The G-buffer begins its pass through the layer, its targets adopted held by
+`GBufferTargets` since the opaque stage moves them, and the blades begin theirs over the same
+targets. The light and reflection probes' captures still begin their rendering and bind their
+own sets by hand, then play the list into it; the cube captures keep their multiview rendering
+and their probe constants, pushed after the draw constants. Those lists have draws but no
+begin-pass word, so they only play on Vulkan: WebGPU draws only inside a pass its encoder
+began.
 
 Compute runs through `ComputePass`, which makes a compute pipeline from one shader and can
 be lent set layouts as `FullscreenPass` can. Each `Record` is a compute pass of its own with
@@ -5233,8 +5248,7 @@ That leaves `PipelineFactory.CreateCompute` with the compute passes that stay on
 for a reason. The ray-traced passes, `ProbeTracePass` and `TraceDebugPass`, and the baker's
 passes (`BakeComputePass`, `BakeFilter`, `TileResolve`) read acceleration structures, which
 WebGPU doesn't have, so the browser lights from baked data and the raster probes. The grass
-scatter shares one set and layout with the blades' draws and the indirect draw it fills, so it
-moves with them in stage 1d. `VulkanGpu.CreateComputePipeline` calls `CreateCompute` too, so the
+scatter moved with the blades' draws, as they share one set and layout. `VulkanGpu.CreateComputePipeline` calls `CreateCompute` too, so the
 layer and the passes that stay make their pipelines the same way.
 
 ## Resource lifetime

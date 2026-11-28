@@ -6,11 +6,13 @@ using Rendition.Vulkan;
 namespace Rendition.Passes;
 
 /// <summary>Writes surface properties for every visible pixel. No lighting happens here.</summary>
-internal sealed unsafe class GBufferPass : IDisposable
+internal sealed class GBufferPass : IDisposable
 {
     private readonly VulkanContext _context;
     private readonly ResourceTable _resources;
     private readonly SceneList _list;
+    private readonly VulkanGpu _gpu;
+    private readonly GBufferTargets _targets;
     private readonly List<PipelineVariants> _pipelines = [];
     internal static readonly Format[] ColorFormats =
     [
@@ -28,6 +30,8 @@ internal sealed unsafe class GBufferPass : IDisposable
         var context = device.Context;
         _context = context;
         _resources = resources;
+        _gpu = device.Gpu;
+        _targets = new GBufferTargets(device.Gpu);
 
         _list = new SceneList(device, resources, [frameSetLayout, resources.Layout], SceneDraws.PushRange);
 
@@ -105,73 +109,28 @@ internal sealed unsafe class GBufferPass : IDisposable
         CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, in SceneGeometry scene, ScenePass pass = ScenePass.Opaque,
         DetailView? depthFirst = null)
     {
-        var api = _context.Api;
-        Begin(cmd, targets, clear: pass != ScenePass.OpaqueAfterDecals, frameSet);
-
         if (depthFirst is { } view)
         {
             _depthFirst.Aim(view, (float)targets.Extent.Width * targets.Extent.Height);
         }
 
+        var into = _list.Begin();
+        _targets.Begin(into.Commands, targets, clear: pass != ScenePass.OpaqueAfterDecals);
+        into.Commands.SetBindGroup(0, _gpu.Adopt(frameSet));
         SceneDraws.Record(
-            _list.Begin(), new ScenePipelines(_pipelines, _resources) { Solids = _solids }, scene,
+            into, new ScenePipelines(_pipelines, _resources) { Solids = _solids }, scene,
             new SceneDrawOptions(pass) { DepthFirst = depthFirst is null ? null : _depthFirst });
+        into.Commands.EndPass();
         _list.Play(cmd);
         if (pass != ScenePass.OpaqueAfterDecals)
         {
-            Grass?.RecordBlades(cmd, frameSet);
+            Grass?.RecordBlades(cmd, frameSet, (_targets, targets));
         }
-
-        api.CmdEndRendering(cmd);
     }
 
-    // Starts drawing into the targets, each cleared or keeping what's there, and binds the frame's and the materials' sets.
-    private void Begin(CommandBuffer cmd, GBuffer targets, bool clear, DescriptorSet frameSet)
+    public void Dispose()
     {
-        var api = _context.Api;
-        var load = clear ? AttachmentLoadOp.Clear : AttachmentLoadOp.Load;
-        var colorAttachments = stackalloc RenderingAttachmentInfo[6];
-        colorAttachments[0] = ColorAttachment(targets.BaseColor.View, load);
-        colorAttachments[1] = ColorAttachment(targets.Normal.View, load);
-        colorAttachments[2] = ColorAttachment(targets.Emissive.View, load);
-        colorAttachments[3] = ColorAttachment(targets.Motion.View, load); // Cleared to no motion, which the sky keeps.
-        colorAttachments[4] = ColorAttachment(targets.Baked.View, load); // Cleared to not lightmapped.
-        colorAttachments[5] = ColorAttachment(targets.Mask.View, load, 1f); // Cleared to fully lit.
-        var depthAttachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = targets.Depth.View,
-            ImageLayout = ImageLayout.DepthAttachmentOptimal,
-            LoadOp = load,
-            StoreOp = AttachmentStoreOp.Store,
-            ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(0f, 0)), // Reversed-Z far plane.
-        };
-        var rendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, targets.Extent),
-            LayerCount = 1,
-            ColorAttachmentCount = 6,
-            PColorAttachments = colorAttachments,
-            PDepthAttachment = &depthAttachment,
-        };
-
-        api.CmdBeginRendering(cmd, &rendering);
-        api.SetFullViewport(cmd, targets.Extent);
-
-        var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _list.Layout, 0, 2, sets, 0, null);
+        _list.Dispose();
+        _targets.Dispose();
     }
-
-    public void Dispose() => _list.Dispose();
-
-    private static RenderingAttachmentInfo ColorAttachment(ImageView view, AttachmentLoadOp load, float clear = 0f) => new()
-    {
-        SType = StructureType.RenderingAttachmentInfo,
-        ImageView = view,
-        ImageLayout = ImageLayout.ColorAttachmentOptimal,
-        LoadOp = load,
-        StoreOp = AttachmentStoreOp.Store,
-        ClearValue = new ClearValue(new ClearColorValue(clear, clear, clear, clear)),
-    };
 }

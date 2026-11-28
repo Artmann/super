@@ -163,7 +163,7 @@ internal sealed unsafe class ShadowPass : IDisposable
     /// the layer is adopted as held.
     /// </summary>
     public void Record(CommandBuffer cmd, DescriptorSet frameSet, in SceneGeometry casters, int cascade) =>
-        RecordInto(cmd, frameSet, casters, _targets.Cascades[cascade].ForHeld(Target.LayerViews[cascade], Target.Image, Extent),
+        RecordInto(cmd, frameSet, casters, Cascade(cascade),
             new SceneDrawOptions(ScenePass.Shadow) { Cascade = cascade });
 
     /// <summary>
@@ -192,30 +192,10 @@ internal sealed unsafe class ShadowPass : IDisposable
     }
 
     /// <summary>
-    /// Begins drawing over what a cascade's layer already holds, for the grass's blades, drawn after its casters. The
-    /// caller ends the rendering.
+    /// The layer view of <paramref name="cascade"/> as the layer knows it, held, for the grass's blades to draw over
+    /// what <see cref="Record"/> left in it.
     /// </summary>
-    public void BeginOver(CommandBuffer cmd, int cascade)
-    {
-        var depthAttachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = Target.LayerViews[cascade],
-            ImageLayout = ImageLayout.DepthAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Load,
-            StoreOp = AttachmentStoreOp.Store,
-        };
-        var rendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, Extent),
-            LayerCount = 1,
-            PDepthAttachment = &depthAttachment,
-        };
-
-        _context.Api.CmdBeginRendering(cmd, &rendering);
-        _context.Api.SetFullViewport(cmd, Extent);
-    }
+    public ViewId Cascade(int cascade) => _targets.Cascades[cascade].ForHeld(Target.LayerViews[cascade], Target.Image, Extent);
 
     /// <summary>Which of a frame's draws belong to one atlas tile, and whether the tile is drawn again this frame.</summary>
     public readonly record struct TileDraws(int First, int Count, bool Redraw);

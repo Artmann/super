@@ -6,7 +6,7 @@ using Rendition.Vulkan;
 namespace Rendition.Passes;
 
 /// <summary>
-/// What a scene pass needs to draw through the GPU layer into rendering it began by hand: the pipeline layout its
+/// What a scene pass needs to draw through the GPU layer: the pipeline layout its
 /// pipelines share, the list its draws record into with the materials bound once, and the pipelines it handed to the
 /// layer. Disposing it destroys those pipelines and the layout.
 /// </summary>
@@ -43,7 +43,10 @@ internal sealed class SceneList : IDisposable
         return _target;
     }
 
-    /// <summary>Plays what was recorded since <see cref="Begin"/> into the rendering <paramref name="cmd"/> is in.</summary>
+    /// <summary>
+    /// Plays what was recorded since <see cref="Begin"/> into <paramref name="cmd"/>: a whole pass, or draws into the
+    /// rendering a probe capture began by hand.
+    /// </summary>
     public void Play(CommandBuffer cmd) => _gpu.Play(_target.Commands, cmd);
 
     /// <summary>

@@ -1,5 +1,6 @@
 using System.Numerics;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
 using Rendition.Passes;
 using Rendition.Vulkan;
 using static Rendition.PassStages;
@@ -157,12 +158,13 @@ internal sealed unsafe class SunShadows
         {
             if (grass.Active)
             {
-                for (int cascade = 0; cascade < Math.Min(_cascades, GrassStage.ShadowCascades); cascade++)
+                Span<ViewId> cascades = stackalloc ViewId[Math.Min(_cascades, GrassStage.ShadowCascades)];
+                for (int cascade = 0; cascade < cascades.Length; cascade++)
                 {
-                    _pass.BeginOver(cmd, cascade);
-                    grass.RecordShadow(cmd, frameSet, cascade);
-                    _api.CmdEndRendering(cmd);
+                    cascades[cascade] = _pass.Cascade(cascade);
                 }
+
+                grass.RecordShadows(cmd, frameSet, cascades);
             }
 
             _api.Transition(cmd, new ImageTransition(shadowMap, ImageAspectFlags.DepthBit,

@@ -1,0 +1,18 @@
+#version 460
+
+// Writes the four numbers it's given into args, as a draw's vertex count, instance count, first vertex and first
+// instance. The GPU layer's tests draw from what it wrote to see that an indirect draw reads a dispatch's writes.
+layout(local_size_x = 1) in;
+
+layout(set = 0, binding = 0) buffer Args { uint args[4]; };
+
+layout(push_constant) uniform Constants {
+    uvec4 values;
+} constants;
+
+void main() {
+    args[0] = constants.values.x;
+    args[1] = constants.values.y;
+    args[2] = constants.values.z;
+    args[3] = constants.values.w;
+}

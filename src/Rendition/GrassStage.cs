@@ -2,9 +2,9 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
 using Rendition.Passes;
 using Rendition.Vulkan;
-using static Rendition.PassStages;
 
 namespace Rendition;
 
@@ -107,6 +107,7 @@ internal sealed unsafe class GrassStage(VulkanContext context, SceneStores store
 
     private readonly GrassPipelines _pipelines = new(context, stores);
     private readonly GrassPlan _plan = new(stores.Meshes, stores.Resources);
+    private readonly CommandList _list = new();
 
     // Made the first frame with grass, and kept.
     private GrassTargets? _targets;
@@ -138,7 +139,7 @@ internal sealed unsafe class GrassStage(VulkanContext context, SceneStores store
             return;
         }
 
-        _targets ??= new GrassTargets(context, stores.Kit.NearestSampler, _pipelines.Sets);
+        _targets ??= new GrassTargets((context, stores.Gpu), stores.Kit.NearestSampler, _pipelines.Sets);
         int slot = stores.Ring.Index;
         Unsafe.Write(_targets.Uniforms(slot), _plan.Uniforms);
         var tiles = _plan.Tiles;
@@ -146,8 +147,8 @@ internal sealed unsafe class GrassStage(VulkanContext context, SceneStores store
     }
 
     /// <summary>
-    /// Draws the ground map and scatters the blades, before the shadow maps and the G-buffer draw them. Last frame's
-    /// draws of the blades finish first, as the blades are shared.
+    /// Draws the ground map and scatters the blades, before the shadow maps and the G-buffer draw them. The copy that
+    /// resets the draws' arguments waits for last frame's draws of the blades, as the blades are shared.
     /// </summary>
     public void Record(CommandBuffer cmd, DescriptorSet frameSet)
     {
@@ -156,93 +157,43 @@ internal sealed unsafe class GrassStage(VulkanContext context, SceneStores store
             return;
         }
 
-        var api = context.Api;
-        api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.DrawIndirectBit | PipelineStageFlags2.VertexShaderBit | PipelineStageFlags2.ComputeShaderBit,
-                AccessFlags2.IndirectCommandReadBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit),
-            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit));
-        var reset = stackalloc uint[GrassField.Details * 4];
-        for (int i = 0; i < GrassField.Details; i++)
-        {
-            reset[4 * i] = (uint)GrassField.DetailVertices[i];
-        }
-
-        api.CmdUpdateBuffer(cmd, _targets!.Args.Handle, 0, ArgsSize, reset);
-
-        RecordGround(cmd, frameSet);
-
-        api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit),
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit));
+        var targets = _targets!;
+        Span<BindGroupId> groups = stackalloc BindGroupId[3];
+        _pipelines.Groups(groups, frameSet, stores.Ring.Index);
+        _list.Reset();
+        _list.CopyBuffer(targets.ArgsStart, 0, targets.Args, 0, ArgsSize);
+        RecordGround(groups);
         if (_plan.Tiles.Length > 0)
         {
-            api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipelines.Scatter);
-            _pipelines.Bind(cmd, frameSet, PipelineBindPoint.Compute, stores.Ring.Index);
-            api.CmdDispatch(cmd, (uint)_plan.Tiles.Length, 1, 1);
+            _pipelines.Scatter.Record(_list, groups, default, (_plan.Tiles.Length, 1, 1));
         }
 
-        api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
-            (PipelineStageFlags2.DrawIndirectBit | PipelineStageFlags2.VertexShaderBit,
-                AccessFlags2.IndirectCommandReadBit | AccessFlags2.ShaderStorageReadBit));
+        stores.Gpu.Play(_list, cmd);
     }
 
-    // Draws the grounds' tops into the ground map, then makes it ready for the scatter to read.
-    private void RecordGround(CommandBuffer cmd, DescriptorSet frameSet)
+    // Draws the grounds' tops into the ground map, cleared first to no ground: a depth of 0 and no grass.
+    private void RecordGround(ReadOnlySpan<BindGroupId> groups)
     {
-        var api = context.Api;
-        var (height, info) = (_targets!.Height, _targets.Info);
-        api.Transition(cmd, new ImageTransition(height.Image, ImageAspectFlags.DepthBit, ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal),
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit),
-            (DepthStages, DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit));
-        api.Transition(cmd, new ImageTransition(info.Image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal),
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit), (ColorStage, ColorWrite));
-
-        BeginGround(cmd);
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipelines.Ground);
-        _pipelines.Bind(cmd, frameSet, PipelineBindPoint.Graphics, stores.Ring.Index);
+        var targets = _targets!;
+        _list.BeginRenderPass([new ColorTarget(targets.Info, LoadOp.Clear, default)], new DepthTarget(targets.Height, LoadOp.Clear, 0f, ReadOnly: false));
+        _list.SetPipeline(_pipelines.Ground);
+        _list.SetBindGroups(groups);
         var draws = _plan.Draws;
         var kinds = _plan.DrawKinds;
         for (int i = 0; i < draws.Length; i++)
         {
-            DrawGround(cmd, draws[i], kinds[i]);
+            DrawGround(draws[i], kinds[i]);
         }
 
-        api.CmdEndRendering(cmd);
-        api.Transition(cmd, new ImageTransition(height.Image, ImageAspectFlags.DepthBit, ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal),
-            (DepthStages, DepthWrite), (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
-        api.Transition(cmd, new ImageTransition(info.Image, ImageAspectFlags.ColorBit, ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal),
-            (ColorStage, ColorWrite), (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
+        _list.EndPass();
     }
 
-    // Begins drawing into the ground map, cleared to no ground: a depth of 0 and no grass.
-    private void BeginGround(CommandBuffer cmd)
+    private void DrawGround(in GrassDraw draw, int kind)
     {
-        var extent = new Extent2D(GrassField.CaptureSize, GrassField.CaptureSize);
-        var color = VulkanExtensions.ClearedAttachment(_targets!.Info.View, ImageLayout.ColorAttachmentOptimal, default);
-        var depth = VulkanExtensions.ClearedAttachment(_targets.Height.View, ImageLayout.DepthAttachmentOptimal, new ClearValue(depthStencil: new ClearDepthStencilValue(0f, 0)));
-        var rendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, extent),
-            LayerCount = 1,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &color,
-            PDepthAttachment = &depth,
-        };
-        context.Api.CmdBeginRendering(cmd, &rendering);
-        context.Api.SetFullViewport(cmd, extent);
-    }
-
-    private void DrawGround(CommandBuffer cmd, in GrassDraw draw, int kind)
-    {
-        var api = context.Api;
         var mesh = stores.Meshes.MeshSlots[draw.Ground.Mesh.Index]!;
-        var vertices = mesh.Vertices.Handle;
-        ulong offset = 0;
-        api.CmdBindVertexBuffers(cmd, 0, 1, &vertices, &offset);
-        api.CmdBindIndexBuffer(cmd, mesh.Indices.Handle, 0, IndexType.Uint32);
-        _pipelines.Push(cmd, new GrassConstants
+        _list.SetVertexBuffer(0, mesh.VertexBuffer, 0);
+        _list.SetIndexBuffer(mesh.IndexBuffer, 0);
+        GrassPipelines.SetConstants(_list, new GrassConstants
         {
             Model = draw.Ground.Transform,
             DensityMap = draw.Density?.Map.Index ?? -1,
@@ -251,47 +202,69 @@ internal sealed unsafe class GrassStage(VulkanContext context, SceneStores store
             DensityArea = draw.Density is { } density ? new Vector4(density.Min, density.Max.X, density.Max.Y) : default,
         });
         uint count = draw.Ground.IndexCount > 0 ? draw.Ground.IndexCount : mesh.IndexCount;
-        api.CmdDrawIndexed(cmd, count, 1, draw.Ground.FirstIndex, 0, 0);
+        _list.DrawIndexed((int)count, 1, (int)draw.Ground.FirstIndex, 0, 0);
     }
 
     /// <summary>
-    /// Draws the scattered blades inside the G-buffer pass, after its draws. Marks the timer before and after, with
-    /// grass or without, so the G-buffer's draws and the blades are each timed as a pass.
+    /// Draws the scattered blades in a pass of their own over what the G-buffer's draws left in it. Marks the timer
+    /// before and after, with grass or without, so the G-buffer's draws and the blades are each timed as a pass.
     /// </summary>
-    public void RecordBlades(CommandBuffer cmd, DescriptorSet frameSet)
+    public void RecordBlades(CommandBuffer cmd, DescriptorSet frameSet, (GBufferTargets Targets, GBuffer GBuffer) into)
     {
-        timer.Mark(cmd, insidePass: true);
+        timer.Mark(cmd);
         if (Active)
         {
-            context.Api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipelines.Blades);
-            _pipelines.Bind(cmd, frameSet, PipelineBindPoint.Graphics, stores.Ring.Index);
+            _list.Reset();
+            into.Targets.Begin(_list, into.GBuffer, clear: false);
+            BeginDraws(_pipelines.Blades, frameSet);
             for (int detail = 0; detail < GrassField.Details; detail++)
             {
-                _pipelines.Push(cmd, GrassConstants.Blades(detail));
-                context.Api.CmdDrawIndirect(cmd, _targets!.Args.Handle, (ulong)(detail * ArgsStride), 1, ArgsStride);
+                GrassPipelines.SetConstants(_list, GrassConstants.Blades(detail));
+                _list.DrawIndirect(_targets!.Args, detail * ArgsStride);
             }
+
+            _list.EndPass();
+            stores.Gpu.Play(_list, cmd);
         }
 
-        timer.Mark(cmd, insidePass: true);
+        timer.Mark(cmd);
     }
 
     /// <summary>
-    /// Draws the nearer details' blades into a cascade of the sun's map, inside its pass, for the nearest cascades only.
+    /// Draws the nearer details' blades over what the casters left in the nearest of <paramref name="cascades"/>, the
+    /// sun's map's layers, a pass for each.
     /// </summary>
-    public void RecordShadow(CommandBuffer cmd, DescriptorSet frameSet, int cascade)
+    public void RecordShadows(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<ViewId> cascades)
     {
-        if (!Active || cascade < 0 || cascade >= ShadowCascades)
+        if (!Active)
         {
             return;
         }
 
-        context.Api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipelines.Shadow);
-        _pipelines.Bind(cmd, frameSet, PipelineBindPoint.Graphics, stores.Ring.Index);
-        for (int detail = 0; detail < ShadowDetails; detail++)
+        _list.Reset();
+        for (int cascade = 0; cascade < Math.Min(cascades.Length, ShadowCascades); cascade++)
         {
-            _pipelines.Push(cmd, GrassConstants.Shadow(cascade, detail));
-            context.Api.CmdDrawIndirect(cmd, _targets!.Args.Handle, (ulong)(detail * ArgsStride), 1, ArgsStride);
+            _list.BeginRenderPass([], new DepthTarget(cascades[cascade], LoadOp.Load, 0f, ReadOnly: false));
+            BeginDraws(_pipelines.Shadow, frameSet);
+            for (int detail = 0; detail < ShadowDetails; detail++)
+            {
+                GrassPipelines.SetConstants(_list, GrassConstants.Shadow(cascade, detail));
+                _list.DrawIndirect(_targets!.Args, detail * ArgsStride);
+            }
+
+            _list.EndPass();
         }
+
+        stores.Gpu.Play(_list, cmd);
+    }
+
+    // Sets a draw pipeline and the groups every grass pipeline reads.
+    private void BeginDraws(PipelineId pipeline, DescriptorSet frameSet)
+    {
+        Span<BindGroupId> groups = stackalloc BindGroupId[3];
+        _pipelines.Groups(groups, frameSet, stores.Ring.Index);
+        _list.SetPipeline(pipeline);
+        _list.SetBindGroups(groups);
     }
 
     public void Dispose()

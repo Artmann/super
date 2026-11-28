@@ -91,15 +91,4 @@ internal static unsafe class VulkanExtensions
         api.CmdSetViewport(cmd, 0, 1, &viewport);
         api.CmdSetScissor(cmd, 0, 1, &scissor);
     }
-
-    /// <summary>An attachment cleared to <paramref name="clear"/> when drawing begins and kept after it.</summary>
-    public static RenderingAttachmentInfo ClearedAttachment(ImageView view, ImageLayout layout, ClearValue clear) => new()
-    {
-        SType = StructureType.RenderingAttachmentInfo,
-        ImageView = view,
-        ImageLayout = layout,
-        LoadOp = AttachmentLoadOp.Clear,
-        StoreOp = AttachmentStoreOp.Store,
-        ClearValue = clear,
-    };
 }

@@ -80,16 +80,14 @@ internal sealed unsafe class GpuTimer : IDisposable
     }
 
     /// <summary>
-    /// Marks the end of a pass. Does nothing outside a timed frame, as when capturing a probe. A mark
-    /// <paramref name="insidePass"/> a render pass, such as the G-buffer's draws before the grass's blades, times the
-    /// pass on its own, but its shaders are counted with the pass whose count was running when the render pass began,
-    /// as a count can't begin or end inside one.
+    /// Marks the end of a pass. Does nothing outside a timed frame, as when capturing a probe. Marks go between render
+    /// passes, as WebGPU writes timestamps only there and a count can't begin or end inside one.
     /// </summary>
-    public void Mark(CommandBuffer cmd, bool insidePass = false)
+    public void Mark(CommandBuffer cmd)
     {
         if (_frame >= 0)
         {
-            _counter?.Mark(cmd, _nextMark, insidePass);
+            _counter?.Mark(cmd, _nextMark);
             _context.Api.CmdWriteTimestamp2(cmd, PipelineStageFlags2.AllCommandsBit, _pools[_frame], _nextMark++);
         }
     }

@@ -63,10 +63,6 @@ internal sealed unsafe class VulkanPlayer(
                 BindGroups(cmd);
                 api.CmdDraw(cmd, (uint)words[1], (uint)words[2], (uint)words[3], (uint)words[4]);
                 return 5;
-            case Command.PushLabel:
-                return 2;
-            case Command.PopLabel:
-                return 1;
             default:
                 return StepGeometry(cmd, command, words);
         }
@@ -89,6 +85,10 @@ internal sealed unsafe class VulkanPlayer(
                 BindGroups(cmd);
                 api.CmdDrawIndexed(cmd, (uint)words[1], (uint)words[2], (uint)words[3], words[4], (uint)words[5]);
                 return 6;
+            case Command.DrawIndirect:
+                BindGroups(cmd);
+                api.CmdDrawIndirect(cmd, resources.Buffers[words[1]].Buffer, (ulong)words[2], 1, 16);
+                return 3;
             case Command.SetViewport:
                 var viewport = new Viewport(
                     BitConverter.Int32BitsToSingle(words[1]), BitConverter.Int32BitsToSingle(words[2]),
@@ -121,6 +121,9 @@ internal sealed unsafe class VulkanPlayer(
             case Command.ClearBuffer:
                 ClearBuffer(cmd, words);
                 return 4;
+            case Command.CopyBuffer:
+                CopyBuffer(cmd, words);
+                return 6;
             default:
                 throw new NotSupportedException($"The Vulkan backend of the GPU layer can't play {command} yet.");
         }
@@ -208,5 +211,16 @@ internal sealed unsafe class VulkanPlayer(
         api.MemoryBarrier(cmd, Users, (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit));
         api.CmdFillBuffer(cmd, buffer.Buffer, (ulong)words[2], (ulong)words[3], 0);
         api.MemoryBarrier(cmd, (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit), Users);
+    }
+
+    private static readonly (PipelineStageFlags2 Stage, AccessFlags2 Access) Copying = (
+        PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit | AccessFlags2.TransferWriteBit);
+
+    private void CopyBuffer(CommandBuffer cmd, ReadOnlySpan<int> words)
+    {
+        var region = new BufferCopy((ulong)words[2], (ulong)words[4], (ulong)words[5]);
+        api.MemoryBarrier(cmd, Users, Copying);
+        api.CmdCopyBuffer(cmd, resources.Buffers[words[1]].Buffer, resources.Buffers[words[3]].Buffer, 1, &region);
+        api.MemoryBarrier(cmd, Copying, Users);
     }
 }

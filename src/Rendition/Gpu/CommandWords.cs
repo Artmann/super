@@ -3,13 +3,11 @@ using System.Runtime.InteropServices;
 namespace Rendition.Gpu;
 
 /// <summary>
-/// The storage behind a <see cref="CommandList"/>: a growing int array, the label names the
-/// words refer to by index, and which kind of pass is open. The array and names are kept between
-/// frames, so once grown they allocate nothing.
+/// The storage behind a <see cref="CommandList"/>: a growing int array and which kind of pass is
+/// open. The array is kept between frames, so once grown it allocates nothing.
 /// </summary>
 internal sealed class CommandWords
 {
-    private readonly List<string> _labels = [];
     private int[] _words = new int[256];
     private int _count;
     private PassKind _pass;
@@ -46,19 +44,9 @@ internal sealed class CommandWords
         }
     }
 
-    public string Label(int index) => _labels[index];
-
-    /// <summary>Keeps <paramref name="name"/> and returns the index a word can refer to it by.</summary>
-    public int AddLabel(string name)
-    {
-        _labels.Add(name);
-        return _labels.Count - 1;
-    }
-
     public void Clear()
     {
         _count = 0;
-        _labels.Clear();
         _pass = PassKind.None;
     }
 
