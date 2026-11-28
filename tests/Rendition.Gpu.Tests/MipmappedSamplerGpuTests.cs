@@ -52,7 +52,7 @@ public sealed class MipmappedSamplerGpuTests(GpuFixture gpu)
 
         context.SubmitAndWait(cmd =>
         {
-            Fill(api, cmd, source.Image);
+            Fill(api, cmd, source);
             filter.Record(cmd, group.Id, target.Level(0), new FilterConstants
             {
                 Irradiance = 1,
@@ -68,20 +68,41 @@ public sealed class MipmappedSamplerGpuTests(GpuFixture gpu)
         return (mean.X + mean.Y + mean.Z) / 3f;
     }
 
-    // Clears the sharpest mip to black and the rest to white, leaving them all ready to sample.
-    private static unsafe void Fill(Vk api, CommandBuffer cmd, Image image)
+    // Clears the sharpest mip to black and the rest to white, leaving them all ready to sample. Each mip's six faces are
+    // cleared as the attachment of a render pass, as the renderer draws a cube's mips; the cube can't be a transfer target.
+    private static unsafe void Fill(Vk api, CommandBuffer cmd, EnvironmentCube cube)
     {
-        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.TransferDstOptimal)
+        var drawing = (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit);
+        api.Transition(cmd, new ImageTransition(cube.Image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal)
             { MipCount = SourceMips, LayerCount = 6 },
-            (PipelineStageFlags2.None, AccessFlags2.None), (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit));
-        var black = new ClearColorValue(0f, 0f, 0f, 1f);
-        var white = new ClearColorValue(1f, 1f, 1f, 1f);
-        var sharpest = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 6);
-        var rest = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 1, SourceMips - 1, 0, 6);
-        api.CmdClearColorImage(cmd, image, ImageLayout.TransferDstOptimal, &black, 1, &sharpest);
-        api.CmdClearColorImage(cmd, image, ImageLayout.TransferDstOptimal, &white, 1, &rest);
-        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal)
+            (PipelineStageFlags2.None, AccessFlags2.None), drawing);
+        for (int mip = 0; mip < SourceMips; mip++)
+        {
+            float shade = mip == 0 ? 0f : 1f;
+            var attachment = new RenderingAttachmentInfo
+            {
+                SType = StructureType.RenderingAttachmentInfo,
+                ImageView = cube.Storage(mip),
+                ImageLayout = ImageLayout.ColorAttachmentOptimal,
+                LoadOp = AttachmentLoadOp.Clear,
+                StoreOp = AttachmentStoreOp.Store,
+                ClearValue = new ClearValue(new ClearColorValue(shade, shade, shade, 1f)),
+            };
+            uint size = SourceSize >> mip;
+            var rendering = new RenderingInfo
+            {
+                SType = StructureType.RenderingInfo,
+                RenderArea = new Rect2D(default, new Extent2D(size, size)),
+                LayerCount = 6,
+                ColorAttachmentCount = 1,
+                PColorAttachments = &attachment,
+            };
+            api.CmdBeginRendering(cmd, &rendering);
+            api.CmdEndRendering(cmd);
+        }
+
+        api.Transition(cmd, new ImageTransition(cube.Image, ImageAspectFlags.ColorBit, ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal)
             { MipCount = SourceMips, LayerCount = 6 },
-            (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit), (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
+            drawing, (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
     }
 }
