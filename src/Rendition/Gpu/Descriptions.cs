@@ -48,6 +48,9 @@ internal enum VertexFormat
     Float32x3,
     Float32x4,
     Uint32,
+
+    /// <summary>Three signed 32-bit integers.</summary>
+    Sint32x3,
     Uint8x4,
 
     /// <summary>Four bytes read as 0 to 1, the first in the lowest byte.</summary>

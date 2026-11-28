@@ -87,6 +87,7 @@ internal static class VulkanStates
         VertexFormat.Float32x3 => Format.R32G32B32Sfloat,
         VertexFormat.Float32x4 => Format.R32G32B32A32Sfloat,
         VertexFormat.Uint32 => Format.R32Uint,
+        VertexFormat.Sint32x3 => Format.R32G32B32Sint,
         VertexFormat.Uint8x4 => Format.R8G8B8A8Uint,
         VertexFormat.Unorm8x4 => Format.R8G8B8A8Unorm,
         _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),

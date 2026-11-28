@@ -1,72 +1,60 @@
 using System.Numerics;
-using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
 
 /// <summary>
-/// Draws <see cref="FrameExtras.GridOverlays"/> over the finished picture, after the grade and before the debug lines.
-/// Each overlay is one instance of a cube round its cells, whose fragment shader finds the surface at each pixel from
-/// the scene's depth and draws the grid's lines, fill and border on it. Seen through the camera without the
-/// anti-aliasing shift, so they hold still. See "Grid overlays" in docs/design.md.
+/// Draws <see cref="FrameExtras.GridOverlays"/> over the finished picture, after the grade and before the debug lines,
+/// through the GPU layer. Each overlay is one instance of a cube round its cells, whose fragment shader finds the
+/// surface at each pixel from the scene's depth and draws the grid's lines, fill and border on it. Seen through the
+/// camera without the anti-aliasing shift, so they hold still. See "Grid overlays" in docs/design.md.
 /// </summary>
 internal sealed unsafe class GridOverlayPass : IDisposable
 {
-    private readonly VulkanContext _context;
-    private readonly DescriptorSet _depth;
-    private readonly DescriptorSetLayout _bufferLayout;
-    private readonly DescriptorPool _pool;
-    private readonly DescriptorSet[] _bufferSets;
-    private readonly PipelineLayout _layout;
-    private readonly LivePipeline _pipeline;
-    private readonly GpuBuffer[] _overlays;
-    private readonly GpuBuffer[] _cells;
+    private readonly VulkanGpu _gpu;
+    private readonly PipelineId _pipeline;
+    private readonly (FrameBuffers Overlays, FrameBuffers Cells) _buffers;
+    private readonly BindGroupId[] _bufferGroups;
+    private readonly ImageGroup _depth;
     private readonly GpuGridOverlay[] _packed = new GpuGridOverlay[GridOverlayBatch.MaxOverlays];
     private int _cellWords;
     private (int Frame, int Overlays) _drawn;
 
-    /// <summary>Overlays that read the scene's depth through <paramref name="depth"/>, which <see cref="SceneMarks"/> keeps pointed at it.</summary>
-    public GridOverlayPass(VulkanContext context, (DescriptorSetLayout Layout, DescriptorSet Set) depth, Format targetFormat, int framesInFlight)
+    public GridOverlayPass((VulkanContext Context, VulkanGpu Gpu) device, GpuFormat targetFormat, int framesInFlight)
     {
-        _context = context;
-        _depth = depth.Set;
-        _overlays = new GpuBuffer[framesInFlight];
-        _cells = new GpuBuffer[framesInFlight];
-        _bufferSets = new DescriptorSet[framesInFlight];
-        _bufferLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
-            new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.FragmentBit),
-        ]);
-        _pool = context.CreateDescriptorPool(
-            (uint)framesInFlight, new DescriptorPoolSize(DescriptorType.StorageBuffer, (uint)(2 * framesInFlight)));
-        context.AllocateSets(_pool, _bufferLayout, _bufferSets);
-        for (int i = 0; i < framesInFlight; i++)
-        {
-            _overlays[i] = GpuBuffer.CreateHostVisible(
-                context, (ulong)(GridOverlayBatch.MaxOverlays * sizeof(GpuGridOverlay)), BufferUsageFlags.StorageBufferBit);
-            _cells[i] = GpuBuffer.CreateHostVisible(
-                context, GridOverlayBatch.MaxCellWords * sizeof(uint), BufferUsageFlags.StorageBufferBit);
-            WriteBuffers(_bufferSets[i], _overlays[i], _cells[i]);
-        }
+        _gpu = device.Gpu;
+        _buffers = (
+            new FrameBuffers(device, framesInFlight, GridOverlayBatch.MaxOverlays * sizeof(GpuGridOverlay), BufferUsageFlags.StorageBufferBit),
+            new FrameBuffers(device, framesInFlight, GridOverlayBatch.MaxCellWords * sizeof(uint), BufferUsageFlags.StorageBufferBit));
+        _depth = new ImageGroup(_gpu, _gpu.CreateSampler(new SamplerDescription(SamplerFilter.Nearest)));
 
-        _layout = context.CreatePipelineLayout(
-            [depth.Layout, _bufferLayout], new PushConstantRange(ShaderStageFlags.FragmentBit, 0, (uint)sizeof(Vector4)));
-        _pipeline = PipelineFactory.Create(context, new PipelineDescription
+        // The cube's front faces are left out, so its back faces draw even when the camera is inside it.
+        _pipeline = _gpu.CreateRenderPipeline(new RenderPipelineDescription
         {
-            VertexShader = "grid_overlay.vert",
-            FragmentShader = "grid_overlay.frag",
-            Layout = _layout,
-            ColorFormats = [targetFormat],
-            DepthFormat = Format.Undefined,
-            Transparent = true,
-            CullMode = CullModeFlags.FrontBit,
+            VertexShader = _gpu.CreateShader("grid_overlay.vert"),
+            FragmentShader = _gpu.CreateShader("grid_overlay.frag"),
+            Targets = [new ColorTargetState(targetFormat, BlendState.Premultiplied)],
+            Cull = CullMode.Front,
         });
+        _bufferGroups = new BindGroupId[framesInFlight];
+        for (int frame = 0; frame < framesInFlight; frame++)
+        {
+            _bufferGroups[frame] = _gpu.CreateBindGroup(_pipeline, 1,
+                [Bind.Buffer("Overlays", _buffers.Overlays[frame]), Bind.Buffer("Cells", _buffers.Cells[frame])]);
+        }
     }
 
     /// <summary>How many overlays the last <see cref="Prepare"/> packed.</summary>
     public int Count { get; private set; }
+
+    /// <summary>
+    /// Points the overlays at the scene's depth, which they read to find what they lie on. Makes the bind group again,
+    /// so it must only be called while the GPU is idle.
+    /// </summary>
+    public void SetDepth(ImageView depth) => _depth.Make(_pipeline, 0, [new GroupImage("sceneDepth", depth, Use: GroupImageUse.Depth)]);
 
     /// <summary>
     /// Checks the frame's overlays and packs them, seen through its camera without the anti-aliasing shift, throwing
@@ -86,59 +74,39 @@ internal sealed unsafe class GridOverlayPass : IDisposable
     public void Upload(int frameIndex, in FrameView view)
     {
         _drawn = (frameIndex, Count);
-        _packed.AsSpan(0, Count).CopyTo(new Span<GpuGridOverlay>(_overlays[frameIndex].Mapped, GridOverlayBatch.MaxOverlays));
-        view.Extras.GridCells[.._cellWords].CopyTo(new Span<uint>(_cells[frameIndex].Mapped, GridOverlayBatch.MaxCellWords));
+        _packed.AsSpan(0, Count).CopyTo(_buffers.Overlays.Items<GpuGridOverlay>(frameIndex, GridOverlayBatch.MaxOverlays));
+        view.Extras.GridCells[.._cellWords].CopyTo(_buffers.Cells.Items<uint>(frameIndex, GridOverlayBatch.MaxCellWords));
     }
 
-    /// <summary>
-    /// Draws the overlays uploaded last over <paramref name="target"/>, a picture already in the colour attachment
-    /// layout, or does nothing when there are none.
-    /// </summary>
-    public void Record(CommandBuffer cmd, (ImageView View, Extent2D Extent) target)
+    /// <summary>Draws the overlays uploaded last over <paramref name="target"/>, keeping what it holds, or does nothing when there are none.</summary>
+    public void Record(CommandList commands, ViewId target, Extent2D extent)
     {
         if (_drawn.Overlays == 0)
         {
             return;
         }
 
-        var api = _context.Api;
-        var extent = target.Extent;
-        api.BeginOver(cmd, target);
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
-        var sets = stackalloc DescriptorSet[] { _depth, _bufferSets[_drawn.Frame] };
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
         var screen = new Vector4(extent.Width, extent.Height, 1f / extent.Width, 1f / extent.Height);
-        api.CmdPushConstants(cmd, _layout, ShaderStageFlags.FragmentBit, 0, (uint)sizeof(Vector4), &screen);
+        commands.BeginRenderPass([new ColorTarget(target, LoadOp.Load, default)], null);
+        commands.SetPipeline(_pipeline);
+        commands.SetBindGroups([_depth.Id, _bufferGroups[_drawn.Frame]]);
+        commands.SetConstants(new ReadOnlySpan<byte>(&screen, sizeof(Vector4)));
 
         // A cube is 36 corners, made in the vertex shader from the corner's number.
-        api.CmdDraw(cmd, 36, (uint)_drawn.Overlays, 0, 0);
-        api.CmdEndRendering(cmd);
+        commands.Draw(36, _drawn.Overlays, 0, 0);
+        commands.EndPass();
     }
 
     public void Dispose()
     {
-        for (int i = 0; i < _overlays.Length; i++)
+        foreach (var group in _bufferGroups)
         {
-            _overlays[i].Dispose();
-            _cells[i].Dispose();
+            _gpu.Destroy(group);
         }
 
-        _pipeline.Destroy();
-        _context.DestroyLayouts(_layout, _pool, _bufferLayout);
-    }
-
-    private void WriteBuffers(DescriptorSet set, GpuBuffer overlays, GpuBuffer cells)
-    {
-        var infos = stackalloc DescriptorBufferInfo[]
-        {
-            new(overlays.Handle, 0, Vk.WholeSize),
-            new(cells.Handle, 0, Vk.WholeSize),
-        };
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            Descriptors.BufferWrite(set, 0, &infos[0]),
-            Descriptors.BufferWrite(set, 1, &infos[1]),
-        };
-        _context.Api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
+        _depth.Dispose();
+        _buffers.Overlays.Dispose();
+        _buffers.Cells.Dispose();
+        _gpu.Destroy(_pipeline);
     }
 }

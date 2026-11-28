@@ -17,7 +17,7 @@ internal static class TargetDescriptors
         var gBuffer = targets.GBuffer;
         var depth = new DescriptorImageInfo(kit.NearestSampler, gBuffer.Depth.View, ImageLayout.ShaderReadOnlyOptimal);
         var normal = new DescriptorImageInfo(kit.NearestSampler, gBuffer.Normal.View, ImageLayout.ShaderReadOnlyOptimal);
-        stages.OpaqueStage.WriteTargets(gBuffer, depth, kit.NearestSampler);
+        stages.OpaqueStage.WriteTargets(gBuffer);
 
         var shadowDepth = new DescriptorImageInfo(kit.NearestSampler, lights.ShadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal);
         stages.OcclusionStage.WriteSets(gBuffer, depth.ImageView, normal.ImageView, shadowDepth.ImageView);

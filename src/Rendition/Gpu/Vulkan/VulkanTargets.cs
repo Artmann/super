@@ -55,7 +55,7 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
             LayerCount = 1,
             ColorAttachmentCount = (uint)count,
             PColorAttachments = attachments,
-            PDepthAttachment = _depth.Handle == 0 ? null : &depth,
+            PDepthAttachment = depth.ImageView.Handle == 0 ? null : &depth,
         };
         api.CmdBeginRendering(cmd, &rendering);
         api.SetFullViewport(cmd, extent);
@@ -98,7 +98,7 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
         }
 
         var load = (LoadOp)target[1];
-        if (view.Surface)
+        if (view.Held)
         {
             // Its caller moves it in and out, so End skips it.
             _colors[index] = default;
@@ -127,7 +127,7 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
 
     /// <summary>
     /// Readies the depth target that <paramref name="target"/>'s four words describe (view, load, clear, read-only),
-    /// moving it from resting to drawing as colour targets move. A zero view is no depth.
+    /// moving it from resting to drawing as colour targets move, unless it is held. A zero view is no depth.
     /// </summary>
     private RenderingAttachmentInfo Depth(CommandBuffer cmd, ReadOnlySpan<int> target)
     {
@@ -144,10 +144,15 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
 
         var view = views[target[0]];
         var load = (LoadOp)target[1];
-        api.Transition(cmd, new ImageTransition(view.Image, ImageAspectFlags.DepthBit, Resting(load), ImageLayout.DepthAttachmentOptimal),
-            (Readers, AccessFlags2.ShaderSampledReadBit),
-            (DepthTests, AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.DepthStencilAttachmentWriteBit));
-        _depth = view.Image;
+        if (!view.Held)
+        {
+            // A held view's caller moves it in and out, so End skips it.
+            api.Transition(cmd, new ImageTransition(view.Image, ImageAspectFlags.DepthBit, Resting(load), ImageLayout.DepthAttachmentOptimal),
+                (Readers, AccessFlags2.ShaderSampledReadBit),
+                (DepthTests, AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.DepthStencilAttachmentWriteBit));
+            _depth = view.Image;
+        }
+
         return new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,

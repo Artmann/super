@@ -115,7 +115,7 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     [Fact]
-    public void A_surface_target_is_drawn_in_the_layout_its_caller_left_it_in()
+    public void A_held_target_is_drawn_in_the_layout_its_caller_left_it_in()
     {
         int errors = gpu.ValidationErrors;
         using var device = new VulkanGpu(gpu.Context);
@@ -124,7 +124,7 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         using var pass = new FullscreenPass(device, "solid_color.frag", [GpuFormat.Rgba8Unorm]);
         var color = new Vector4(0f, 0f, 1f, 1f);
         var commands = new CommandList();
-        pass.Record(commands, [new ColorTarget(adopted.ForSurface(target.View, target.Image, new Extent2D(Size, Size)), LoadOp.DontCare, default)],
+        pass.Record(commands, [new ColorTarget(adopted.ForHeld(target.View, target.Image, new Extent2D(Size, Size)), LoadOp.DontCare, default)],
             [], MemoryMarshal.AsBytes(new ReadOnlySpan<Vector4>(in color)));
         var api = gpu.Context.Api;
         var image = target.Image;
@@ -139,6 +139,51 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         });
 
         Assert.Equal([0, 0, 255, 255], Read(target).Take(4));
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_held_depth_target_is_tested_in_the_layout_its_caller_left_it_in()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var target = Target();
+        using var depth = LayerImages.Depth(gpu.Context, Size);
+        using var adopted = new AdoptedTarget(device);
+        using var adoptedDepth = new AdoptedTarget(device);
+        var extent = new Extent2D(Size, Size);
+        var pipeline = device.CreateRenderPipeline(new RenderPipelineDescription
+        {
+            VertexShader = device.CreateShader("fullscreen.vert"),
+            FragmentShader = device.CreateShader("solid_color.frag"),
+            Targets = [new ColorTargetState(GpuFormat.Rgba8Unorm)],
+            Depth = new DepthState(GpuFormat.Depth32Float, CompareFunction.Greater, Write: true),
+        });
+        var color = new Vector4(0f, 1f, 0f, 1f);
+        // The depth is cleared to the nearest, so the cover, at depth 0, fails the test and the target stays black.
+        var commands = new CommandList();
+        commands.BeginRenderPass([new ColorTarget(adopted.For(target, extent), LoadOp.Clear, new Vector4(0f, 0f, 0f, 1f))],
+            new DepthTarget(adoptedDepth.ForHeld(depth.View, depth.Image, extent), LoadOp.Clear, 1f, ReadOnly: false));
+        commands.SetPipeline(pipeline);
+        commands.SetConstants(MemoryMarshal.AsBytes(new ReadOnlySpan<Vector4>(in color)));
+        commands.Draw(3, 1, 0, 0);
+        commands.EndPass();
+        var api = gpu.Context.Api;
+        var image = depth.Image;
+
+        // As the probe spheres do with the scene's depth: moved in before, and out after, by the caller.
+        gpu.Context.SubmitAndWait(cmd =>
+        {
+            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.DepthBit, ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal),
+                (PipelineStageFlags2.None, AccessFlags2.None),
+                (PipelineStageFlags2.EarlyFragmentTestsBit, AccessFlags2.DepthStencilAttachmentWriteBit));
+            device.Play(commands, cmd);
+            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.DepthBit, ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal),
+                (PipelineStageFlags2.LateFragmentTestsBit, AccessFlags2.DepthStencilAttachmentWriteBit),
+                (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
+        });
+
+        Assert.Equal([0, 0, 0, 255], Read(target).Take(4));
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
