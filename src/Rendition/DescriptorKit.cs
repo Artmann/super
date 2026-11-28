@@ -28,9 +28,6 @@ internal sealed unsafe class DescriptorKit : IDisposable
         FrameSetLayout = CreateFrameSetLayout(context);
         // With the frame set's five, the lighting pass samples 24 textures, more than MoltenVK allows in ordinary sets.
         LightingSetLayout = CreateTextureLayout(19, updateAfterBind: true);
-        SixTextureLayout = CreateTextureLayout(6);
-        FourTextureLayout = CreateTextureLayout(4);
-        TwoTextureLayout = CreateTextureLayout(2);
         OneTextureLayout = CreateTextureLayout(1);
 
         _pool = context.CreateDescriptorPool(
@@ -59,12 +56,6 @@ internal sealed unsafe class DescriptorKit : IDisposable
 
     /// <summary>The lighting pass's 19 textures, which can be updated while bound.</summary>
     public DescriptorSetLayout LightingSetLayout { get; }
-
-    public DescriptorSetLayout SixTextureLayout { get; }
-
-    public DescriptorSetLayout FourTextureLayout { get; }
-
-    public DescriptorSetLayout TwoTextureLayout { get; }
 
     public DescriptorSetLayout OneTextureLayout { get; }
 
@@ -151,9 +142,6 @@ internal sealed unsafe class DescriptorKit : IDisposable
         api.DestroyDescriptorPool(device, _pool, null);
         api.DestroyDescriptorPool(device, _lightingPool, null);
         api.DestroyDescriptorSetLayout(device, OneTextureLayout, null);
-        api.DestroyDescriptorSetLayout(device, TwoTextureLayout, null);
-        api.DestroyDescriptorSetLayout(device, SixTextureLayout, null);
-        api.DestroyDescriptorSetLayout(device, FourTextureLayout, null);
         api.DestroyDescriptorSetLayout(device, LightingSetLayout, null);
         api.DestroyDescriptorSetLayout(device, FrameSetLayout, null);
         api.DestroySampler(device, ShadowSampler, null);

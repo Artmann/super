@@ -45,26 +45,10 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     [Fact]
-    public void A_fullscreen_pass_draws_the_same_through_the_layer_as_before()
-    {
-        using var device = new VulkanGpu(gpu.Context);
-        using var kit = new DescriptorKit(gpu.Context);
-        using var source = Target(Size * 2);
-        Upload(source, Size * 2, Pattern(Size * 2));
-
-        byte[] before = DownsampleTheOldWay(kit, source);
-        byte[] after = DownsampleThroughTheLayer(device, source);
-
-        Assert.True(after.Distinct().Count() > 8, "The pattern should reach the picture, not one flat colour.");
-        Assert.Equal(before, after);
-    }
-
-    [Fact]
     public void A_group_made_again_with_new_images_draws_the_new_ones_without_validation_errors()
     {
         int errors = gpu.ValidationErrors;
         using var device = new VulkanGpu(gpu.Context);
-        using var kit = new DescriptorKit(gpu.Context);
         using var first = Target(Size * 2);
         using var second = Target(Size * 2);
         Upload(first, Size * 2, Pattern(Size * 2));
@@ -87,8 +71,9 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         pass.Record(commands, [new ColorTarget(view, LoadOp.DontCare, default)], [group], []);
         gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
 
-        Assert.Equal(DownsampleTheOldWay(kit, second), Read(target));
-        Assert.NotEqual(DownsampleTheOldWay(kit, first), Read(target));
+        // A group made once, fresh, for each source is what the remade group must match.
+        Assert.Equal(DownsampleThroughTheLayer(device, second), Read(target));
+        Assert.NotEqual(DownsampleThroughTheLayer(device, first), Read(target));
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -319,22 +304,6 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         });
 
         return Assert.Throws<ArgumentException>(() => device.CreateBindGroup(pipeline, group, [Bind.Image(name, view, sampler)]));
-    }
-
-    private byte[] DownsampleTheOldWay(DescriptorKit kit, RenderTarget source)
-    {
-        using var target = Target();
-        using var pass = new FullscreenPass(gpu.Context, "bloom_down.frag", Format.R8G8B8A8Unorm, [kit.OneTextureLayout]);
-        var set = kit.NewSet(kit.OneTextureLayout);
-        ImageSets.Write(gpu.Context, set, [new(kit.LinearSampler, source.View, ImageLayout.ShaderReadOnlyOptimal)]);
-        var api = gpu.Context.Api;
-        gpu.Context.SubmitAndWait(cmd =>
-        {
-            api.BeginColorTarget(cmd, target.Image);
-            pass.Record(cmd, target.View, new Extent2D(Size, Size), [set]);
-            api.EndColorTarget(cmd, target.Image);
-        });
-        return Read(target);
     }
 
     private byte[] DownsampleThroughTheLayer(VulkanGpu device, RenderTarget source)

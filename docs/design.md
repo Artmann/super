@@ -5098,6 +5098,14 @@ ready to sample after lighting, so `BlendStage` moves it to `ColorAttachmentOpti
 `ShaderReadOnlyOptimal`. The occlusion average rests ready to sample too, so
 `HistoryCopier.RecordCopy` always reads its frame from `ShaderReadOnlyOptimal`.
 
+Every fullscreen pass now draws through the layer, so `FullscreenPass` has only its layer
+constructor, and the descriptor kit keeps only the layouts something still borrows: the
+frame's, the lighting set's and the one-texture layout. What waits is the rest of the frame.
+Compute passes, among them paint's filter, the exposure meter and the probe updates, move in
+stage 1c. Passes with vertex input or scene geometry, such as the G-buffer, shadows, glass,
+the lens flare's quads and the overlay, move in stage 1d with the draw-data buffer and
+material binding. FSR itself is AMD's code and stays outside the layer.
+
 ## Resource lifetime
 
 Meshes and textures are made during play, so neither creating nor destroying one
