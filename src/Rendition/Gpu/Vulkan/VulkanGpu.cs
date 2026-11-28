@@ -12,6 +12,7 @@ internal sealed unsafe class VulkanGpu : GpuDevice
 {
     private readonly VulkanContext _context;
     private readonly IdTable<AdoptedView> _views = new();
+    private readonly IdTable<AdoptedBuffer> _buffers = new();
     private readonly IdTable<Sampler> _samplers = new();
     private readonly IdTable<VulkanShader> _shaders = new();
     private readonly IdTable<VulkanPipeline> _pipelines = new();
@@ -21,8 +22,8 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     public VulkanGpu(VulkanContext context)
     {
         _context = context;
-        _groups = new VulkanBindGroups(context, _views, _samplers);
-        _player = new VulkanPlayer(context.Api, _views, _pipelines, _groups);
+        _groups = new VulkanBindGroups(context, (_views, _buffers), _samplers);
+        _player = new VulkanPlayer(context.Api, (_views, _buffers), _pipelines, _groups);
     }
 
     /// <summary>
@@ -34,20 +35,19 @@ internal sealed unsafe class VulkanGpu : GpuDevice
         new(_views.Add(new AdoptedView(view, image, extent)));
 
     /// <summary>
-    /// A depth view made outside the layer that shaders only read, whose image rests in
-    /// <see cref="ImageLayout.DepthReadOnlyOptimal"/>, as depth does once glass has drawn.
+    /// A view that rests somewhere else, as its flags say: read-only depth, the window's image, or a storage image;
+    /// see <see cref="AdoptedView"/>.
     /// </summary>
-    public ViewId AdoptDepth(ImageView view) => new(_views.Add(new AdoptedView(view, default, default, ReadOnlyDepth: true)));
-
-    /// <summary>
-    /// An image the layer draws to but never moves between layouts, such as the window's: the caller moves it to
-    /// <see cref="ImageLayout.ColorAttachmentOptimal"/> before the pass, and on once it and its own drawing are done.
-    /// </summary>
-    public ViewId AdoptSurface(ImageView view, Image image, Extent2D extent) =>
-        new(_views.Add(new AdoptedView(view, image, extent, Surface: true)));
+    public ViewId Adopt(in AdoptedView view) => new(_views.Add(view));
 
     /// <summary>Lets go of an adopted view, whose image stays its maker's to destroy.</summary>
     public void Release(ViewId view) => _views.Remove(view.Value);
+
+    /// <summary>A buffer made outside the layer, <paramref name="size"/> bytes long, for bind groups and <see cref="CommandList.ClearBuffer"/>.</summary>
+    public BufferId Adopt(Silk.NET.Vulkan.Buffer buffer, long size) => new(_buffers.Add(new AdoptedBuffer(buffer, size)));
+
+    /// <summary>Lets go of an adopted buffer, which stays its maker's to destroy.</summary>
+    public void Release(BufferId buffer) => _buffers.Remove(buffer.Value);
 
     /// <inheritdoc cref="VulkanBindGroups.Adopt"/>
     public BindGroupId Adopt(DescriptorSet set) => _groups.Adopt(set);
@@ -85,17 +85,7 @@ internal sealed unsafe class VulkanGpu : GpuDevice
             ? [vertex]
             : [vertex, _shaders[description.FragmentShader.Value]];
 
-        var setLayouts = _groups.CreateLayouts(shaders, borrowed, out bool[] owned);
-        var constantStages = ShaderStageFlags.None;
-        int constantsSize = 0;
-        foreach (var shader in shaders.Where(shader => shader.Layout.ConstantsSize > 0))
-        {
-            constantStages |= shader.Stage;
-            constantsSize = Math.Max(constantsSize, shader.Layout.ConstantsSize);
-        }
-
-        PushConstantRange? range = constantsSize > 0 ? new PushConstantRange(constantStages, 0, (uint)constantsSize) : null;
-        var layout = _context.CreatePipelineLayout(setLayouts, range);
+        var (layout, setLayouts, owned, constantStages) = CreateLayout(shaders, borrowed);
         Span<Format> formats = stackalloc Format[description.ColorFormats.Length];
         for (int i = 0; i < formats.Length; i++)
         {
@@ -112,6 +102,43 @@ internal sealed unsafe class VulkanGpu : GpuDevice
             Transparent = description.Blend,
         });
         return new PipelineId(_pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, owned, shaders, constantStages)));
+    }
+
+    public override PipelineId CreateComputePipeline(in ComputePipelineDescription description) => CreateComputePipeline(description, []);
+
+    /// <summary>
+    /// A compute pipeline that borrows set layouts as
+    /// <see cref="CreateRenderPipeline(in RenderPipelineDescription, ReadOnlySpan{DescriptorSetLayout})"/> does.
+    /// </summary>
+    public PipelineId CreateComputePipeline(in ComputePipelineDescription description, ReadOnlySpan<DescriptorSetLayout> borrowed)
+    {
+        var shader = _shaders[description.Shader.Value];
+        if (shader.Stage != ShaderStageFlags.ComputeBit)
+        {
+            throw new ArgumentException($"'{shader.Name}' is not a compute shader.", nameof(description));
+        }
+
+        VulkanShader[] shaders = [shader];
+        var (layout, setLayouts, owned, constantStages) = CreateLayout(shaders, borrowed);
+        var pipeline = PipelineFactory.CreateCompute(_context, shader.Name, layout);
+        return new PipelineId(_pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, owned, shaders, constantStages)));
+    }
+
+    /// <summary>The pipeline layout for <paramref name="shaders"/>: their set layouts, and push constants as big as the biggest block.</summary>
+    private (PipelineLayout Layout, DescriptorSetLayout[] SetLayouts, bool[] Owned, ShaderStageFlags ConstantStages) CreateLayout(
+        VulkanShader[] shaders, ReadOnlySpan<DescriptorSetLayout> borrowed)
+    {
+        var setLayouts = _groups.CreateLayouts(shaders, borrowed, out bool[] owned);
+        var constantStages = ShaderStageFlags.None;
+        int constantsSize = 0;
+        foreach (var shader in shaders.Where(shader => shader.Layout.ConstantsSize > 0))
+        {
+            constantStages |= shader.Stage;
+            constantsSize = Math.Max(constantsSize, shader.Layout.ConstantsSize);
+        }
+
+        PushConstantRange? range = constantsSize > 0 ? new PushConstantRange(constantStages, 0, (uint)constantsSize) : null;
+        return (_context.CreatePipelineLayout(setLayouts, range), setLayouts, owned, constantStages);
     }
 
     public override BindGroupId CreateBindGroup(PipelineId pipeline, int group, ReadOnlySpan<Bind> binds) =>

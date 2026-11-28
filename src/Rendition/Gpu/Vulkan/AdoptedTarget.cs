@@ -15,7 +15,7 @@ internal sealed class AdoptedTarget(VulkanGpu gpu) : IDisposable
     /// <summary>The id to draw to <paramref name="target"/>, which is <paramref name="extent"/> big.</summary>
     public ViewId For(RenderTarget target, Extent2D extent) => Follow(target.View, target.Image, extent, surface: false);
 
-    /// <summary>The id to draw to a window's image, adopted with <see cref="VulkanGpu.AdoptSurface"/>.</summary>
+    /// <summary>The id to draw to a window's image, adopted as a <see cref="AdoptedView.Surface"/>.</summary>
     public ViewId ForSurface(ImageView view, Image image, Extent2D extent) => Follow(view, image, extent, surface: true);
 
     private ViewId Follow(ImageView view, Image image, Extent2D extent, bool surface)
@@ -25,7 +25,7 @@ internal sealed class AdoptedTarget(VulkanGpu gpu) : IDisposable
             || _adopted.Extent.Width != extent.Width || _adopted.Extent.Height != extent.Height)
         {
             Dispose();
-            var id = surface ? gpu.AdoptSurface(view, image, extent) : gpu.Adopt(view, image, extent);
+            var id = gpu.Adopt(new AdoptedView(view, image, extent, Surface: surface));
             _adopted = (view, image, extent, id);
         }
 

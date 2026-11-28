@@ -31,6 +31,9 @@ internal sealed record VulkanPipeline(
     /// <summary>The shader errors name: the fragment shader when there is one.</summary>
     public string Name => Shaders[^1].Name;
 
+    public PipelineBindPoint BindPoint =>
+        Shaders[0].Stage == ShaderStageFlags.ComputeBit ? PipelineBindPoint.Compute : PipelineBindPoint.Graphics;
+
     /// <summary>Destroys the pipeline, its layout and the set layouts the layer made for it, but not borrowed ones.</summary>
     public unsafe void Destroy(VulkanContext context)
     {
@@ -50,8 +53,14 @@ internal sealed record VulkanPipeline(
 /// An image view made outside the layer, with what the layer needs to move its image between layouts. A
 /// <see cref="ReadOnlyDepth"/> view is depth that rests in <see cref="ImageLayout.DepthReadOnlyOptimal"/> and is only sampled.
 /// A <see cref="Surface"/> is drawn to in the layout its caller leaves it in, as the window's image is.
+/// A <see cref="Storage"/> image is one compute shaders write; it rests in <see cref="ImageLayout.General"/> between passes
+/// so it can be written and read without moving, and render passes can't draw to it.
 /// </summary>
-internal readonly record struct AdoptedView(ImageView View, Image Image, Extent2D Extent, bool ReadOnlyDepth = false, bool Surface = false);
+internal readonly record struct AdoptedView(
+    ImageView View, Image Image, Extent2D Extent, bool ReadOnlyDepth = false, bool Surface = false, bool Storage = false);
+
+/// <summary>A buffer made outside the layer, and how many bytes of it bind groups and clears see.</summary>
+internal readonly record struct AdoptedBuffer(Silk.NET.Vulkan.Buffer Buffer, long Size);
 
 /// <summary>A descriptor set, and the pool it came from when the layer made it. An adopted set has no pool.</summary>
 internal readonly record struct VulkanBindGroup(DescriptorSet Set, DescriptorPool Pool);
@@ -60,7 +69,8 @@ internal readonly record struct VulkanBindGroup(DescriptorSet Set, DescriptorPoo
 /// Lays out descriptor sets from what the shaders declare, and fills bind groups by binding name. Each bind group
 /// gets a pool of its own, sized to it, so destroying one frees it at once.
 /// </summary>
-internal sealed unsafe class VulkanBindGroups(VulkanContext context, IdTable<AdoptedView> views, IdTable<Sampler> samplers) : IDisposable
+internal sealed unsafe class VulkanBindGroups(
+    VulkanContext context, (IdTable<AdoptedView> Views, IdTable<AdoptedBuffer> Buffers) resources, IdTable<Sampler> samplers) : IDisposable
 {
     private static readonly Dictionary<ResourceKind, DescriptorType> Types = new()
     {
@@ -144,18 +154,45 @@ internal sealed unsafe class VulkanBindGroups(VulkanContext context, IdTable<Ado
         var pool = context.CreateDescriptorPool(1, sizes);
         var set = context.AllocateSet(pool, pipeline.SetLayouts[group]);
         var images = stackalloc DescriptorImageInfo[binds.Length];
+        var buffers = stackalloc DescriptorBufferInfo[binds.Length];
         var writes = stackalloc WriteDescriptorSet[binds.Length];
         for (int i = 0; i < binds.Length; i++)
         {
-            var view = views[binds[i].View.Value];
-            var layout = view.ReadOnlyDepth ? ImageLayout.DepthReadOnlyOptimal : ImageLayout.ShaderReadOnlyOptimal;
-            images[i] = new DescriptorImageInfo(samplers[binds[i].Sampler.Value], view.View, layout);
-            writes[i] = Descriptors.ImageWrite(set, (uint)found[i].Binding, Types[found[i].Kind], &images[i]);
+            var type = Types[found[i].Kind];
+            if (found[i].Kind is ResourceKind.UniformBuffer or ResourceKind.StorageBuffer)
+            {
+                var buffer = resources.Buffers[BufferOf(binds[i], pipeline).Value];
+                buffers[i] = new DescriptorBufferInfo(buffer.Buffer, 0, (ulong)buffer.Size);
+                writes[i] = Descriptors.BufferWrite(set, (uint)found[i].Binding, &buffers[i], type);
+            }
+            else
+            {
+                var view = resources.Views[ViewOf(binds[i], pipeline).Value];
+                var sampler = binds[i].Sampler.Value == 0 ? default : samplers[binds[i].Sampler.Value];
+                images[i] = new DescriptorImageInfo(sampler, view.View, RestingLayout(view));
+                writes[i] = Descriptors.ImageWrite(set, (uint)found[i].Binding, type, &images[i]);
+            }
         }
 
         context.Api.UpdateDescriptorSets(context.Device, (uint)binds.Length, writes, 0, null);
         return new BindGroupId(_groups.Add(new VulkanBindGroup(set, pool)));
     }
+
+    /// <summary>The layout an adopted view's image rests in, which its descriptors say it is in.</summary>
+    private static ImageLayout RestingLayout(AdoptedView view) => view switch
+    {
+        { ReadOnlyDepth: true } => ImageLayout.DepthReadOnlyOptimal,
+        { Storage: true } => ImageLayout.General,
+        _ => ImageLayout.ShaderReadOnlyOptimal,
+    };
+
+    private static BufferId BufferOf(in Bind bind, VulkanPipeline pipeline) => bind.BufferId.Value != 0
+        ? bind.BufferId
+        : throw new ArgumentException($"'{bind.Name}' in '{pipeline.Name}' is a buffer; bind it with Bind.Buffer.");
+
+    private static ViewId ViewOf(in Bind bind, VulkanPipeline pipeline) => bind.View.Value != 0
+        ? bind.View
+        : throw new ArgumentException($"'{bind.Name}' in '{pipeline.Name}' is an image; bind it with Bind.Image or Bind.StorageImage.");
 
     private static ShaderBinding Find(VulkanPipeline pipeline, string name, int group)
     {

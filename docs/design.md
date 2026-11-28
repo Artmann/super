@@ -5047,8 +5047,8 @@ loads them) and back as it ends, and every image in a bind group is already read
 moves wait for, and make the image ready for, compute shaders as well as fragment shaders,
 since the exposure meter and paint's filter read the picture from compute. The
 viewport and render area are the first target's size. Bind groups are bound at the next draw,
-so they can be set before or after the pipeline, as in WebGPU. Depth targets, buffers, compute
-and labels aren't played yet; each stage adds what its passes need.
+so they can be set before or after the pipeline, as in WebGPU. Depth targets and labels
+aren't played yet; each stage adds what its passes need.
 
 Two bridges last until every pass has moved. `VulkanGpu.Adopt` takes an image view or a
 descriptor set made outside the layer and gives it an id, and `CreateRenderPipeline` can be
@@ -5071,7 +5071,7 @@ target a pass draws to but doesn't own, adopted again only when the target is re
 `ImageGroup` is a bind group of images made outside the layer, each named as its shader names
 it, read through the group's sampler or one given per image, and made again whenever its
 images change. Depth that glass leaves in `DepthReadOnlyOptimal` is adopted with
-`VulkanGpu.AdoptDepth`, so a group samples it in that layout. Bloom, depth of field and
+`ReadOnlyDepth` set on its `AdoptedView`, so a group samples it in that layout. Bloom, depth of field and
 paint's composite draw this way: a pass drawn several times a frame, such as bloom's nine
 steps or depth of field's three, records every draw into one `CommandList` and plays it once.
 Paint's filter is compute, so it stays on Vulkan until stage 1c.
@@ -5081,7 +5081,7 @@ anti-aliased image now rests ready to sample after TAA, so the history copy read
 `ShaderReadOnlyOptimal` as it does the lit image. The finish draws into the window's image,
 which the layer must not move, because the marks and the overlay draw into it after and
 `FinishStage` then moves it to present or copies it out. So `FinishPass` adopts each
-swapchain image with `VulkanGpu.AdoptSurface`, one `AdoptedTarget` per image, and the player
+swapchain image as a `Surface` `AdoptedView`, one `AdoptedTarget` per image, and the player
 leaves a surface's layout to its caller: `FinishStage` moves it to `ColorAttachmentOptimal`
 before the pass and on after the overlay. Its format comes from `VulkanFormats.ToGpu`, and a
 test in `Super.Tests` checks every format the swapchain can pick has a layer format.
@@ -5105,6 +5105,21 @@ Compute passes, among them paint's filter, the exposure meter and the probe upda
 stage 1c. Passes with vertex input or scene geometry, such as the G-buffer, shadows, glass,
 the lens flare's quads and the overlay, move in stage 1d with the draw-data buffer and
 material binding. FSR itself is AMD's code and stays outside the layer.
+
+Compute runs through `ComputePass`, which makes a compute pipeline from one shader and can
+be lent set layouts as `FullscreenPass` can. Each `Record` is a compute pass of its own with
+one dispatch, the way WebGPU passes are cheap to open. `CommandList.SetBindGroups` sets each
+non-zero group at its index, for passes that bind several. Vulkan has no compute pass to
+begin, so after every dispatch the player puts one memory barrier from compute writes to
+everything that may read them next: compute, vertex and fragment shaders, indirect draws and
+transfers. A second dispatch therefore sees what the first wrote, as WebGPU promises, and a
+test makes the second read from the far end of the first's buffer so it fails without the
+barrier. An image compute writes is adopted with `Storage` set on its `AdoptedView` and rests
+in `General` between passes; a group samples it in that layout, and a render pass refuses to
+draw to it. Buffers made outside the layer are adopted with `VulkanGpu.Adopt(buffer, size)`
+and bound with `Bind.Buffer`, and storage images with `Bind.StorageImage`.
+`CommandList.ClearBuffer` zeroes part of a buffer, only between passes, as WebGPU allows, and
+waits for and is waited on by the same stages as a dispatch.
 
 ## Resource lifetime
 

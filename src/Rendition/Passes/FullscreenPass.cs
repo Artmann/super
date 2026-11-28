@@ -62,14 +62,7 @@ internal sealed class FullscreenPass : IDisposable
 
         commands.BeginRenderPass(targets, null);
         commands.SetPipeline(Pipeline);
-        for (int group = 0; group < groups.Length; group++)
-        {
-            if (groups[group].Value != 0)
-            {
-                commands.SetBindGroup(group, groups[group]);
-            }
-        }
-
+        commands.SetBindGroups(groups);
         if (!constants.IsEmpty)
         {
             commands.SetConstants(constants);

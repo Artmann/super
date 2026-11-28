@@ -18,6 +18,7 @@ internal enum Command
     Dispatch,
     PushLabel,
     PopLabel,
+    ClearBuffer,
 }
 
 /// <summary>
@@ -108,6 +109,18 @@ internal sealed class CommandList
     public void SetBindGroup(int group, BindGroupId bindGroup) =>
         _words.Write(Command.SetBindGroup, [group, bindGroup.Value]);
 
+    /// <summary>Sets each of <paramref name="bindGroups"/> at its index, where an id of 0 leaves that group unset.</summary>
+    public void SetBindGroups(ReadOnlySpan<BindGroupId> bindGroups)
+    {
+        for (int group = 0; group < bindGroups.Length; group++)
+        {
+            if (bindGroups[group].Value != 0)
+            {
+                SetBindGroup(group, bindGroups[group]);
+            }
+        }
+    }
+
     public void SetVertexBuffer(int slot, BufferId buffer, int offset) =>
         _words.Write(Command.SetVertexBuffer, [slot, buffer.Value, offset]);
 
@@ -125,6 +138,17 @@ internal sealed class CommandList
         _words.Write(Command.DrawIndexed, [indexCount, instanceCount, firstIndex, baseVertex, firstInstance]);
 
     public void Dispatch(int x, int y, int z) => _words.Write(Command.Dispatch, [x, y, z]);
+
+    /// <summary>Sets <paramref name="size"/> bytes of <paramref name="buffer"/> from <paramref name="offset"/> to zero, between passes, as WebGPU's <c>clearBuffer</c> does.</summary>
+    public void ClearBuffer(BufferId buffer, int offset, int size)
+    {
+        if (_inPass)
+        {
+            throw new InvalidOperationException("ClearBuffer was called inside a pass; clear a buffer between passes.");
+        }
+
+        _words.Write(Command.ClearBuffer, [buffer.Value, offset, size]);
+    }
 
     /// <summary>Opens a named group for GPU debuggers. The name is kept beside the words, and the word is its index.</summary>
     public void PushLabel(string name) => _words.Write(Command.PushLabel, [_words.AddLabel(name)]);

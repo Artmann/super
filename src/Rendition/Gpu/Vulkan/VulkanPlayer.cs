@@ -9,7 +9,8 @@ namespace Rendition.Gpu.Vulkan;
 /// begins and back as it ends, so every image a bind group holds is already readable. Bind groups are bound when a
 /// draw needs them, so they can be set before or after the pipeline, as in WebGPU.
 /// </summary>
-internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, IdTable<VulkanPipeline> pipelines, VulkanBindGroups groups)
+internal sealed unsafe class VulkanPlayer(
+    Vk api, (IdTable<AdoptedView> Views, IdTable<AdoptedBuffer> Buffers) resources, IdTable<VulkanPipeline> pipelines, VulkanBindGroups groups)
 {
     private const int MaxTargets = 8;
     private const int MaxGroups = 8;
@@ -19,6 +20,7 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
     private int _targetCount;
     private int _unbound;
     private VulkanPipeline? _pipeline;
+    private bool _computing;
 
     public void Play(CommandList commands, CommandBuffer cmd)
     {
@@ -27,6 +29,7 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
         Array.Clear(_bound);
         _unbound = 0;
         _targetCount = 0;
+        _computing = false;
 
         var words = commands.Words;
         int at = 0;
@@ -49,7 +52,7 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
                 return 1;
             case Command.SetPipeline:
                 _pipeline = pipelines[words[1]];
-                api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline.Pipeline);
+                api.CmdBindPipeline(cmd, _pipeline.BindPoint, _pipeline.Pipeline);
                 _unbound = (1 << MaxGroups) - 1;
                 return 2;
             case Command.SetBindGroup:
@@ -66,6 +69,26 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
                 return 2;
             case Command.PopLabel:
                 return 1;
+            default:
+                return StepCompute(cmd, command, words);
+        }
+    }
+
+    /// <summary>The commands only compute passes and the gaps between passes use.</summary>
+    private int StepCompute(CommandBuffer cmd, Command command, ReadOnlySpan<int> words)
+    {
+        switch (command)
+        {
+            case Command.BeginComputePass:
+                // Vulkan has no compute pass to begin; Dispatch keeps each dispatch's writes in order.
+                _computing = true;
+                return 1;
+            case Command.Dispatch:
+                Dispatch(cmd, words);
+                return 4;
+            case Command.ClearBuffer:
+                ClearBuffer(cmd, words);
+                return 4;
             default:
                 throw new NotSupportedException($"The Vulkan backend of the GPU layer can't play {command} yet.");
         }
@@ -86,7 +109,7 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
         }
 
         // The pass covers the first target, as WebGPU's default viewport does.
-        var extent = views[words[2]].Extent;
+        var extent = resources.Views[words[2]].Extent;
         var attachments = stackalloc RenderingAttachmentInfo[count];
         for (int i = 0; i < count; i++)
         {
@@ -110,10 +133,15 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
     /// <summary>Readies the colour target that <paramref name="target"/>'s six words describe, the <paramref name="index"/>th of its pass.</summary>
     private RenderingAttachmentInfo Attachment(CommandBuffer cmd, ReadOnlySpan<int> target, int index)
     {
-        var view = views[target[0]];
+        var view = resources.Views[target[0]];
         if (view.Image.Handle == 0)
         {
             throw new InvalidOperationException($"View {target[0]} was adopted without its image, to be read, so it can't be drawn to.");
+        }
+
+        if (view.Storage)
+        {
+            throw new InvalidOperationException($"View {target[0]} was adopted as Storage, for compute shaders to write, so render passes can't draw to it.");
         }
 
         var load = (LoadOp)target[1];
@@ -163,6 +191,12 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
 
     private void EndPass(CommandBuffer cmd)
     {
+        if (_computing)
+        {
+            _computing = false;
+            return;
+        }
+
         api.CmdEndRendering(cmd);
         for (int i = 0; i < _targetCount; i++)
         {
@@ -203,10 +237,35 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
             if ((_unbound & (1 << group)) != 0 && _bound[group].Value != 0)
             {
                 var set = groups[_bound[group]];
-                api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _pipeline.Layout, (uint)group, 1, &set, 0, null);
+                api.CmdBindDescriptorSets(cmd, _pipeline.BindPoint, _pipeline.Layout, (uint)group, 1, &set, 0, null);
             }
         }
 
         _unbound = 0;
+    }
+
+    /// <summary>
+    /// Every stage and access that can touch what a dispatch or a clear wrote, which the barriers after them wait
+    /// for. WebGPU orders every dispatch after the one before it, so each dispatch gets a barrier of its own.
+    /// </summary>
+    private static readonly (PipelineStageFlags2 Stage, AccessFlags2 Access) Users = (
+        PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.VertexShaderBit | PipelineStageFlags2.FragmentShaderBit |
+        PipelineStageFlags2.DrawIndirectBit | PipelineStageFlags2.TransferBit,
+        AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderSampledReadBit |
+        AccessFlags2.IndirectCommandReadBit | AccessFlags2.TransferReadBit | AccessFlags2.TransferWriteBit);
+
+    private void Dispatch(CommandBuffer cmd, ReadOnlySpan<int> words)
+    {
+        BindGroups(cmd);
+        api.CmdDispatch(cmd, (uint)words[1], (uint)words[2], (uint)words[3]);
+        api.MemoryBarrier(cmd, (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit), Users);
+    }
+
+    private void ClearBuffer(CommandBuffer cmd, ReadOnlySpan<int> words)
+    {
+        var buffer = resources.Buffers[words[1]];
+        api.MemoryBarrier(cmd, Users, (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit));
+        api.CmdFillBuffer(cmd, buffer.Buffer, (ulong)words[2], (ulong)words[3], 0);
+        api.MemoryBarrier(cmd, (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit), Users);
     }
 }

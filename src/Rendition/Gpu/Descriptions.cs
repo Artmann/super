@@ -40,3 +40,9 @@ internal readonly ref struct RenderPipelineDescription
 
     public bool Blend { get; init; }
 }
+
+/// <summary>A pipeline that runs one compute shader.</summary>
+internal readonly ref struct ComputePipelineDescription
+{
+    public required ShaderId Shader { get; init; }
+}

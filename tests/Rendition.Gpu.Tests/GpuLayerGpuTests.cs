@@ -260,6 +260,135 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void A_compute_pass_writes_a_storage_image()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var image = StorageTarget();
+        var view = device.Adopt(new AdoptedView(image.View, image.Image, new Extent2D(Size, Size), Storage: true));
+        using var pass = new ComputePass(device, "test_fill.comp");
+        var group = device.CreateBindGroup(pass.Pipeline, 0, [Bind.StorageImage("outputImage", view)]);
+        var commands = new CommandList();
+        pass.Record(commands, [group], MemoryMarshal.AsBytes<float>([1f / 255f, 0f]), (1, 1, 1));
+
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+
+        byte[] pixels = Read(image, ImageLayout.General);
+        for (int y = 0; y < Size; y++)
+        {
+            for (int x = 0; x < Size; x++)
+            {
+                Assert.Equal([(byte)x, (byte)y, 0, 255], pixels.AsSpan((y * Size + x) * 4, 4).ToArray());
+            }
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    /// <summary>
+    /// The second step reads from the far end what the first writes after working a while, so without a barrier its
+    /// first workgroups read before the first step's last ones have written.
+    /// </summary>
+    [Fact]
+    public unsafe void A_dispatch_sees_what_the_dispatch_before_it_wrote()
+    {
+        const int count = 64 * 1024;
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var first = GpuBuffer.CreateHostVisible(gpu.Context, count * 4, BufferUsageFlags.StorageBufferBit);
+        using var second = GpuBuffer.CreateHostVisible(gpu.Context, count * 4, BufferUsageFlags.StorageBufferBit);
+        new Span<uint>(first.Mapped, count).Clear();
+        using var pass = new ComputePass(device, "test_steps.comp");
+        var group = device.CreateBindGroup(pass.Pipeline, 0,
+            [Bind.Buffer("First", device.Adopt(first.Handle, count * 4)), Bind.Buffer("Second", device.Adopt(second.Handle, count * 4))]);
+        var commands = new CommandList();
+        pass.Record(commands, [group], MemoryMarshal.AsBytes<uint>([0u, 4096u]), (count / 64, 1, 1));
+        pass.Record(commands, [group], MemoryMarshal.AsBytes<uint>([1u, 0u]), (count / 64, 1, 1));
+
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+
+        var doubled = new ReadOnlySpan<uint>(second.Mapped, count);
+        for (int i = 0; i < count; i++)
+        {
+            Assert.Equal((uint)((count - 1 - i) * 2), doubled[i]);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public unsafe void A_cleared_buffer_reads_zero_where_it_was_cleared()
+    {
+        using var device = new VulkanGpu(gpu.Context);
+        using var buffer = GpuBuffer.CreateHostVisible(gpu.Context, 1024, BufferUsageFlags.TransferDstBit | BufferUsageFlags.StorageBufferBit);
+        var bytes = new Span<byte>(buffer.Mapped, 1024);
+        bytes.Fill(0xFF);
+        var commands = new CommandList();
+        commands.ClearBuffer(device.Adopt(buffer.Handle, 1024), 256, 256);
+
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+
+        Assert.All(bytes[..256].ToArray(), value => Assert.Equal(0xFF, value));
+        Assert.All(bytes[256..512].ToArray(), value => Assert.Equal(0, value));
+        Assert.All(bytes[512..].ToArray(), value => Assert.Equal(0xFF, value));
+    }
+
+    [Fact]
+    public void Clearing_a_buffer_inside_a_pass_throws()
+    {
+        var commands = new CommandList();
+        commands.BeginComputePass();
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => commands.ClearBuffer(new BufferId(1), 0, 4));
+        Assert.Equal("ClearBuffer was called inside a pass; clear a buffer between passes.", thrown.Message);
+    }
+
+    [Fact]
+    public void A_storage_image_can_be_sampled_by_the_next_pass()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var image = StorageTarget();
+        using var target = Target();
+        var extent = new Extent2D(Size, Size);
+        var storage = device.Adopt(new AdoptedView(image.View, image.Image, extent, Storage: true));
+        using var fill = new ComputePass(device, "test_fill.comp");
+        using var sample = new FullscreenPass(device, "bloom_down.frag", [GpuFormat.Rgba8Unorm]);
+        var sampler = device.CreateSampler(new SamplerDescription(SamplerFilter.Linear));
+        var fillGroup = device.CreateBindGroup(fill.Pipeline, 0, [Bind.StorageImage("outputImage", storage)]);
+        var sampleGroup = device.CreateBindGroup(sample.Pipeline, 0, [Bind.Image("sourceTexture", storage, sampler)]);
+        var commands = new CommandList();
+        fill.Record(commands, [fillGroup], MemoryMarshal.AsBytes<float>([0f, 0.5f]), (1, 1, 1));
+        sample.Record(commands, [new ColorTarget(device.Adopt(target.View, target.Image, extent), LoadOp.DontCare, default)], [sampleGroup], []);
+
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+
+        byte[] pixels = Read(target);
+        for (int i = 0; i < Size * Size; i++)
+        {
+            Assert.Equal(0, pixels[i * 4]);
+            Assert.InRange(pixels[i * 4 + 2], 127, 128);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_render_pass_refuses_a_storage_view()
+    {
+        using var device = new VulkanGpu(gpu.Context);
+        using var image = StorageTarget();
+        var view = device.Adopt(new AdoptedView(image.View, image.Image, new Extent2D(Size, Size), Storage: true));
+        using var pass = new FullscreenPass(device, "solid_color.frag", [GpuFormat.Rgba8Unorm]);
+        var commands = new CommandList();
+        var color = Vector4.One;
+        pass.Record(commands, [new ColorTarget(view, LoadOp.DontCare, default)], [], MemoryMarshal.AsBytes(new ReadOnlySpan<Vector4>(in color)));
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd)));
+        Assert.Contains("adopted as Storage", thrown.Message);
+    }
+
     private byte[] DrawSolid(Vector4 color)
     {
         using var device = new VulkanGpu(gpu.Context);
@@ -339,6 +468,19 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
         ImageAspectFlags.ColorBit);
 
+    // An image compute writes, left resting in General, as a Storage view expects.
+    private RenderTarget StorageTarget()
+    {
+        var target = new RenderTarget(
+            gpu.Context, Format.R8G8B8A8Unorm, new Extent2D(Size, Size),
+            ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.SampledBit, ImageAspectFlags.ColorBit);
+        var api = gpu.Context.Api;
+        gpu.Context.SubmitAndWait(cmd => api.Transition(cmd,
+            new ImageTransition(target.Image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General),
+            (PipelineStageFlags2.None, AccessFlags2.None), (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit)));
+        return target;
+    }
+
     // Leaves the target ready to be read by shaders, as the layer expects.
     private unsafe void Upload(RenderTarget target, int size, byte[] pixels)
     {
@@ -363,7 +505,7 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     // The layer leaves a target it drew to ready to be read by shaders, and so does this.
-    private unsafe byte[] Read(RenderTarget target)
+    private unsafe byte[] Read(RenderTarget target, ImageLayout resting = ImageLayout.ShaderReadOnlyOptimal)
     {
         using var buffer = GpuBuffer.CreateHostVisible(gpu.Context, Size * Size * 4, BufferUsageFlags.TransferDstBit);
         var api = gpu.Context.Api;
@@ -372,7 +514,7 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         gpu.Context.SubmitAndWait(cmd =>
         {
             api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
-                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal),
+                resting, ImageLayout.TransferSrcOptimal),
                 (PipelineStageFlags2.AllCommandsBit, AccessFlags2.MemoryWriteBit),
                 (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
             var region = new BufferImageCopy
@@ -383,7 +525,7 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
             api.CmdCopyImageToBuffer(cmd, image, ImageLayout.TransferSrcOptimal, handle, 1, &region);
             // Back to resting, so the layer can draw to it or read it again.
             api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal),
+                ImageLayout.TransferSrcOptimal, resting),
                 (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit),
                 (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
         });

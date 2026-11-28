@@ -36,7 +36,7 @@ internal sealed class ImageGroup(VulkanGpu gpu, SamplerId sampler) : IDisposable
         for (int i = 0; i < images.Length; i++)
         {
             var image = images[i];
-            _views[i] = image.ReadOnlyDepth ? gpu.AdoptDepth(image.View) : gpu.Adopt(image.View);
+            _views[i] = gpu.Adopt(new AdoptedView(image.View, default, default, ReadOnlyDepth: image.ReadOnlyDepth));
             binds[i] = Bind.Image(image.Name, _views[i], image.Sampler.Value == 0 ? sampler : image.Sampler);
         }
 
