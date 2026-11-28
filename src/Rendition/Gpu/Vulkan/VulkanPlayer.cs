@@ -10,7 +10,8 @@ namespace Rendition.Gpu.Vulkan;
 /// draw needs them, so they can be set before or after the pipeline, as in WebGPU.
 /// </summary>
 internal sealed unsafe class VulkanPlayer(
-    Vk api, (IdTable<AdoptedView> Views, IdTable<AdoptedBuffer> Buffers) resources, IdTable<VulkanPipeline> pipelines, VulkanBindGroups groups)
+    Vk api, (IdTable<AdoptedView> Views, IdTable<AdoptedBuffer> Buffers) resources, IdTable<VulkanPipeline> pipelines,
+    (VulkanBindGroups Groups, VulkanQuerySets Queries) sets)
 {
     private const int MaxGroups = 8;
 
@@ -124,6 +125,9 @@ internal sealed unsafe class VulkanPlayer(
             case Command.CopyBuffer:
                 CopyBuffer(cmd, words);
                 return 6;
+            case Command.WriteTimestamp:
+                sets.Queries.Write(cmd, new QuerySetId(words[1]), words[2]);
+                return 3;
             default:
                 throw new NotSupportedException($"The Vulkan backend of the GPU layer can't play {command} yet.");
         }
@@ -167,7 +171,7 @@ internal sealed unsafe class VulkanPlayer(
         {
             if ((_unbound & (1 << group)) != 0 && _bound[group].Value != 0)
             {
-                var set = groups[_bound[group]];
+                var set = sets.Groups[_bound[group]];
                 api.CmdBindDescriptorSets(cmd, _pipeline.BindPoint, _pipeline.Layout, (uint)group, 1, &set, 0, null);
             }
         }

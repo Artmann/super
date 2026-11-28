@@ -5271,6 +5271,26 @@ reflection capture and the environment cubes from compute's `General`.
 `CreateSampler` hands back the sampler it made before for the same description. The layer has
 no way to destroy a sampler, and the glass copy's `MipDraws` is made again each resize.
 
+### Timestamps
+
+`GpuTimer` marks the passes with `CommandList.WriteTimestamp` into a query set from
+`CreateQuerySet`, one set per frame slot, and reads them with `ReadQuerySet` in nanoseconds
+once that frame's fence is done. A mark is a list of its own, played into the frame's command
+buffer between passes, and a mark inside a pass throws. WebGPU writes timestamps only at the
+beginning or end of a pass, through `timestampWrites`, so the browser backend will write a mark
+as the next pass's beginning, or the last pass's end when none follows, and several marks with
+no pass between them read the same time. That is the time the old marks gave too, since a
+skipped pass records nothing between its marks. On Vulkan the player resets the one query just
+before writing it, so lists need no reset command. The set remembers which queries were ever
+written, since Vulkan can't read one that was never reset, and `ReadQuerySet` is false until
+all of them were. Ticks become nanoseconds in `decimal`, as ticks since the GPU started can
+pass the 53 bits a `double` holds exactly. `CreateQuerySet` gives no set (an id of 0) where the
+GPU can't time both drawing and compute, which is what `GpuTimer.IsSupported` reads.
+
+WebGPU has no pipeline statistics, so `GpuWorkCounter` stays on Vulkan: the timer still
+begins and ends its queries on the raw command buffer at the same marks, and the browser will
+have pass times but no shader counts.
+
 ## Resource lifetime
 
 Meshes and textures are made during play, so neither creating nor destroying one

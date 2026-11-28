@@ -666,6 +666,32 @@ Today the layer makes only samplers, shaders, pipelines and bind groups. Every i
 - [ ] **Step 4: Run the GPU suite and the shots,** adding Gallery (reflection captures), a scene with glass (Courtyard) and the planar mirror (Courtyard). Expected: as in 1d1 Task 2, within the noise of the blit. Prove the tests can fail: average two texels instead of four, or move the whole image in `VulkanTargets`.
 - [ ] **Step 5: Commit and open the pull request** as 1d1 Task 3 describes. The commit is `refactor: fill mips by drawing through the GPU layer`.
 
+### Stage 1e2, Task 1: Timestamps through the layer
+
+WebGPU writes timestamps only at the start or end of a pass (`timestampWrites`), resolves them into a buffer, and maps that buffer later. It has no pipeline statistics, so `GpuWorkCounter` stays a Vulkan-only tool that `GpuTimer` drives at the same marks.
+
+**Files:**
+- Modify: `src/Rendition/Gpu/Ids.cs`, `GpuDevice.cs`, `CommandList.cs` (`Command.WriteTimestamp`), `Gpu/Vulkan/VulkanGpu.cs`, `VulkanPlayer.cs`, `Vulkan/GpuTimer.cs` and its makers (`FrameStages`, `BakeSlicer`, `BackgroundBakes`, `AssetsAndBakes`)
+- Create: `src/Rendition/Gpu/Vulkan/VulkanQuerySets.cs`
+- Test: `tests/Rendition.Gpu.Tests/GpuLayerGpuTests.cs`, `tests/Super.Tests/Gpu/CommandListTests.cs`
+
+**Interfaces:**
+- `readonly record struct QuerySetId(int Value)`.
+- `GpuDevice.CreateQuerySet(int count)` makes `count` timestamp queries, or returns none (`Value` 0) when the GPU can't time both graphics and compute. `Destroy(QuerySetId)`.
+- `GpuDevice.ReadQuerySet(QuerySetId set, Span<ulong> nanoseconds)` reads the newest finished writes, in nanoseconds since some fixed point; false while any query has none. The caller waits for the frame that wrote them first.
+- `CommandList.WriteTimestamp(QuerySetId set, int index)`, only between passes. The browser backend writes it as the next pass's `beginningOfPassWriteIndex`, or the last pass's end when none follows; the Vulkan player resets the one query and writes it.
+- `GpuTimer(VulkanGpu gpu, int framesInFlight, string[]? passNames = null, GpuWorkCounter? counter = null)`: one query set per frame slot, marks played through the layer.
+
+- [ ] **Step 1: Write the failing tests.**
+  - `Timestamps_around_a_pass_read_back_in_order_in_nanoseconds`: write 0, run a compute pass, write 1, submit, wait; `ReadQuerySet` is true, the second is not below the first, and the gap is under a second.
+  - `A_query_set_never_written_reads_false`.
+  - `A_query_set_written_each_frame_reads_without_validation_errors`: three rounds of writes and reads.
+  - `WriteTimestamp_inside_a_pass_throws` (CommandListTests), with its message.
+- [ ] **Step 2: Run them.** Expected: they fail to compile.
+- [ ] **Step 3: Write it,** then move `GpuTimer` onto it.
+- [ ] **Step 4: Run the GPU suite, the stats panel (`--stats`) on Hamlet and a shot.** Expected: pass times show as before. Prove the tests can fail: skip the per-query reset, or read ticks without the period.
+- [ ] **Step 5: Commit and open the pull request** as 1d1 Task 3 describes. The commit is `refactor: time passes through the GPU layer`.
+
 ---
 
 ## Stage 0 findings

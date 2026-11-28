@@ -22,6 +22,21 @@ internal abstract class GpuDevice : IDisposable
     /// </summary>
     public abstract BindGroupId CreateBindGroup(PipelineId pipeline, int group, ReadOnlySpan<Bind> binds);
 
+    /// <summary>
+    /// <paramref name="count"/> timestamp queries for <see cref="CommandList.WriteTimestamp"/>, or none (a
+    /// <see cref="QuerySetId.Value"/> of 0) when the GPU can't time both drawing and compute.
+    /// </summary>
+    public abstract QuerySetId CreateQuerySet(int count);
+
+    /// <summary>
+    /// The first <paramref name="nanoseconds"/>.Length queries of <paramref name="set"/> as last written, in nanoseconds
+    /// from a point of the GPU's own. Wait for the work that wrote them first; false while any has never been written or
+    /// isn't done.
+    /// </summary>
+    public abstract bool ReadQuerySet(QuerySetId set, Span<ulong> nanoseconds);
+
+    public abstract void Destroy(QuerySetId set);
+
     public abstract void Destroy(PipelineId pipeline);
 
     public abstract void Destroy(BindGroupId bindGroup);

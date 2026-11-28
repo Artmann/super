@@ -24,7 +24,7 @@ internal sealed class FrameStages
             new LightingStage.Sources(resources, map, lights.ReflectionProbes, lights.ProbeVolume, lights.ShadowPass, lights.Planar));
         // Counting each pass's shaders needs a device feature; without it the frame is only timed.
         GpuWork = context.Abilities.PipelineStatistics ? new GpuWorkCounter(context, FrameRing.Count, GpuTimer.FramePasses) : null;
-        GpuTimer = new GpuTimer(context, FrameRing.Count, counter: GpuWork);
+        GpuTimer = new GpuTimer(stores.Gpu, FrameRing.Count, counter: GpuWork);
         ResolveStage = new ResolveStage(stores.Gpu, kit, copier);
         // Bloom and tonemapping start out reading the anti-aliased image.
         PostStage = new PostStage((context, stores.Gpu), kit, GpuTimer, targets, targets.Picture.Resolved.View);

@@ -1,14 +1,15 @@
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Silk.NET.Vulkan;
 
 namespace Rendition.Vulkan;
 
 /// <summary>
-/// Times each render pass on the GPU. The GPU writes a timestamp after each pass, and the
-/// results are read once that frame has finished, a frame or two later. Marks must come
-/// in the order of the timer's pass names. Given a <see cref="GpuWorkCounter"/>, it also has
-/// the shaders each pass runs counted at the same marks.
+/// Times each render pass on the GPU. The GPU writes a timestamp after each pass, through the GPU layer, and the
+/// results are read once that frame has finished, a frame or two later. Marks must come in the order of the timer's
+/// pass names. Given a <see cref="GpuWorkCounter"/>, it also has the shaders each pass runs counted at the same marks.
 /// </summary>
-internal sealed unsafe class GpuTimer : IDisposable
+internal sealed class GpuTimer : IDisposable
 {
     private const double NanosecondsPerMillisecond = 1_000_000.0;
 
@@ -22,14 +23,15 @@ internal sealed unsafe class GpuTimer : IDisposable
     ];
 
     private readonly string[] _passNames;
-    private readonly VulkanContext _context;
-    private readonly QueryPool[] _pools;
-    private readonly bool[] _written;
+    private readonly VulkanGpu _gpu;
+    // One query set per frame slot, and whether that slot was timed since it was last read.
+    private readonly (QuerySetId[] Sets, bool[] Written) _slots;
     private readonly ulong[] _stamps;
     private readonly GpuPassTime[] _times;
-    private readonly double _nanosecondsPerStamp;
     private readonly GpuWorkCounter? _counter;
-    private uint _nextMark;
+    // Each mark is a list of its own, played between the passes of the frame's command buffer.
+    private readonly CommandList _mark = new();
+    private int _nextMark;
     // The frame slot being timed, or -1 outside a timed frame.
     private int _frame = -1;
     private bool _collected;
@@ -38,42 +40,36 @@ internal sealed unsafe class GpuTimer : IDisposable
     /// Times the frame's passes, or <paramref name="passNames"/> of its own, such as the slice of a background bake.
     /// A <paramref name="counter"/> made for the same passes counts their shaders too, and is disposed with the timer.
     /// </summary>
-    public GpuTimer(VulkanContext context, int framesInFlight, string[]? passNames = null, GpuWorkCounter? counter = null)
+    public GpuTimer(VulkanGpu gpu, int framesInFlight, string[]? passNames = null, GpuWorkCounter? counter = null)
     {
         passNames ??= FramePasses;
         _passNames = passNames;
+        _gpu = gpu;
         _counter = counter;
         _stamps = new ulong[passNames.Length + 1];
         _times = new GpuPassTime[passNames.Length];
-        _context = context;
-        _pools = new QueryPool[framesInFlight];
-        _written = new bool[framesInFlight];
-        context.Api.GetPhysicalDeviceProperties(context.PhysicalDevice, out var properties);
-        _nanosecondsPerStamp = properties.Limits.TimestampPeriod;
-        IsSupported = properties.Limits.TimestampComputeAndGraphics;
-
-        var info = new QueryPoolCreateInfo
-        {
-            SType = StructureType.QueryPoolCreateInfo,
-            QueryType = QueryType.Timestamp,
-            QueryCount = (uint)_stamps.Length,
-        };
+        _slots = (new QuerySetId[framesInFlight], new bool[framesInFlight]);
         for (int i = 0; i < framesInFlight; i++)
         {
-            context.Api.CreateQueryPool(context.Device, &info, null, out _pools[i]).Check();
+            _slots.Sets[i] = gpu.CreateQuerySet(_stamps.Length);
         }
     }
 
-    public bool IsSupported { get; }
+    /// <summary>Whether the GPU can time passes at all. Without it, <see cref="Begin"/> times nothing.</summary>
+    public bool IsSupported => _slots.Sets[0].Value != 0;
 
     /// <summary>The newest finished frame's passes. Empty until one has finished.</summary>
     public ReadOnlySpan<GpuPassTime> Times => _collected ? _times : default;
 
     public void Begin(CommandBuffer cmd, int frame)
     {
+        if (!IsSupported)
+        {
+            return;
+        }
+
         _frame = frame;
-        _written[frame] = true;
-        _context.Api.CmdResetQueryPool(cmd, _pools[frame], 0, (uint)_stamps.Length);
+        _slots.Written[frame] = true;
         _counter?.Begin(cmd, frame);
         _nextMark = 0;
         Mark(cmd);
@@ -87,8 +83,10 @@ internal sealed unsafe class GpuTimer : IDisposable
     {
         if (_frame >= 0)
         {
-            _counter?.Mark(cmd, _nextMark);
-            _context.Api.CmdWriteTimestamp2(cmd, PipelineStageFlags2.AllCommandsBit, _pools[_frame], _nextMark++);
+            _counter?.Mark(cmd, (uint)_nextMark);
+            _mark.Reset();
+            _mark.WriteTimestamp(_slots.Sets[_frame], _nextMark++);
+            _gpu.Play(_mark, cmd);
         }
     }
 
@@ -97,7 +95,7 @@ internal sealed unsafe class GpuTimer : IDisposable
     {
         if (_frame >= 0)
         {
-            _counter?.End(cmd, _nextMark);
+            _counter?.End(cmd, (uint)_nextMark);
         }
 
         _frame = -1;
@@ -109,24 +107,21 @@ internal sealed unsafe class GpuTimer : IDisposable
     /// </summary>
     public bool Collect(int frame)
     {
-        if (!_written[frame])
+        if (!_slots.Written[frame])
         {
             return false;
         }
 
-        _written[frame] = false;
-
-        fixed (ulong* stamps = _stamps)
+        _slots.Written[frame] = false;
+        if (!_gpu.ReadQuerySet(_slots.Sets[frame], _stamps))
         {
-            _context.Api.GetQueryPoolResults(
-                _context.Device, _pools[frame], 0, (uint)_stamps.Length, (nuint)(_stamps.Length * sizeof(ulong)),
-                stamps, sizeof(ulong), QueryResultFlags.Result64Bit).Check();
+            return false;
         }
 
         for (int i = 0; i < _times.Length; i++)
         {
-            double stamps = _stamps[i + 1] - _stamps[i];
-            _times[i] = new GpuPassTime(_passNames[i], stamps * _nanosecondsPerStamp / NanosecondsPerMillisecond);
+            double nanoseconds = _stamps[i + 1] - _stamps[i];
+            _times[i] = new GpuPassTime(_passNames[i], nanoseconds / NanosecondsPerMillisecond);
         }
 
         _collected = true;
@@ -136,9 +131,9 @@ internal sealed unsafe class GpuTimer : IDisposable
 
     public void Dispose()
     {
-        foreach (var pool in _pools)
+        foreach (var set in _slots.Sets.Where(set => set.Value != 0))
         {
-            _context.Api.DestroyQueryPool(_context.Device, pool, null);
+            _gpu.Destroy(set);
         }
 
         _counter?.Dispose();

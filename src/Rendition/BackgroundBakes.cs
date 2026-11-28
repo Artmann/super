@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition;
@@ -22,12 +23,12 @@ internal sealed class BackgroundBakes : IDisposable
     // Set when preparing the baker refused for the AutoBake set, so frames bake nothing until another is set.
     private bool _unavailable;
 
-    public BackgroundBakes(VulkanContext context, FrameRing ring, RetiredResources retired, BakeJobs jobs, BakeWants wants)
+    public BackgroundBakes((VulkanContext Context, VulkanGpu Gpu) device, FrameRing ring, RetiredResources retired, BakeJobs jobs, BakeWants wants)
     {
-        _canTrace = context.CanTrace;
+        _canTrace = device.Context.CanTrace;
         _jobs = jobs;
         _wants = wants;
-        Slicer = new BakeSlicer(context, ring, retired, jobs.Bakers,
+        Slicer = new BakeSlicer(device.Gpu, ring, retired, jobs.Bakers,
             (bake, error) => Failed(bake.Want, bake.RunQuality, error));
     }
 

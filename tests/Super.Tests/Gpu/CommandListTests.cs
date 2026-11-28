@@ -17,6 +17,16 @@ public class CommandListTests
     }
 
     [Fact]
+    public void WriteTimestamp_inside_a_pass_throws()
+    {
+        var commands = new CommandList();
+        commands.BeginComputePass();
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => commands.WriteTimestamp(new QuerySetId(1), 0));
+        Assert.Equal("WriteTimestamp was called inside a pass; mark the time between passes.", thrown.Message);
+    }
+
+    [Fact]
     public void SetConstants_stores_bytes_padded_to_whole_words()
     {
         var commands = new CommandList();

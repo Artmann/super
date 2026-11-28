@@ -29,7 +29,7 @@ internal static class AssetsAndBakes
         var frameBakes = new FrameBakes(readableBakes, chunkPool, retired, areaInputs, spaceBake);
         var bakeJobs = new BakeJobs(context, new PreparedBakers(context, sky.Map, () => new Baker(context, stores)),
             stores.Meshes, resources, areaInputs);
-        background = new BackgroundBakes(context, stores.Ring, retired, bakeJobs,
+        background = new BackgroundBakes((context, stores.Gpu), stores.Ring, retired, bakeJobs,
             new BackgroundBakes.BakeWants(frameBakes.Resolver, readableBakes, areaInputs.Lights));
         var baking = new RendererBaking((context, stores.Uploads, sky), frameBakes, (bakeJobs, background, chunkPool));
 
