@@ -1,4 +1,6 @@
 using System.Numerics;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 using Silk.NET.Vulkan;
 using Buffer = Silk.NET.Vulkan.Buffer;
@@ -9,7 +11,8 @@ namespace Rendition.Passes;
 /// Projects the sky cube the light probes read past the scene onto L1 spherical harmonics, per colour, into a 64-byte
 /// buffer that chunks.glsl reads at set 0, binding 12: four vec4s, coefficient k's red, green and blue and its
 /// luminance, unscaled by the environment's intensity. sky_sh.comp reads the cube's 16² mip, each texel weighted by its
-/// solid angle. Recorded only on frames that draw a chunk's bake. See "Chunk transfer" in docs/design.md.
+/// solid angle, as a compute pass of the GPU layer. Recorded only on frames that draw a chunk's bake. See "Chunk
+/// transfer" in docs/design.md.
 /// </summary>
 internal sealed unsafe class SkySh : IDisposable
 {
@@ -17,64 +20,40 @@ internal sealed unsafe class SkySh : IDisposable
     public const int Size = 4 * 16;
 
     private readonly VulkanContext _context;
+    private readonly VulkanGpu _gpu;
     private readonly GpuBuffer _buffer;
-    private readonly DescriptorSetLayout _setLayout;
-    private readonly DescriptorPool _pool;
-    private readonly DescriptorSet _set;
-    private readonly PipelineLayout _pipelineLayout;
-    private readonly LivePipeline _pipeline;
+    private readonly (BufferId Buffer, ViewId Sky) _adopted;
+    private readonly ComputePass _pass;
+    private readonly BindGroupId _group;
+    private readonly CommandList _commands = new();
 
-    /// <param name="sky">The sky cube, which keeps its view for the renderer's life.</param>
-    public SkySh(VulkanContext context, ImageView sky, Sampler sampler)
+    /// <param name="sky">The sky cube, which keeps its view for the renderer's life and rests in the shader-read layout.</param>
+    public SkySh((VulkanContext Context, VulkanGpu Gpu) device, ImageView sky)
     {
+        var (context, gpu) = device;
         _context = context;
-        var api = context.Api;
+        _gpu = gpu;
         _buffer = GpuBuffer.CreateHostVisible(context, Size, BufferUsageFlags.StorageBufferBit);
         new Span<byte>(_buffer.Mapped, Size).Clear();
 
-        _setLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-            new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
-        ]);
-        _pool = context.CreateDescriptorPool(
-            1,
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 1),
-            new DescriptorPoolSize(DescriptorType.StorageBuffer, 1));
-        _set = context.AllocateSet(_pool, _setLayout);
-
-        var imageInfo = new DescriptorImageInfo(sampler, sky, ImageLayout.ShaderReadOnlyOptimal);
-        var bufferInfo = new DescriptorBufferInfo(_buffer.Handle, 0, Size);
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            Descriptors.ImageWrite(_set, 0, DescriptorType.CombinedImageSampler, &imageInfo),
-            Descriptors.BufferWrite(_set, 1, &bufferInfo),
-        };
-        api.UpdateDescriptorSets(context.Device, 2, writes, 0, null);
-
-        _pipelineLayout = context.CreatePipelineLayout([_setLayout]);
-        _pipeline = PipelineFactory.CreateCompute(context, "sky_sh.comp", _pipelineLayout);
+        _pass = new ComputePass(gpu, "sky_sh.comp");
+        _adopted = (gpu.Adopt(_buffer.Handle, Size), gpu.Adopt(new AdoptedView(sky, default, default)));
+        var sampler = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear));
+        _group = gpu.CreateBindGroup(_pass.Pipeline, 0, [Bind.Image("sky", _adopted.Sky, sampler), Bind.Buffer("projected", _adopted.Buffer)]);
     }
 
     /// <summary>The projected sky, for the frame's set 0, binding 12.</summary>
     public Buffer Handle => _buffer.Handle;
 
     /// <summary>
-    /// Projects the sky. The scene's earlier frames may still be reading the buffer, and the G-buffer pass reads it
-    /// after, so it is fenced on both sides.
+    /// Projects the sky. The layer's barriers keep the write after the scene's earlier frames' reads, and the G-buffer
+    /// pass's read after the write.
     /// </summary>
     public void Record(CommandBuffer cmd)
     {
-        var api = _context.Api;
-        const PipelineStageFlags2 readers = PipelineStageFlags2.VertexShaderBit | PipelineStageFlags2.FragmentShaderBit;
-        api.MemoryBarrier(cmd,
-            (readers, AccessFlags2.ShaderStorageReadBit), (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
-        var set = _set;
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipeline);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
-        api.CmdDispatch(cmd, 1, 1, 1);
-        api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit), (readers, AccessFlags2.ShaderStorageReadBit));
+        _commands.Reset();
+        _pass.Record(_commands, [_group], [], (1, 1, 1));
+        _gpu.Play(_commands, cmd);
     }
 
     /// <summary>Projects the sky now and waits, then reads the coefficients back. Stalls the GPU, so for tests.</summary>
@@ -91,11 +70,10 @@ internal sealed unsafe class SkySh : IDisposable
 
     public void Dispose()
     {
-        var api = _context.Api;
-        _pipeline.Destroy();
-        api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
-        api.DestroyDescriptorPool(_context.Device, _pool, null);
-        api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
+        _gpu.Destroy(_group);
+        _gpu.Release(_adopted.Sky);
+        _gpu.Release(_adopted.Buffer);
+        _pass.Dispose();
         _buffer.Dispose();
     }
 }

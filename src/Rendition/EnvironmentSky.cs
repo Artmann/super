@@ -1,5 +1,6 @@
 using System.Numerics;
 using Silk.NET.Vulkan;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 
@@ -27,11 +28,12 @@ internal sealed class EnvironmentSky
     private bool _pending;
 
     /// <param name="weather">The clouds' weather map and its repeating sampler, for the clouds the captures draw.</param>
-    public EnvironmentSky(VulkanContext context, FrameRing ring, (Sampler Repeat, ImageView View) weather)
+    public EnvironmentSky((VulkanContext Context, VulkanGpu Gpu) device, FrameRing ring, (Sampler Repeat, ImageView View) weather)
     {
+        var context = device.Context;
         _context = context;
         _ring = ring;
-        Map = new EnvironmentMap(context, weather);
+        Map = new EnvironmentMap(context, device.Gpu, weather);
         Set(new EnvironmentDescription
         {
             Ceiling = new Vector3(0.5f),
@@ -39,7 +41,7 @@ internal sealed class EnvironmentSky
             Floor = new Vector3(0.2f),
         });
         Flush();
-        Sh = new SkySh(context, Map.Sky, Map.Sampler);
+        Sh = new SkySh(device, Map.Sky);
     }
 
     /// <summary>The environment's cubes.</summary>

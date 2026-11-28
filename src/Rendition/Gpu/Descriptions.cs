@@ -23,8 +23,18 @@ internal enum SamplerFilter
     Linear,
 }
 
-/// <summary>A sampler that clamps at the edges and reads the first mip.</summary>
-internal readonly record struct SamplerDescription(SamplerFilter Filter);
+/// <summary>What a sampler reads past a texture's edges.</summary>
+internal enum SamplerAddress
+{
+    /// <summary>The edge texel.</summary>
+    Clamp,
+
+    /// <summary>The texture again, so it tiles.</summary>
+    Repeat,
+}
+
+/// <summary>A sampler that reads the first mip, clamping at the edges unless <see cref="Address"/> says otherwise.</summary>
+internal readonly record struct SamplerDescription(SamplerFilter Filter, SamplerAddress Address = SamplerAddress.Clamp);
 
 /// <summary>
 /// A pipeline that draws triangles into colour targets of <see cref="ColorFormats"/>, with no depth. With

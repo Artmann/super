@@ -375,6 +375,31 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void A_repeating_sampler_wraps_past_the_edge_and_a_clamping_one_does_not()
+    {
+        using var device = new VulkanGpu(gpu.Context);
+        using var source = Target();
+        // Black but for a red right-hand column.
+        var pixels = new byte[Size * Size * 4];
+        for (int y = 0; y < Size; y++)
+        {
+            pixels[(y * Size + Size - 1) * 4] = 255;
+        }
+
+        Upload(source, Size, pixels);
+
+        // Each pixel in the left column takes two of its four taps at the middle of the texel one past the left edge.
+        // Wrapped, that is the red column, so red is 255 * 2 / 4, about 127; clamped, it is the black left column.
+        byte[] repeated = DownsampleThroughTheLayer(device, source, SamplerAddress.Repeat);
+        byte[] clamped = DownsampleThroughTheLayer(device, source, SamplerAddress.Clamp);
+        for (int y = 0; y < Size; y++)
+        {
+            Assert.InRange(repeated[y * Size * 4], 126, 128);
+            Assert.Equal(0, clamped[y * Size * 4]);
+        }
+    }
+
+    [Fact]
     public void A_render_pass_refuses_a_storage_view()
     {
         using var device = new VulkanGpu(gpu.Context);
@@ -435,11 +460,11 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         return Assert.Throws<ArgumentException>(() => device.CreateBindGroup(pipeline, group, [Bind.Image(name, view, sampler)]));
     }
 
-    private byte[] DownsampleThroughTheLayer(VulkanGpu device, RenderTarget source)
+    private byte[] DownsampleThroughTheLayer(VulkanGpu device, RenderTarget source, SamplerAddress address = SamplerAddress.Clamp)
     {
         using var target = Target();
         using var pass = new FullscreenPass(device, "bloom_down.frag", [GpuFormat.Rgba8Unorm]);
-        var sampler = device.CreateSampler(new SamplerDescription(SamplerFilter.Linear));
+        var sampler = device.CreateSampler(new SamplerDescription(SamplerFilter.Linear, address));
         var group = device.CreateBindGroup(pass.Pipeline, 0, [Bind.Image("sourceTexture", device.Adopt(source.View), sampler)]);
         var view = device.Adopt(target.View, target.Image, new Extent2D(Size, Size));
         var commands = new CommandList();

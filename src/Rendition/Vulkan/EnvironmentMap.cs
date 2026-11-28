@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Silk.NET.Vulkan;
 
@@ -47,7 +48,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     /// </summary>
     public ImageView Background => _prefilter.Background;
 
-    /// <summary>The physical sky's sky-view table, in the shader-read layout, which the clouds take their sky light from.</summary>
+    /// <summary>The physical sky's sky-view table, in the General layout, which the clouds take their sky light from.</summary>
     public ImageView SkyView => _uniforms.SkyView;
 
     /// <summary>
@@ -61,7 +62,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     public bool Unfinished => _prefilter.Unfinished;
 
     /// <param name="weather">The clouds' weather map and the repeating sampler it is read with, for the clouds the captures draw.</param>
-    public EnvironmentMap(VulkanContext context, (Sampler Repeat, ImageView View) weather)
+    public EnvironmentMap(VulkanContext context, VulkanGpu gpu, (Sampler Repeat, ImageView View) weather)
     {
         _context = context;
         _cubes = (
@@ -83,7 +84,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
             MaxLod = Vk.LodClampNone,
         };
         context.Api.CreateSampler(context.Device, &samplerInfo, null, out Sampler).Check();
-        _uniforms = new EnvironmentUniforms(context, Sampler);
+        _uniforms = new EnvironmentUniforms(context, gpu);
         _prefilter = new EnvironmentPrefilter(context, _uniforms, Sampler, _cubes, weather);
     }
 

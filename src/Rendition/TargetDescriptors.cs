@@ -63,7 +63,7 @@ internal static class TargetDescriptors
             new(kit.LinearSampler, lights.LightProbes.Volume.DepthView, ImageLayout.General)));
         stores.Frames.WriteVolumetric(lights.FogStage.Result);
 
-        lights.CloudStage.SetSources(new(kit.LinearSampler, map.SkyView, ImageLayout.ShaderReadOnlyOptimal));
+        lights.CloudStage.SetSources(map.SkyView);
         stores.Frames.WriteClouds(lights.CloudStage.Shadow, lights.CloudStage.Picture);
         stages.PostStage.Flare.SetClouds(lights.CloudStage.Picture);
     }

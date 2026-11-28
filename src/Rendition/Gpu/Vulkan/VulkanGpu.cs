@@ -55,15 +55,16 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     public override SamplerId CreateSampler(in SamplerDescription description)
     {
         var filter = description.Filter == SamplerFilter.Linear ? Filter.Linear : Filter.Nearest;
+        var address = description.Address == SamplerAddress.Repeat ? SamplerAddressMode.Repeat : SamplerAddressMode.ClampToEdge;
         var info = new SamplerCreateInfo
         {
             SType = StructureType.SamplerCreateInfo,
             MagFilter = filter,
             MinFilter = filter,
             MipmapMode = SamplerMipmapMode.Nearest,
-            AddressModeU = SamplerAddressMode.ClampToEdge,
-            AddressModeV = SamplerAddressMode.ClampToEdge,
-            AddressModeW = SamplerAddressMode.ClampToEdge,
+            AddressModeU = address,
+            AddressModeV = address,
+            AddressModeW = address,
         };
         _context.Api.CreateSampler(_context.Device, &info, null, out var sampler).Check();
         return new SamplerId(_samplers.Add(sampler));

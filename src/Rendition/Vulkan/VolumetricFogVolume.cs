@@ -1,3 +1,5 @@
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Silk.NET.Vulkan;
 
@@ -19,12 +21,11 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     // volumetric_inject.comp.
     private const int InjectBlock = 2;
 
-    private readonly VulkanContext _context;
+    private readonly VulkanGpu _gpu;
     private readonly FogInjectSets _sets;
     private readonly FogVolumeBuffers _volumes;
-    private readonly PipelineLayout _pipelineLayout;
-    private readonly LivePipeline _inject;
-    private readonly LivePipeline _integrate;
+    private readonly (ComputePass Inject, ComputePass Integrate) _passes;
+    private readonly CommandList _commands = new();
     private readonly FogGrid _grid;
 
     // Which of the two injected volumes this frame writes; the other holds last frame's.
@@ -42,14 +43,20 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     /// <summary>The summed volume, or until it's made a texel that lets everything through.</summary>
     public ImageView Result => _grid.Result;
 
-    public VolumetricFogVolume(VulkanContext context, DescriptorSetLayout frameSetLayout, Sampler linearSampler)
+    /// <summary>
+    /// The passes run on the GPU layer and bind their own set through it. That set is still made outside the layer,
+    /// as the sun's shadow is read through a comparing sampler and the sky through one with mips, which the layer
+    /// can't make yet; the passes borrow its layout.
+    /// </summary>
+    public VolumetricFogVolume((VulkanContext Context, VulkanGpu Gpu) device, DescriptorSetLayout frameSetLayout, Sampler linearSampler)
     {
-        _context = context;
+        var (context, gpu) = device;
+        _gpu = gpu;
         _sets = new FogInjectSets(context, linearSampler, FogVolumeBuffers.Binding);
         _volumes = new FogVolumeBuffers(context, _sets.Sets);
-        _pipelineLayout = context.CreatePipelineLayout([frameSetLayout, _sets.Layout]);
-        _inject = PipelineFactory.CreateCompute(context, "volumetric_inject.comp", _pipelineLayout);
-        _integrate = PipelineFactory.CreateCompute(context, "volumetric_integrate.comp", _pipelineLayout);
+        _passes = (
+            new ComputePass(gpu, "volumetric_inject.comp", [frameSetLayout, _sets.Layout]),
+            new ComputePass(gpu, "volumetric_integrate.comp", [frameSetLayout, _sets.Layout]));
         _grid = new FogGrid(context);
     }
 
@@ -114,27 +121,17 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
             throw new InvalidOperationException("The volumetric fog's volumes are made before it is drawn.");
         }
 
-        var api = _context.Api;
-
-        // Last frame's passes read the history and the sum, and wrote what is history now.
-        api.BeginHistoryCompute(cmd, _pipelineLayout, frameSet, _sets.Sets[_current]);
+        // The layer's barriers keep this frame's writes after last frame's reads of the history and the sum, the
+        // integrate after the inject, and the fog's readers after the integrate.
         var size = _grid.Size;
+        BindGroupId[] groups = [_gpu.Adopt(frameSet), _gpu.Adopt(_sets.Sets[_current])];
+        _commands.Reset();
 
         // Each of the inject pass's invocations lights a block of InjectBlock by InjectBlock cells.
         const int injectGroup = 8 * InjectBlock;
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _inject);
-        api.CmdDispatch(cmd, (uint)(size.X + injectGroup - 1) / injectGroup, (uint)(size.Y + injectGroup - 1) / injectGroup, (uint)size.Z);
-
-        api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit));
-
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _integrate);
-        api.CmdDispatch(cmd, (uint)(size.X + 7) / 8, (uint)(size.Y + 7) / 8, 1);
-
-        api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
-            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
+        _passes.Inject.Record(_commands, groups, [], ((size.X + injectGroup - 1) / injectGroup, (size.Y + injectGroup - 1) / injectGroup, size.Z));
+        _passes.Integrate.Record(_commands, groups, [], ((size.X + 7) / 8, (size.Y + 7) / 8, 1));
+        _gpu.Play(_commands, cmd);
 
         _current = 1 - _current;
         HistoryReady = true;
@@ -144,9 +141,8 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     {
         _grid.Dispose();
         _volumes.Dispose();
-        _inject.Destroy();
-        _integrate.Destroy();
-        _context.Api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
+        _passes.Inject.Dispose();
+        _passes.Integrate.Dispose();
         _sets.Dispose();
     }
 }

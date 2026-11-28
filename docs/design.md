@@ -2037,7 +2037,7 @@ scattering. `Vulkan/SkyAtmosphere.cs` draws three rgba16f tables, each with its 
 compute shader: the transmittance (256 × 64) and the light scattered many times
 (32 × 32), redrawn only when the turbidity changes, and the sky seen from 50 m up
 (192 × 108, Hillaire's sky-view table with its horizon packed tight), redrawn on every
-sky change. `environment.comp` reads the sky-view through binding 2 of the cube shaders'
+sky change. The tables rest in the `General` layout. `environment.comp` reads the sky-view through binding 2 of the cube shaders'
 layout, present for every cube, and adds `NIGHT_GLOW`, a faint blue that keeps night from
 going black. `SOLAR_STRENGTH` (13) is the sun at the top of the air in the renderer's
 units, where a sun light of about 8 is the real 100 klux; it gives a turbidity-3 sky with
@@ -2340,7 +2340,8 @@ its own, so edges move even in still air.
 
 On the GPU, `CloudStage` keeps the clouds' resources and decides each frame whether they are drawn:
 `CloudNoise` holds the noise textures, `CloudTargets` the shadow map, the march, the picture and its
-two histories at one size, and `CloudPasses` the three compute passes and their sets (`CloudSets`).
+two histories at one size, and `CloudPasses` the three compute passes and their groups, which run on
+the GPU layer (see "GPU layer").
 `KeepTargets` makes or frees the targets before a frame is recorded, so a resize remakes them there
 too.
 
@@ -5135,6 +5136,21 @@ from the moment it is made, so the filter writes it and the composite samples it
 move. The exposure meter's buffer and the flare's are adopted, and their sets still come from
 `CreateStateSet` and are adopted too, since the tonemap, FSR and the flare's draw, which
 haven't moved, read them.
+
+The sky, the clouds and the fog moved next. `SkyAtmosphere`'s three tables rest in `General`
+from the moment they are made, so each table's pass writes it and the next table's samples it
+without a move, and the cube shaders' sky-view binding and the clouds read it in `General` too.
+`SkySh` binds the sky cube and its buffer in a group made by name; reading the projection back
+on the CPU still needs a barrier of its own after the pass, as the layer's barrier stops short
+of the host. `CloudNoise` bakes its three volumes through one pass. The clouds' three passes
+each have two groups, one for each history the resolve writes in turn, since a group made from
+one pipeline's layout can't be bound to another in WebGPU. A sampler can repeat past the edges
+now, with `SamplerDescription.Address`, which the cloud noise needs. The volumetric fog's
+inject and integrate run as two `ComputePass`es, but their own set still comes from
+`FogInjectSets` and is adopted with its layout lent, because it reads the sun's shadow through
+a comparing sampler and the sky through one with mips, and the layer can make neither yet.
+Losing `BeginHistoryCompute`'s barrier costs nothing: a compute pass's opening barrier waits
+for last frame's fragment reads of the history and the sum as that one did.
 
 ## Resource lifetime
 

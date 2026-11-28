@@ -39,7 +39,7 @@ internal sealed unsafe class CubeShader<TConstants> : IDisposable where TConstan
     }
 
     /// <summary>
-    /// A set that reads the whole of a uniform buffer, a 2D table at binding 2 and a cube at binding 3 from
+    /// A set that reads the whole of a uniform buffer, a 2D table resting in General at binding 2 and a cube at binding 3 from
     /// <paramref name="reads"/>, and a <paramref name="volume"/> at binding 4, and writes <paramref name="target"/>.
     /// </summary>
     public DescriptorSet CreateSet(GpuBuffer uniforms, ImageView target, Sampler sampler, (ImageView Table, ImageView Cube) reads,
@@ -48,7 +48,7 @@ internal sealed unsafe class CubeShader<TConstants> : IDisposable where TConstan
         var set = _context.AllocateSet(_pool, _setLayout);
         var bufferInfo = new DescriptorBufferInfo(uniforms.Handle, 0, uniforms.Size);
         var imageInfo = new DescriptorImageInfo(default, target, ImageLayout.General);
-        var tableInfo = new DescriptorImageInfo(sampler, reads.Table, ImageLayout.ShaderReadOnlyOptimal);
+        var tableInfo = new DescriptorImageInfo(sampler, reads.Table, ImageLayout.General);
         var writes = stackalloc WriteDescriptorSet[]
         {
             Descriptors.BufferWrite(set, 0, &bufferInfo, DescriptorType.UniformBuffer),
