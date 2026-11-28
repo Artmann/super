@@ -406,6 +406,86 @@ Each pass moves the way tonemap did: its own sets become bind groups made by nam
 - [ ] **Step 1:** Open the pull request: what moved, the frame time and allocation numbers, the shot comparison, what still draws the old way. Nothing on screen changes, so no pictures.
 - [ ] **Step 2:** One review of the whole branch, fixes, then write the task-level plan for stage 1c.
 
+## Stage 1c: every compute pass the browser runs, on the layer
+
+Branch `feat/gpu-layer-compute`, stacked on `feat/gpu-layer-fullscreen` until that merges.
+
+Stage 1c moves the compute passes that also run in the browser: the exposure meter, paint's filter, the grade LUT, the lens flare's visibility, the light clusters, the atmosphere, the sky's light, the clouds, the volumetric fog, the probe volume's blend, fold, invalidate and sample passes, and the reflection and environment filters. Some passes stay where they are:
+
+- The ray-traced passes stay on Vulkan, because the browser has no ray queries: `probe_trace`, `trace_debug`, every `bake_*` pass, and `ProbeTestHooks`. Stage 1g fences them in.
+- Grass's scatter feeds its indirect draws, so it moves with them in 1d.
+- Image clears and copies (`CellVolume`, `HeldPicture`) are uploads and move in 1e.
+
+WebGPU makes every dispatch see what the dispatch before it wrote. The Vulkan player does the same with one global memory barrier after each dispatch. That barrier makes compute writes visible to every later compute, vertex, fragment, indirect and transfer read. Passes stop placing their own barriers between dispatches. A barrier per dispatch may cost more than the hand-placed ones, and Task 4 measures it.
+
+### Task 1: Compute in the layer
+
+**Files:**
+- Create: `src/Rendition/Passes/ComputePass.cs`
+- Modify: `src/Rendition/Gpu/Bind.cs`, `src/Rendition/Gpu/Descriptions.cs`, `src/Rendition/Gpu/CommandList.cs`, `src/Rendition/Gpu/CommandWords.cs`, `src/Rendition/Gpu/GpuDevice.cs`, `src/Rendition/Gpu/Vulkan/VulkanGpu.cs`, `src/Rendition/Gpu/Vulkan/VulkanPlayer.cs`, `src/Rendition/Gpu/Vulkan/VulkanBindGroups.cs`, `docs/design.md`
+- Test: `tests/Rendition.Gpu.Tests/GpuLayerGpuTests.cs`
+
+**Interfaces:**
+- Produces:
+  - `readonly ref struct ComputePipelineDescription { required ShaderId Shader }`, `GpuDevice.CreateComputePipeline(in ComputePipelineDescription)`, and on `VulkanGpu` an overload with `ReadOnlySpan<DescriptorSetLayout> borrowed`, as for render pipelines.
+  - `BufferId VulkanGpu.Adopt(Silk.NET.Vulkan.Buffer buffer, long size)` and `Release(BufferId)`.
+  - `ViewId VulkanGpu.AdoptStorage(ImageView view, Image image, Extent2D extent)`, for an image that rests in `General`. Sampled binds of such a view write `General` into the descriptor, and render passes refuse it.
+  - `Bind.Buffer(string name, BufferId buffer)` for uniform and storage buffers, and `Bind.StorageImage(string name, ViewId view)`.
+  - `CommandList.ClearBuffer(BufferId buffer, int offset, int size)`, valid only outside a pass, as in WebGPU.
+  - `sealed class ComputePass(GpuDevice device, string shader, ReadOnlySpan<DescriptorSetLayout> borrowed = default)` with `PipelineId Pipeline` and `Record(CommandList commands, ReadOnlySpan<BindGroupId> groups, ReadOnlySpan<byte> constants, int x, int y, int z)`. It records one dispatch in its own compute pass. `RecordMore` adds a dispatch to the open pass for passes that dispatch a loop.
+
+- [ ] **Step 1: Write the failing tests.**
+  - `A_compute_pass_writes_a_storage_image`: an `Rgba8Unorm` image adopted with `AdoptStorage`, a test shader that writes `(x/255, y/255, 0, 1)`, read back exactly.
+  - `A_dispatch_sees_what_the_dispatch_before_it_wrote`: dispatch one writes `i` into a 4096-int storage buffer, and dispatch two, in the same compute pass, writes `buffer[i] * 2` into a second buffer. Read back as `2i` for every `i`. Prove the test can fail: remove the player's barrier and watch it fail, on validation messages at least.
+  - `A_cleared_buffer_reads_zero_where_it_was_cleared`: fill a buffer with 0xFF and clear bytes 256 to 511. Those read back as zero and the rest as 0xFF.
+  - `A_storage_image_can_be_sampled_by_the_next_pass`: a compute pass writes a colour, then a `FullscreenPass` samples the same view into a target, which reads back as that colour with 0 validation messages.
+  - `A_render_pass_refuses_a_storage_view`: `Assert.Throws<InvalidOperationException>` with a message naming `AdoptStorage`.
+- [ ] **Step 2: Run them.** Expected: they fail to compile.
+- [ ] **Step 3: Write the layer's compute.** Write the pipeline, the buffer and storage-view tables, both bind kinds in `VulkanBindGroups`, and `Dispatch`, `BeginComputePass`, `ClearBuffer` and the per-dispatch barrier in the player. Then write `ComputePass`.
+- [ ] **Step 4: Run the tests and the CI tests.** Expected: pass, with no validation messages.
+- [ ] **Step 5: Commit.** `feat: run compute passes through the GPU layer`
+
+### Task 2: Exposure, paint, grade, flare visibility and clusters
+
+**Files:**
+- Modify: `src/Rendition/Vulkan/ExposureMeter.cs`, `src/Rendition/Passes/PaintFilter.cs`, `src/Rendition/Vulkan/GradeLut.cs`, `src/Rendition/Passes/LensFlareVisibility.cs`, `src/Rendition/LocalLightShadows.cs`, and the images they write, which now rest in `General` through `AdoptStorage`
+
+**Interfaces:**
+- Consumes: Task 1's `ComputePass`, `Bind.Buffer`, `Bind.StorageImage`, `ClearBuffer`.
+
+- [ ] **Step 1: Move each pass.** Each pass's own set becomes a bind group made by name, made again where its sets were written. The frame set is adopted. Each pass's `CmdFillBuffer` becomes `ClearBuffer`, and its hand-placed barriers between its own dispatches go. A barrier toward a reader outside the layer stays until that reader moves.
+- [ ] **Step 2: Run the GPU suite and the shots** with seed 1, 120 ticks, 1280x720, `--validate`: Shapes, Courtyard, Hamlet, Reef and Wax, with TAA and with FSR. Add a shot with paint on and one with a grade LUT. Expected: Shapes, Wax and Courtyard (TAA) are byte-identical to the branch's base, and the others are within the base's own PSNR from run to run, with 0 validation messages. Exposure adapts over ticks, so a mismatch in exposure shows as a whole-picture brightness shift.
+- [ ] **Step 3: Commit.** `refactor: run exposure, paint, grading, flare visibility and clusters through the GPU layer`
+
+### Task 3: Sky, clouds and fog
+
+**Files:**
+- Modify: `src/Rendition/Vulkan/SkyAtmosphere.cs`, `src/Rendition/Passes/SkySh.cs`, `src/Rendition/Vulkan/CloudNoise.cs`, `src/Rendition/Vulkan/CloudPasses.cs`, `src/Rendition/Vulkan/CloudSets.cs`, `src/Rendition/Vulkan/VolumetricFogVolume.cs`, `src/Rendition/Vulkan/FogInjectSets.cs`
+
+- [ ] **Step 1: Move the three atmosphere passes, the sky's light, the four cloud passes, and fog's inject and integrate passes** the way Task 2 moved its passes. The 3D fog and noise volumes are adopted with `AdoptStorage`, and the layer doesn't care what dimension a view has.
+- [ ] **Step 2: Run the GPU suite and the shots,** adding the skies example with clouds and an example with fog volumes (see the fog volumes memory: probe-lit fog). Expected: as in Task 2.
+- [ ] **Step 3: Commit.** `refactor: run the sky, clouds and fog through the GPU layer`
+
+### Task 4: Probes and reflections, then measure
+
+**Files:**
+- Modify: `src/Rendition/Vulkan/ProbeVolumePasses.cs`, `src/Rendition/Vulkan/ProbeVolumeAtlases.cs`, `src/Rendition/Vulkan/ReflectionFilter.cs`, `src/Rendition/Vulkan/CubeShader.cs`, `src/Rendition/Vulkan/EnvironmentCube.cs`, `src/Rendition/Vulkan/ReflectionProbes.cs`
+
+- [ ] **Step 1: Move the probe volume's blend, fold, invalidate and sample passes, and the environment, reflection probe, reflection sky and filter passes.** `ProbeTracePass` keeps writing the same atlases on Vulkan. Its hand-placed barriers stay, and the atlases it writes rest in `General` as before.
+- [ ] **Step 2: Run the GPU suite and the shots,** adding Crypt (live probes) and an example with reflection probes. Expected: as in Task 2.
+- [ ] **Step 3: Measure the GPU and CPU frame time** of Reef, Hamlet and Crypt at seed 7, 420 ticks, 300 frames, with `--profile`, against the branch's base, and allocation per frame as earlier stages did. Expected: GPU passes within 0.05 ms, CPU frame time within noise, and no new bytes per frame. If the per-dispatch barrier costs more, the player skips it between two dispatches whose groups write nothing the second reads, so passes still don't place barriers. Write the timings in the ledger.
+- [ ] **Step 4: Commit.** `refactor: run the probe volume and reflection filters through the GPU layer`
+
+### Task 5: Delete the old compute path and open the pull request
+
+**Files:**
+- Modify: `src/Rendition/Vulkan/PipelineFactory.cs`, `src/Rendition/Vulkan/VulkanExtensions.cs`, `docs/design.md`, and whatever `dotnet roe` reports as dead
+
+- [ ] **Step 1:** Delete what only the moved passes used, such as `BeginHistoryCompute` and the compute layouts. `PipelineFactory.CreateCompute` stays only if the ray-traced passes still call it. Run `dotnet roe` and delete what it reports dead.
+- [ ] **Step 2:** In `design.md`, describe compute on the layer: storage views resting in `General`, the barrier per dispatch, and which compute passes stay on Vulkan and why.
+- [ ] **Step 3:** Run CI's tests and the GPU suite. Expected: they pass, apart from the known `LiveProbeTests` allocation failure that `main` also has. Commit with `refactor: remove the old compute pass path`.
+- [ ] **Step 4:** Open the pull request. Write what moved, what stays and why, the timings and the shot comparison, with no pictures. Then run one review of the whole branch, fix what it finds, and write the task-level plan for stage 1d.
+
 ---
 
 ## Stage 0 findings
