@@ -16,7 +16,7 @@ internal sealed class SceneLighting
     {
         _stores = stores;
         var (context, kit, meshes) = (stores.Context, stores.Kit, stores.Meshes);
-        ShadowPass = new ShadowPass(context, kit.FrameSetLayout, stores.Resources, stores.Settings.ShadowResolution);
+        ShadowPass = new ShadowPass((context, stores.Gpu), kit.FrameSetLayout, stores.Resources, stores.Settings.ShadowResolution);
         stores.Frames.WriteAtlas(ShadowPass.Atlas.View);
         SunShadows = new SunShadows(context.Api, ShadowPass, meshes, stores.Switches);
         LocalLightShadows = new LocalLightShadows((context, stores.Gpu), kit.FrameSetLayout, ShadowPass, stores.Switches,
@@ -31,12 +31,12 @@ internal sealed class SceneLighting
         FrameReflectionCapture = new FrameReflectionCapture(new ReflectionCapturePass((context, stores.Gpu), kit.FrameSetLayout,
             stores.Resources, captureScene, map.Sky), ReflectionProbes, stores.Switches);
         ProbeVolume = new ProbeVolume((context, stores.Gpu), map.Sky);
-        LightProbes = new LightProbes(context, map, kit,
+        LightProbes = new LightProbes((context, stores.Gpu), map, kit,
             new LightProbes.Sources(stores.Resources, stores.Tracing, captureScene, stores.Ring, ProbeVolume));
         stores.Settings.Probes = LightProbes;
         FogStage = new FogStage((context, stores.Gpu), kit, stores.Switches);
         CloudStage = new CloudStage((context, stores.Gpu), kit, stores.Switches, cloudNoise);
-        Planar = new PlanarStage(context, kit, stores.Resources, stores.Switches, (meshes.MeshSlots, meshes.DetailSlots));
+        Planar = new PlanarStage((context, stores.Gpu), kit, stores.Resources, stores.Switches, (meshes.MeshSlots, meshes.DetailSlots));
     }
 
     /// <summary>The shadow maps: the sun's cascades and the lights' tiles.</summary>

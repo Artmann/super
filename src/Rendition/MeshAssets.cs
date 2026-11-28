@@ -22,7 +22,7 @@ internal sealed class MeshAssets(
         stores.Uploads.Add(vertexStaging, vertexBuffer);
         var indexBuffer = GpuBuffer.CreateDeviceLocalStaged(stores.Context, indices, BufferUsageFlags.IndexBufferBit | traceInput, out var indexStaging);
         stores.Uploads.Add(indexStaging, indexBuffer);
-        return stores.Meshes.AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length)
+        return stores.Meshes.AddMesh(new Mesh(stores.Gpu, vertexBuffer, indexBuffer, (uint)indices.Length)
         {
             CumulativeAreas = LightmapLayout.CumulativeAreas(vertices, indices),
         });

@@ -1,4 +1,6 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 
@@ -25,29 +27,30 @@ internal sealed unsafe class MirrorPipeline : IDisposable
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _set;
-    private readonly PipelineLayout _layout;
+    private readonly SceneList _list;
     private readonly List<PipelineVariants> _pipelines = [];
 
-    public MirrorPipeline(VulkanContext context, DescriptorKit kit, ResourceTable resources)
+    public MirrorPipeline((VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, ResourceTable resources)
     {
+        var context = device.Context;
         _context = context;
         _resources = resources;
         _setLayout = context.CreateSetLayout(LitCaptureSet.Bindings);
         _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 4));
         _set = context.AllocateSet(_pool, _setLayout);
-        _layout = context.CreatePipelineLayout([kit.FrameSetLayout, resources.Layout, _setLayout], SceneDraws.PushRange);
+        _list = new SceneList(device, resources, [kit.FrameSetLayout, resources.Layout, _setLayout], SceneDraws.PushRange);
 
         var description = new PipelineDescription
         {
             VertexShader = "mirror.vert",
             FragmentShader = "mirror.frag",
-            Layout = _layout,
+            Layout = _list.Layout,
             ColorFormats = [GBuffer.HdrFormat, GBuffer.HdrFormat],
             DepthFormat = GBuffer.DepthFormat,
             VertexBindings = SceneDraws.VertexBindings,
             VertexAttributes = MirrorAttributes,
         };
-        _pipelines.Add(new PipelineVariants(PipelineFactory.Create(context, description),
+        _pipelines.Add(_list.Adopt(PipelineFactory.Create(context, description),
             PipelineFactory.Create(context, description with { TwoSided = true })));
     }
 
@@ -64,19 +67,15 @@ internal sealed unsafe class MirrorPipeline : IDisposable
     public void Draw(CommandBuffer cmd, DescriptorSet frameSet, in SceneGeometry geometry)
     {
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _set };
-        _context.Api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 3, sets, 0, null);
-        SceneDraws.Record(new SceneTarget(_context.Api, cmd, _layout), new ScenePipelines(_pipelines, _resources),
+        _context.Api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _list.Layout, 0, 3, sets, 0, null);
+        SceneDraws.Record(_list.Begin(), new ScenePipelines(_pipelines, _resources),
             geometry, new SceneDrawOptions(ScenePass.Opaque));
+        _list.Play(cmd);
     }
 
     public void Dispose()
     {
-        foreach (var pipelines in _pipelines)
-        {
-            pipelines.Culled.Destroy();
-            pipelines.TwoSided.Destroy();
-        }
-
-        _context.DestroyLayouts(_layout, _pool, _setLayout);
+        _list.Dispose();
+        _context.DestroySets(_pool, _setLayout);
     }
 }

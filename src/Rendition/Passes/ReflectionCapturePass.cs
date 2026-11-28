@@ -36,7 +36,7 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _set;
-    private readonly PipelineLayout _layout;
+    private readonly SceneList _list;
     private readonly List<PipelineVariants> _pipelines = [];
     private readonly CubeCapture _faces;
     private readonly List<int> _kept = [];
@@ -59,10 +59,9 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
         _setLayout = context.CreateSetLayout(LitCaptureSet.Bindings);
         _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 4));
         _set = context.AllocateSet(_pool, _setLayout);
-        _layout = context.CreatePipelineLayout(
-            [frameSetLayout, resources.Layout, _setLayout],
+        _list = new SceneList(device, resources, [frameSetLayout, resources.Layout, _setLayout],
             new PushConstantRange(SceneDraws.PushStages, 0, (uint)(sizeof(SceneDraws.DrawConstants) + sizeof(ProbeCapturePass.ProbeConstants))));
-        _faces = new CubeCapture(context, resources, _layout, _pipelines, new Extent2D(ProbeCubes.FaceSize, ProbeCubes.FaceSize));
+        _faces = new CubeCapture(context, _list, resources, _pipelines, new Extent2D(ProbeCubes.FaceSize, ProbeCubes.FaceSize));
 
         if (!context.Abilities.Multiview)
         {
@@ -73,7 +72,7 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
         {
             VertexShader = "probe_capture.vert",
             FragmentShader = "reflection_capture.frag",
-            Layout = _layout,
+            Layout = _list.Layout,
             ColorFormats = [GBuffer.HdrFormat],
             DepthFormat = GBuffer.DepthFormat,
             VertexBindings = SceneDraws.VertexBindings,
@@ -81,7 +80,8 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
             ViewMask = 0x3F,
         };
         var culled = PipelineFactory.Create(context, description);
-        _pipelines.Add(new PipelineVariants(culled, PipelineFactory.Create(context, description with { TwoSided = true })));
+        _pipelines.Add(_list.Adopt(
+            culled, PipelineFactory.Create(context, description with { TwoSided = true })));
     }
 
     /// <summary>Whether the GPU can draw a capture: it needs six views at once.</summary>
@@ -133,9 +133,9 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
 
         _faces.Begin(cmd, Cube.Faces, Cube.Depth, Vector4.Zero);
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _set };
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 3, sets, 0, null);
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _list.Layout, 0, 3, sets, 0, null);
         var probe = new ProbeCapturePass.ProbeConstants { Probe = new Vector4(_planned.Position, 1f) };
-        api.CmdPushConstants(cmd, _layout, SceneDraws.PushStages, (uint)sizeof(SceneDraws.DrawConstants),
+        api.CmdPushConstants(cmd, _list.Layout, SceneDraws.PushStages, (uint)sizeof(SceneDraws.DrawConstants),
             (uint)sizeof(ProbeCapturePass.ProbeConstants), &probe);
         int[] kept = System.Buffers.ArrayPool<int>.Shared.Rent(Math.Max(_kept.Count, 1));
         _kept.CopyTo(kept);
@@ -148,13 +148,8 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
 
     public void Dispose()
     {
-        foreach (var pipelines in _pipelines)
-        {
-            pipelines.Culled.Destroy();
-            pipelines.TwoSided.Destroy();
-        }
-
-        _context.DestroyLayouts(_layout, _pool, _setLayout);
+        _list.Dispose();
+        _context.DestroySets(_pool, _setLayout);
         Cube.Dispose();
         _sun.Dispose();
     }

@@ -1,6 +1,8 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
@@ -29,7 +31,7 @@ internal sealed unsafe class ShadowPass : IDisposable
     public const float MaxReach = 6f;
 
     private readonly VulkanContext _context;
-    private readonly PipelineLayout _layout;
+    private readonly SceneList _list;
     private readonly ScenePipelines _scene;
 
     /// <summary>The cascades' maps, one layer each. Replaced when <see cref="Resize"/> changes the resolution.</summary>
@@ -43,8 +45,9 @@ internal sealed unsafe class ShadowPass : IDisposable
     /// <summary>Every point and spot light's shadow, each in its own square of it.</summary>
     public readonly RenderTarget Atlas;
 
-    public ShadowPass(VulkanContext context, DescriptorSetLayout frameSetLayout, ResourceTable resources, int resolution)
+    public ShadowPass((VulkanContext Context, VulkanGpu Gpu) device, DescriptorSetLayout frameSetLayout, ResourceTable resources, int resolution)
     {
+        var context = device.Context;
         _context = context;
         Resolution = CheckResolution(resolution);
         Target = CreateTarget();
@@ -52,14 +55,15 @@ internal sealed unsafe class ShadowPass : IDisposable
             context, GBuffer.DepthFormat, new Extent2D(LocalLights.AtlasSize, LocalLights.AtlasSize),
             ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
 
-        _layout = context.CreatePipelineLayout([frameSetLayout, resources.Layout], SceneDraws.PushRange);
-        var (shaded, solid) = CreatePipelines(context, _layout);
+        _list = new SceneList(device, resources, [frameSetLayout, resources.Layout], SceneDraws.PushRange);
+        var (shaded, solid) = CreatePipelines(context, _list);
         _scene = new ScenePipelines([shaded], resources) { Solids = [solid] };
     }
 
     // The casters' pipelines, culled and two-sided: one that runs shadow.frag for materials with holes, and one with no
     // fragment shader for the rest.
-    private static (PipelineVariants Shaded, PipelineVariants Solid) CreatePipelines(VulkanContext context, PipelineLayout layout)
+    private static (PipelineVariants Shaded, PipelineVariants Solid) CreatePipelines(
+        VulkanContext context, SceneList list)
     {
         ReadOnlySpan<VertexInputBindingDescription> bindings =
         [
@@ -76,21 +80,21 @@ internal sealed unsafe class ShadowPass : IDisposable
         {
             VertexShader = "shadow.vert",
             FragmentShader = "shadow.frag",
-            Layout = layout,
+            Layout = list.Layout,
             DepthFormat = GBuffer.DepthFormat,
             VertexBindings = bindings,
             VertexAttributes = attributes,
         };
         var culled = PipelineFactory.Create(context, description);
         description.TwoSided = true;
-        var shaded = new PipelineVariants(culled, PipelineFactory.Create(context, description));
+        var shaded = list.Adopt(culled, PipelineFactory.Create(context, description));
 
         // Most materials have no holes, so nothing needs to run for their pixels.
         description.FragmentShader = null;
         description.TwoSided = false;
         var solidCulled = PipelineFactory.Create(context, description);
         description.TwoSided = true;
-        return (shaded, new PipelineVariants(solidCulled, PipelineFactory.Create(context, description)));
+        return (shaded, list.Adopt(solidCulled, PipelineFactory.Create(context, description)));
     }
 
     /// <summary>The resolution given, when it's one a cascade's map can be: 1024, 2048 or 4096.</summary>
@@ -126,8 +130,9 @@ internal sealed unsafe class ShadowPass : IDisposable
         var api = _context.Api;
         Begin(cmd, target, AttachmentLoadOp.Clear);
         var sets = stackalloc DescriptorSet[] { frameSet, _scene.Resources.Set };
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        SceneDraws.Record(new SceneTarget(api, cmd, _layout), _scene, casters, options);
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _list.Layout, 0, 2, sets, 0, null);
+        SceneDraws.Record(_list.Begin(), _scene, casters, options);
+        _list.Play(cmd);
         api.CmdEndRendering(cmd);
     }
 
@@ -207,7 +212,7 @@ internal sealed unsafe class ShadowPass : IDisposable
 
         api.CmdBeginRendering(cmd, &rendering);
         var sets = stackalloc DescriptorSet[] { frameSet, _scene.Resources.Set };
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _list.Layout, 0, 2, sets, 0, null);
         for (int tile = 0; tile < tiles.Length; tile++)
         {
             var (first, count, redraw) = ranges[tile];
@@ -217,8 +222,9 @@ internal sealed unsafe class ShadowPass : IDisposable
             }
 
             ClearTile(cmd, tiles[tile]);
-            SceneDraws.Record(new SceneTarget(api, cmd, _layout), _scene, casters.Slice(first, count),
+            SceneDraws.Record(_list.Begin(), _scene, casters.Slice(first, count),
                 new SceneDrawOptions(ScenePass.Shadow) { Cascade = MaxCascades + tile });
+            _list.Play(cmd);
         }
 
         api.CmdEndRendering(cmd);
@@ -243,11 +249,7 @@ internal sealed unsafe class ShadowPass : IDisposable
 
     public void Dispose()
     {
-        _scene.Solids![0].TwoSided.Destroy();
-        _scene.Solids[0].Culled.Destroy();
-        _scene.Shaded[0].TwoSided.Destroy();
-        _scene.Shaded[0].Culled.Destroy();
-        _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
+        _list.Dispose();
         Target.Dispose();
         Atlas.Dispose();
     }

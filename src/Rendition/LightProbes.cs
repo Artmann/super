@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 using Silk.NET.Vulkan;
@@ -11,12 +12,12 @@ namespace Rendition;
 /// updates them with rays instead. Plans each frame's batch and records its update. See "Light probes" in
 /// docs/design.md.
 /// </summary>
-internal sealed class LightProbes(VulkanContext context, EnvironmentMap environment, DescriptorKit kit, LightProbes.Sources sources)
+internal sealed class LightProbes((VulkanContext Context, VulkanGpu Gpu) device, EnvironmentMap environment, DescriptorKit kit, LightProbes.Sources sources)
     : IDisposable
 {
-    private readonly ProbeCapturePass _updatePass = new(context, kit.FrameSetLayout, sources.Resources);
+    private readonly ProbeCapturePass _updatePass = new(device, kit.FrameSetLayout, sources.Resources);
     private readonly ProbeTracePass? _tracePass = sources.Tracing is not null && sources.Volume.Supported
-        ? new ProbeTracePass(context, FrameRing.Count, kit.FrameSetLayout, sources.Resources, ProbeBudget.For(ProbeQuality.High).Traced)
+        ? new ProbeTracePass(device.Context, FrameRing.Count, kit.FrameSetLayout, sources.Resources, ProbeBudget.For(ProbeQuality.High).Traced)
         : null;
     private ProbeSunShadow? _sun;
 
@@ -84,7 +85,7 @@ internal sealed class LightProbes(VulkanContext context, EnvironmentMap environm
         Batch.Restart(Quality);
         SettledOnce = false;
         var materials = sources.Resources.Materials;
-        _sun ??= new ProbeSunShadow(context, material => materials[material].Flags);
+        _sun ??= new ProbeSunShadow(device.Context, material => materials[material].Flags);
         var irradiance = new DescriptorImageInfo(kit.LinearSampler, Volume.IrradianceView, ImageLayout.General);
         var depth = new DescriptorImageInfo(kit.LinearSampler, Volume.DepthView, ImageLayout.General);
         _updatePass.WriteSet(irradiance, depth,
@@ -177,7 +178,7 @@ internal sealed class LightProbes(VulkanContext context, EnvironmentMap environm
         {
             var capture = sources.Scene;
             var geometry = new SceneGeometry(draws, capture.Meshes, capture.Details, instances);
-            _sun!.Record(context.Api, cmd, capture.Shadows, frameSet, geometry);
+            _sun!.Record(device.Context.Api, cmd, capture.Shadows, frameSet, geometry);
             _updatePass.Record(cmd, Volume, frameSet, geometry);
             var spacings = Batch.Spacings;
             for (int i = 0; i < batch.Count; i++)

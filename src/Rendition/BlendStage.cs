@@ -35,7 +35,7 @@ internal sealed unsafe class BlendStage
         (_ring, _timer, _meshes) = frame;
         _switches = switches;
         _particlePass = new ParticlePass(context, kit.FrameSetLayout, FrameRing.Count);
-        _transparentPass = new TransparentPass(context, kit.FrameSetLayout, sources.Resources, sources.Environment, sources.Probes);
+        _transparentPass = new TransparentPass(device, kit.FrameSetLayout, sources.Resources, sources.Environment, sources.Probes);
         _probeDebugPass = new ProbeDebugPass(device, kit.FrameSetLayout, kit.LightingSetLayout);
     }
 

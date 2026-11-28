@@ -5137,6 +5137,22 @@ the G-buffer's base colour and normals, and the probe spheres into Hdr with dept
 held. Particles draw inside glass's pass, in one back-to-front order with it, so they move with
 glass.
 
+Scene draws record into a `CommandList` too. Each `Mesh` adopts its vertex and index buffers
+as `VertexBuffer` and `IndexBuffer` and releases them when it's destroyed. `SceneTarget` is
+the list and a `MaterialBinding`, which gives the bind group a draw's material reads through as
+group 1; on Vulkan that's `GlobalMaterialBinding`, the one bindless table adopted once. The
+scene's pipelines are still built by `PipelineFactory`, since surface shaders are compiled at
+run time and come in culled, two-sided, solid and depth-drawn variants, and the layer adopts
+each with `VulkanGpu.Adopt(LivePipeline, …)`. Each scene pass keeps a `SceneList`: the
+pipeline layout its pipelines share, its `SceneTarget`, and the `PipelineVariants`, a culled
+and a two-sided id, it adopted through it, which it destroys with the layout. The layer owns
+an adopted pipeline but its layout stays lent, and it reads the pipeline's handle as it plays,
+so live shader reload still works. The G-buffer,
+the shadow cascades and atlas, the mirror, glass, and the light and reflection probes'
+captures each still begin their rendering and bind their own sets by hand, then play the list
+into it; the cube captures keep their multiview rendering and their probe constants, pushed
+after the draw constants. Glass plays one list per draw and the atlas one per tile for now.
+
 Compute runs through `ComputePass`, which makes a compute pipeline from one shader and can
 be lent set layouts as `FullscreenPass` can. Each `Record` is a compute pass of its own with
 one dispatch, the way WebGPU passes are cheap to open. `CommandList.SetBindGroups` sets each

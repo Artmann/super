@@ -1,4 +1,6 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
@@ -8,7 +10,7 @@ internal sealed unsafe class GBufferPass : IDisposable
 {
     private readonly VulkanContext _context;
     private readonly ResourceTable _resources;
-    private readonly PipelineLayout _layout;
+    private readonly SceneList _list;
     private readonly List<PipelineVariants> _pipelines = [];
     internal static readonly Format[] ColorFormats =
     [
@@ -21,19 +23,20 @@ internal sealed unsafe class GBufferPass : IDisposable
     private readonly List<PipelineVariants> _depthOnly = [];
     private readonly DepthFirst _depthFirst;
 
-    public GBufferPass(VulkanContext context, DescriptorSetLayout frameSetLayout, ResourceTable resources)
+    public GBufferPass((VulkanContext Context, VulkanGpu Gpu) device, DescriptorSetLayout frameSetLayout, ResourceTable resources)
     {
+        var context = device.Context;
         _context = context;
         _resources = resources;
 
-        _layout = context.CreatePipelineLayout([frameSetLayout, resources.Layout], SceneDraws.PushRange);
+        _list = new SceneList(device, resources, [frameSetLayout, resources.Layout], SceneDraws.PushRange);
 
         // Depth alone: no fragment shader, and nothing written to the colour targets.
         Span<PipelineColorBlendAttachmentState> noColor = stackalloc PipelineColorBlendAttachmentState[ColorFormats.Length];
         var depthOnly = new PipelineDescription
         {
             VertexShader = "gbuffer.vert",
-            Layout = _layout,
+            Layout = _list.Layout,
             ColorFormats = ColorFormats,
             Blends = noColor,
             DepthFormat = GBuffer.DepthFormat,
@@ -42,7 +45,7 @@ internal sealed unsafe class GBufferPass : IDisposable
         };
         var depthCulled = PipelineFactory.Create(_context, depthOnly);
         depthOnly.TwoSided = true;
-        _depthOnly.Add(new PipelineVariants(depthCulled, PipelineFactory.Create(_context, depthOnly)));
+        _depthOnly.Add(_list.Adopt(depthCulled, PipelineFactory.Create(_context, depthOnly)));
         _depthFirst = new DepthFirst(_depthOnly, _shown);
 
         // The first entry is the standard shader, which materials use by default.
@@ -65,7 +68,7 @@ internal sealed unsafe class GBufferPass : IDisposable
             VertexShader = "gbuffer.vert",
             FragmentShader = "gbuffer.frag",
             FragmentCode = code is null ? null : (code, name),
-            Layout = _layout,
+            Layout = _list.Layout,
             ColorFormats = ColorFormats,
             DepthFormat = GBuffer.DepthFormat,
             VertexBindings = SceneDraws.VertexBindings,
@@ -73,21 +76,21 @@ internal sealed unsafe class GBufferPass : IDisposable
         };
         var culled = PipelineFactory.Create(_context, description);
         description.TwoSided = true;
-        _pipelines.Add(new PipelineVariants(culled, PipelineFactory.Create(_context, description)));
+        _pipelines.Add(_list.Adopt(culled, PipelineFactory.Create(_context, description)));
 
         // The same shader without its cut-outs, for materials with no holes, so hidden pixels are skipped unshaded.
         description.Solid = true;
         description.TwoSided = false;
         var solidCulled = PipelineFactory.Create(_context, description);
         description.TwoSided = true;
-        _solids.Add(new PipelineVariants(solidCulled, PipelineFactory.Create(_context, description)));
+        _solids.Add(_list.Adopt(solidCulled, PipelineFactory.Create(_context, description)));
 
         // And once more for when their depth is drawn first, to shade only the pixels that show.
         description.DepthDrawn = true;
         description.TwoSided = false;
         var shownCulled = PipelineFactory.Create(_context, description);
         description.TwoSided = true;
-        _shown.Add(new PipelineVariants(shownCulled, PipelineFactory.Create(_context, description)));
+        _shown.Add(_list.Adopt(shownCulled, PipelineFactory.Create(_context, description)));
         return new SurfaceShaderHandle(_pipelines.Count - 1);
     }
 
@@ -111,8 +114,9 @@ internal sealed unsafe class GBufferPass : IDisposable
         }
 
         SceneDraws.Record(
-            new SceneTarget(api, cmd, _layout), new ScenePipelines(_pipelines, _resources) { Solids = _solids }, scene,
+            _list.Begin(), new ScenePipelines(_pipelines, _resources) { Solids = _solids }, scene,
             new SceneDrawOptions(pass) { DepthFirst = depthFirst is null ? null : _depthFirst });
+        _list.Play(cmd);
         if (pass != ScenePass.OpaqueAfterDecals)
         {
             Grass?.RecordBlades(cmd, frameSet);
@@ -156,19 +160,10 @@ internal sealed unsafe class GBufferPass : IDisposable
         api.SetFullViewport(cmd, targets.Extent);
 
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _list.Layout, 0, 2, sets, 0, null);
     }
 
-    public void Dispose()
-    {
-        foreach (var variants in _pipelines.Concat(_solids).Concat(_shown).Concat(_depthOnly))
-        {
-            variants.TwoSided.Destroy();
-            variants.Culled.Destroy();
-        }
-
-        _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
-    }
+    public void Dispose() => _list.Dispose();
 
     private static RenderingAttachmentInfo ColorAttachment(ImageView view, AttachmentLoadOp load, float clear = 0f) => new()
     {

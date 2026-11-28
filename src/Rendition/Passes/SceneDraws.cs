@@ -2,6 +2,8 @@ using System.Buffers;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
@@ -28,8 +30,8 @@ internal enum ScenePass
 /// <summary>Draws that go to the GPU as one instanced draw: <see cref="Count"/> entries of an order, from <see cref="First"/>.</summary>
 internal readonly record struct DrawBatch(int First, int Count);
 
-/// <summary>The pipelines of one shader, for one-sided and two-sided materials.</summary>
-internal readonly record struct PipelineVariants(LivePipeline Culled, LivePipeline TwoSided);
+/// <summary>The pipelines of one shader, for one-sided and two-sided materials, as the GPU layer adopted them.</summary>
+internal readonly record struct PipelineVariants(PipelineId Culled, PipelineId TwoSided);
 
 /// <summary>
 /// Draws depth ahead of shading, so a pixel is shaded once, by the surface that shows, however many lie behind it.
@@ -302,7 +304,7 @@ internal static unsafe class SceneDraws
         /// <summary>The first draw of a batch, which every copy in it looks like.</summary>
         public readonly ref readonly DrawItem First(int batch) => ref Draws[Order[Batches[batch].First]];
 
-        public void Issue(int batch, Pipeline pipeline)
+        public void Issue(int batch, PipelineId pipeline)
         {
             ref readonly var draw = ref First(batch);
             var constants = Still ? Constants(draw, Cascade) : Constants(draw, Cascade, Resources.Materials.SwayOf, Details);
@@ -330,7 +332,7 @@ internal static unsafe class SceneDraws
         }
     }
 
-    private static Pipeline PipelineFor(in DrawItem draw, List<PipelineVariants> pipelines, ResourceTable resources, List<PipelineVariants>? solids)
+    private static PipelineId PipelineFor(in DrawItem draw, List<PipelineVariants> pipelines, ResourceTable resources, List<PipelineVariants>? solids)
     {
         var facts = resources.Materials[draw.Material];
         var flags = facts.Flags;
@@ -377,16 +379,20 @@ internal static unsafe class SceneDraws
     public static bool HasHoles(in DrawItem draw, ResourceTable resources) =>
         draw.Dither != 0f || HasHoles(resources.Materials[draw.Material].Cutouts, resources.Materials[draw.Material].Flags);
 
-    /// <summary>What a command buffer has bound, so the same pipeline or mesh isn't bound twice in a row.</summary>
+    /// <summary>
+    /// What a command list has set, so the same pipeline, mesh or material group isn't set twice in a row. It holds
+    /// for one list only: a new list starts from a new one.
+    /// </summary>
     public struct Bound()
     {
-        public Pipeline Pipeline;
+        public PipelineId Pipeline;
         public int Mesh = -1;
+        public BindGroupId Materials;
     }
 
     /// <summary>
     /// Draws <paramref name="copies"/>, which all look like the first, as one instanced
-    /// draw with <paramref name="constants"/>.
+    /// draw with <paramref name="constants"/>. <paramref name="bound"/> is what the target's list has set so far.
     /// </summary>
     public static void Draw(
         in SceneTarget target, in ScenePipelines pipelines, in SceneCopies copies, DrawConstants constants, ref Bound bound)
@@ -398,7 +404,7 @@ internal static unsafe class SceneDraws
         bound = to.Bound;
     }
 
-    // Issues instanced draws into a command buffer, binding a pipeline or a mesh only when it changes.
+    // Records instanced draws into a command list, setting a pipeline, a mesh or a material group only when it changes.
     private struct Recorder(SceneTarget target, List<Mesh?> meshes)
     {
         public Bound Bound = new();
@@ -407,27 +413,32 @@ internal static unsafe class SceneDraws
         /// One instanced draw of <paramref name="copies"/> copies of a draw, whose own data starts at
         /// <paramref name="firstInstance"/> in the instance buffer.
         /// </summary>
-        public void Issue(Pipeline pipeline, in DrawItem draw, int copies, int firstInstance, DrawConstants constants)
+        public void Issue(PipelineId pipeline, in DrawItem draw, int copies, int firstInstance, DrawConstants constants)
         {
-            var (api, cmd, layout) = target;
-            if (pipeline.Handle != Bound.Pipeline.Handle)
+            var commands = target.Commands;
+            if (pipeline != Bound.Pipeline)
             {
-                api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);
+                commands.SetPipeline(pipeline);
                 Bound.Pipeline = pipeline;
             }
 
             if (draw.Mesh.Index != Bound.Mesh)
             {
                 var mesh = meshes[draw.Mesh.Index]!;
-                var vertexBuffer = mesh.Vertices.Handle;
-                ulong offset = 0;
-                api.CmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
-                api.CmdBindIndexBuffer(cmd, mesh.Indices.Handle, 0, IndexType.Uint32);
+                commands.SetVertexBuffer(0, mesh.VertexBuffer, 0);
+                commands.SetIndexBuffer(mesh.IndexBuffer, 0);
                 Bound.Mesh = draw.Mesh.Index;
             }
 
-            api.CmdPushConstants(cmd, layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
-            api.CmdDrawIndexed(cmd, draw.IndexCount, (uint)copies, draw.FirstIndex, 0, (uint)firstInstance);
+            var materials = target.Materials.For(draw.Material);
+            if (materials != Bound.Materials)
+            {
+                commands.SetBindGroup(1, materials);
+                Bound.Materials = materials;
+            }
+
+            commands.SetConstants(new ReadOnlySpan<byte>(&constants, sizeof(DrawConstants)));
+            commands.DrawIndexed((int)draw.IndexCount, copies, (int)draw.FirstIndex, 0, firstInstance);
             DrawCallCount.Add();
         }
     }

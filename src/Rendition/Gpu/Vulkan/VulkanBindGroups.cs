@@ -23,22 +23,31 @@ internal sealed record VulkanShader(string Name, ShaderLayout Layout, ShaderStag
 /// <summary>
 /// A pipeline with the set layouts it was made with. <see cref="Owned"/> says which of them the GPU layer laid out
 /// from the shaders; the rest were lent by a pass that hasn't moved to the layer, and stay that pass's to destroy.
+/// An adopted pipeline, built by the renderer itself, has no shaders the layer read and a <see cref="LayoutLent"/>
+/// layout, which stays its maker's to destroy along with every set layout.
 /// </summary>
 internal sealed record VulkanPipeline(
     LivePipeline Pipeline, PipelineLayout Layout, DescriptorSetLayout[] SetLayouts, bool[] Owned, VulkanShader[] Shaders,
     ShaderStageFlags ConstantStages)
 {
+    /// <summary>Whether the layout was lent by the pipeline's maker, which destroys it.</summary>
+    public bool LayoutLent { get; init; }
+
     /// <summary>The shader errors name: the fragment shader when there is one.</summary>
-    public string Name => Shaders[^1].Name;
+    public string Name => Shaders.Length > 0 ? Shaders[^1].Name : "an adopted pipeline";
 
     public PipelineBindPoint BindPoint =>
-        Shaders[0].Stage == ShaderStageFlags.ComputeBit ? PipelineBindPoint.Compute : PipelineBindPoint.Graphics;
+        Shaders.Length > 0 && Shaders[0].Stage == ShaderStageFlags.ComputeBit ? PipelineBindPoint.Compute : PipelineBindPoint.Graphics;
 
-    /// <summary>Destroys the pipeline, its layout and the set layouts the layer made for it, but not borrowed ones.</summary>
+    /// <summary>Destroys the pipeline, its layout and the set layouts the layer made for it, but not lent ones.</summary>
     public unsafe void Destroy(VulkanContext context)
     {
         Pipeline.Destroy();
-        context.Api.DestroyPipelineLayout(context.Device, Layout, null);
+        if (!LayoutLent)
+        {
+            context.Api.DestroyPipelineLayout(context.Device, Layout, null);
+        }
+
         for (int group = 0; group < SetLayouts.Length; group++)
         {
             if (Owned[group])
