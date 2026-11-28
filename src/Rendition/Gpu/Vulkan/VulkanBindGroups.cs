@@ -103,7 +103,24 @@ internal sealed unsafe class VulkanBindGroups(
     /// One set layout per group the shaders use, from 0 to the highest. Where <paramref name="borrowed"/> holds a
     /// layout for a group, that one is used as it is.
     /// </summary>
-    public DescriptorSetLayout[] CreateLayouts(VulkanShader[] shaders, ReadOnlySpan<DescriptorSetLayout> borrowed, out bool[] owned)
+    /// <summary>The pipeline layout for <paramref name="shaders"/>: their set layouts, and push constants as big as the biggest block.</summary>
+    public (PipelineLayout Layout, DescriptorSetLayout[] SetLayouts, bool[] Owned, ShaderStageFlags ConstantStages) CreatePipelineLayout(
+        VulkanShader[] shaders, ReadOnlySpan<DescriptorSetLayout> borrowed)
+    {
+        var setLayouts = CreateLayouts(shaders, borrowed, out bool[] owned);
+        var constantStages = ShaderStageFlags.None;
+        int constantsSize = 0;
+        foreach (var shader in shaders.Where(shader => shader.Layout.ConstantsSize > 0))
+        {
+            constantStages |= shader.Stage;
+            constantsSize = Math.Max(constantsSize, shader.Layout.ConstantsSize);
+        }
+
+        PushConstantRange? range = constantsSize > 0 ? new PushConstantRange(constantStages, 0, (uint)constantsSize) : null;
+        return (context.CreatePipelineLayout(setLayouts, range), setLayouts, owned, constantStages);
+    }
+
+    private DescriptorSetLayout[] CreateLayouts(VulkanShader[] shaders, ReadOnlySpan<DescriptorSetLayout> borrowed, out bool[] owned)
     {
         int count = borrowed.Length;
         foreach (var shader in shaders)

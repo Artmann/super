@@ -19,6 +19,7 @@ internal enum Command
     ClearBuffer,
     DrawIndirect,
     CopyBuffer,
+    WriteTimestamp,
 }
 
 /// <summary>
@@ -149,6 +150,16 @@ internal sealed class CommandList
     {
         _words.Require(PassKind.None, "ClearBuffer was called inside a pass; clear a buffer between passes.");
         _words.Write(Command.ClearBuffer, [buffer.Value, offset, size]);
+    }
+
+    /// <summary>
+    /// Writes the time into query <paramref name="index"/> of <paramref name="set"/> once the work before has run,
+    /// between passes. WebGPU writes it as the next pass's <c>timestampWrites</c> begin; see "GPU layer" in docs/design.md.
+    /// </summary>
+    public void WriteTimestamp(QuerySetId set, int index)
+    {
+        _words.Require(PassKind.None, "WriteTimestamp was called inside a pass; mark the time between passes.");
+        _words.Write(Command.WriteTimestamp, [set.Value, index]);
     }
 }
 

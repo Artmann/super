@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 using Silk.NET.Vulkan;
 
@@ -11,11 +12,11 @@ namespace Rendition;
 /// <paramref name="failed"/> hears of. See "Background bakes" in docs/design.md.
 /// </summary>
 internal sealed class BakeSlicer(
-    VulkanContext context, FrameRing ring, RetiredResources retired, PreparedBakers bakers,
+    VulkanGpu gpu, FrameRing ring, RetiredResources retired, PreparedBakers bakers,
     Action<BakeSlicer.RunningBake, Exception> failed) : IDisposable
 {
     /// <summary>Times the slices and sizes the next.</summary>
-    public BakeSliceTimer Timer { get; } = new(context);
+    public BakeSliceTimer Timer { get; } = new(gpu);
 
     /// <summary>Makes the finished bakes' files and frees the stopped jobs.</summary>
     public BakeFinisher Finisher { get; } = new();
@@ -178,9 +179,9 @@ internal sealed class BakeSlicer(
     /// <see cref="AutoBake.BudgetMilliseconds"/> at the rate the last slice ran, never more than double. A step that
     /// traces nothing starts the count over, and a slice measured from before then says nothing about the passes now.
     /// </summary>
-    public sealed class BakeSliceTimer(VulkanContext context) : IDisposable
+    public sealed class BakeSliceTimer(VulkanGpu gpu) : IDisposable
     {
-        private readonly GpuTimer _timer = new(context, FrameRing.Count, ["Background bake"]);
+        private readonly GpuTimer _timer = new(gpu, FrameRing.Count, ["Background bake"]);
 
         // Each frame slot's slice: whether it was timed, its passes and the run of measurements it belongs to.
         private readonly bool[] _timed = new bool[FrameRing.Count];

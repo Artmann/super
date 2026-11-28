@@ -498,6 +498,63 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public unsafe void Timestamps_around_a_pass_read_back_in_order_in_nanoseconds()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var buffer = GpuBuffer.CreateHostVisible(gpu.Context, 1 << 20, BufferUsageFlags.TransferDstBit);
+        var set = device.CreateQuerySet(2);
+        var commands = new CommandList();
+        commands.WriteTimestamp(set, 0);
+        commands.ClearBuffer(device.Adopt(buffer.Handle, 1 << 20), 0, 1 << 20);
+        commands.WriteTimestamp(set, 1);
+
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+
+        Span<ulong> nanoseconds = stackalloc ulong[2];
+        Assert.True(device.ReadQuerySet(set, nanoseconds));
+        Assert.True(nanoseconds[1] >= nanoseconds[0], $"{nanoseconds[1]} came before {nanoseconds[0]}.");
+        Assert.InRange(nanoseconds[1] - nanoseconds[0], 0ul, 1_000_000_000ul);
+        device.Destroy(set);
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_query_set_never_written_reads_false()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        var set = device.CreateQuerySet(2);
+        var commands = new CommandList();
+        commands.WriteTimestamp(set, 0);
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+
+        // Query 1 was never written, so the set has nothing whole to read.
+        Assert.False(device.ReadQuerySet(set, stackalloc ulong[2]));
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_query_set_written_each_frame_reads_without_validation_errors()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        var set = device.CreateQuerySet(2);
+        var commands = new CommandList();
+        commands.WriteTimestamp(set, 0);
+        commands.WriteTimestamp(set, 1);
+        Span<ulong> nanoseconds = stackalloc ulong[2];
+
+        for (int frame = 0; frame < 3; frame++)
+        {
+            gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+            Assert.True(device.ReadQuerySet(set, nanoseconds));
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void Copying_a_buffer_inside_a_pass_throws()
     {
         var commands = new CommandList();

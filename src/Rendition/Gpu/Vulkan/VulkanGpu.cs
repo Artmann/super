@@ -16,16 +16,16 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     // The samplers, and the one made for each description. The layer has no way to destroy a sampler, so each
     // description is made once and handed out again.
     private readonly (IdTable<Sampler> Made, Dictionary<SamplerDescription, SamplerId> Ids) _samplers = (new(), []);
-    private readonly IdTable<VulkanShader> _shaders = new();
-    private readonly IdTable<VulkanPipeline> _pipelines = new();
-    private readonly VulkanBindGroups _groups;
+    // What the layer made for each id of these kinds.
+    private readonly (IdTable<VulkanShader> Shaders, IdTable<VulkanPipeline> Pipelines) _made = (new(), new());
+    private readonly (VulkanBindGroups Groups, VulkanQuerySets Queries) _sets;
     private readonly VulkanPlayer _player;
 
     public VulkanGpu(VulkanContext context)
     {
         _context = context;
-        _groups = new VulkanBindGroups(context, _adopted, _samplers.Made);
-        _player = new VulkanPlayer(context.Api, _adopted, _pipelines, _groups);
+        _sets = (new VulkanBindGroups(context, _adopted, _samplers.Made), new VulkanQuerySets(context));
+        _player = new VulkanPlayer(context.Api, _adopted, _made.Pipelines, _sets);
     }
 
     /// <summary>
@@ -52,7 +52,7 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     public void Release(BufferId buffer) => _adopted.Buffers.Remove(buffer.Value);
 
     /// <inheritdoc cref="VulkanBindGroups.Adopt"/>
-    public BindGroupId Adopt(DescriptorSet set) => _groups.Adopt(set);
+    public BindGroupId Adopt(DescriptorSet set) => _sets.Groups.Adopt(set);
 
     /// <summary>A sampler as <paramref name="description"/> says: the same one for the same description, which lives as long as the device.</summary>
     public override SamplerId CreateSampler(in SamplerDescription description)
@@ -81,7 +81,7 @@ internal sealed unsafe class VulkanGpu : GpuDevice
         return id;
     }
 
-    public override ShaderId CreateShader(string name) => new(_shaders.Add(VulkanShader.Load(name)));
+    public override ShaderId CreateShader(string name) => new(_made.Shaders.Add(VulkanShader.Load(name)));
 
     public override PipelineId CreateRenderPipeline(in RenderPipelineDescription description) => CreateRenderPipeline(description, []);
 
@@ -92,12 +92,12 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     /// </summary>
     public PipelineId CreateRenderPipeline(in RenderPipelineDescription description, ReadOnlySpan<DescriptorSetLayout> borrowed)
     {
-        var vertex = _shaders[description.VertexShader.Value];
+        var vertex = _made.Shaders[description.VertexShader.Value];
         VulkanShader[] shaders = description.FragmentShader.Value == 0
             ? [vertex]
-            : [vertex, _shaders[description.FragmentShader.Value]];
+            : [vertex, _made.Shaders[description.FragmentShader.Value]];
 
-        var (layout, setLayouts, owned, constantStages) = CreateLayout(shaders, borrowed);
+        var (layout, setLayouts, owned, constantStages) = _sets.Groups.CreatePipelineLayout(shaders, borrowed);
         var targets = description.Targets;
         Span<Format> formats = stackalloc Format[targets.Length];
         Span<PipelineColorBlendAttachmentState> blends = stackalloc PipelineColorBlendAttachmentState[targets.Length];
@@ -123,7 +123,7 @@ internal sealed unsafe class VulkanGpu : GpuDevice
             CullMode = VulkanStates.Of(description.Cull),
             Given = new GivenStates(description.Overrides.ToArray(), depth is { } test ? (VulkanStates.Of(test.Compare), test.Write) : null),
         });
-        return new PipelineId(_pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, owned, shaders, constantStages)));
+        return new PipelineId(_made.Pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, owned, shaders, constantStages)));
     }
 
     public override PipelineId CreateComputePipeline(in ComputePipelineDescription description) => CreateComputePipeline(description, []);
@@ -134,33 +134,16 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     /// </summary>
     public PipelineId CreateComputePipeline(in ComputePipelineDescription description, ReadOnlySpan<DescriptorSetLayout> borrowed)
     {
-        var shader = _shaders[description.Shader.Value];
+        var shader = _made.Shaders[description.Shader.Value];
         if (shader.Stage != ShaderStageFlags.ComputeBit)
         {
             throw new ArgumentException($"'{shader.Name}' is not a compute shader.", nameof(description));
         }
 
         VulkanShader[] shaders = [shader];
-        var (layout, setLayouts, owned, constantStages) = CreateLayout(shaders, borrowed);
+        var (layout, setLayouts, owned, constantStages) = _sets.Groups.CreatePipelineLayout(shaders, borrowed);
         var pipeline = PipelineFactory.CreateCompute(_context, shader.Name, layout);
-        return new PipelineId(_pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, owned, shaders, constantStages)));
-    }
-
-    /// <summary>The pipeline layout for <paramref name="shaders"/>: their set layouts, and push constants as big as the biggest block.</summary>
-    private (PipelineLayout Layout, DescriptorSetLayout[] SetLayouts, bool[] Owned, ShaderStageFlags ConstantStages) CreateLayout(
-        VulkanShader[] shaders, ReadOnlySpan<DescriptorSetLayout> borrowed)
-    {
-        var setLayouts = _groups.CreateLayouts(shaders, borrowed, out bool[] owned);
-        var constantStages = ShaderStageFlags.None;
-        int constantsSize = 0;
-        foreach (var shader in shaders.Where(shader => shader.Layout.ConstantsSize > 0))
-        {
-            constantStages |= shader.Stage;
-            constantsSize = Math.Max(constantsSize, shader.Layout.ConstantsSize);
-        }
-
-        PushConstantRange? range = constantsSize > 0 ? new PushConstantRange(constantStages, 0, (uint)constantsSize) : null;
-        return (_context.CreatePipelineLayout(setLayouts, range), setLayouts, owned, constantStages);
+        return new PipelineId(_made.Pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, owned, shaders, constantStages)));
     }
 
     /// <summary>
@@ -170,33 +153,40 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     /// go to <paramref name="constantStages"/> from offset 0, and live reload still swaps the pipeline under the id.
     /// </summary>
     public PipelineId Adopt(LivePipeline pipeline, PipelineLayout layout, DescriptorSetLayout[] setLayouts, ShaderStageFlags constantStages) =>
-        new(_pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, new bool[setLayouts.Length], [], constantStages) { LayoutLent = true }));
+        new(_made.Pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, new bool[setLayouts.Length], [], constantStages) { LayoutLent = true }));
 
     /// <summary>
     /// The Vulkan pipeline <paramref name="pipeline"/> is now, which changes when its shaders are reloaded live, for a
     /// pass that bakes only when what it bakes with changes.
     /// </summary>
-    public Pipeline Current(PipelineId pipeline) => _pipelines[pipeline.Value].Pipeline.Handle;
+    public Pipeline Current(PipelineId pipeline) => _made.Pipelines[pipeline.Value].Pipeline.Handle;
 
     public override BindGroupId CreateBindGroup(PipelineId pipeline, int group, ReadOnlySpan<Bind> binds) =>
-        _groups.Create(_pipelines[pipeline.Value], group, binds);
+        _sets.Groups.Create(_made.Pipelines[pipeline.Value], group, binds);
 
     public override void Destroy(PipelineId pipeline)
     {
-        var entry = _pipelines[pipeline.Value];
-        _pipelines.Remove(pipeline.Value);
+        var entry = _made.Pipelines[pipeline.Value];
+        _made.Pipelines.Remove(pipeline.Value);
         entry.Destroy(_context);
     }
 
-    public override void Destroy(BindGroupId bindGroup) => _groups.Destroy(bindGroup);
+    public override void Destroy(BindGroupId bindGroup) => _sets.Groups.Destroy(bindGroup);
+
+    public override QuerySetId CreateQuerySet(int count) => _sets.Queries.Create(count);
+
+    public override bool ReadQuerySet(QuerySetId set, Span<ulong> nanoseconds) => _sets.Queries.Read(set, nanoseconds);
+
+    public override void Destroy(QuerySetId set) => _sets.Queries.Destroy(set);
 
     /// <summary>Records <paramref name="commands"/> into <paramref name="into"/>, which the caller submits.</summary>
     public void Play(CommandList commands, CommandBuffer into) => _player.Play(commands, into);
 
     public override void Dispose()
     {
-        _groups.Dispose();
-        foreach (var pipeline in _pipelines.Items)
+        _sets.Groups.Dispose();
+        _sets.Queries.Dispose();
+        foreach (var pipeline in _made.Pipelines.Items)
         {
             pipeline.Destroy(_context);
         }
