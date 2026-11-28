@@ -108,6 +108,35 @@ public sealed class ReflectionProbeGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void A_probe_captured_again_after_the_array_grows_shows_the_new_picture()
+    {
+        int errors = gpu.ValidationErrors;
+        using var scene = new Scene(gpu);
+        try
+        {
+            var first = Place(scene, Probe(RoomMin, RoomMax), scene.RedWall);
+            for (int i = 0; i < 8; i++)
+            {
+                var corner = new Vector3(20f + 2f * i, 0f, 0f);
+                Place(scene, new ReflectionProbe { Position = corner + Vector3.One * 0.5f, BoxMin = corner, BoxMax = corner + Vector3.One }, scene.RedWall);
+            }
+
+            // The array grew, so the first probe's cube has new views; its blur must write into those, not the old ones.
+            gpu.Renderer.Reflections.Update(first, Probe(RoomMin, RoomMax));
+            Settle(scene, first, scene.BlueWall);
+            var reflected = Mirror(scene, scene.BlueWall);
+
+            Assert.Equal(9, gpu.Renderer.Reflections.Count);
+            Assert.True(Redness(reflected) < -40f, $"The mirror is {TestPixels.Show(reflected)} after the grown array's probe was captured again.");
+            Assert.Equal(errors, gpu.ValidationErrors);
+        }
+        finally
+        {
+            gpu.Renderer.Reflections.Clear();
+        }
+    }
+
+    [Fact]
     public void Where_boxes_overlap_the_higher_priority_shows_and_removing_it_leaves_the_other()
     {
         int errors = gpu.ValidationErrors;

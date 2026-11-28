@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Silk.NET.Vulkan;
 
@@ -36,11 +37,11 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     /// <summary>How many probes there are, captured or waiting for their first capture.</summary>
     public int Count { get; private set; }
 
-    public ReflectionProbes(VulkanContext context, Sampler sampler, int framesInFlight)
+    public ReflectionProbes(VulkanContext context, VulkanGpu gpu)
     {
         _context = context;
         Cubes = new ProbeCubes(context);
-        _filter = new ReflectionFilter(context, sampler, framesInFlight, Mips, ProbeCubes.FaceSize);
+        _filter = new ReflectionFilter(gpu, Mips, ProbeCubes.FaceSize);
     }
 
     /// <summary>
@@ -69,6 +70,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         {
             slot = Cubes.Capacity;
             Cubes.Grow();
+            _filter.Forget();
         }
 
         _held[slot] = true;
@@ -143,7 +145,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     /// in their fragment shaders, so the blur waits for the frames before to finish reading it, and the frame's own
     /// lighting waits for the blur.
     /// </summary>
-    public void RecordFilter(CommandBuffer cmd, int frameIndex, int slot, in ReflectionProbe probe, ImageView capture)
+    public void RecordFilter(CommandBuffer cmd, int slot, in ReflectionProbe probe, ImageView capture)
     {
         var api = _context.Api;
         var image = Cubes.Image;
@@ -159,7 +161,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
             levels[mip] = Cubes.Level(slot, mip);
         }
 
-        _filter.Record(cmd, frameIndex, capture, levels);
+        _filter.Record(cmd, slot, capture, levels);
 
         api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
             ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal) { MipCount = Mips, BaseLayer = baseLayer, LayerCount = 6 },

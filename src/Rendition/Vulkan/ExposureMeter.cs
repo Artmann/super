@@ -1,3 +1,5 @@
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Silk.NET.Vulkan;
 
@@ -14,7 +16,7 @@ internal sealed unsafe class ExposureMeter : IDisposable
     /// <summary>The bins, then the adapted EV and a pad. Must match ExposureState in exposure.glsl.</summary>
     private const ulong StateSize = (Exposure.Bins + 2) * sizeof(uint);
 
-    private const uint GroupSize = 16;
+    private const int GroupSize = 16;
 
     /// <summary>Must match Metering in exposure.glsl. Both passes push the same.</summary>
     private struct MeteringConstants
@@ -28,12 +30,14 @@ internal sealed unsafe class ExposureMeter : IDisposable
     }
 
     private readonly VulkanContext _context;
+    private readonly VulkanGpu _gpu;
     private readonly Sampler _sampler;
     private readonly GpuBuffer _state;
+    private readonly BufferId _stateId;
     private readonly DescriptorPool _pool;
-    private readonly PipelineLayout _pipelineLayout;
-    private readonly LivePipeline _histogram;
-    private readonly LivePipeline _adapt;
+    private readonly ComputePass _histogram;
+    private readonly ComputePass _adapt;
+    private readonly CommandList _commands = new();
     private Extent2D _sourceSize;
 
     /// <summary>The state buffer at binding 0, for the compute passes and the tonemap, and the frame at binding 1.</summary>
@@ -41,33 +45,29 @@ internal sealed unsafe class ExposureMeter : IDisposable
     /// <summary>The tonemap binds this to read the adapted exposure.</summary>
     public readonly DescriptorSet Set;
 
-    public ExposureMeter(VulkanContext context, Sampler sampler)
+    /// <summary>
+    /// A meter sampling the frame through <paramref name="sampler"/>. Its set is made outside the GPU layer, as the
+    /// tonemap and FSR, which haven't moved yet, read it too; the meter's passes borrow its layout.
+    /// </summary>
+    public ExposureMeter((VulkanContext Context, VulkanGpu Gpu) device, Sampler sampler)
     {
+        var (context, gpu) = device;
         _context = context;
+        _gpu = gpu;
         _sampler = sampler;
-        var api = context.Api;
 
         _state = new GpuBuffer(
             context, StateSize, BufferUsageFlags.StorageBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
+        _stateId = gpu.Adopt(_state.Handle, (long)StateSize);
 
         (SetLayout, _pool, Set) = context.CreateStateSet(ShaderStageFlags.FragmentBit, new DescriptorBufferInfo(_state.Handle, 0, StateSize));
 
-        _pipelineLayout = context.CreatePipelineLayout(
-            [SetLayout],
-            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(MeteringConstants)));
-
-        _histogram = PipelineFactory.CreateCompute(context, "exposure_histogram.comp", _pipelineLayout);
-        _adapt = PipelineFactory.CreateCompute(context, "exposure_adapt.comp", _pipelineLayout);
+        _histogram = new ComputePass(gpu, "exposure_histogram.comp", [SetLayout]);
+        _adapt = new ComputePass(gpu, "exposure_adapt.comp", [SetLayout]);
 
         // Empty bins and an exposure of 0 EV. The first metered frame snaps, so the 0 is never seen.
-        var state = _state.Handle;
-        _context.SubmitAndWait(cmd =>
-        {
-            api.CmdFillBuffer(cmd, state, 0, StateSize, 0);
-            Barrier(cmd, PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
-                PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.FragmentShaderBit,
-                AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
-        });
+        _commands.ClearBuffer(_stateId, 0, (int)StateSize);
+        _context.SubmitAndWait(cmd => _gpu.Play(_commands, cmd));
     }
 
     /// <summary>
@@ -90,20 +90,12 @@ internal sealed unsafe class ExposureMeter : IDisposable
         _context.Api.UpdateDescriptorSets(_context.Device, 1, &write, 0, null);
     }
 
-    /// <summary>Counts this frame's pixels and moves the exposure by <paramref name="step"/>, before the tonemap reads it.</summary>
+    /// <summary>
+    /// Counts this frame's pixels and moves the exposure by <paramref name="step"/>, before the tonemap reads it. Each
+    /// dispatch is a compute pass, which sees what was drawn and dispatched before it, so the meter places no barriers.
+    /// </summary>
     public void Record(CommandBuffer cmd, ExposureStep step)
     {
-        var api = _context.Api;
-
-        // The frame was drawn, resolved or copied before this, and last frame's tonemap read the state.
-        Barrier(cmd,
-            PipelineStageFlags2.ColorAttachmentOutputBit | PipelineStageFlags2.FragmentShaderBit
-                | PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit,
-            AccessFlags2.ColorAttachmentWriteBit | AccessFlags2.ShaderStorageWriteBit | AccessFlags2.TransferWriteBit,
-            PipelineStageFlags2.ComputeShaderBit,
-            AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
-
-        var set = Set;
         var aim = step.Aim;
         var constants = new MeteringConstants
         {
@@ -114,50 +106,24 @@ internal sealed unsafe class ExposureMeter : IDisposable
             Centre = aim.Centre,
             Snap = step.Snap ? 1 : 0,
         };
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
-        api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(MeteringConstants), &constants);
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _histogram);
-        api.CmdDispatch(cmd, (_sourceSize.Width + GroupSize - 1) / GroupSize, (_sourceSize.Height + GroupSize - 1) / GroupSize, 1);
+        var bytes = new ReadOnlySpan<byte>(&constants, sizeof(MeteringConstants));
+        var groups = (((int)_sourceSize.Width + GroupSize - 1) / GroupSize, ((int)_sourceSize.Height + GroupSize - 1) / GroupSize, 1);
+        BindGroupId set = _gpu.Adopt(Set);
 
-        Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
-
-        // Push constants stay bound across a pipeline change with the same layout.
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _adapt);
-        api.CmdDispatch(cmd, 1, 1, 1);
-
-        Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderStorageReadBit);
+        _commands.Reset();
+        _histogram.Record(_commands, [set], bytes, groups);
+        _adapt.Record(_commands, [set], bytes, (1, 1, 1));
+        _gpu.Play(_commands, cmd);
     }
 
     public void Dispose()
     {
         var api = _context.Api;
-        _histogram.Destroy();
-        _adapt.Destroy();
-        api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
+        _histogram.Dispose();
+        _adapt.Dispose();
+        _gpu.Release(_stateId);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, SetLayout, null);
         _state.Dispose();
-    }
-
-    private void Barrier(
-        CommandBuffer cmd, PipelineStageFlags2 sourceStage, AccessFlags2 sourceAccess, PipelineStageFlags2 destinationStage, AccessFlags2 destinationAccess)
-    {
-        var barrier = new MemoryBarrier2
-        {
-            SType = StructureType.MemoryBarrier2,
-            SrcStageMask = sourceStage,
-            SrcAccessMask = sourceAccess,
-            DstStageMask = destinationStage,
-            DstAccessMask = destinationAccess,
-        };
-        var dependency = new DependencyInfo
-        {
-            SType = StructureType.DependencyInfo,
-            MemoryBarrierCount = 1,
-            PMemoryBarriers = &barrier,
-        };
-        _context.Api.CmdPipelineBarrier2(cmd, &dependency);
     }
 }

@@ -37,7 +37,7 @@ internal sealed class PreparedBakers(VulkanContext context, EnvironmentMap envir
         _baker ??= makeBaker();
         if (probes)
         {
-            _baker.Probes.EnsureVolume(environment.Sky, environment.Sampler);
+            _baker.Probes.EnsureVolume(environment.Sky);
         }
     }
 

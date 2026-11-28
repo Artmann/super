@@ -30,8 +30,8 @@ internal sealed class FrameStages
         PostStage = new PostStage((context, stores.Gpu), kit, GpuTimer, targets, targets.Picture.Resolved.View);
         HeldPicture = new HeldPicture(context.Api);
         FinishStage = new FinishStage((context, stores.Gpu), kit, ring, GpuTimer, (windowFormat, resources));
-        BlendStage = new BlendStage(context, kit, (ring, GpuTimer, meshes), (resources, map, lights.ReflectionProbes), stores.Switches);
-        OpaqueStage = new OpaqueStage(context, kit, ring, meshes, (resources, stores.Switches));
+        BlendStage = new BlendStage((context, stores.Gpu), kit, (ring, GpuTimer, meshes), (resources, map, lights.ReflectionProbes), stores.Switches);
+        OpaqueStage = new OpaqueStage((context, stores.Gpu), kit, ring, meshes, (resources, stores.Switches));
         Grass = new GrassStage(context, stores, GpuTimer);
         OpaqueStage.Pass.Grass = Grass;
         FsrPass = new FsrPass((context, stores.Gpu), kit.FrameSetLayout, PostStage.Meter.SetLayout);

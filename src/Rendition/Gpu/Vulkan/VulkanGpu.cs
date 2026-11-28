@@ -11,7 +11,8 @@ namespace Rendition.Gpu.Vulkan;
 internal sealed unsafe class VulkanGpu : GpuDevice
 {
     private readonly VulkanContext _context;
-    private readonly IdTable<AdoptedView> _views = new();
+    // What was adopted from outside the layer, which bind groups and the player look up by id.
+    private readonly (IdTable<AdoptedView> Views, IdTable<AdoptedBuffer> Buffers) _adopted = (new(), new());
     private readonly IdTable<Sampler> _samplers = new();
     private readonly IdTable<VulkanShader> _shaders = new();
     private readonly IdTable<VulkanPipeline> _pipelines = new();
@@ -21,8 +22,8 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     public VulkanGpu(VulkanContext context)
     {
         _context = context;
-        _groups = new VulkanBindGroups(context, _views, _samplers);
-        _player = new VulkanPlayer(context.Api, _views, _pipelines, _groups);
+        _groups = new VulkanBindGroups(context, _adopted, _samplers);
+        _player = new VulkanPlayer(context.Api, _adopted, _pipelines, _groups);
     }
 
     /// <summary>
@@ -31,23 +32,22 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     /// can leave out its image and size; drawing to it throws.
     /// </summary>
     public ViewId Adopt(ImageView view, Image image = default, Extent2D extent = default) =>
-        new(_views.Add(new AdoptedView(view, image, extent)));
+        new(_adopted.Views.Add(new AdoptedView(view, image, extent)));
 
     /// <summary>
-    /// A depth view made outside the layer that shaders only read, whose image rests in
-    /// <see cref="ImageLayout.DepthReadOnlyOptimal"/>, as depth does once glass has drawn.
+    /// A view that rests somewhere else, as its flags say: read-only depth, the window's image, or a storage image;
+    /// see <see cref="AdoptedView"/>.
     /// </summary>
-    public ViewId AdoptDepth(ImageView view) => new(_views.Add(new AdoptedView(view, default, default, ReadOnlyDepth: true)));
-
-    /// <summary>
-    /// An image the layer draws to but never moves between layouts, such as the window's: the caller moves it to
-    /// <see cref="ImageLayout.ColorAttachmentOptimal"/> before the pass, and on once it and its own drawing are done.
-    /// </summary>
-    public ViewId AdoptSurface(ImageView view, Image image, Extent2D extent) =>
-        new(_views.Add(new AdoptedView(view, image, extent, Surface: true)));
+    public ViewId Adopt(in AdoptedView view) => new(_adopted.Views.Add(view));
 
     /// <summary>Lets go of an adopted view, whose image stays its maker's to destroy.</summary>
-    public void Release(ViewId view) => _views.Remove(view.Value);
+    public void Release(ViewId view) => _adopted.Views.Remove(view.Value);
+
+    /// <summary>A buffer made outside the layer, <paramref name="size"/> bytes long, for bind groups and <see cref="CommandList.ClearBuffer"/>.</summary>
+    public BufferId Adopt(Silk.NET.Vulkan.Buffer buffer, long size) => new(_adopted.Buffers.Add(new AdoptedBuffer(buffer, size)));
+
+    /// <summary>Lets go of an adopted buffer, which stays its maker's to destroy.</summary>
+    public void Release(BufferId buffer) => _adopted.Buffers.Remove(buffer.Value);
 
     /// <inheritdoc cref="VulkanBindGroups.Adopt"/>
     public BindGroupId Adopt(DescriptorSet set) => _groups.Adopt(set);
@@ -55,15 +55,17 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     public override SamplerId CreateSampler(in SamplerDescription description)
     {
         var filter = description.Filter == SamplerFilter.Linear ? Filter.Linear : Filter.Nearest;
+        var address = description.Address == SamplerAddress.Repeat ? SamplerAddressMode.Repeat : SamplerAddressMode.ClampToEdge;
         var info = new SamplerCreateInfo
         {
             SType = StructureType.SamplerCreateInfo,
             MagFilter = filter,
             MinFilter = filter,
-            MipmapMode = SamplerMipmapMode.Nearest,
-            AddressModeU = SamplerAddressMode.ClampToEdge,
-            AddressModeV = SamplerAddressMode.ClampToEdge,
-            AddressModeW = SamplerAddressMode.ClampToEdge,
+            MipmapMode = description.Mipmapped && description.Filter == SamplerFilter.Linear ? SamplerMipmapMode.Linear : SamplerMipmapMode.Nearest,
+            AddressModeU = address,
+            AddressModeV = address,
+            AddressModeW = address,
+            MaxLod = description.Mipmapped ? Vk.LodClampNone : 0f,
         };
         _context.Api.CreateSampler(_context.Device, &info, null, out var sampler).Check();
         return new SamplerId(_samplers.Add(sampler));
@@ -85,6 +87,59 @@ internal sealed unsafe class VulkanGpu : GpuDevice
             ? [vertex]
             : [vertex, _shaders[description.FragmentShader.Value]];
 
+        var (layout, setLayouts, owned, constantStages) = CreateLayout(shaders, borrowed);
+        var targets = description.Targets;
+        Span<Format> formats = stackalloc Format[targets.Length];
+        Span<PipelineColorBlendAttachmentState> blends = stackalloc PipelineColorBlendAttachmentState[targets.Length];
+        VulkanStates.Fill(targets, formats, blends);
+        var vertices = description.Vertices;
+        Span<VertexInputBindingDescription> bindings = stackalloc VertexInputBindingDescription[vertices.Length];
+        Span<VertexInputAttributeDescription> attributes = stackalloc VertexInputAttributeDescription[VulkanStates.AttributeCount(vertices)];
+        VulkanStates.Fill(vertices, bindings, attributes);
+        var depth = description.Depth;
+
+        // Every state is given, so none of the factory's own choices apply; and so are the override constants,
+        // which leaves a shader's defaults alone when there are none, as WebGPU does.
+        var pipeline = PipelineFactory.Create(_context, new PipelineDescription
+        {
+            VertexShader = vertex.Name,
+            FragmentShader = shaders.Length > 1 ? shaders[1].Name : null,
+            Layout = layout,
+            ColorFormats = formats,
+            Blends = blends,
+            VertexBindings = bindings,
+            VertexAttributes = attributes,
+            DepthFormat = depth is { } state ? VulkanFormats.Of(state.Format) : Format.Undefined,
+            CullMode = VulkanStates.Of(description.Cull),
+            Given = new GivenStates(description.Overrides.ToArray(), depth is { } test ? (VulkanStates.Of(test.Compare), test.Write) : null),
+        });
+        return new PipelineId(_pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, owned, shaders, constantStages)));
+    }
+
+    public override PipelineId CreateComputePipeline(in ComputePipelineDescription description) => CreateComputePipeline(description, []);
+
+    /// <summary>
+    /// A compute pipeline that borrows set layouts as
+    /// <see cref="CreateRenderPipeline(in RenderPipelineDescription, ReadOnlySpan{DescriptorSetLayout})"/> does.
+    /// </summary>
+    public PipelineId CreateComputePipeline(in ComputePipelineDescription description, ReadOnlySpan<DescriptorSetLayout> borrowed)
+    {
+        var shader = _shaders[description.Shader.Value];
+        if (shader.Stage != ShaderStageFlags.ComputeBit)
+        {
+            throw new ArgumentException($"'{shader.Name}' is not a compute shader.", nameof(description));
+        }
+
+        VulkanShader[] shaders = [shader];
+        var (layout, setLayouts, owned, constantStages) = CreateLayout(shaders, borrowed);
+        var pipeline = PipelineFactory.CreateCompute(_context, shader.Name, layout);
+        return new PipelineId(_pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, owned, shaders, constantStages)));
+    }
+
+    /// <summary>The pipeline layout for <paramref name="shaders"/>: their set layouts, and push constants as big as the biggest block.</summary>
+    private (PipelineLayout Layout, DescriptorSetLayout[] SetLayouts, bool[] Owned, ShaderStageFlags ConstantStages) CreateLayout(
+        VulkanShader[] shaders, ReadOnlySpan<DescriptorSetLayout> borrowed)
+    {
         var setLayouts = _groups.CreateLayouts(shaders, borrowed, out bool[] owned);
         var constantStages = ShaderStageFlags.None;
         int constantsSize = 0;
@@ -95,24 +150,14 @@ internal sealed unsafe class VulkanGpu : GpuDevice
         }
 
         PushConstantRange? range = constantsSize > 0 ? new PushConstantRange(constantStages, 0, (uint)constantsSize) : null;
-        var layout = _context.CreatePipelineLayout(setLayouts, range);
-        Span<Format> formats = stackalloc Format[description.ColorFormats.Length];
-        for (int i = 0; i < formats.Length; i++)
-        {
-            formats[i] = VulkanFormats.Of(description.ColorFormats[i]);
-        }
-
-        var pipeline = PipelineFactory.Create(_context, new PipelineDescription
-        {
-            VertexShader = vertex.Name,
-            FragmentShader = shaders.Length > 1 ? shaders[1].Name : null,
-            Layout = layout,
-            ColorFormats = formats,
-            DepthFormat = Format.Undefined,
-            Transparent = description.Blend,
-        });
-        return new PipelineId(_pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, owned, shaders, constantStages)));
+        return (_context.CreatePipelineLayout(setLayouts, range), setLayouts, owned, constantStages);
     }
+
+    /// <summary>
+    /// The Vulkan pipeline <paramref name="pipeline"/> is now, which changes when its shaders are reloaded live, for a
+    /// pass that bakes only when what it bakes with changes.
+    /// </summary>
+    public Pipeline Current(PipelineId pipeline) => _pipelines[pipeline.Value].Pipeline.Handle;
 
     public override BindGroupId CreateBindGroup(PipelineId pipeline, int group, ReadOnlySpan<Bind> binds) =>
         _groups.Create(_pipelines[pipeline.Value], group, binds);

@@ -164,7 +164,7 @@ internal sealed unsafe class FrameRecorder(
         timer.Mark(cmd);
 
         // After the light probes, whose light the capture's surfaces take.
-        lights.FrameReflectionCapture.Record(cmd, frameSet, draws.Scene, instances, parts.SceneStores.Ring.Index);
+        lights.FrameReflectionCapture.Record(cmd, frameSet, draws.Scene, instances);
         timer.Mark(cmd);
 
         // After the sun's cascades and the light probes, which light the mirror's surfaces.

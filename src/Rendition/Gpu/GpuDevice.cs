@@ -14,6 +14,8 @@ internal abstract class GpuDevice : IDisposable
 
     public abstract PipelineId CreateRenderPipeline(in RenderPipelineDescription description);
 
+    public abstract PipelineId CreateComputePipeline(in ComputePipelineDescription description);
+
     /// <summary>
     /// The resources for one group of <paramref name="pipeline"/>'s shaders. Each <see cref="Bind"/> names the binding
     /// it fills; a name the shaders lack, or one in another group, throws.

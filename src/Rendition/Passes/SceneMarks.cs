@@ -1,26 +1,23 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
 
 /// <summary>
 /// What the finish stage draws over the finished picture where the scene is: the grid overlays, then the debug lines
-/// over them. Both read the scene's depth through one set. See "Grid overlays" and "Debug lines" in docs/design.md.
+/// over them. Both read the scene's depth. See "Grid overlays" and "Debug lines" in docs/design.md.
 /// </summary>
 internal sealed class SceneMarks : IDisposable
 {
-    private readonly VulkanContext _context;
-    private readonly DescriptorSet _depth;
     private readonly GridOverlayPass _grids;
     private readonly LinePass _lines;
 
-    public SceneMarks(VulkanContext context, DescriptorKit kit, Format targetFormat, int framesInFlight)
+    public SceneMarks((VulkanContext Context, VulkanGpu Gpu) device, GpuFormat targetFormat, int framesInFlight)
     {
-        _context = context;
-        var layout = kit.OneTextureLayout;
-        _depth = kit.NewSet(layout);
-        _grids = new GridOverlayPass(context, (layout, _depth), targetFormat, framesInFlight);
-        _lines = new LinePass(context, (layout, _depth), targetFormat, framesInFlight);
+        _grids = new GridOverlayPass(device, targetFormat, framesInFlight);
+        _lines = new LinePass(device, targetFormat, framesInFlight);
     }
 
     /// <summary>Checks and packs the frame's grid overlays, throwing before anything is recorded if one can't be drawn.</summary>
@@ -34,14 +31,17 @@ internal sealed class SceneMarks : IDisposable
     }
 
     /// <summary>Points both at the scene's depth, which they read to find what they lie on and what hides them.</summary>
-    public void WriteSet(Sampler nearest, ImageView depth) =>
-        ImageSets.Write(_context, _depth, [new(nearest, depth, ImageLayout.DepthReadOnlyOptimal)]);
-
-    /// <summary>Draws the grid overlays, then the lines, over <paramref name="target"/>, already in the colour attachment layout.</summary>
-    public void Record(CommandBuffer cmd, (ImageView View, Extent2D Extent) target)
+    public void SetDepth(ImageView depth)
     {
-        _grids.Record(cmd, target);
-        _lines.Record(cmd, target);
+        _grids.SetDepth(depth);
+        _lines.SetDepth(depth);
+    }
+
+    /// <summary>Draws the grid overlays, then the lines, over <paramref name="target"/>, keeping what it holds.</summary>
+    public void Record(CommandList commands, ViewId target, Extent2D extent)
+    {
+        _grids.Record(commands, target, extent);
+        _lines.Record(commands, target, extent);
     }
 
     public void Dispose()

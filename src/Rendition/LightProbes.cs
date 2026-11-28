@@ -179,7 +179,6 @@ internal sealed class LightProbes(VulkanContext context, EnvironmentMap environm
             var geometry = new SceneGeometry(draws, capture.Meshes, capture.Details, instances);
             _sun!.Record(context.Api, cmd, capture.Shadows, frameSet, geometry);
             _updatePass.Record(cmd, Volume, frameSet, geometry);
-            Volume.BeginFolds(cmd);
             var spacings = Batch.Spacings;
             for (int i = 0; i < batch.Count; i++)
             {
@@ -201,7 +200,7 @@ internal sealed class LightProbes(VulkanContext context, EnvironmentMap environm
     {
         const float tracedBlend = 0.25f;
         const float tracedSnap = 0.05f;
-        Volume.BeginFolds(cmd);
+        Volume.BeginTraces(cmd);
         sources.Tracing!.ReadyToTrace(cmd);
         var probes = new TracedProbes(Batch.Ids, Batch.Positions, Batch.Spacings)
         {

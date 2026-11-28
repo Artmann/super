@@ -13,19 +13,22 @@ internal sealed class AdoptedTarget(VulkanGpu gpu) : IDisposable
     private (ImageView View, Image Image, Extent2D Extent, ViewId Id) _adopted;
 
     /// <summary>The id to draw to <paramref name="target"/>, which is <paramref name="extent"/> big.</summary>
-    public ViewId For(RenderTarget target, Extent2D extent) => Follow(target.View, target.Image, extent, surface: false);
+    public ViewId For(RenderTarget target, Extent2D extent) => Follow(target.View, target.Image, extent, held: false);
 
-    /// <summary>The id to draw to a window's image, adopted with <see cref="VulkanGpu.AdoptSurface"/>.</summary>
-    public ViewId ForSurface(ImageView view, Image image, Extent2D extent) => Follow(view, image, extent, surface: true);
+    /// <summary>
+    /// The id to draw to an image whose layouts its caller moves, such as the window's image, adopted as
+    /// <see cref="AdoptedView.Held"/>.
+    /// </summary>
+    public ViewId ForHeld(ImageView view, Image image, Extent2D extent) => Follow(view, image, extent, held: true);
 
-    private ViewId Follow(ImageView view, Image image, Extent2D extent, bool surface)
+    private ViewId Follow(ImageView view, Image image, Extent2D extent, bool held)
     {
         // Silk's Extent2D.Equals boxes, so the sides are compared one by one.
         if (_adopted.View.Handle != view.Handle || _adopted.Image.Handle != image.Handle
             || _adopted.Extent.Width != extent.Width || _adopted.Extent.Height != extent.Height)
         {
             Dispose();
-            var id = surface ? gpu.AdoptSurface(view, image, extent) : gpu.Adopt(view, image, extent);
+            var id = gpu.Adopt(new AdoptedView(view, image, extent, Held: held));
             _adopted = (view, image, extent, id);
         }
 

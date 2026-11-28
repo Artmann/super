@@ -52,7 +52,7 @@ internal sealed class FrameReflectionCapture(ReflectionCapturePass pass, Reflect
     /// Records the capture <see cref="Plan"/> planned, if any, and blurs it into the probe's cube, after the lights'
     /// tiles and the light probes, which the capture reads.
     /// </summary>
-    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, InstanceBuffer instances, int frameIndex)
+    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, InstanceBuffer instances)
     {
         if (_slot < 0)
         {
@@ -60,7 +60,7 @@ internal sealed class FrameReflectionCapture(ReflectionCapturePass pass, Reflect
         }
 
         pass.Record(cmd, frameSet, draws, instances);
-        probes.RecordFilter(cmd, frameIndex, _slot, _probe, pass.Cube.CubeView);
+        probes.RecordFilter(cmd, _slot, _probe, pass.Cube.CubeView);
         _slot = -1;
         Drawn++;
     }

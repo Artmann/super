@@ -1,3 +1,5 @@
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 using Silk.NET.Vulkan;
 
@@ -6,11 +8,12 @@ namespace Rendition.Passes;
 /// <summary>
 /// The probe debug view (<see cref="DebugView.Probes"/>): after glass and particles, probe_debug.vert draws a small
 /// sphere round every light probe of the finest cascade and of the fixed grid into the lit HDR target, and
-/// probe_debug.frag shades it from the probe's own irradiance tile. It reads the atlases through the lighting pass's
-/// set, so it needs no set of its own and works on any GPU that runs the probes, traced or not. See "Light probes" in
-/// docs/design.md.
+/// probe_debug.frag shades it from the probe's own irradiance tile, through the GPU layer. It reads the atlases
+/// through the lighting pass's set, so it needs no group of its own and works on any GPU that runs the probes, traced
+/// or not. <see cref="BlendStage"/> moves Hdr and depth itself, so both are adopted as targets the layer leaves alone.
+/// See "Light probes" in docs/design.md.
 /// </summary>
-internal sealed unsafe class ProbeDebugPass : IDisposable
+internal sealed class ProbeDebugPass : IDisposable
 {
     // Must match probe_debug.vert.
     private const uint Segments = 12;
@@ -20,26 +23,31 @@ internal sealed unsafe class ProbeDebugPass : IDisposable
     public const uint VerticesPerSphere = Segments * Rings * 6;
 
     private readonly VulkanContext _context;
-    private readonly PipelineLayout _layout;
-    private readonly LivePipeline _pipeline;
+    private readonly VulkanGpu _gpu;
+    private readonly PipelineId _pipeline;
+    private readonly AdoptedTarget _hdr;
+    private readonly AdoptedTarget _depth;
+    private readonly CommandList _commands = new();
 
-    /// <param name="frameSetLayout">Set 0: the frame's uniforms, which say where the probes are.</param>
-    /// <param name="lightingSetLayout">Set 1: the lighting pass's textures, among them the probe atlases.</param>
-    public ProbeDebugPass(VulkanContext context, DescriptorSetLayout frameSetLayout, DescriptorSetLayout lightingSetLayout)
+    /// <param name="device">The device and the GPU layer over it.</param>
+    /// <param name="frameSetLayout">Group 0: the frame's uniforms, which say where the probes are.</param>
+    /// <param name="lightingSetLayout">Group 1: the lighting pass's textures, among them the probe atlases.</param>
+    public ProbeDebugPass((VulkanContext Context, VulkanGpu Gpu) device, DescriptorSetLayout frameSetLayout, DescriptorSetLayout lightingSetLayout)
     {
-        _context = context;
-        _layout = context.CreatePipelineLayout([frameSetLayout, lightingSetLayout]);
+        (_context, _gpu) = device;
+        _hdr = new AdoptedTarget(_gpu);
+        _depth = new AdoptedTarget(_gpu);
 
-        // Opaque, so the spheres hide each other and anything behind them.
-        var description = new PipelineDescription
+        // Opaque, so the spheres hide each other and anything behind them: reversed-Z, nearer is greater. Both sets
+        // are made outside the layer, so their layouts are lent.
+        _pipeline = _gpu.CreateRenderPipeline(new RenderPipelineDescription
         {
-            VertexShader = "probe_debug.vert",
-            FragmentShader = "probe_debug.frag",
-            Layout = _layout,
-            ColorFormats = [GBuffer.HdrFormat],
-            DepthFormat = GBuffer.DepthFormat,
-        };
-        _pipeline = PipelineFactory.Create(context, description);
+            VertexShader = _gpu.CreateShader("probe_debug.vert"),
+            FragmentShader = _gpu.CreateShader("probe_debug.frag"),
+            Targets = [new ColorTargetState(VulkanFormats.ToGpu(GBuffer.HdrFormat))],
+            Depth = new DepthState(VulkanFormats.ToGpu(GBuffer.DepthFormat), CompareFunction.Greater, Write: true),
+            Cull = CullMode.Back,
+        }, [frameSetLayout, lightingSetLayout]);
     }
 
     /// <summary>
@@ -63,12 +71,15 @@ internal sealed unsafe class ProbeDebugPass : IDisposable
             ImageLayout.DepthReadOnlyOptimal, ImageLayout.DepthAttachmentOptimal),
             (depthStages | PipelineStageFlags2.FragmentShaderBit, depthRead | AccessFlags2.ShaderSampledReadBit), (depthStages, depthAccess));
 
-        Begin(cmd, targets);
-        var sets = stackalloc DescriptorSet[] { frameSet, lightingSet };
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        api.CmdDraw(cmd, VerticesPerSphere, spheres, 0, 0);
-        api.CmdEndRendering(cmd);
+        _commands.Reset();
+        _commands.BeginRenderPass(
+            [new ColorTarget(_hdr.ForHeld(targets.Hdr.View, targets.Hdr.Image, targets.Extent), LoadOp.Load, default)],
+            new DepthTarget(_depth.ForHeld(targets.Depth.View, targets.Depth.Image, targets.Extent), LoadOp.Load, 0f, ReadOnly: false));
+        _commands.SetPipeline(_pipeline);
+        _commands.SetBindGroups([_gpu.Adopt(frameSet), _gpu.Adopt(lightingSet)]);
+        _commands.Draw((int)VerticesPerSphere, (int)spheres, 0, 0);
+        _commands.EndPass();
+        _gpu.Play(_commands, cmd);
 
         api.Transition(cmd, new ImageTransition(targets.Depth.Image, ImageAspectFlags.DepthBit,
             ImageLayout.DepthAttachmentOptimal, ImageLayout.DepthReadOnlyOptimal),
@@ -76,42 +87,10 @@ internal sealed unsafe class ProbeDebugPass : IDisposable
             (depthStages | PipelineStageFlags2.FragmentShaderBit, depthRead | AccessFlags2.ShaderSampledReadBit));
     }
 
-    // Begins rendering into Hdr, keeping what is there, with depth attached to test and write.
-    private void Begin(CommandBuffer cmd, GBuffer targets)
-    {
-        var colorAttachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = targets.Hdr.View,
-            ImageLayout = ImageLayout.ColorAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Load,
-            StoreOp = AttachmentStoreOp.Store,
-        };
-        var depthAttachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = targets.Depth.View,
-            ImageLayout = ImageLayout.DepthAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Load,
-            StoreOp = AttachmentStoreOp.Store,
-        };
-        var rendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, targets.Extent),
-            LayerCount = 1,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &colorAttachment,
-            PDepthAttachment = &depthAttachment,
-        };
-
-        _context.Api.CmdBeginRendering(cmd, &rendering);
-        _context.Api.SetFullViewport(cmd, targets.Extent);
-    }
-
     public void Dispose()
     {
-        _pipeline.Destroy();
-        _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
+        _hdr.Dispose();
+        _depth.Dispose();
+        _gpu.Destroy(_pipeline);
     }
 }

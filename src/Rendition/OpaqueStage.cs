@@ -1,5 +1,6 @@
 using System.Globalization;
 using Silk.NET.Vulkan;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 using static Rendition.PassStages;
@@ -23,14 +24,15 @@ internal sealed unsafe class OpaqueStage
     private readonly FrameSwitches _switches;
     private readonly DecalPass _decalPass;
 
-    public OpaqueStage(VulkanContext context, DescriptorKit kit, FrameRing ring, MeshStore meshes, (ResourceTable Resources, FrameSwitches Switches) parts)
+    public OpaqueStage((VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, FrameRing ring, MeshStore meshes, (ResourceTable Resources, FrameSwitches Switches) parts)
     {
+        var context = device.Context;
         _api = context.Api;
         _ring = ring;
         _meshes = meshes;
         _resources = parts.Resources;
         _switches = parts.Switches;
-        _decalPass = new DecalPass(context, kit.FrameSetLayout, parts.Resources, FrameRing.Count);
+        _decalPass = new DecalPass(device, kit.FrameSetLayout, parts.Resources, FrameRing.Count);
         Pass = new GBufferPass(context, kit.FrameSetLayout, parts.Resources);
     }
 
@@ -60,8 +62,7 @@ internal sealed unsafe class OpaqueStage
     public void UploadDecals() => _decalPass.Upload(_ring.Index);
 
     /// <summary>Points the decals at the targets' depth and their copy of the normals.</summary>
-    public void WriteTargets(GBuffer targets, DescriptorImageInfo depth, Sampler nearest) =>
-        _decalPass.WriteTargets(depth, new DescriptorImageInfo(nearest, targets.NormalCopy.View, ImageLayout.ShaderReadOnlyOptimal));
+    public void WriteTargets(GBuffer targets) => _decalPass.WriteTargets(targets.Depth.View, targets.NormalCopy.View);
 
     /// <summary>
     /// Draws the camera's opaque draws and the decals into the G-buffer, and leaves it ready to sample. Draws that

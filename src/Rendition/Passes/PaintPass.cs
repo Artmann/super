@@ -90,15 +90,16 @@ internal sealed unsafe class PaintPass : IDisposable
     private PaintConstants? _constants;
 
     public PaintPass(
-        (VulkanContext Context, VulkanGpu Gpu) device, (Sampler Nearest, Sampler Linear) samplers, DescriptorSetLayout frameSetLayout, DescriptorSetLayout exposureLayout)
+        (VulkanContext Context, VulkanGpu Gpu) device, DescriptorSetLayout frameSetLayout, DescriptorSetLayout exposureLayout)
     {
         var (context, gpu) = device;
         _context = context;
         _gpu = gpu;
-        _filter = new PaintFilter(context, samplers, frameSetLayout, exposureLayout);
-        _composite = new FullscreenPass(gpu, "paint_composite.frag", [GpuFormat.Rgba16Float], blend: true, borrowed: [frameSetLayout, default]);
-        _compositeGroup = new ImageGroup(gpu, gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear)));
+        var linear = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear));
         _point = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Nearest));
+        _filter = new PaintFilter(gpu, (_point, linear), frameSetLayout, exposureLayout);
+        _composite = new FullscreenPass(gpu, "paint_composite.frag", [GpuFormat.Rgba16Float], blend: true, borrowed: [frameSetLayout, default]);
+        _compositeGroup = new ImageGroup(gpu, linear);
         _target = new AdoptedTarget(gpu);
     }
 
@@ -147,18 +148,22 @@ internal sealed unsafe class PaintPass : IDisposable
         {
             // The first frame to paint since start or a resize. Nothing has used the sets yet, so they can be written
             // while recording.
+            // The painted picture rests in General, where the filter writes it and the composite samples it.
             _painted = new RenderTarget(_context, GBuffer.HdrFormat, _half, ImageUsageFlags.StorageBit, ImageAspectFlags.ColorBit);
+            _context.Api.Transition(cmd, new ImageTransition(_painted.Image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General),
+                (PipelineStageFlags2.None, AccessFlags2.None),
+                (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
             WriteSets();
         }
 
-        _filter.Record(cmd, tables, (_painted.Image, _half), constants);
-
         // The composite blends over the picture the filter just read, so it loads what's there. The meter, a compute
         // pass, and the tonemap read it after.
-        var bytes = new ReadOnlySpan<byte>(&constants, (int)PaintConstants.Size);
+        var frame = _gpu.Adopt(tables.Frame);
         _commands.Reset();
+        _filter.Record(_commands, (frame, _gpu.Adopt(tables.Exposure)), _half, constants);
+        var bytes = new ReadOnlySpan<byte>(&constants, (int)PaintConstants.Size);
         _composite.Record(_commands, [new ColorTarget(_target.For(target.Target, target.Extent), LoadOp.Load, default)],
-            [_gpu.Adopt(tables.Frame), _compositeGroup.Id], bytes);
+            [frame, _compositeGroup.Id], bytes);
         _gpu.Play(_commands, cmd);
     }
 
@@ -175,6 +180,6 @@ internal sealed unsafe class PaintPass : IDisposable
     {
         _filter.Write(_reads.Source, _reads.Depth, _painted!.View);
         _compositeGroup.Make(_composite.Pipeline, 1,
-            [("paintedTexture", _painted.View), new GroupImage("depthTexture", _reads.Depth, _point, ReadOnlyDepth: true)]);
+            [new GroupImage("paintedTexture", _painted.View, Use: GroupImageUse.Stored), new GroupImage("depthTexture", _reads.Depth, _point, Use: GroupImageUse.Depth)]);
     }
 }

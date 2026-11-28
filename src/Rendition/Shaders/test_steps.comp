@@ -1,0 +1,30 @@
+#version 460
+
+// Step 0 writes each index into first; step 1 writes twice what first holds, read from the other end, into second.
+// The GPU layer's tests run the two in a row to see that the second dispatch reads what the first wrote. Step 0 works
+// a while before it writes, and step 1's first workgroups read what step 0's last ones write, so without a barrier
+// the second dispatch starts reading before the first has written.
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) buffer First { uint first[]; };
+layout(set = 0, binding = 1) buffer Second { uint second[]; };
+
+layout(push_constant) uniform Constants {
+    uint step;
+    uint work;
+} constants;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint count = gl_NumWorkGroups.x * gl_WorkGroupSize.x;
+    if (constants.step == 0u) {
+        uint value = i;
+        for (uint n = 0u; n < constants.work; n++) {
+            value = value * 1664525u + 1013904223u;
+        }
+        // Always i, but the compiler can't see that, so the loop stays.
+        first[i] = constants.work == 0xFFFFFFFFu ? value : i;
+    } else {
+        second[i] = first[count - 1u - i] * 2u;
+    }
+}

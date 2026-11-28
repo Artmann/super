@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Numerics;
 using Silk.NET.Vulkan;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 
@@ -19,11 +20,11 @@ internal sealed unsafe class FogStage
     // Whether the frame being recorded draws the volumetric fog.
     private bool _drawn;
 
-    public FogStage(VulkanContext context, DescriptorKit kit, FrameSwitches switches)
+    public FogStage((VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, FrameSwitches switches)
     {
-        _context = context;
+        _context = device.Context;
         _switches = switches;
-        _volume = new VolumetricFogVolume(context, kit.FrameSetLayout, kit.LinearSampler);
+        _volume = new VolumetricFogVolume(device, kit.FrameSetLayout, kit.LinearSampler);
     }
 
     /// <summary>The volumetric fog's summed volume, or the texel that stands in until it's made.</summary>

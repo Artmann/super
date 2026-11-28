@@ -1,11 +1,14 @@
+using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
 
 /// <summary>
-/// Draws rectangles over the finished picture, for text and interfaces. It comes after
+/// Draws rectangles over the finished picture, for text and interfaces, through the GPU layer. It comes after
 /// anti-aliasing and color grading, so what's drawn here stays exactly as sharp and as
 /// colored as it was asked to be. Rounding, borders and clipping all happen per pixel in
 /// the shader, so everything stays one draw call in the order it was written. Images
@@ -17,79 +20,42 @@ internal sealed unsafe class OverlayPass : IDisposable
     public const int MaxQuads = OverlayQuad.MaxPerFrame;
 
     private readonly VulkanContext _context;
+    private readonly VulkanGpu _gpu;
     private readonly ResourceTable _resources;
-    private readonly PipelineLayout _layout;
-    private readonly LivePipeline _pipeline;
-    private readonly GpuBuffer[] _buffers;
-    private readonly DescriptorSet _atlasSet;
+    private readonly PipelineId _pipeline;
+    private readonly FrameBuffers _buffers;
+    private readonly ImageGroup _atlasGroup;
     private GpuTexture? _atlas;
 
-    public OverlayPass(VulkanContext context, DescriptorKit kit, Format targetFormat, ResourceTable resources, int framesInFlight)
+    public OverlayPass((VulkanContext Context, VulkanGpu Gpu) device, GpuFormat targetFormat, ResourceTable resources, int framesInFlight)
     {
-        _context = context;
+        (_context, _gpu) = device;
         _resources = resources;
-        var atlasLayout = kit.OneTextureLayout;
-        _atlasSet = kit.NewSet(atlasLayout);
-        _buffers = new GpuBuffer[framesInFlight];
-        for (int i = 0; i < framesInFlight; i++)
-        {
-            _buffers[i] = GpuBuffer.CreateHostVisible(
-                context, (ulong)(MaxQuads * sizeof(OverlayQuad)), BufferUsageFlags.VertexBufferBit);
-        }
+        _buffers = new FrameBuffers(device, framesInFlight, MaxQuads * sizeof(OverlayQuad), BufferUsageFlags.VertexBufferBit);
+        _atlasGroup = new ImageGroup(_gpu, _gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear)));
 
-        _layout = context.CreatePipelineLayout(
-            [atlasLayout, resources.Layout],
-            new PushConstantRange(ShaderStageFlags.VertexBit, 0, sizeof(float) * 2));
-        _pipeline = CreatePipeline(context, _layout, targetFormat);
-    }
-
-    // Each quad is one instance of the vertex buffer, blended over the picture.
-    private static LivePipeline CreatePipeline(VulkanContext context, PipelineLayout layout, Format targetFormat)
-    {
-        ReadOnlySpan<VertexInputBindingDescription> bindings =
-        [
-            new(0, (uint)sizeof(OverlayQuad), VertexInputRate.Instance),
-        ];
-        ReadOnlySpan<VertexInputAttributeDescription> attributes =
-        [
-            new(0, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Position))),
-            new(1, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Size))),
-            new(2, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.UvMin))),
-            new(3, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.UvMax))),
-            new(4, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Color))),
-            new(5, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Color2))),
-            new(6, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.BorderColor))),
-            new(7, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Clip))),
-            new(8, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Radii))),
-            new(9, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.ClipRadii))),
-            new(10, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.GradientPoints))),
-            new(11, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.Params))),
-            new(12, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.BorderWidth))),
-            new(13, 0, Format.R32G32B32Sint, (uint)Marshal.OffsetOf<OverlayQuad>(nameof(OverlayQuad.TextureIndex))),
-        ];
-        return PipelineFactory.Create(context, new PipelineDescription
+        // Each quad is one instance of the vertex buffer, blended over the picture. The layer can't make the bindless
+        // table, so its layout is lent for group 1.
+        _pipeline = _gpu.CreateRenderPipeline(new RenderPipelineDescription
         {
-            VertexShader = "overlay.vert",
-            FragmentShader = "overlay.frag",
-            Layout = layout,
-            ColorFormats = [targetFormat],
-            DepthFormat = Format.Undefined,
-            VertexBindings = bindings,
-            VertexAttributes = attributes,
-            Transparent = true,
-        });
+            VertexShader = _gpu.CreateShader("overlay.vert"),
+            FragmentShader = _gpu.CreateShader("overlay.frag"),
+            Targets = [new ColorTargetState(targetFormat, BlendState.Premultiplied)],
+            Vertices = [new VertexLayout(sizeof(OverlayQuad), PerInstance: true, Attributes())],
+        }, [default, resources.Layout]);
     }
 
     /// <summary>
     /// Replaces the image that the quads read from. Only its alpha is used. Waits for the GPU, so it isn't for every
     /// frame.
     /// </summary>
-    public void SetAtlas(Sampler linear, TextureData data)
+    public void SetAtlas(TextureData data)
     {
         _context.WaitIdle();
+        _atlasGroup.Dispose();
         _atlas?.Dispose();
         _atlas = new GpuTexture(_context, data);
-        ImageSets.Write(_context, _atlasSet, [new(linear, _atlas.View, ImageLayout.ShaderReadOnlyOptimal)]);
+        _atlasGroup.Make(_pipeline, 0, [("atlas", _atlas.View)]);
     }
 
     /// <summary>Copies this frame's quads to the GPU and returns how many it draws: none before an atlas is set.</summary>
@@ -101,39 +67,48 @@ internal sealed unsafe class OverlayPass : IDisposable
         }
 
         var fitting = quads[..Math.Min(quads.Length, MaxQuads)];
-        fitting.CopyTo(new Span<OverlayQuad>(_buffers[frameIndex].Mapped, MaxQuads));
+        fitting.CopyTo(_buffers.Items<OverlayQuad>(frameIndex, MaxQuads));
         return fitting.Length;
     }
 
-    /// <summary>Draws the frame's quads over <paramref name="target"/>, a picture already in the colour attachment layout.</summary>
-    public void Record(CommandBuffer cmd, (ImageView View, Extent2D Extent) target, int frameIndex, int quadCount)
+    /// <summary>Draws the frame's quads over <paramref name="target"/>, keeping what it holds.</summary>
+    public void Record(CommandList commands, ViewId target, Extent2D extent, int frameIndex, int quadCount)
     {
-        var api = _context.Api;
-        var extent = target.Extent;
-        api.BeginOver(cmd, target);
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
-        var sets = stackalloc DescriptorSet[] { _atlasSet, _resources.Set };
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-
-        var screen = stackalloc float[] { extent.Width, extent.Height };
-        api.CmdPushConstants(cmd, _layout, ShaderStageFlags.VertexBit, 0, sizeof(float) * 2, screen);
-
-        var buffer = _buffers[frameIndex].Handle;
-        ulong offset = 0;
-        api.CmdBindVertexBuffers(cmd, 0, 1, &buffer, &offset);
-        api.CmdDraw(cmd, 6, (uint)quadCount, 0, 0);
-        api.CmdEndRendering(cmd);
+        var screen = new Vector2(extent.Width, extent.Height);
+        commands.BeginRenderPass([new ColorTarget(target, LoadOp.Load, default)], null);
+        commands.SetPipeline(_pipeline);
+        commands.SetBindGroups([_atlasGroup.Id, _gpu.Adopt(_resources.Set)]);
+        commands.SetConstants(new ReadOnlySpan<byte>(&screen, sizeof(Vector2)));
+        commands.SetVertexBuffer(0, _buffers[frameIndex], 0);
+        commands.Draw(6, quadCount, 0, 0);
+        commands.EndPass();
     }
 
     public void Dispose()
     {
-        foreach (var buffer in _buffers)
-        {
-            buffer.Dispose();
-        }
-
+        _atlasGroup.Dispose();
+        _buffers.Dispose();
         _atlas?.Dispose();
-        _pipeline.Destroy();
-        _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
+        _gpu.Destroy(_pipeline);
     }
+
+    private static VertexAttribute[] Attributes() =>
+    [
+        new(0, VertexFormat.Float32x2, Offset(nameof(OverlayQuad.Position))),
+        new(1, VertexFormat.Float32x2, Offset(nameof(OverlayQuad.Size))),
+        new(2, VertexFormat.Float32x2, Offset(nameof(OverlayQuad.UvMin))),
+        new(3, VertexFormat.Float32x2, Offset(nameof(OverlayQuad.UvMax))),
+        new(4, VertexFormat.Float32x4, Offset(nameof(OverlayQuad.Color))),
+        new(5, VertexFormat.Float32x4, Offset(nameof(OverlayQuad.Color2))),
+        new(6, VertexFormat.Float32x4, Offset(nameof(OverlayQuad.BorderColor))),
+        new(7, VertexFormat.Float32x4, Offset(nameof(OverlayQuad.Clip))),
+        new(8, VertexFormat.Float32x4, Offset(nameof(OverlayQuad.Radii))),
+        new(9, VertexFormat.Float32x4, Offset(nameof(OverlayQuad.ClipRadii))),
+        new(10, VertexFormat.Float32x4, Offset(nameof(OverlayQuad.GradientPoints))),
+        new(11, VertexFormat.Float32x4, Offset(nameof(OverlayQuad.Params))),
+        new(12, VertexFormat.Float32x2, Offset(nameof(OverlayQuad.BorderWidth))),
+        new(13, VertexFormat.Sint32x3, Offset(nameof(OverlayQuad.TextureIndex))),
+    ];
+
+    private static int Offset(string field) => (int)Marshal.OffsetOf<OverlayQuad>(field);
 }

@@ -75,7 +75,7 @@ internal sealed class ResolveStage
         [
             ("currentTexture", targets.Hdr.View),
             new GroupImage("historyTexture", targets.Picture.History.View, _linear),
-            new GroupImage("depthTexture", targets.Depth.View, ReadOnlyDepth: true),
+            new GroupImage("depthTexture", targets.Depth.View, Use: GroupImageUse.Depth),
             ("motionTexture", targets.Motion.View),
         ]);
 

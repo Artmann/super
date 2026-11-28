@@ -1,3 +1,4 @@
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Silk.NET.Vulkan;
 
@@ -57,11 +58,12 @@ internal sealed unsafe class ProbeVolume : IDisposable
     /// Makes the stand-in atlases. <paramref name="sky"/> is the sharp sky, which the fold reads where
     /// a probe saw nothing.
     /// </summary>
-    public ProbeVolume(VulkanContext context, Sampler skySampler, ImageView sky)
+    public ProbeVolume((VulkanContext Context, VulkanGpu Gpu) device, ImageView sky)
     {
+        var context = device.Context;
         _context = context;
         Supported = context.Abilities.StorageImageExtendedFormats && context.Abilities.Multiview;
-        _passes = new ProbeVolumePasses(context, (skySampler, sky), Supported);
+        _passes = new ProbeVolumePasses(device.Gpu, sky, Supported);
         Atlases = Placeholder();
     }
 
@@ -130,12 +132,12 @@ internal sealed unsafe class ProbeVolume : IDisposable
     }
 
     /// <summary>
-    /// Readies the faces just drawn for folding: call once after the batch's captures and before its
-    /// <see cref="RecordFold"/> calls. The last blend may still be reading the staging slots.
+    /// Makes the staging slots safe for <see cref="Passes.ProbeTracePass"/> to write, which runs outside the GPU layer:
+    /// the last blend or read-back may still be reading them. The folds need no such call, as the layer orders them.
     /// </summary>
-    public void BeginFolds(CommandBuffer cmd) =>
+    public void BeginTraces(CommandBuffer cmd) =>
         _context.Api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit),
+            (PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.TransferReadBit),
             (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
 
     /// <summary>
@@ -178,14 +180,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(cells.Layer, Layers);
         int total = cells.Counts.X * cells.Counts.Y * cells.Counts.Z;
         ArgumentOutOfRangeException.ThrowIfGreaterThan(total, Atlases.Columns * Atlases.Rows);
-
-        // Wait for anything still reading or writing the atlas.
-        _context.Api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.FragmentShaderBit,
-                AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit),
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
         _passes.RecordInvalidate(cmd, cells, total);
-        _context.Api.MemoryBarrier(cmd, (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit), ProbeVolumeAtlases.Readers);
     }
 
     /// <summary>
@@ -218,14 +213,9 @@ internal sealed unsafe class ProbeVolume : IDisposable
             (PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit));
         api.CmdUpdateBuffer(cmd, Atlases.Ids.Handle, 0, (ulong)(count * 8), ids);
 
-        // Wait for the ids, the folds or copies that filled the staging slots, and anything still
-        // reading the atlases.
-        api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.AllTransferBit | PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.FragmentShaderBit,
-                AccessFlags2.TransferWriteBit | AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderSampledReadBit),
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit));
+        // The layer waits for the ids, the folds or copies that filled the staging slots and anything still reading
+        // the atlases, and the draws that read them after wait for the blend.
         _passes.RecordBlend(cmd, count, alpha, snap);
-        api.MemoryBarrier(cmd, (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit), ProbeVolumeAtlases.Readers);
     }
 
     public void Dispose()

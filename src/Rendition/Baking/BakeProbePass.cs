@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 using Silk.NET.Vulkan;
@@ -13,12 +14,14 @@ internal sealed unsafe class BakeProbePass : IDisposable
 {
     private readonly VulkanContext _context;
     private readonly RayTracing _tracing;
+    private readonly VulkanGpu _gpu;
     private readonly BakeComputePass _pass;
 
     public BakeProbePass(VulkanContext context, SceneStores stores, RayTracing tracing)
     {
         _context = context;
         _tracing = tracing;
+        _gpu = stores.Gpu;
 
         // The scene and geometry table, the lights, the probes' positions, the sum read and written, the faces written,
         // and the sky. Set 1 is the resource table. Each job writes one set from its own pool.
@@ -42,14 +45,14 @@ internal sealed unsafe class BakeProbePass : IDisposable
     /// time through the volume's slots, so one made once serves every bake. Waits for the GPU the first time only.
     /// </summary>
     /// <exception cref="InvalidOperationException">The GPU lacks what the live probes fold with.</exception>
-    public ProbeVolume EnsureVolume(ImageView sky, Sampler skySampler)
+    public ProbeVolume EnsureVolume(ImageView sky)
     {
         if (Volume is { } made)
         {
             return made;
         }
 
-        var volume = new ProbeVolume(_context, skySampler, sky);
+        var volume = new ProbeVolume((_context, _gpu), sky);
         if (!volume.Supported)
         {
             volume.Dispose();

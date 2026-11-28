@@ -19,23 +19,23 @@ internal sealed class SceneLighting
         ShadowPass = new ShadowPass(context, kit.FrameSetLayout, stores.Resources, stores.Settings.ShadowResolution);
         stores.Frames.WriteAtlas(ShadowPass.Atlas.View);
         SunShadows = new SunShadows(context.Api, ShadowPass, meshes, stores.Switches);
-        LocalLightShadows = new LocalLightShadows(context, kit.FrameSetLayout, ShadowPass, stores.Switches,
+        LocalLightShadows = new LocalLightShadows((context, stores.Gpu), kit.FrameSetLayout, ShadowPass, stores.Switches,
             (meshes, stores.ShadowWorld, stores.Resources.Materials));
         // The weather map is made first, since the sky captures read it from their first draw.
-        var cloudNoise = new CloudNoise(context);
-        EnvironmentSky = new EnvironmentSky(context, stores.Ring, (cloudNoise.Repeat, cloudNoise.Weather));
+        var cloudNoise = new CloudNoise(context, stores.Gpu);
+        EnvironmentSky = new EnvironmentSky((context, stores.Gpu), stores.Ring, (cloudNoise.RepeatId, cloudNoise.Weather));
         stores.Frames.WriteSkySh(EnvironmentSky.Sh);
         var map = EnvironmentSky.Map;
-        ReflectionProbes = new ReflectionProbes(context, map.Sampler, FrameRing.Count);
+        ReflectionProbes = new ReflectionProbes(context, stores.Gpu);
         var captureScene = new CaptureScene(meshes.MeshSlots, meshes.DetailSlots, ShadowPass);
-        FrameReflectionCapture = new FrameReflectionCapture(new ReflectionCapturePass(context, kit.FrameSetLayout, stores.Resources,
-            captureScene, new DescriptorImageInfo(map.Sampler, map.Sky, ImageLayout.ShaderReadOnlyOptimal)), ReflectionProbes, stores.Switches);
-        ProbeVolume = new ProbeVolume(context, map.Sampler, map.Sky);
+        FrameReflectionCapture = new FrameReflectionCapture(new ReflectionCapturePass((context, stores.Gpu), kit.FrameSetLayout,
+            stores.Resources, captureScene, map.Sky), ReflectionProbes, stores.Switches);
+        ProbeVolume = new ProbeVolume((context, stores.Gpu), map.Sky);
         LightProbes = new LightProbes(context, map, kit,
             new LightProbes.Sources(stores.Resources, stores.Tracing, captureScene, stores.Ring, ProbeVolume));
         stores.Settings.Probes = LightProbes;
-        FogStage = new FogStage(context, kit, stores.Switches);
-        CloudStage = new CloudStage(context, kit, stores.Switches, cloudNoise);
+        FogStage = new FogStage((context, stores.Gpu), kit, stores.Switches);
+        CloudStage = new CloudStage((context, stores.Gpu), kit, stores.Switches, cloudNoise);
         Planar = new PlanarStage(context, kit, stores.Resources, stores.Switches, (meshes.MeshSlots, meshes.DetailSlots));
     }
 

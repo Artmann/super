@@ -1,5 +1,6 @@
 using System.Numerics;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
 using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
@@ -14,26 +15,28 @@ namespace Rendition;
 internal sealed unsafe class FinishStage
 {
     private readonly VulkanContext _context;
-    private readonly DescriptorKit _kit;
     private readonly FrameRing _ring;
     private readonly GpuTimer _timer;
     private readonly FinishPass _finishPass;
     private readonly ResourceTable _resources;
     private readonly OverlayPass _overlayPass;
     private readonly SceneMarks _marks;
+    private readonly VulkanGpu _gpu;
+    private readonly CommandList _commands = new();
 
     public FinishStage(
         (VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, FrameRing ring, GpuTimer timer, (Format Format, ResourceTable Resources) window)
     {
         var context = device.Context;
         _context = context;
-        _kit = kit;
         _ring = ring;
         _timer = timer;
         _resources = window.Resources;
         _finishPass = new FinishPass(device.Gpu, kit, (window.Format, window.Resources.Layout));
-        _overlayPass = new OverlayPass(context, kit, window.Format, window.Resources, FrameRing.Count);
-        _marks = new SceneMarks(context, kit, window.Format, FrameRing.Count);
+        _gpu = device.Gpu;
+        var format = VulkanFormats.ToGpu(window.Format);
+        _overlayPass = new OverlayPass(device, format, window.Resources, FrameRing.Count);
+        _marks = new SceneMarks(device, format, FrameRing.Count);
     }
 
     /// <summary>Where the frame being drawn copies its picture for a capture, or null when it isn't one.</summary>
@@ -55,13 +58,13 @@ internal sealed unsafe class FinishStage
     /// Replaces the image that the overlay's quads read from. Only its alpha is used. Waits for the GPU, so it isn't
     /// for every frame.
     /// </summary>
-    public void SetOverlayAtlas(TextureData data) => _overlayPass.SetAtlas(_kit.LinearSampler, data);
+    public void SetOverlayAtlas(TextureData data) => _overlayPass.SetAtlas(data);
 
     /// <summary>Points the finish pass at the targets' finished picture and the held one.</summary>
     public void WriteSet(GBuffer targets)
     {
         _finishPass.SetSources(targets.Picture.Ldr.View, targets.Picture.Held.View);
-        _marks.WriteSet(_kit.NearestSampler, targets.Depth.View);
+        _marks.SetDepth(targets.Depth.View);
     }
 
     /// <summary>
@@ -85,17 +88,19 @@ internal sealed unsafe class FinishStage
         var transition = picture.Transition;
         transition.Style.Z = extent.Width != size.Width || extent.Height != size.Height ? 1f : 0f;
         // The resources' textures are there for the screen effects' paper.
-        _finishPass.Record(cmd, window, (frameSet, _resources.Set), new ReadOnlySpan<byte>(&transition, (int)TransitionConstants.Size));
+        var surface = _finishPass.Record(cmd, window, (frameSet, _resources.Set), new ReadOnlySpan<byte>(&transition, (int)TransitionConstants.Size));
         picture.Targets.Picture.LdrReady = true;
         _timer.Mark(cmd);
 
         // Timed with the overlay: all three are drawn over the finished picture, the grids under the lines.
-        _marks.Record(cmd, (swapchain.Views[imageIndex], size));
+        _commands.Reset();
+        _marks.Record(_commands, surface, size);
         if (overlayQuads > 0)
         {
-            _overlayPass.Record(cmd, (swapchain.Views[imageIndex], size), _ring.Index, overlayQuads);
+            _overlayPass.Record(_commands, surface, size, _ring.Index, overlayQuads);
         }
 
+        _gpu.Play(_commands, cmd);
         _timer.Mark(cmd);
 
         if (Capture is not null)

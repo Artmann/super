@@ -2037,7 +2037,7 @@ scattering. `Vulkan/SkyAtmosphere.cs` draws three rgba16f tables, each with its 
 compute shader: the transmittance (256 × 64) and the light scattered many times
 (32 × 32), redrawn only when the turbidity changes, and the sky seen from 50 m up
 (192 × 108, Hillaire's sky-view table with its horizon packed tight), redrawn on every
-sky change. `environment.comp` reads the sky-view through binding 2 of the cube shaders'
+sky change. The tables rest in the `General` layout. `environment.comp` reads the sky-view through binding 2 of the cube shaders'
 layout, present for every cube, and adds `NIGHT_GLOW`, a faint blue that keeps night from
 going black. `SOLAR_STRENGTH` (13) is the sun at the top of the air in the renderer's
 units, where a sun light of about 8 is the real 100 klux; it gives a turbidity-3 sky with
@@ -2340,7 +2340,8 @@ its own, so edges move even in still air.
 
 On the GPU, `CloudStage` keeps the clouds' resources and decides each frame whether they are drawn:
 `CloudNoise` holds the noise textures, `CloudTargets` the shadow map, the march, the picture and its
-two histories at one size, and `CloudPasses` the three compute passes and their sets (`CloudSets`).
+two histories at one size, and `CloudPasses` the three compute passes and their groups, which run on
+the GPU layer (see "GPU layer").
 `KeepTargets` makes or frees the targets before a frame is recorded, so a resize remakes them there
 too.
 
@@ -2491,10 +2492,11 @@ without the sun's disc. Blits then halve the capture into a full chain of eight 
 `ReflectionProbes.RecordFilter` blurs it into the probe's six mips with `ReflectionFilter`, which runs `reflection_probe.comp`:
 64 GGX samples a texel, each read from the capture's mip whose texels cover about as much of
 the sphere as the sample stands for (filtered importance sampling, Křivánek and Colbert,
-2008), so the rough levels are smooth without hundreds of reads. Each frame in flight has one
-descriptor set per mip, written as it records, since its last use has finished by then. The
-barriers wait for earlier frames' fragment reads of the cube before the blur writes it, and the
-frame's own lighting waits for the blur, so the frame shows the new picture. The probe's
+2008), so the rough levels are smooth without hundreds of reads. The blur runs through the GPU
+layer, with a bind group for each mip of each probe's cube, made the first time it is filtered
+and again when the cubes grow: growing frees the old views, and a new one can get a freed one's handle, so the filter forgets every group's views then rather than trusting the handles to differ. The layer's barriers wait for earlier frames' reads of the
+cube before the blur writes it, and the frame's own lighting waits for the blur, so the frame
+shows the new picture. The probe's
 placement is stored then, so a probe shows from the frame of its first capture. A frame that
 throws between planning and recording puts the probe back at the front (`PutBack`).
 `Reflections.CapturesDrawn` and `GpuWaits.WaitIdleCount` (`VulkanContext.Waits`) let tests and `--profile` check
@@ -3593,7 +3595,7 @@ material slots. `Renderer.Assets.DestroyMaterial` holds the slot until the frame
 160-byte `GpuDecal`: the box, its inverse, the four weights and the material index.
 `DecalPass` keeps those in a host-visible vertex buffer for each frame in flight, read as
 per-instance attributes, so the frame set is unchanged, and draws all of them in one
-`vkCmdDraw` of 36 vertices per instance. `decal.vert` builds the cube from
+draw of 36 vertices per instance, through the GPU layer. `decal.vert` builds the cube from
 `gl_VertexIndex` and swaps two corners of every triangle when the box is mirrored, so its
 winding stays the same.
 
@@ -4544,9 +4546,11 @@ with the artist table's image view and the pipeline's handle so a shader reload 
 leaves out exposure, the vignette, grain, sharpening and bloom, which are worked out a pixel at a
 time. `Record` compares the key's bytes with the last bake's and returns when they match, so a
 frame with an unchanged grade records nothing; `Bakes` counts the bakes for the GPU tests.
-There is one table, not one per frame in flight. The bake waits on the GPU for nothing: a
-barrier from the fragment shader's reads to the compute shader's writes puts the last frame's
-tonemap before it on the same queue, and another puts it before this frame's.
+There is one table, not one per frame in flight. The bake waits on the GPU for nothing: it runs
+through the GPU layer, whose compute pass begins after everything recorded before it on the
+queue, the last frame's tonemap among them, and whose barrier after the dispatch puts it before
+this frame's. The key holds the pipeline as `VulkanGpu.Current` gives it, the Vulkan pipeline
+the layer's pipeline id stands for now, which a live reload changes.
 
 The tones and split toning work on display colour put through a 2.2 power, where the eye
 splits the picture into shadows, mid-tones and highlights: the shadows fade out between luma
@@ -4743,9 +4747,9 @@ the first bin and anything past the top, such as a sun disc of 30000, to the las
 nothing overflows or falls outside. `exposure_adapt.comp` then runs as one group of 64.
 It reads and empties the bins, takes the mean bin centre of the 40th to 95th percentile,
 clamps it to `MeteringSettings.Darkest` and `Brightest`, and moves the stored EV towards it by
-at most the rise or fall it is pushed. Both passes share one pipeline layout and one push constant
-block (`Metering` in `exposure.glsl`, `MeteringConstants` in `ExposureMeter`), pushed once before
-the histogram, since push constants stay bound across a pipeline change with the same layout. The tonemap reads the EV
+at most the rise or fall it is pushed. Both passes read one push constant block (`Metering` in
+`exposure.glsl`, `MeteringConstants` in `ExposureMeter`), which each pass sets as it runs, since
+they are two compute passes on the GPU layer. The tonemap reads the EV
 from the same buffer as a third descriptor set (`ExposureMeter.Set`) and multiplies by
 `0.18 * 2^-EV`, which puts the metered brightness at middle grey, on top of
 `PostSettings.Exposure`, which then works as compensation. The buffer is
@@ -5047,8 +5051,11 @@ loads them) and back as it ends, and every image in a bind group is already read
 moves wait for, and make the image ready for, compute shaders as well as fragment shaders,
 since the exposure meter and paint's filter read the picture from compute. The
 viewport and render area are the first target's size. Bind groups are bound at the next draw,
-so they can be set before or after the pipeline, as in WebGPU. Depth targets, buffers, compute
-and labels aren't played yet; each stage adds what its passes need.
+so they can be set before or after the pipeline, as in WebGPU. A writable depth target moves
+to `DepthAttachmentOptimal` as the pass begins (from `Undefined` unless it loads) and back to
+`ShaderReadOnlyOptimal` as it ends, waiting for and readying the depth tests as well as the
+shaders. Testing against read-only depth throws for now; the passes that need it bring it.
+Labels aren't played yet.
 
 Two bridges last until every pass has moved. `VulkanGpu.Adopt` takes an image view or a
 descriptor set made outside the layer and gives it an id, and `CreateRenderPipeline` can be
@@ -5071,19 +5078,19 @@ target a pass draws to but doesn't own, adopted again only when the target is re
 `ImageGroup` is a bind group of images made outside the layer, each named as its shader names
 it, read through the group's sampler or one given per image, and made again whenever its
 images change. Depth that glass leaves in `DepthReadOnlyOptimal` is adopted with
-`VulkanGpu.AdoptDepth`, so a group samples it in that layout. Bloom, depth of field and
+`ReadOnlyDepth` set on its `AdoptedView`, so a group samples it in that layout. Bloom, depth of field and
 paint's composite draw this way: a pass drawn several times a frame, such as bloom's nine
 steps or depth of field's three, records every draw into one `CommandList` and plays it once.
-Paint's filter is compute, so it stays on Vulkan until stage 1c.
+Paint's filter is compute and moved in stage 1c (see below).
 
 TAA, FSR's two input passes (motion and exposure) and the finish draw this way too. The
 anti-aliased image now rests ready to sample after TAA, so the history copy reads it from
 `ShaderReadOnlyOptimal` as it does the lit image. The finish draws into the window's image,
 which the layer must not move, because the marks and the overlay draw into it after and
 `FinishStage` then moves it to present or copies it out. So `FinishPass` adopts each
-swapchain image with `VulkanGpu.AdoptSurface`, one `AdoptedTarget` per image, and the player
-leaves a surface's layout to its caller: `FinishStage` moves it to `ColorAttachmentOptimal`
-before the pass and on after the overlay. Its format comes from `VulkanFormats.ToGpu`, and a
+swapchain image as a `Held` `AdoptedView` (`AdoptedTarget.ForHeld`), one `AdoptedTarget` per
+image, and the player leaves a held target's layout to its caller, colour or depth:
+`FinishStage` moves it to `ColorAttachmentOptimal` before the pass and on after the overlay. Its format comes from `VulkanFormats.ToGpu`, and a
 test in `Super.Tests` checks every format the swapchain can pick has a layer format.
 
 Ambient occlusion, reflections, lighting and the spread of skin and wax draw this way as
@@ -5101,10 +5108,99 @@ ready to sample after lighting, so `BlendStage` moves it to `ColorAttachmentOpti
 Every fullscreen pass now draws through the layer, so `FullscreenPass` has only its layer
 constructor, and the descriptor kit keeps only the layouts something still borrows: the
 frame's, the lighting set's and the one-texture layout. What waits is the rest of the frame.
-Compute passes, among them paint's filter, the exposure meter and the probe updates, move in
-stage 1c. Passes with vertex input or scene geometry, such as the G-buffer, shadows, glass,
-the lens flare's quads and the overlay, move in stage 1d with the draw-data buffer and
-material binding. FSR itself is AMD's code and stays outside the layer.
+Compute passes moved in stage 1c, below. Passes with vertex input moved in stage 1d, below,
+and passes with scene geometry, such as the G-buffer, shadows and glass, follow them with the
+draw-data buffer and material binding. FSR itself is AMD's code and stays outside the layer.
+
+Meshes draw through the layer as WebGPU draws them. A `RenderPipelineDescription` gives each
+colour target as a `ColorTargetState`, with its format, an optional `BlendState` and the
+`ColorWrites` it may change, so a decal can leave alpha alone. `Vertices` lists one
+`VertexLayout` per vertex buffer slot, with its stride, whether it steps per instance, and its
+attributes' locations, formats and offsets. `Depth` sets the depth format, compare and whether
+the pass writes depth, and `Cull` picks the faces to drop. Every state is given, so none of
+`PipelineFactory`'s own guesses apply. `Overrides` are the shader's specialization constants by
+id; with none the shader keeps its own defaults, as WebGPU does, and when there are some they
+go on both stages. A list sets vertex and index buffers (32-bit indices only), draws indexed,
+and sets a viewport and scissor inside a render pass; until it does, both cover the first
+target. Clip space is Vulkan's: y points down and counter-clockwise faces are the front, so
+the WebGPU backend flips y and the front face to match. Depth is reversed, cleared to 0 and
+tested with `Greater`.
+
+The instanced passes draw this way: the debug lines, the grid overlays, the overlay's quads,
+decals, the probe debug view's spheres and the lens flare's quads. Each keeps its instances in
+`FrameBuffers`, one host-visible buffer for each frame in flight adopted into the layer, which
+the lines grow when a frame draws more than fit. Their own images are bind groups made by name.
+The frame's set, the bindless resource table, the lighting set and the flare's visibility set
+are made outside the layer, so their layouts are lent and the sets adopted. Decals draw into
+the G-buffer's base colour and normals, and the probe spheres into Hdr with depth, while
+`OpaqueStage` and `BlendStage` still move those layouts by hand, so those targets are adopted
+held. Particles draw inside glass's pass, in one back-to-front order with it, so they move with
+glass.
+
+Compute runs through `ComputePass`, which makes a compute pipeline from one shader and can
+be lent set layouts as `FullscreenPass` can. Each `Record` is a compute pass of its own with
+one dispatch, the way WebGPU passes are cheap to open. `CommandList.SetBindGroups` sets each
+non-zero group at its index, for passes that bind several. Vulkan has no compute pass to
+begin, so after every dispatch the player puts one memory barrier from compute writes to
+everything that may read them next: compute, vertex and fragment shaders, indirect draws and
+transfers. A second dispatch therefore sees what the first wrote, as WebGPU promises, and a
+test makes the second read from the far end of the first's buffer so it fails without the
+barrier. An image compute writes is adopted with `Storage` set on its `AdoptedView` and rests
+in `General` between passes; a group samples it in that layout, and a render pass refuses to
+draw to it. Buffers made outside the layer are adopted with `VulkanGpu.Adopt(buffer, size)`
+and bound with `Bind.Buffer`, and storage images with `Bind.StorageImage`.
+`CommandList.ClearBuffer` zeroes part of a buffer, only between passes, as WebGPU allows, and
+waits for and is waited on by the same stages as a dispatch.
+
+A compute pass also begins with a barrier, from everything an older pass on the queue may have
+done, drawn targets, depth, storage and transfer writes and shader reads, to the compute
+shader's reads and writes. So a pass that moves needs no barriers of its own: the exposure
+meter's histogram and adapt, paint's filter, the grade's bake, the lens flare's visibility
+taps and the light clusters run this way, and the barriers they placed are gone. The clusters
+gained a barrier before them they didn't have, which costs little at one dispatch a frame.
+`GroupImage` says how a group uses each image with a `GroupImageUse`: `Sampled`, `Depth` for
+read-only depth, `Stored` for an image that rests in `General` and is sampled there, and
+`Written` for a storage image the shader writes. Paint's half-size picture rests in `General`
+from the moment it is made, so the filter writes it and the composite samples it without a
+move. The exposure meter's buffer and the flare's are adopted, and their sets still come from
+`CreateStateSet` and are adopted too, since the tonemap, FSR and the flare's draw, which
+haven't moved, read them.
+
+The sky, the clouds and the fog moved next. `SkyAtmosphere`'s three tables rest in `General`
+from the moment they are made, so each table's pass writes it and the next table's samples it
+without a move, and the cube shaders' sky-view binding and the clouds read it in `General` too.
+`SkySh` binds the sky cube and its buffer in a group made by name; reading the projection back
+on the CPU still needs a barrier of its own after the pass, as the layer's barrier stops short
+of the host. `CloudNoise` bakes its three volumes through one pass. The clouds' three passes
+each have two groups, one for each history the resolve writes in turn, since a group made from
+one pipeline's layout can't be bound to another in WebGPU. A sampler can repeat past the edges
+now, with `SamplerDescription.Address`, which the cloud noise needs. The volumetric fog's
+inject and integrate run as two `ComputePass`es, but their own set still comes from
+`FogInjectSets` and is adopted with its layout lent, because it reads the sun's shadow through
+a comparing sampler and the sky through one with mips, and the layer can make neither yet.
+Losing `BeginHistoryCompute`'s barrier costs nothing: a compute pass's opening barrier waits
+for last frame's fragment reads of the history and the sum as that one did.
+
+The environment's filters, the reflection probes' blur and sky fill, and the light probes' fold,
+blend and invalidate moved after them. A sampler can read between mips now, with
+`SamplerDescription.Mipmapped`, which the environment filter and the reflection blur need, and
+`ImageGroup.Make` takes buffers too, by their block's name, so the probe passes bind the staging
+slots and ids `ProbeVolumeAtlases` makes. The sky fill and the fold read only the sky's sharpest
+level, so they use a plain linear sampler. Their own barriers are gone, but three stay:
+`ProbeVolume.BeginTraces` before `ProbeTracePass`, which still records outside the layer and
+writes the staging slots, the barrier before `RecordBlend` updates the ids with
+`CmdUpdateBuffer`, and the one before the baker copies the staging slots back. The reflection
+capture's layout moves and the blits that make its mips stay hand-recorded until the layer can
+copy (stage 1e), and so do the environment cubes' mip blits. `probe_sample.comp` and the
+probe test hooks stay on Vulkan, as only tests run them.
+
+That leaves `PipelineFactory.CreateCompute` with the compute passes that stay on Vulkan, each
+for a reason. The ray-traced passes, `ProbeTracePass` and `TraceDebugPass`, and the baker's
+passes (`BakeComputePass`, `BakeFilter`, `TileResolve`) read acceleration structures, which
+WebGPU doesn't have, so the browser lights from baked data and the raster probes. The grass
+scatter shares one set and layout with the blades' draws and the indirect draw it fills, so it
+moves with them in stage 1d. `VulkanGpu.CreateComputePipeline` calls `CreateCompute` too, so the
+layer and the passes that stay make their pipelines the same way.
 
 ## Resource lifetime
 

@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Rendition.Passes;
+using Rendition.Gpu.Vulkan;
 using Silk.NET.Vulkan;
 
 namespace Rendition.Vulkan;
@@ -73,17 +74,17 @@ internal sealed unsafe class EnvironmentUniforms : IDisposable
     private readonly SkyAtmosphere _atmosphere;
     private GpuEnvironment _description;
 
-    public EnvironmentUniforms(VulkanContext context, Sampler sampler)
+    public EnvironmentUniforms(VulkanContext context, VulkanGpu gpu)
     {
         _context = context;
-        _atmosphere = new SkyAtmosphere(context, sampler);
+        _atmosphere = new SkyAtmosphere(context, gpu);
         Buffer = new GpuBuffer(context, (ulong)sizeof(GpuEnvironment),
             BufferUsageFlags.UniformBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
     }
 
     public GpuBuffer Buffer { get; }
 
-    /// <summary>The physical sky's sky-view table, ready to sample after a <see cref="Write"/>.</summary>
+    /// <summary>The physical sky's sky-view table, ready to sample in General after a <see cref="Write"/>.</summary>
     public ImageView SkyView => _atmosphere.SkyView;
 
     /// <summary>Keeps the bands and panels for the next <see cref="Write"/>. Nothing reaches the GPU yet.</summary>

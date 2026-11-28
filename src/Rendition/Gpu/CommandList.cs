@@ -18,6 +18,7 @@ internal enum Command
     Dispatch,
     PushLabel,
     PopLabel,
+    ClearBuffer,
 }
 
 /// <summary>
@@ -28,7 +29,6 @@ internal enum Command
 internal sealed class CommandList
 {
     private readonly CommandWords _words = new();
-    private bool _inPass;
 
     /// <summary>Everything recorded since the last <see cref="Reset"/>.</summary>
     public ReadOnlySpan<int> Words => _words.All;
@@ -36,11 +36,7 @@ internal sealed class CommandList
     /// <summary>The name a <see cref="Command.PushLabel"/> word refers to.</summary>
     public string Label(int index) => _words.Label(index);
 
-    public void Reset()
-    {
-        _words.Clear();
-        _inPass = false;
-    }
+    public void Reset() => _words.Clear();
 
     /// <summary>
     /// Writes <see cref="Command.BeginRenderPass"/>, the colour target count, six words per colour
@@ -49,12 +45,7 @@ internal sealed class CommandList
     /// </summary>
     public void BeginRenderPass(ReadOnlySpan<ColorTarget> colors, in DepthTarget? depth)
     {
-        if (_inPass)
-        {
-            throw new InvalidOperationException("BeginRenderPass was called inside a pass that has not ended.");
-        }
-
-        _inPass = true;
+        _words.Begin(PassKind.Render, nameof(BeginRenderPass));
         var words = _words.Take(2 + colors.Length * 6 + 4);
         words[0] = (int)Command.BeginRenderPass;
         words[1] = colors.Length;
@@ -83,23 +74,13 @@ internal sealed class CommandList
 
     public void BeginComputePass()
     {
-        if (_inPass)
-        {
-            throw new InvalidOperationException("BeginComputePass was called inside a pass that has not ended.");
-        }
-
-        _inPass = true;
+        _words.Begin(PassKind.Compute, nameof(BeginComputePass));
         _words.Write(Command.BeginComputePass, ReadOnlySpan<int>.Empty);
     }
 
     public void EndPass()
     {
-        if (!_inPass)
-        {
-            throw new InvalidOperationException("EndPass was called with no pass begun.");
-        }
-
-        _inPass = false;
+        _words.End();
         _words.Write(Command.EndPass, ReadOnlySpan<int>.Empty);
     }
 
@@ -115,6 +96,25 @@ internal sealed class CommandList
     public void SetIndexBuffer(BufferId buffer, int offset) =>
         _words.Write(Command.SetIndexBuffer, [buffer.Value, offset]);
 
+    /// <summary>
+    /// Maps clip space onto this rectangle of the targets, in pixels, with depth kept from 0 to 1. Until a pass sets
+    /// one it covers the whole of its first target. Only inside a render pass.
+    /// </summary>
+    public void SetViewport(float x, float y, float width, float height)
+    {
+        _words.Require(PassKind.Render, "SetViewport was called outside a render pass.");
+        _words.Write(Command.SetViewport, [
+            BitConverter.SingleToInt32Bits(x), BitConverter.SingleToInt32Bits(y),
+            BitConverter.SingleToInt32Bits(width), BitConverter.SingleToInt32Bits(height)]);
+    }
+
+    /// <summary>Draws only inside this rectangle of the targets, in pixels. Until a pass sets one it is the whole of its first target. Only inside a render pass.</summary>
+    public void SetScissor(int x, int y, int width, int height)
+    {
+        _words.Require(PassKind.Render, "SetScissor was called outside a render pass.");
+        _words.Write(Command.SetScissor, [x, y, width, height]);
+    }
+
     /// <summary>Writes the byte count and the bytes four to a word in memory order, with the last word padded with zeros.</summary>
     public void SetConstants(ReadOnlySpan<byte> bytes) => _words.Write(Command.SetConstants, bytes);
 
@@ -126,8 +126,31 @@ internal sealed class CommandList
 
     public void Dispatch(int x, int y, int z) => _words.Write(Command.Dispatch, [x, y, z]);
 
+    /// <summary>Sets <paramref name="size"/> bytes of <paramref name="buffer"/> from <paramref name="offset"/> to zero, between passes, as WebGPU's <c>clearBuffer</c> does.</summary>
+    public void ClearBuffer(BufferId buffer, int offset, int size)
+    {
+        _words.Require(PassKind.None, "ClearBuffer was called inside a pass; clear a buffer between passes.");
+        _words.Write(Command.ClearBuffer, [buffer.Value, offset, size]);
+    }
+
     /// <summary>Opens a named group for GPU debuggers. The name is kept beside the words, and the word is its index.</summary>
     public void PushLabel(string name) => _words.Write(Command.PushLabel, [_words.AddLabel(name)]);
 
     public void PopLabel() => _words.Write(Command.PopLabel, ReadOnlySpan<int>.Empty);
+}
+
+/// <summary>Commands made of others.</summary>
+internal static class CommandListExtensions
+{
+    /// <summary>Sets each of <paramref name="bindGroups"/> at its index, where an id of 0 leaves that group unset.</summary>
+    public static void SetBindGroups(this CommandList commands, ReadOnlySpan<BindGroupId> bindGroups)
+    {
+        for (int group = 0; group < bindGroups.Length; group++)
+        {
+            if (bindGroups[group].Value != 0)
+            {
+                commands.SetBindGroup(group, bindGroups[group]);
+            }
+        }
+    }
 }

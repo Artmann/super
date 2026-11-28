@@ -1,5 +1,6 @@
 using System.Numerics;
 using Silk.NET.Vulkan;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 
@@ -34,12 +35,13 @@ internal sealed class CloudStage : IDisposable
     private (bool Drawn, bool Shadowed) _frame;
 
     /// <param name="noise">The noise the clouds are made of, which the stage frees with itself.</param>
-    public CloudStage(VulkanContext context, DescriptorKit kit, FrameSwitches switches, CloudNoise noise)
+    public CloudStage((VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, FrameSwitches switches, CloudNoise noise)
     {
+        var context = device.Context;
         _context = context;
         _switches = switches;
         _noise = noise;
-        _passes = new CloudPasses(context, kit.FrameSetLayout, kit.LinearSampler, _noise);
+        _passes = new CloudPasses(device.Gpu, kit.FrameSetLayout, _noise);
         _standIns = (new CellVolume(context, (1, 1, 1), new ClearColorValue(1f, 1f, 1f, 1f)),
             new CellVolume(context, (1, 1, 1), new ClearColorValue(0f, 0f, 0f, 1f)));
     }
@@ -78,7 +80,7 @@ internal sealed class CloudStage : IDisposable
     public int Builds { get; private set; }
 
     /// <summary>Points the march at the physical sky's sky-view table, which it takes the sky's light from.</summary>
-    public void SetSources(in DescriptorImageInfo skyView) => _passes.SetSources(skyView);
+    public void SetSources(ImageView skyView) => _passes.SetSources(skyView);
 
     /// <summary>
     /// Fills the clouds' part of the frame block, and decides whether this frame draws them and their shadow.

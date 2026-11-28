@@ -36,9 +36,9 @@ internal sealed class FinishPass : IDisposable
 
     /// <summary>
     /// Draws into the swapchain's <paramref name="window"/> image, which must already be a colour attachment, reading
-    /// the frame's set and the window's resources.
+    /// the frame's set and the window's resources. Returns the image's id, for what draws over it after.
     /// </summary>
-    public void Record(
+    public ViewId Record(
         CommandBuffer cmd, (Swapchain Swapchain, uint Image) window, (DescriptorSet Frame, DescriptorSet Resources) sets,
         ReadOnlySpan<byte> constants)
     {
@@ -54,11 +54,12 @@ internal sealed class FinishPass : IDisposable
         }
 
         int index = (int)window.Image;
-        var surface = _surfaces[index].ForSurface(swapchain.Views[index], swapchain.Images[index], swapchain.Extent);
+        var surface = _surfaces[index].ForHeld(swapchain.Views[index], swapchain.Images[index], swapchain.Extent);
         _commands.Reset();
         _pass.Record(_commands, [new ColorTarget(surface, LoadOp.DontCare, default)],
             [_gpu.Adopt(sets.Frame), _sources.Id, _gpu.Adopt(sets.Resources)], constants);
         _gpu.Play(_commands, cmd);
+        return surface;
     }
 
     public void Dispose()

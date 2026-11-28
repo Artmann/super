@@ -406,6 +406,226 @@ Each pass moves the way tonemap did: its own sets become bind groups made by nam
 - [ ] **Step 1:** Open the pull request: what moved, the frame time and allocation numbers, the shot comparison, what still draws the old way. Nothing on screen changes, so no pictures.
 - [ ] **Step 2:** One review of the whole branch, fixes, then write the task-level plan for stage 1c.
 
+## Stage 1c: every compute pass the browser runs, on the layer
+
+Branch `feat/gpu-layer-compute`, stacked on `feat/gpu-layer-fullscreen` until that merges.
+
+Stage 1c moves the compute passes that also run in the browser: the exposure meter, paint's filter, the grade LUT, the lens flare's visibility, the light clusters, the atmosphere, the sky's light, the clouds, the volumetric fog, the probe volume's blend, fold, invalidate and sample passes, and the reflection and environment filters. Some passes stay where they are:
+
+- The ray-traced passes stay on Vulkan, because the browser has no ray queries: `probe_trace`, `trace_debug`, every `bake_*` pass, and `ProbeTestHooks`. Stage 1g fences them in.
+- Grass's scatter feeds its indirect draws, so it moves with them in 1d.
+- Image clears and copies (`CellVolume`, `HeldPicture`) are uploads and move in 1e.
+
+WebGPU makes every dispatch see what the dispatch before it wrote. The Vulkan player does the same with one global memory barrier after each dispatch. That barrier makes compute writes visible to every later compute, vertex, fragment, indirect and transfer read. Passes stop placing their own barriers between dispatches. A barrier per dispatch may cost more than the hand-placed ones, and Task 4 measures it.
+
+### Task 1: Compute in the layer
+
+**Files:**
+- Create: `src/Rendition/Passes/ComputePass.cs`
+- Modify: `src/Rendition/Gpu/Bind.cs`, `src/Rendition/Gpu/Descriptions.cs`, `src/Rendition/Gpu/CommandList.cs`, `src/Rendition/Gpu/CommandWords.cs`, `src/Rendition/Gpu/GpuDevice.cs`, `src/Rendition/Gpu/Vulkan/VulkanGpu.cs`, `src/Rendition/Gpu/Vulkan/VulkanPlayer.cs`, `src/Rendition/Gpu/Vulkan/VulkanBindGroups.cs`, `docs/design.md`
+- Test: `tests/Rendition.Gpu.Tests/GpuLayerGpuTests.cs`
+
+**Interfaces:**
+- Produces:
+  - `readonly ref struct ComputePipelineDescription { required ShaderId Shader }`, `GpuDevice.CreateComputePipeline(in ComputePipelineDescription)`, and on `VulkanGpu` an overload with `ReadOnlySpan<DescriptorSetLayout> borrowed`, as for render pipelines.
+  - `BufferId VulkanGpu.Adopt(Silk.NET.Vulkan.Buffer buffer, long size)` and `Release(BufferId)`.
+  - `ViewId VulkanGpu.AdoptStorage(ImageView view, Image image, Extent2D extent)`, for an image that rests in `General`. Sampled binds of such a view write `General` into the descriptor, and render passes refuse it.
+  - `Bind.Buffer(string name, BufferId buffer)` for uniform and storage buffers, and `Bind.StorageImage(string name, ViewId view)`.
+  - `CommandList.ClearBuffer(BufferId buffer, int offset, int size)`, valid only outside a pass, as in WebGPU.
+  - `sealed class ComputePass(GpuDevice device, string shader, ReadOnlySpan<DescriptorSetLayout> borrowed = default)` with `PipelineId Pipeline` and `Record(CommandList commands, ReadOnlySpan<BindGroupId> groups, ReadOnlySpan<byte> constants, int x, int y, int z)`. It records one dispatch in its own compute pass. `RecordMore` adds a dispatch to the open pass for passes that dispatch a loop.
+
+- [ ] **Step 1: Write the failing tests.**
+  - `A_compute_pass_writes_a_storage_image`: an `Rgba8Unorm` image adopted with `AdoptStorage`, a test shader that writes `(x/255, y/255, 0, 1)`, read back exactly.
+  - `A_dispatch_sees_what_the_dispatch_before_it_wrote`: dispatch one writes `i` into a 4096-int storage buffer, and dispatch two, in the same compute pass, writes `buffer[i] * 2` into a second buffer. Read back as `2i` for every `i`. Prove the test can fail: remove the player's barrier and watch it fail, on validation messages at least.
+  - `A_cleared_buffer_reads_zero_where_it_was_cleared`: fill a buffer with 0xFF and clear bytes 256 to 511. Those read back as zero and the rest as 0xFF.
+  - `A_storage_image_can_be_sampled_by_the_next_pass`: a compute pass writes a colour, then a `FullscreenPass` samples the same view into a target, which reads back as that colour with 0 validation messages.
+  - `A_render_pass_refuses_a_storage_view`: `Assert.Throws<InvalidOperationException>` with a message naming `AdoptStorage`.
+- [ ] **Step 2: Run them.** Expected: they fail to compile.
+- [ ] **Step 3: Write the layer's compute.** Write the pipeline, the buffer and storage-view tables, both bind kinds in `VulkanBindGroups`, and `Dispatch`, `BeginComputePass`, `ClearBuffer` and the per-dispatch barrier in the player. Then write `ComputePass`.
+- [ ] **Step 4: Run the tests and the CI tests.** Expected: pass, with no validation messages.
+- [ ] **Step 5: Commit.** `feat: run compute passes through the GPU layer`
+
+### Task 2: Exposure, paint, grade, flare visibility and clusters
+
+**Files:**
+- Modify: `src/Rendition/Vulkan/ExposureMeter.cs`, `src/Rendition/Passes/PaintFilter.cs`, `src/Rendition/Vulkan/GradeLut.cs`, `src/Rendition/Passes/LensFlareVisibility.cs`, `src/Rendition/LocalLightShadows.cs`, and the images they write, which now rest in `General` through `AdoptStorage`
+
+**Interfaces:**
+- Consumes: Task 1's `ComputePass`, `Bind.Buffer`, `Bind.StorageImage`, `ClearBuffer`.
+
+- [ ] **Step 1: Move each pass.** Each pass's own set becomes a bind group made by name, made again where its sets were written. The frame set is adopted. Each pass's `CmdFillBuffer` becomes `ClearBuffer`, and its hand-placed barriers between its own dispatches go. A barrier toward a reader outside the layer stays until that reader moves.
+- [ ] **Step 2: Run the GPU suite and the shots** with seed 1, 120 ticks, 1280x720, `--validate`: Shapes, Courtyard, Hamlet, Reef and Wax, with TAA and with FSR. Add a shot with paint on and one with a grade LUT. Expected: Shapes, Wax and Courtyard (TAA) are byte-identical to the branch's base, and the others are within the base's own PSNR from run to run, with 0 validation messages. Exposure adapts over ticks, so a mismatch in exposure shows as a whole-picture brightness shift.
+- [ ] **Step 3: Commit.** `refactor: run exposure, paint, grading, flare visibility and clusters through the GPU layer`
+
+### Task 3: Sky, clouds and fog
+
+**Files:**
+- Modify: `src/Rendition/Vulkan/SkyAtmosphere.cs`, `src/Rendition/Passes/SkySh.cs`, `src/Rendition/Vulkan/CloudNoise.cs`, `src/Rendition/Vulkan/CloudPasses.cs`, `src/Rendition/Vulkan/CloudSets.cs`, `src/Rendition/Vulkan/VolumetricFogVolume.cs`, `src/Rendition/Vulkan/FogInjectSets.cs`
+
+- [ ] **Step 1: Move the three atmosphere passes, the sky's light, the four cloud passes, and fog's inject and integrate passes** the way Task 2 moved its passes. The 3D fog and noise volumes are adopted with `AdoptStorage`, and the layer doesn't care what dimension a view has.
+- [ ] **Step 2: Run the GPU suite and the shots,** adding the skies example with clouds and an example with fog volumes (see the fog volumes memory: probe-lit fog). Expected: as in Task 2.
+- [ ] **Step 3: Commit.** `refactor: run the sky, clouds and fog through the GPU layer`
+
+### Task 4: Probes and reflections, then measure
+
+**Files:**
+- Modify: `src/Rendition/Vulkan/ProbeVolumePasses.cs`, `src/Rendition/Vulkan/ProbeVolumeAtlases.cs`, `src/Rendition/Vulkan/ReflectionFilter.cs`, `src/Rendition/Vulkan/CubeShader.cs`, `src/Rendition/Vulkan/EnvironmentCube.cs`, `src/Rendition/Vulkan/ReflectionProbes.cs`
+
+- [ ] **Step 1: Move the probe volume's blend, fold, invalidate and sample passes, and the environment, reflection probe, reflection sky and filter passes.** `ProbeTracePass` keeps writing the same atlases on Vulkan. Its hand-placed barriers stay, and the atlases it writes rest in `General` as before.
+- [ ] **Step 2: Run the GPU suite and the shots,** adding Crypt (live probes) and an example with reflection probes. Expected: as in Task 2.
+- [ ] **Step 3: Measure the GPU and CPU frame time** of Reef, Hamlet and Crypt at seed 7, 420 ticks, 300 frames, with `--profile`, against the branch's base, and allocation per frame as earlier stages did. Expected: GPU passes within 0.05 ms, CPU frame time within noise, and no new bytes per frame. If the per-dispatch barrier costs more, the player skips it between two dispatches whose groups write nothing the second reads, so passes still don't place barriers. Write the timings in the ledger.
+- [ ] **Step 4: Commit.** `refactor: run the probe volume and reflection filters through the GPU layer`
+
+### Task 5: Delete the old compute path and open the pull request
+
+**Files:**
+- Modify: `src/Rendition/Vulkan/PipelineFactory.cs`, `src/Rendition/Vulkan/VulkanExtensions.cs`, `docs/design.md`, and whatever `dotnet roe` reports as dead
+
+- [ ] **Step 1:** Delete what only the moved passes used, such as `BeginHistoryCompute` and the compute layouts. `PipelineFactory.CreateCompute` stays only if the ray-traced passes still call it. Run `dotnet roe` and delete what it reports dead.
+- [ ] **Step 2:** In `design.md`, describe compute on the layer: storage views resting in `General`, the barrier per dispatch, and which compute passes stay on Vulkan and why.
+- [ ] **Step 3:** Run CI's tests and the GPU suite. Expected: they pass, apart from the known `LiveProbeTests` allocation failure that `main` also has. Commit with `refactor: remove the old compute pass path`.
+- [ ] **Step 4:** Open the pull request. Write what moved, what stays and why, the timings and the shot comparison, with no pictures. Then run one review of the whole branch, fix what it finds, and write the task-level plan for stage 1d.
+
+## Stage 1d: geometry passes on the layer
+
+Stage 1d is three pull requests, because each is a separate risk:
+
+- 1d1 teaches the layer to draw meshes and moves the small instanced passes.
+- 1d2 moves the scene's draws, where the frame time budget is at risk.
+- 1d3 moves grass, with its scatter and indirect draws.
+
+Branches are `feat/gpu-layer-draws`, `feat/gpu-layer-scene` and `feat/gpu-layer-grass`. Each is stacked on the one before, and the first is on `feat/gpu-layer-compute`.
+
+Some passes stay where they are:
+
+- The multiview cube captures (probe capture, reflection capture) move in 1f, which makes multiview optional.
+- `TexelDraw` bakes with conservative raster on Vulkan only, and stage 1g fences it in.
+- Mesh and instance buffers are still made and uploaded outside the layer and adopted, until 1e.
+
+Three decisions, taken here against the design above:
+
+- Per-draw constants go through `CommandList.SetConstants`, not a new draw-data buffer. On Vulkan that stays push constants, so desktop speed and shaders don't change. On the web it is the uniform ring with one dynamic offset a batch.
+  - Instances are already in a storage buffer that the vertex shader reads by its instance index, which includes the first instance on both APIs.
+  - What remains is the 64-byte `Draw` block, which is per batch.
+  - WGSL has no base-instance built-in, so a draw buffer couldn't be indexed by it anyway.
+  - If the ring is slow in the browser, stage 4 moves the block into the instance records.
+- Material binding becomes `MaterialBinding` with `BindGroupId For(MaterialHandle material)`. The draw loop binds group 1 only when the answer changes.
+  - In 1d there is one implementation, `GlobalMaterialBinding`, which returns the adopted global set for every material.
+  - The per-material shape comes with the `SUPER_WEB` material shaders in stage 2, because without them nothing on desktop can draw with it or test it.
+- WebGPU has no `clearAttachments`, so a shadow atlas tile is cleared by a depth-only draw of `depth_clear.vert`. It is a fullscreen triangle at the far depth, with compare Always, in the tile's viewport.
+
+### Stage 1d1, Task 1: Drawing meshes in the layer
+
+**Files:**
+- Create: `src/Rendition/Shaders/test_mesh.vert`, `src/Rendition/Shaders/test_mesh.frag`
+- Modify: `src/Rendition/Gpu/Descriptions.cs`, `src/Rendition/Gpu/CommandList.cs`, `src/Rendition/Gpu/Vulkan/VulkanGpu.cs`, `src/Rendition/Gpu/Vulkan/VulkanPlayer.cs`, `src/Rendition/Vulkan/PipelineFactory.cs`, every `RenderPipelineDescription` caller, `docs/design.md`
+- Test: `tests/Rendition.Gpu.Tests/GpuLayerGpuTests.cs`, `tests/Super.Tests/Gpu/CommandListTests.cs`
+
+**Interfaces:**
+- Produces, shaped like WebGPU:
+  - `enum VertexFormat { Float32, Float32x2, Float32x3, Float32x4, Uint32, Uint8x4, Unorm8x4 }`
+  - `readonly record struct VertexAttribute(int Location, VertexFormat Format, int Offset)`
+  - `readonly record struct VertexLayout(int Stride, bool PerInstance, VertexAttribute[] Attributes)`
+  - `enum CullMode { None, Back, Front }`
+  - `enum CompareFunction { Always, Greater, GreaterEqual, Equal }`
+  - `readonly record struct DepthState(GpuFormat Format, CompareFunction Compare, bool Write)`
+  - `enum BlendFactor` (the factors decals and transparency use) and `readonly record struct BlendState(BlendFactor ColorSource, BlendFactor ColorTarget, BlendFactor AlphaSource, BlendFactor AlphaTarget)`, with `static BlendState Premultiplied`
+  - `readonly record struct ColorTargetState(GpuFormat Format, BlendState? Blend = null, bool Writes = true)`
+- `RenderPipelineDescription` changes:
+  - `ColorFormats` and `Blend` are replaced by `Targets`, a list of `ColorTargetState`.
+  - It gains `Vertices` (vertex layouts), `DepthState? Depth`, `CullMode Cull` (default `None`) and `Overrides`, the specialization constant values by id, which are WebGPU's override constants.
+- `CommandList` gains `SetViewport(float x, float y, float width, float height)` and `SetScissor(int x, int y, int width, int height)`, both valid only inside a render pass. The existing `SetVertexBuffer`, `SetIndexBuffer` (32-bit indices only), `Draw` and `DrawIndexed` are now played.
+- Topology stays triangle lists, counter-clockwise front faces. A render pass sets the full target as its viewport and scissor when it begins, as WebGPU does.
+
+- [ ] **Step 1: Write the failing tests** in `GpuLayerGpuTests`. Each uses `test_mesh.vert` (position plus a per-instance offset and colour) and `test_mesh.frag`, at 64×64:
+  - `The_nearer_of_two_triangles_wins_the_depth_test`: two full-target triangles at depth 0.25 and 0.75, drawn in both orders, with reversed-Z Greater. The centre reads as the 0.75 triangle's colour both times.
+  - `A_back_facing_triangle_is_culled_unless_culling_is_off`: a clockwise triangle draws nothing with `CullMode.Back` and its colour with `None`.
+  - `Each_instance_reads_its_own_attributes`: four instances of a quarter-size quad, each with its own offset and colour from a per-instance vertex buffer. Each quadrant reads its own colour.
+  - `An_indexed_draw_uses_the_index_buffer_and_first_instance`: a quad drawn from 4 vertices and 6 indices, with first instance 2. It reads instance 2's colour.
+  - `A_scissor_keeps_the_draw_inside_its_rectangle`: a full-target draw under a 16×16 scissor at (8, 8). Pixels outside keep the clear colour.
+  - `A_target_whose_writes_are_off_keeps_what_it_held`: two targets, the second with `Writes = false`. The second reads its clear colour.
+  - `An_override_constant_changes_what_the_shader_does`: `test_mesh.frag` outputs blue when constant 0 is 1. Draw with `Overrides = [1]` and with `[0]`.
+  - Extend `Recording_and_playing_a_pass_again_allocates_nothing` with an indexed, instanced draw.
+  - In `CommandListTests`: `Setting_a_viewport_outside_a_render_pass_throws` checks that the message names the command.
+- [ ] **Step 2: Run them.** Expected: they fail to compile.
+- [ ] **Step 3: Write it.**
+  - `PipelineFactory`'s `PipelineDescription` takes the vertex layouts, depth, cull, per-target blend and write masks, and specialization values from the layer's description.
+  - Existing callers of `PipelineDescription` keep their meaning, and the CPU-side tests that cover it still pass.
+  - The player binds vertex and index buffers, draws, and sets the viewport and scissor.
+  - `FullscreenPass` and its callers move to `Targets`.
+- [ ] **Step 4: Run the new tests and the CI tests.** Expected: they pass, with 0 validation messages. Prove each test can fail: for example, flip `CullMode` in the player, or skip the scissor, and watch the test fail.
+- [ ] **Step 5: Commit.** `feat: draw meshes through the GPU layer`
+
+### Stage 1d1, Task 2: The instanced passes
+
+**Files:**
+- Modify: `LinePass.cs`, `OverlayPass.cs`, `GridOverlayPass.cs`, the lens flare draw, `ParticlePass.cs`, `DecalPass.cs` and `ProbeDebugPass.cs` (in `src/Rendition/Passes/` or wherever they live), and the sets they bind
+
+**Interfaces:**
+- Consumes: Task 1's description and commands. It also uses `VulkanGpu.Adopt(Buffer, long)` for each instance buffer and `Adopt(DescriptorSet)` with borrowed layouts for sets the layer can't make yet.
+
+- [ ] **Step 1: Move each pass.**
+  - A pass's instance buffer is adopted once for each ring slot.
+  - Its own sets become bind groups made by name where the layer can make them. Where it can't, they are adopted with their layout lent, and the ledger says why for each one.
+  - Push constants become `SetConstants`.
+  - Its hand-recorded rendering begin and end become `BeginRenderPass` and `EndPass` on adopted targets.
+- [ ] **Step 2: Run the GPU suite and the shots** with seed 1, 120 ticks, 1280×720, `--validate`.
+  - Use Shapes, Courtyard, Hamlet and Reef, plus a scene for each moved pass: lines and the grid overlay from the debug drawing examples, the overlay from a UI showcase, decals, particles and the lens flare.
+  - Expected: byte-identical to the branch's base where the base is identical from run to run, and otherwise within the base's own PSNR from run to run, with 0 validation messages.
+- [ ] **Step 3: Commit.** `refactor: run the instanced passes through the GPU layer`
+
+### Stage 1d1, Task 3: Pull request
+
+- [ ] Delete what only the moved passes used (`dotnet roe`), update `design.md`, run CI's tests and the GPU suite, then open the pull request. Write what moved, what stays and the shot comparison, with no pictures. Run one review of the whole branch and fix what it finds.
+
+### Stage 1d2, Task 1: Measure first
+
+- [ ] Measure the CPU frame time of Reef and Hamlet, as `docs/profiling.md` describes, at seed 7, 420 ticks and 300 frames. Measure it on the base of 1d2 and on `main` before stage 1 began (the stage's budget is 0.2 ms over `main`). Write both in the ledger, along with the draw call count for each.
+
+### Stage 1d2, Task 2: Material binding and the scene draws
+
+**Files:**
+- Create: `src/Rendition/Passes/MaterialBinding.cs`
+- Modify: `SceneDraws.cs`, the G-buffer, shadow, transparent and mirror passes, `MeshAssets.cs`, and the material assets
+- Test: `tests/Rendition.Gpu.Tests/`, which already covers G-buffer, shadow, transparency, mirrors and surface shaders
+
+**Interfaces:**
+- Produces:
+  - `abstract class MaterialBinding { BindGroupId For(MaterialHandle material); }` and `sealed class GlobalMaterialBinding : MaterialBinding`.
+  - A mesh carries `BufferId Vertices, Indices`, adopted when it is made and released when it is destroyed.
+  - `SceneDraws.Record` takes a `CommandList`, not a `CommandBuffer`.
+- Consumes: Task 1 of 1d1.
+
+- [ ] **Step 1: Write the failing test** `A_mesh_destroyed_and_made_again_draws_without_validation_errors`: make, draw, destroy, then make a mesh of another size and draw it. Watch it fail by not releasing the adopted buffers, with the layer's live buffer count read through a test hook.
+- [ ] **Step 2: Move the scene draws.**
+  - `SceneDraws.Recorder` records `SetPipeline`, `SetVertexBuffer` and `SetIndexBuffer` only when they change, plus `SetBindGroup(1, binding.For(material))` when that changes, and `SetConstants` and `DrawIndexed` per batch.
+  - The G-buffer, shadow, transparent and mirror pipelines, and every surface shader's six, are layer pipelines with the frame set's and pass sets' layouts lent. Live reload keeps working, because the layer's pipelines are `LivePipeline`s. Show it with the existing reload test.
+  - Shadow tiles clear with `depth_clear.vert` (see the decisions above).
+  - The depth-first round stays.
+- [ ] **Step 3: Run the GPU suite and the shots,** adding Crypt and Skylark (skinned draws) and an example with a material graph. Expected: as in 1d1 Task 2.
+- [ ] **Step 4: Measure again** as in Task 1. Expected: within the budget.
+  - If the recording costs more, the Vulkan backend gets a `CommandList` mode that records straight into the command buffer behind the same methods, as the design allows. Tests run both modes.
+  - Write the timings in the ledger.
+- [ ] **Step 5: Commit.** `refactor: draw the scene through the GPU layer`
+
+### Stage 1d2, Task 3: Pull request
+
+- [ ] As 1d1 Task 3, with the timings from Tasks 1 and 2 in the description.
+
+### Stage 1d3, Task 1: Grass
+
+**Files:**
+- Modify: the grass stage, its pipelines and field, the grass scatter's compute pass, and `CommandList` and `VulkanPlayer` for `DrawIndirect`
+- Test: `tests/Rendition.Gpu.Tests/GpuLayerGpuTests.cs` and the existing grass GPU tests
+
+**Interfaces:**
+- Produces: `CommandList.DrawIndirect(BufferId buffer, int offset)`, which reads the four ints WebGPU and Vulkan share. An indirect buffer written by a dispatch is visible to the draw through the per-dispatch barrier from 1c.
+
+- [ ] **Step 1: Write the failing test** `An_indirect_draw_draws_as_many_instances_as_a_dispatch_wrote`: a compute pass writes `(6, 2, 0, 0)` into a buffer, and an instanced quad draw of `test_mesh` reads it. Two quadrants show and the other two stay clear.
+- [ ] **Step 2: Move the scatter, the ground draws, the blade draws and the grass shadow.** The grass set's per-ring-slot copies become bind groups, one for each ring slot.
+- [ ] **Step 3: Run the GPU suite and the shots,** adding the grass example. Expected: as in 1d1 Task 2.
+- [ ] **Step 4: Commit and open the pull request** as 1d1 Task 3 describes. The commit is `refactor: draw grass through the GPU layer`.
+
 ---
 
 ## Stage 0 findings

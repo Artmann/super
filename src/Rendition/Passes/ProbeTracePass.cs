@@ -146,7 +146,7 @@ internal sealed unsafe class ProbeTracePass : IDisposable
     /// Traces the batch's probes through <paramref name="scene"/> into staging slots 0 to batch.Count - 1, one
     /// workgroup each, with the frame in flight's set and buffer, rewritten here, so only call it once that frame's last
     /// use is done. The scene was built earlier in <paramref name="cmd"/>, and the caller makes it ready to trace
-    /// (<see cref="RayTracing.ReadyToTrace"/>) and the staging slots safe to write (<see cref="ProbeVolume.BeginFolds"/>)
+    /// (<see cref="RayTracing.ReadyToTrace"/>) and the staging slots safe to write (<see cref="ProbeVolume.BeginTraces"/>)
     /// first, and blends them after.
     /// </summary>
     public void Record(CommandBuffer cmd, in TopLevelStructure scene, in TracedProbes probes, (int Index, DescriptorSet Set) frame)

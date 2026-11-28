@@ -1,0 +1,16 @@
+#version 460
+
+// Writes each texel's coordinates times scale in red and green, and blue as given. The GPU layer's tests run it.
+layout(local_size_x = 4, local_size_y = 4) in;
+
+layout(set = 0, binding = 0, rgba8) uniform writeonly image2D outputImage;
+
+layout(push_constant) uniform Constants {
+    float scale;
+    float blue;
+} constants;
+
+void main() {
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    imageStore(outputImage, texel, vec4(vec2(texel) * constants.scale, constants.blue, 1.0));
+}
