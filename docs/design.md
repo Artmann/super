@@ -1302,6 +1302,10 @@ succeeded, so a broken shader leaves the old one in place. All of this is on the
 thread. The game's thread calls `TakeChanged` before each frame, which returns the names
 compiled since the last call, and is one lock and a count when there are none.
 
+Live reload compiles only the `.spv` that runs, not the `<name>.layout.spv` beside it
+that the GPU layer reads binding names from. A saved shader that adds, renames or moves a
+binding needs a build before a pass on the GPU layer can bind it.
+
 `RendererOptions.LiveShaders` makes the renderer able to rebuild pipelines. Every pipeline
 is a `LivePipeline`, which holds the handle and converts to it, so passes bind it as they
 did. With the option on, `PipelineFactory.Create` also copies the description and keeps a
@@ -6302,7 +6306,8 @@ but the package reference:
   `PackagePath` by itself, so the packaging names only `tools/super-cook/`; naming the folder
   too packed every one of them twice over in 1.0.0, and no model could be cooked.
 - `shaders/*.spv`, Rendition's compiled shaders, which the targets copy to the game's
-  `shaders` output folder. The shader includes are in `buildTransitive/Rendition/Shaders`,
+  `shaders` output folder. The `*.layout.spv` files among them are the same shaders
+  compiled without optimizing, for the binding names the GPU layer reads. The shader includes are in `buildTransitive/Rendition/Shaders`,
   where `Shaders.targets` looks for them beside itself, as it does in `src`.
 - `runtimes/win-x64/native/amd_fidelityfx_vk.dll`, which .NET finds there through the game's
   `deps.json`.

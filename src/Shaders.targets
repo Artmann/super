@@ -9,6 +9,7 @@
     <Glslc Condition="'$(Glslc)' == '' And Exists('/usr/local/bin/glslc')">/usr/local/bin/glslc</Glslc>
     <Glslc Condition="'$(Glslc)' == ''">glslc</Glslc>
     <GlslcFlags>--target-env=vulkan1.3 -O -Werror</GlslcFlags>
+    <GlslcLayoutFlags>--target-env=vulkan1.3 -Werror</GlslcLayoutFlags>
     <ShaderOutputDir>$(MSBuildProjectDirectory)\obj\shaders\</ShaderOutputDir>
     <ShaderIncludeDir>$(MSBuildThisFileDirectory)Rendition\Shaders</ShaderIncludeDir>
     <!-- Where this project's shaders come from and how they compile, for live shader reload (ShaderWatch). -->
@@ -19,6 +20,14 @@
     <Shader Include="Shaders\*.vert;Shaders\*.frag;Shaders\*.comp" />
     <ShaderDependency Include="$(ShaderIncludeDir)\*.glsl" />
     <None Include="@(Shader->'$(ShaderOutputDir)%(Filename)%(Extension).spv')"
+          Link="shaders\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+    <!--
+      The same shaders compiled without optimizing, which keeps the names the shader gives its bindings.
+      The GPU layer reads them from these to bind by name (ShaderLayout); the optimized .spv files are what run.
+    -->
+    <None Include="@(Shader->'$(ShaderOutputDir)%(Filename)%(Extension).layout.spv')"
           Link="shaders\%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           Visible="false" />
@@ -44,6 +53,14 @@
           Outputs="@(Shader->'$(ShaderOutputDir)%(Filename)%(Extension).spv')">
     <MakeDir Directories="$(ShaderOutputDir)" />
     <Exec Command="&quot;$(Glslc)&quot; $(GlslcFlags) -I &quot;$(ShaderIncludeDir)&quot; &quot;%(Shader.FullPath)&quot; -o &quot;$(ShaderOutputDir)%(Shader.Filename)%(Shader.Extension).spv&quot;" />
+  </Target>
+
+  <Target Name="CompileShaderLayouts"
+          BeforeTargets="AssignTargetPaths"
+          Inputs="@(Shader);@(ShaderDependency)"
+          Outputs="@(Shader->'$(ShaderOutputDir)%(Filename)%(Extension).layout.spv')">
+    <MakeDir Directories="$(ShaderOutputDir)" />
+    <Exec Command="&quot;$(Glslc)&quot; $(GlslcLayoutFlags) -I &quot;$(ShaderIncludeDir)&quot; &quot;%(Shader.FullPath)&quot; -o &quot;$(ShaderOutputDir)%(Shader.Filename)%(Shader.Extension).layout.spv&quot;" />
   </Target>
 
 </Project>
