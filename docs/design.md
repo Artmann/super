@@ -5169,6 +5169,8 @@ whenever the kind of draw changes, and glass forgets the pipeline, mesh and mate
 bound. The G-buffer and the light and reflection probes' captures each still begin their
 rendering and bind their own sets by hand, then play the list into it; the cube captures
 keep their multiview rendering and their probe constants, pushed after the draw constants.
+Those lists have draws but no begin-pass word, so they only play on Vulkan: WebGPU draws
+only inside a pass its encoder began. They move when the grass does.
 
 Compute runs through `ComputePass`, which makes a compute pipeline from one shader and can
 be lent set layouts as `FullscreenPass` can. Each `Record` is a compute pass of its own with
