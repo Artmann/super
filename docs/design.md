@@ -5157,7 +5157,10 @@ ordinary target, so the layer moves it and leaves it ready to sample. The atlas 
 each redrawn tile sets its viewport and scissor and is cleared by drawing `depth_clear.vert`, a
 fullscreen triangle at the far plane with compare `Always`, since WebGPU has no way to clear
 part of a target. The grass's blades still begin over a cascade by hand
-(`ShadowPass.BeginOver`) until the grass moves. The G-buffer, the mirror, glass, and the light
+(`ShadowPass.BeginOver`) until the grass moves. The mirror begins its pass through the layer
+too, with its two layers and its depth adopted held: `MirrorTargets` moves them to drawing
+first and on to the mip blits after, since two views of one image are drawn at once. The
+G-buffer, glass, and the light
 and reflection probes' captures each still begin their rendering and bind their own sets by
 hand, then play the list into it; the cube captures keep their multiview rendering and their
 probe constants, pushed after the draw constants. Glass plays one list per draw for now.

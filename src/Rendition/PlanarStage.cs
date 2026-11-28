@@ -159,9 +159,9 @@ internal sealed class PlanarStage : IDisposable
             return;
         }
 
-        _targets.Begin(cmd);
-        _pipeline.Draw(cmd, frameSet, new SceneGeometry(_draws.AsSpan(0, _drawn), _scene.Meshes, _scene.Details, instances));
-        _targets.End(cmd);
+        _targets.Ready(cmd);
+        _pipeline.Draw(cmd, frameSet, new SceneGeometry(_draws.AsSpan(0, _drawn), _scene.Meshes, _scene.Details, instances), _targets);
+        _targets.Finish(cmd);
     }
 
     public void Dispose()
