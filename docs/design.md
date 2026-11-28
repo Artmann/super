@@ -5105,7 +5105,7 @@ ready to sample after lighting, so `BlendStage` moves it to `ColorAttachmentOpti
 Every fullscreen pass now draws through the layer, so `FullscreenPass` has only its layer
 constructor, and the descriptor kit keeps only the layouts something still borrows: the
 frame's, the lighting set's and the one-texture layout. What waits is the rest of the frame.
-Compute passes move in stage 1c, below. Passes with vertex input or scene geometry, such as the G-buffer, shadows, glass,
+Compute passes moved in stage 1c, below. Passes with vertex input or scene geometry, such as the G-buffer, shadows, glass,
 the lens flare's quads and the overlay, move in stage 1d with the draw-data buffer and
 material binding. FSR itself is AMD's code and stays outside the layer.
 
@@ -5165,6 +5165,14 @@ writes the staging slots, the barrier before `RecordBlend` updates the ids with
 capture's layout moves and the blits that make its mips stay hand-recorded until the layer can
 copy (stage 1e), and so do the environment cubes' mip blits. `probe_sample.comp` and the
 probe test hooks stay on Vulkan, as only tests run them.
+
+That leaves `PipelineFactory.CreateCompute` with the compute passes that stay on Vulkan, each
+for a reason. The ray-traced passes, `ProbeTracePass` and `TraceDebugPass`, and the baker's
+passes (`BakeComputePass`, `BakeFilter`, `TileResolve`) read acceleration structures, which
+WebGPU doesn't have, so the browser lights from baked data and the raster probes. The grass
+scatter shares one set and layout with the blades' draws and the indirect draw it fills, so it
+moves with them in stage 1d. `VulkanGpu.CreateComputePipeline` calls `CreateCompute` too, so the
+layer and the passes that stay make their pipelines the same way.
 
 ## Resource lifetime
 
