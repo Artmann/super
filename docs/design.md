@@ -5304,8 +5304,9 @@ the surface with the public `RendererSurface`, a GLFW window or `Headless`, and
 `WindowSurfaces` makes the Vulkan surface for it, so `RendererOptions` has no Vulkan types.
 Rendition takes Silk.NET.GLFW for that, since GLFW makes a window's surface.
 
-`VulkanSurface` is the Vulkan one. It keeps the swapchain, one acquire semaphore per frame
-slot and the adopted images, and adds what only Vulkan needs: the semaphores the frame's submit
+`VulkanSurface` is the Vulkan one. It keeps one acquire semaphore per frame slot, a
+`HeldSwapchain` (the swapchain and its adopted images, made again together) and a
+`SurfaceReadback` (the captures copied but not yet read), and adds what only Vulkan needs: the semaphores the frame's submit
 waits on and signals, and `Begin` and `End`, which move the image into drawing and on to
 present. A browser canvas has no swapchain, no acquire semaphore and no present call: the
 page takes the canvas's texture each frame and the browser shows it.
