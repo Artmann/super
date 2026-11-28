@@ -188,6 +188,61 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void A_depth_only_pass_clears_the_part_of_its_target_inside_the_viewport_to_the_far_plane()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var target = Target();
+        using var depth = LayerImages.Depth(gpu.Context, Size);
+        using var adopted = new AdoptedTarget(device);
+        var extent = new Extent2D(Size, Size);
+        var depthView = device.Adopt(depth.View, depth.Image, extent);
+        var clear = device.CreateRenderPipeline(new RenderPipelineDescription
+        {
+            VertexShader = device.CreateShader("depth_clear.vert"),
+            Targets = [],
+            Depth = new DepthState(GpuFormat.Depth32Float, CompareFunction.Always, Write: true),
+        });
+        var cover = device.CreateRenderPipeline(new RenderPipelineDescription
+        {
+            VertexShader = device.CreateShader("fullscreen.vert"),
+            FragmentShader = device.CreateShader("solid_color.frag"),
+            Targets = [new ColorTargetState(GpuFormat.Rgba8Unorm)],
+            Depth = new DepthState(GpuFormat.Depth32Float, CompareFunction.GreaterEqual, Write: false),
+        });
+        var color = new Vector4(0f, 1f, 0f, 1f);
+        var commands = new CommandList();
+        // Cleared to the nearest, then the left half drawn back to the far plane, as a shadow tile is cleared.
+        commands.BeginRenderPass([], new DepthTarget(depthView, LoadOp.Clear, 1f, ReadOnly: false));
+        commands.SetViewport(0, 0, Size / 2, Size);
+        commands.SetScissor(0, 0, Size / 2, Size);
+        commands.SetPipeline(clear);
+        commands.Draw(3, 1, 0, 0);
+        commands.EndPass();
+        // The cover, at the far plane, passes only where the depth is at the far plane too.
+        commands.BeginRenderPass([new ColorTarget(adopted.For(target, extent), LoadOp.Clear, new Vector4(0f, 0f, 0f, 1f))],
+            new DepthTarget(depthView, LoadOp.Load, 0f, ReadOnly: false));
+        commands.SetPipeline(cover);
+        commands.SetConstants(MemoryMarshal.AsBytes(new ReadOnlySpan<Vector4>(in color)));
+        commands.Draw(3, 1, 0, 0);
+        commands.EndPass();
+
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+
+        byte[] pixels = Read(target);
+        for (int y = 0; y < Size; y++)
+        {
+            for (int x = 0; x < Size; x++)
+            {
+                byte[] expected = x < Size / 2 ? [0, 255, 0, 255] : [0, 0, 0, 255];
+                Assert.Equal(expected, pixels.AsSpan((y * Size + x) * 4, 4).ToArray());
+            }
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void A_pass_with_two_targets_writes_both()
     {
         int errors = gpu.ValidationErrors;

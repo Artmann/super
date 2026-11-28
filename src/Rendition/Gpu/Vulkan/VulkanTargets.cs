@@ -31,15 +31,14 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
     public int Begin(CommandBuffer cmd, ReadOnlySpan<int> words)
     {
         int count = words[1];
-        if (count is < 1 or > MaxTargets)
+        int length = 2 + count * 6 + 4;
+        if (count is < 0 or > MaxTargets || (count == 0 && words[length - 4] == 0))
         {
-            throw new NotSupportedException($"A render pass needs 1 to {MaxTargets} colour targets, not {count}.");
+            throw new NotSupportedException($"A render pass takes 0 to {MaxTargets} colour targets, and depth when it has none; this one has {count}.");
         }
 
-        int length = 2 + count * 6 + 4;
-
-        // The pass covers the first target, as WebGPU's default viewport does.
-        var extent = views[words[2]].Extent;
+        // The pass covers the first target, or the depth when it has no colour, as WebGPU's default viewport does.
+        var extent = views[count > 0 ? words[2] : words[length - 4]].Extent;
         var attachments = stackalloc RenderingAttachmentInfo[count];
         for (int i = 0; i < count; i++)
         {

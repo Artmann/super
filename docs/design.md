@@ -1816,8 +1816,8 @@ is drawn again, since another tile may have drawn over it. A tile with a skinned
 or one that sways in the wind, is drawn every frame, as those move on the GPU with nothing
 in the draw changing. Destroying a mesh, texture or material, or reloading shaders, bumps
 a count (`ShadowWorld`, in `SceneStores`) that forgets every tile, as a handle may come back for something else. A drawn
-tile is cleared with `vkCmdClearAttachments` over its own square, and the pass loads the
-rest. When no tile needs drawing, the pass and its barriers are skipped. In the Crypt at
+tile is cleared over its own square by drawing the far plane across it (see "GPU layer"),
+and the pass loads the rest. When no tile needs drawing, the pass and its barriers are skipped. In the Crypt at
 1600 by 900, 19 of its 32 tiles are kept each frame; the other 13 see the lantern swinging
 on its chain. `--profile` prints the count as "Light shadow tiles".
 
@@ -5050,7 +5050,8 @@ pass moves its targets to `ColorAttachmentOptimal` as it begins (from `Undefined
 loads them) and back as it ends, and every image in a bind group is already readable. Both
 moves wait for, and make the image ready for, compute shaders as well as fragment shaders,
 since the exposure meter and paint's filter read the picture from compute. The
-viewport and render area are the first target's size. Bind groups are bound at the next draw,
+viewport and render area are the first target's size, or the depth target's in a pass that
+draws depth alone, as a shadow map does. Bind groups are bound at the next draw,
 so they can be set before or after the pipeline, as in WebGPU. A writable depth target moves
 to `DepthAttachmentOptimal` as the pass begins (from `Undefined` unless it loads) and back to
 `ShaderReadOnlyOptimal` as it ends, waiting for and readying the depth tests as well as the
@@ -5147,11 +5148,19 @@ each with `VulkanGpu.Adopt(LivePipeline, …)`. Each scene pass keeps a `SceneLi
 pipeline layout its pipelines share, its `SceneTarget`, and the `PipelineVariants`, a culled
 and a two-sided id, it adopted through it, which it destroys with the layout. The layer owns
 an adopted pipeline but its layout stays lent, and it reads the pipeline's handle as it plays,
-so live shader reload still works. The G-buffer,
-the shadow cascades and atlas, the mirror, glass, and the light and reflection probes'
-captures each still begin their rendering and bind their own sets by hand, then play the list
-into it; the cube captures keep their multiview rendering and their probe constants, pushed
-after the draw constants. Glass plays one list per draw and the atlas one per tile for now.
+so live shader reload still works.
+
+The shadows begin and end their passes through the layer, depth alone. Each cascade's layer
+and the atlas are adopted held, because `SunShadows` and `LightShadowTiles` move them by hand
+around the grass and the other cascades, and the light probes' sun map is adopted as an
+ordinary target, so the layer moves it and leaves it ready to sample. The atlas is one pass:
+each redrawn tile sets its viewport and scissor and is cleared by drawing `depth_clear.vert`, a
+fullscreen triangle at the far plane with compare `Always`, since WebGPU has no way to clear
+part of a target. The grass's blades still begin over a cascade by hand
+(`ShadowPass.BeginOver`) until the grass moves. The G-buffer, the mirror, glass, and the light
+and reflection probes' captures each still begin their rendering and bind their own sets by
+hand, then play the list into it; the cube captures keep their multiview rendering and their
+probe constants, pushed after the draw constants. Glass plays one list per draw for now.
 
 Compute runs through `ComputePass`, which makes a compute pipeline from one shader and can
 be lent set layouts as `FullscreenPass` can. Each `Record` is a compute pass of its own with

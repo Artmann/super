@@ -90,19 +90,14 @@ internal sealed class ProbeSunShadow : IDisposable
     {
         const PipelineStageFlags2 readStages = PipelineStageFlags2.FragmentShaderBit;
         const AccessFlags2 read = AccessFlags2.ShaderSampledReadBit;
-        const PipelineStageFlags2 depthStages = PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit;
-        const AccessFlags2 depthAccess = AccessFlags2.DepthStencilAttachmentWriteBit | AccessFlags2.DepthStencilAttachmentReadBit;
 
         if (Redraw)
         {
-            api.Transition(cmd, new ImageTransition(_target.Image, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal), (readStages, read), (depthStages, depthAccess));
+            // The GPU layer moves the map to drawing and leaves it ready to read.
             int count = Casters(scene.Draws, _flagsOf, ref _casters);
             var casters = new SceneGeometry(_casters.AsSpan(0, count), scene.Meshes, scene.Details, scene.Instances);
-            shadows.RecordInto(cmd, frameSet, casters, (_target.View, new Extent2D(_resolution, _resolution)),
+            shadows.RecordInto(cmd, frameSet, casters, (_target, new Extent2D(_resolution, _resolution)),
                 new SceneDrawOptions(ScenePass.Shadow) { Cascade = -1, Still = true });
-            api.Transition(cmd, new ImageTransition(_target.Image, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal), (depthStages, AccessFlags2.DepthStencilAttachmentWriteBit), (readStages, read));
             _ready = true;
         }
         else if (!_ready)
