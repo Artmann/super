@@ -336,6 +336,76 @@ Branch `feat/gpu-layer-core` from `main`.
 - [ ] **Step 2:** Open the pull request: what the layer is and why, how it was tested, the frame time numbers, and that only tonemap uses it so far. Nothing on screen changes, so no pictures.
 - [ ] **Step 3:** One review of the whole branch, fixes, then write the task-level plan for stage 1b.
 
+## Stage 1b: every fullscreen pass on the layer
+
+Branch `feat/gpu-layer-fullscreen` from `main` once stage 1a's pull request is merged, or stacked on `feat/gpu-layer-core` until then.
+
+Stage 1b moves every caller of `FullscreenPass`'s Vulkan constructor, which is more than post-processing: lighting, reflections, subsurface scattering, the occlusion passes, TAA and the two FSR helper passes are fullscreen passes too, and moving them all lets the old constructor and `Record` go at the end. The lens flare's quads have vertex input, so `LensFlareDraw` waits for stage 1d. Paint's filter is a compute pass and waits for 1c; only its composite moves here. FSR itself is AMD's code and stays outside the layer.
+
+Each pass moves the way tonemap did: its own sets become bind groups made by name, made again where its sets were written (always while the GPU is idle), and the sets of passes that haven't moved are adopted.
+
+### Task 1: An adopted target, then the rest of post-processing
+
+**Files:**
+- Create: `src/Rendition/Gpu/Vulkan/AdoptedTarget.cs`
+- Modify: `src/Rendition/Passes/TonemapPass.cs`, `src/Rendition/Passes/BloomPass.cs`, `src/Rendition/Passes/DepthOfFieldPass.cs`, `src/Rendition/Passes/PaintPass.cs`, `src/Rendition/PostStage.cs`, `src/Rendition/Gpu/GpuFormat.cs` if a format is missing
+- Test: `tests/Rendition.Gpu.Tests/GpuLayerGpuTests.cs`
+
+**Interfaces:**
+- Produces: `sealed class AdoptedTarget(VulkanGpu gpu) : IDisposable` with `ViewId For(RenderTarget target, Extent2D extent)`, which adopts again only when the view, the image or the size changed, comparing fields (Silk's `Extent2D.Equals` boxes). Tonemap's `_ldr` cache moves into it. Every pass below that draws to a target it doesn't own uses one per target.
+
+- [ ] **Step 1: Write the failing tests.**
+  - `An_adopted_target_gives_the_same_id_until_the_image_changes`: two `For` calls with the same target give the same id; a new `RenderTarget` of the same size gives a different one, and the old id is released (`Release` was called, so drawing to it throws).
+  - `A_blended_pass_adds_onto_what_the_target_held`: a target uploaded with a pattern, a `FullscreenPass` with `blend: true` drawing a constant colour with `LoadOp.Load`, read back as the pattern plus the colour within 1.
+- [ ] **Step 2: Run them.** Expected: fail to compile.
+- [ ] **Step 3: Write `AdoptedTarget` and move tonemap onto it.** Then move bloom (down and up chains, one group per mip, made in `WriteSets`), depth of field (CoC, blur with two targets, the blended combine) and paint's composite. Where a pass is drawn more than once a frame with different groups, one `CommandList` records all its draws and is played once.
+- [ ] **Step 4: Run the GPU suite and the shots** (Shapes, Hamlet, Courtyard, Reef; seed 1, 120 ticks, 1280x720, `--validate`). Expected: tests pass, Shapes and Courtyard byte-identical to `main`, Hamlet and Reef within the PSNR of two runs of `main`, no validation messages. Also a shot of an example with depth of field and one with paint on, since the default shots may not show them.
+- [ ] **Step 5: Measure** Reef and Hamlet CPU frame time and allocation per frame as stage 1a did. Expected: within noise, no new bytes per frame.
+- [ ] **Step 6: Commit.** `refactor: draw bloom, depth of field and paint through the GPU layer`
+
+### Task 2: Resolve, FSR's helpers and finish
+
+**Files:**
+- Modify: `src/Rendition/ResolveStage.cs`, `src/Rendition/Passes/FsrPass.cs`, `src/Rendition/FinishStage.cs`, `src/Rendition/Gpu/GpuFormat.cs`
+- Test: `tests/Rendition.Gpu.Tests/GpuLayerGpuTests.cs`
+
+**Interfaces:**
+- Consumes: Task 1's `AdoptedTarget`.
+- Produces: `GpuFormat` gains the swapchain formats the window can pick (`Bgra8UnormSrgb`, `Bgra8Unorm`, `Rgba8UnormSrgb`), mapped to and from Vulkan in one place.
+
+- [ ] **Step 1: Write the failing test.** `Every_swapchain_format_the_window_can_pick_maps_to_a_gpu_format`: each format `Swapchain` can choose maps to a `GpuFormat` and back to itself.
+- [ ] **Step 2: Run it.** Expected: fail.
+- [ ] **Step 3: Move TAA, FSR's motion and exposure passes, and finish.** Finish draws into the swapchain image, which is adopted each frame through an `AdoptedTarget` per swapchain image; its third group is the window's resources set, adopted.
+- [ ] **Step 4: Run the GPU suite, the shots with `--graphics` set to use TAA and to use FSR, and measure.** Expected as in Task 1.
+- [ ] **Step 5: Commit.** `refactor: draw TAA, FSR's helpers and finish through the GPU layer`
+
+### Task 3: Lighting and occlusion
+
+**Files:**
+- Modify: `src/Rendition/LightingStage.cs`, `src/Rendition/OcclusionStage.cs`
+- Test: `tests/Rendition.Gpu.Tests/GpuLayerGpuTests.cs`
+
+- [ ] **Step 1: Write the failing test.** `A_pass_with_two_targets_writes_both`: a `FullscreenPass` through the layer with two `Rgba16Float` targets and a test shader writing a different constant to each; both read back as their constant. (Lighting, AO and its blur write two targets.)
+- [ ] **Step 2: Run it.** Expected: fail if two targets don't play, else pass and note it.
+- [ ] **Step 3: Move reflections, lighting, the two subsurface blurs, AO, its blur and its temporal pass.** Their push constants go through `SetConstants`. The lighting pass's probe and shadow sets are adopted.
+- [ ] **Step 4: Run the GPU suite, the shots, a shot with AO's `ScreenBounce` on and one of an example with subsurface scattering, and measure.** Expected as in Task 1. Lighting is where the per-frame cost is most at risk; write the timings in the ledger.
+- [ ] **Step 5: Commit.** `refactor: draw lighting and occlusion through the GPU layer`
+
+### Task 4: Delete the old fullscreen path
+
+**Files:**
+- Modify: `src/Rendition/Passes/FullscreenPass.cs`, `docs/design.md`, and whatever `dotnet roe` reports as dead after it
+
+- [ ] **Step 1:** Delete the Vulkan constructor and `Record(CommandBuffer, …)`, and the descriptor kit layouts nothing uses any more. Run `dotnet roe`; delete what it reports dead.
+- [ ] **Step 2:** Update `design.md`'s GPU layer section: which passes are on the layer, `AdoptedTarget`, and what waits for 1c and 1d.
+- [ ] **Step 3:** Run CI's tests and the GPU suite. Expected: pass, with only the known `LiveProbeTests` allocation failure that `main` also has.
+- [ ] **Step 4: Commit.** `refactor: remove the old fullscreen pass path`
+
+### Task 5: Pull request
+
+- [ ] **Step 1:** Open the pull request: what moved, the frame time and allocation numbers, the shot comparison, what still draws the old way. Nothing on screen changes, so no pictures.
+- [ ] **Step 2:** One review of the whole branch, fixes, then write the task-level plan for stage 1c.
+
 ---
 
 ## Stage 0 findings

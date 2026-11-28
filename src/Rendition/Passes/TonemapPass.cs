@@ -18,7 +18,7 @@ internal sealed class TonemapPass : IDisposable
     private readonly CommandList _commands = new();
     private readonly ViewId[] _sources = new ViewId[3];
     private BindGroupId _group;
-    private (ImageView Handle, Extent2D Extent, ViewId Id) _ldr;
+    private (ImageView View, Image Image, Extent2D Extent, ViewId Id) _ldr;
 
     public TonemapPass(VulkanGpu gpu, DescriptorKit kit, DescriptorSetLayout meterLayout)
     {
@@ -53,13 +53,14 @@ internal sealed class TonemapPass : IDisposable
     /// </summary>
     public void Record(CommandBuffer cmd, (RenderTarget Target, Extent2D Extent) ldr, (DescriptorSet Frame, DescriptorSet Meter, DescriptorSet Grade) sets)
     {
-        // Made again with the targets, maybe with the same handle but a new size. Silk's Extent2D.Equals boxes, so
-        // the sides are compared one by one.
-        var (view, extent) = (ldr.Target.View, ldr.Extent);
-        if (_ldr.Handle.Handle != view.Handle || _ldr.Extent.Width != extent.Width || _ldr.Extent.Height != extent.Height)
+        // Made again with the targets, maybe with a handle the driver reused but a new image or size. Silk's
+        // Extent2D.Equals boxes, so the sides are compared one by one.
+        var (view, image, extent) = (ldr.Target.View, ldr.Target.Image, ldr.Extent);
+        if (_ldr.View.Handle != view.Handle || _ldr.Image.Handle != image.Handle
+            || _ldr.Extent.Width != extent.Width || _ldr.Extent.Height != extent.Height)
         {
             ReleaseLdr();
-            _ldr = (ldr.Target.View, ldr.Extent, _gpu.Adopt(ldr.Target.View, ldr.Target.Image, ldr.Extent));
+            _ldr = (view, image, extent, _gpu.Adopt(view, image, extent));
         }
 
         _commands.Reset();

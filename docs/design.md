@@ -5043,7 +5043,8 @@ of its own sized to it, so destroying a group frees it at once.
 `VulkanPlayer` plays a list into the frame's command buffer. Images rest in
 `ShaderReadOnlyOptimal` between passes, as the renderer's other passes leave them, so a render
 pass moves its targets to `ColorAttachmentOptimal` as it begins (from `Undefined` unless it
-loads them) and back as it ends, and every image in a bind group is already readable. The
+loads them, when it waits for both fragment and compute shaders that read them) and back as
+it ends, and every image in a bind group is already readable. The
 viewport and render area are the first target's size. Bind groups are bound at the next draw,
 so they can be set before or after the pipeline, as in WebGPU. Depth targets, buffers, compute
 and labels aren't played yet; each stage adds what its passes need.
@@ -5060,7 +5061,8 @@ The tonemap was the first pass to move. `TonemapPass` draws through `FullscreenP
 constructor: its own group, the picture, bloom and the flare, is a bind group made by name,
 and the frame's, the meter's and the grade's sets are adopted beside it. It makes that group
 again whenever `PostStage.WriteSets` runs, which only happens while the GPU is idle, and adopts
-Ldr again when the targets change. Recording and playing it allocates nothing, and the
+Ldr again when its view, image or size changes; the image is checked too because a driver can
+give a remade view the old handle. Recording and playing it allocates nothing, and the
 `GpuLayerGpuTests` check that.
 
 ## Resource lifetime

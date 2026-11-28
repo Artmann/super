@@ -149,9 +149,8 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
             return;
         }
 
-        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.ShaderReadOnlyOptimal, ImageLayout.ColorAttachmentOptimal),
-            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit),
-            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentReadBit | AccessFlags2.ColorAttachmentWriteBit));
+        // Compute shaders read resting images too, so the wait covers them as well as fragment shaders.
+        api.BeginBlendOnto(cmd, image);
     }
 
     private void EndPass(CommandBuffer cmd)
