@@ -102,6 +102,45 @@ public sealed class FogVolumeGpuTests(GpuFixture gpu, ITestOutputHelper output)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void A_settled_frame_with_volumetric_fog_allocates_no_more_than_one_without()
+    {
+        const int Frames = 60;
+        WithWall(new Vector4(0.8f, 0.8f, 0.8f, 1f), wall =>
+        {
+            DrawItem[] draws = [wall];
+            FogVolumeDraw[] box = [new(FogShape.Box, BoxAt, new FogVolumeSettings(2f))];
+            var foggy = View(Frontlight, box);
+            var clear = View(Frontlight, box, RenderEffects.VolumetricFog);
+
+            // The first frames of each make what the renderer keeps, so both run once before either is measured.
+            Allocated(clear);
+            Allocated(foggy);
+            long without = Allocated(clear);
+            long with = Allocated(foggy);
+            output.WriteLine($"{Frames} frames allocated {with} bytes with volumetric fog, {without} without.");
+
+            Assert.True(with <= without, $"{Frames} frames allocated {with} bytes with volumetric fog, {without} without.");
+
+            long Allocated(FrameView view)
+            {
+                // Warm up, so lists that grow to the frame's size have grown.
+                for (int frame = 0; frame < 20; frame++)
+                {
+                    gpu.Renderer.Render(view, draws);
+                }
+
+                long before = GC.GetTotalAllocatedBytes(precise: true);
+                for (int frame = 0; frame < Frames; frame++)
+                {
+                    gpu.Renderer.Render(view, draws);
+                }
+
+                return GC.GetTotalAllocatedBytes(precise: true) - before;
+            }
+        });
+    }
+
     // The fixture's view lit by the sun given, with no fog of the scene's own and the effects that add frame-to-frame
     // noise or change the exposure left off.
     private FrameView View(DirectionalLight[] sun, FogVolumeDraw[] volumes, RenderEffects off = RenderEffects.None)

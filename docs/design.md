@@ -2494,7 +2494,7 @@ without the sun's disc. Blits then halve the capture into a full chain of eight 
 the sphere as the sample stands for (filtered importance sampling, Křivánek and Colbert,
 2008), so the rough levels are smooth without hundreds of reads. The blur runs through the GPU
 layer, with a bind group for each mip of each probe's cube, made the first time it is filtered
-and again only when the cubes grow. The layer's barriers wait for earlier frames' reads of the
+and again when the cubes grow: growing frees the old views, and a new one can get a freed one's handle, so the filter forgets every group's views then rather than trusting the handles to differ. The layer's barriers wait for earlier frames' reads of the
 cube before the blur writes it, and the frame's own lighting waits for the blur, so the frame
 shows the new picture. The probe's
 placement is stored then, so a probe shows from the frame of its first capture. A frame that

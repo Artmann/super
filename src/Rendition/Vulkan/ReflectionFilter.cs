@@ -9,7 +9,7 @@ namespace Rendition.Vulkan;
 /// <summary>
 /// Blurs a reflection capture into the levels of a probe's cube, rougher with each level, with
 /// Shaders/reflection_probe.comp, run through the GPU layer. Each level of each cube has its own bind group, made the
-/// first time it is filtered and again only when its views change, which happens when the cubes grow, after the GPU is
+/// first time it is filtered and again when its views change or the cubes grow, which happens after the GPU is
 /// idle.
 /// </summary>
 internal sealed class ReflectionFilter : IDisposable
@@ -66,6 +66,21 @@ internal sealed class ReflectionFilter : IDisposable
         }
 
         _gpu.Play(_commands, cmd);
+    }
+
+    /// <summary>
+    /// Forgets which views each group was made for, so the next <see cref="Record"/> of every slot makes its groups
+    /// again. Called when the cubes grow: their old views are freed, and Vulkan may hand the new ones the same handles.
+    /// </summary>
+    public void Forget()
+    {
+        foreach (var cube in _groups)
+        {
+            for (int mip = 0; mip < cube.Length; mip++)
+            {
+                cube[mip] = (cube[mip].Group, default, default);
+            }
+        }
     }
 
     public void Dispose()

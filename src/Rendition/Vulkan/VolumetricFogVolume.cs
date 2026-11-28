@@ -124,7 +124,7 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         // The layer's barriers keep this frame's writes after last frame's reads of the history and the sum, the
         // integrate after the inject, and the fog's readers after the integrate.
         var size = _grid.Size;
-        BindGroupId[] groups = [_gpu.Adopt(frameSet), _gpu.Adopt(_sets.Sets[_current])];
+        ReadOnlySpan<BindGroupId> groups = [_gpu.Adopt(frameSet), _gpu.Adopt(_sets.Sets[_current])];
         _commands.Reset();
 
         // Each of the inject pass's invocations lights a block of InjectBlock by InjectBlock cells.

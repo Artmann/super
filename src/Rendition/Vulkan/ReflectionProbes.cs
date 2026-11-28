@@ -70,6 +70,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         {
             slot = Cubes.Capacity;
             Cubes.Grow();
+            _filter.Forget();
         }
 
         _held[slot] = true;
