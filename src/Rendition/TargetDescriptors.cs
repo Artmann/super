@@ -20,7 +20,7 @@ internal static class TargetDescriptors
         stages.OpaqueStage.WriteTargets(gBuffer, depth, kit.NearestSampler);
 
         var shadowDepth = new DescriptorImageInfo(kit.NearestSampler, lights.ShadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal);
-        stages.OcclusionStage.WriteSets(gBuffer, depth, normal, shadowDepth);
+        stages.OcclusionStage.WriteSets(gBuffer, depth.ImageView, normal.ImageView, shadowDepth.ImageView);
         stages.LightingStage.WriteSets(gBuffer, depth, normal, shadowDepth);
         WriteBlendSets(stores, passes, gBuffer);
         WriteDisplaySets(stores, passes, targets);

@@ -50,7 +50,7 @@ internal sealed unsafe class Fsr : IDisposable
     /// <summary>The size FSR rebuilds the picture at.</summary>
     public Extent2D DisplaySize { get; }
 
-    /// <summary>The name and version of FSR the library picked, such as "FSR 3.1.4".</summary>
+    /// <summary>The version of FSR the library picked, such as "3.1.4".</summary>
     public string Version { get; }
 
     /// <summary>

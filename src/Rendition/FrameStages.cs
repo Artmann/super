@@ -19,22 +19,22 @@ internal sealed class FrameStages
         TraceDebugPass = stores.Tracing is null ? null
             : new TraceDebugPass(context, stores.Tracing, FrameRing.Count, kit.FrameSetLayout, resources.Layout);
         var copier = new HistoryCopier(context.Api);
-        OcclusionStage = new OcclusionStage(context, kit, copier);
-        LightingStage = new LightingStage(context, kit,
+        OcclusionStage = new OcclusionStage((context, stores.Gpu), kit, copier);
+        LightingStage = new LightingStage((context, stores.Gpu), kit,
             new LightingStage.Sources(resources, map, lights.ReflectionProbes, lights.ProbeVolume, lights.ShadowPass, lights.Planar));
         // Counting each pass's shaders needs a device feature; without it the frame is only timed.
         GpuWork = context.Abilities.PipelineStatistics ? new GpuWorkCounter(context, FrameRing.Count, GpuTimer.FramePasses) : null;
         GpuTimer = new GpuTimer(context, FrameRing.Count, counter: GpuWork);
-        ResolveStage = new ResolveStage(context, kit, copier);
+        ResolveStage = new ResolveStage(stores.Gpu, kit, copier);
         // Bloom and tonemapping start out reading the anti-aliased image.
         PostStage = new PostStage((context, stores.Gpu), kit, GpuTimer, targets, targets.Picture.Resolved.View);
         HeldPicture = new HeldPicture(context.Api);
-        FinishStage = new FinishStage(context, kit, ring, GpuTimer, (windowFormat, resources));
+        FinishStage = new FinishStage((context, stores.Gpu), kit, ring, GpuTimer, (windowFormat, resources));
         BlendStage = new BlendStage(context, kit, (ring, GpuTimer, meshes), (resources, map, lights.ReflectionProbes), stores.Switches);
         OpaqueStage = new OpaqueStage(context, kit, ring, meshes, (resources, stores.Switches));
         Grass = new GrassStage(context, stores, GpuTimer);
         OpaqueStage.Pass.Grass = Grass;
-        FsrPass = new FsrPass(context, kit.NearestSampler, kit.FrameSetLayout, PostStage.Meter.SetLayout);
+        FsrPass = new FsrPass((context, stores.Gpu), kit.FrameSetLayout, PostStage.Meter.SetLayout);
     }
 
     /// <summary>What a frame's draws come to as the instances rays are traced through, or null when the GPU can't trace.</summary>

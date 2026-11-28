@@ -124,6 +124,36 @@ public sealed class QualityGpuTests(GpuFixture gpu)
         }
     }
 
+    [Fact]
+    public void Fsr_draws_when_it_is_asked_for_on_the_same_frame_vsync_changes()
+    {
+        var settings = gpu.Renderer.Settings;
+        var (upscaler, vsync) = (settings.Upscaler, settings.Vsync);
+        var panel = Panel(new Vector3(0f, 0f, 0f));
+        try
+        {
+            settings.Upscaler = Upscaler.Fsr;
+            if (settings.UpscalerUsed != Upscaler.Fsr)
+            {
+                // The FSR library isn't on this machine, so TAA draws instead.
+                return;
+            }
+
+            // Making the swapchain again for vsync keeps its size, so only the upscaler asks for new targets.
+            settings.Vsync = !vsync;
+            Measure(panel, RenderEffects.None);
+
+            Assert.Matches(@"^\d+\.\d+\.\d+$", gpu.Renderer.Stats.UpscalerVersion);
+        }
+        finally
+        {
+            settings.Upscaler = upscaler;
+            settings.Vsync = vsync;
+            gpu.Renderer.Render(View(RenderEffects.None), [panel]);
+            gpu.Renderer.Assets.DestroyMesh(panel.Mesh);
+        }
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(5)]

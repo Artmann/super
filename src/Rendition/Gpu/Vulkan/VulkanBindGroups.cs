@@ -46,8 +46,12 @@ internal sealed record VulkanPipeline(
     }
 }
 
-/// <summary>An image view made outside the layer, with what the layer needs to move its image between layouts.</summary>
-internal readonly record struct AdoptedView(ImageView View, Image Image, Extent2D Extent);
+/// <summary>
+/// An image view made outside the layer, with what the layer needs to move its image between layouts. A
+/// <see cref="ReadOnlyDepth"/> view is depth that rests in <see cref="ImageLayout.DepthReadOnlyOptimal"/> and is only sampled.
+/// A <see cref="Surface"/> is drawn to in the layout its caller leaves it in, as the window's image is.
+/// </summary>
+internal readonly record struct AdoptedView(ImageView View, Image Image, Extent2D Extent, bool ReadOnlyDepth = false, bool Surface = false);
 
 /// <summary>A descriptor set, and the pool it came from when the layer made it. An adopted set has no pool.</summary>
 internal readonly record struct VulkanBindGroup(DescriptorSet Set, DescriptorPool Pool);
@@ -143,7 +147,9 @@ internal sealed unsafe class VulkanBindGroups(VulkanContext context, IdTable<Ado
         var writes = stackalloc WriteDescriptorSet[binds.Length];
         for (int i = 0; i < binds.Length; i++)
         {
-            images[i] = new DescriptorImageInfo(samplers[binds[i].Sampler.Value], views[binds[i].View.Value].View, ImageLayout.ShaderReadOnlyOptimal);
+            var view = views[binds[i].View.Value];
+            var layout = view.ReadOnlyDepth ? ImageLayout.DepthReadOnlyOptimal : ImageLayout.ShaderReadOnlyOptimal;
+            images[i] = new DescriptorImageInfo(samplers[binds[i].Sampler.Value], view.View, layout);
             writes[i] = Descriptors.ImageWrite(set, (uint)found[i].Binding, Types[found[i].Kind], &images[i]);
         }
 

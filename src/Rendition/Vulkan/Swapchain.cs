@@ -14,6 +14,9 @@ internal sealed unsafe class Swapchain : IDisposable
     public readonly Image[] Images;
     public readonly ImageView[] Views;
 
+    /// <summary>The formats the window's images can have, the first the display offers taken.</summary>
+    public static readonly Format[] Formats = [Format.B8G8R8A8Srgb];
+
     /// <summary>One per image: presentation holds it until that same image comes back.</summary>
     public readonly Semaphore[] RenderFinished;
 
@@ -150,11 +153,14 @@ internal sealed unsafe class Swapchain : IDisposable
             _context.SurfaceApi.GetPhysicalDeviceSurfaceFormats(_context.PhysicalDevice, _context.Surface, &count, ptr).Check();
         }
 
-        foreach (var format in formats)
+        foreach (var wanted in Formats)
         {
-            if (format.Format == Format.B8G8R8A8Srgb && format.ColorSpace == ColorSpaceKHR.SpaceSrgbNonlinearKhr)
+            foreach (var format in formats)
             {
-                return format;
+                if (format.Format == wanted && format.ColorSpace == ColorSpaceKHR.SpaceSrgbNonlinearKhr)
+                {
+                    return format;
+                }
             }
         }
 

@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 using Silk.NET.Vulkan;
 
@@ -65,21 +67,20 @@ internal struct PaintConstants
 }
 
 /// <summary>
-/// The oil-paint look. paint_filter.comp runs an anisotropic Kuwahara filter over the picture at half size, and
-/// paint_composite.frag lays the result back over the full-size picture in place, as much as each pixel's paint says.
-/// Runs after bloom, which reads the picture unpainted, and before the tonemap. See "Paint" in docs/design.md.
+/// The oil-paint look. <see cref="PaintFilter"/> filters the picture at half size, and paint_composite.frag lays the
+/// result back over the full-size picture in place, as much as each pixel's paint says. Runs after bloom, which reads
+/// the picture unpainted, and before the tonemap. See "Paint" in docs/design.md.
 /// </summary>
 internal sealed unsafe class PaintPass : IDisposable
 {
-    private const uint GroupSize = 16;
-
     private readonly VulkanContext _context;
-    private readonly (Sampler Nearest, Sampler Linear) _samplers;
-    private readonly (DescriptorSetLayout Filter, DescriptorSetLayout Composite) _layouts;
-    private readonly DescriptorPool _pool;
-    private readonly (DescriptorSet Filter, DescriptorSet Composite) _sets;
-    private readonly (PipelineLayout Layout, LivePipeline Pipeline) _filter;
+    private readonly VulkanGpu _gpu;
+    private readonly PaintFilter _filter;
     private readonly FullscreenPass _composite;
+    private readonly ImageGroup _compositeGroup;
+    private readonly SamplerId _point;
+    private readonly AdoptedTarget _target;
+    private readonly CommandList _commands = new();
 
     // The half-size painted picture, made the first time a frame paints, so a game that never paints never spends the
     // memory on it. Null until then, and again after a resize.
@@ -88,31 +89,17 @@ internal sealed unsafe class PaintPass : IDisposable
     private (ImageView Source, ImageView Depth) _reads;
     private PaintConstants? _constants;
 
-    public PaintPass(VulkanContext context, (Sampler Nearest, Sampler Linear) samplers, DescriptorSetLayout frameSetLayout, DescriptorSetLayout exposureLayout)
+    public PaintPass(
+        (VulkanContext Context, VulkanGpu Gpu) device, (Sampler Nearest, Sampler Linear) samplers, DescriptorSetLayout frameSetLayout, DescriptorSetLayout exposureLayout)
     {
+        var (context, gpu) = device;
         _context = context;
-        _samplers = samplers;
-        _layouts = (
-            context.CreateSetLayout(
-            [
-                new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-                new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-                new(2, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-            ]),
-            context.CreateSetLayout(
-            [
-                new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-                new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-            ]));
-        _pool = context.CreateDescriptorPool(
-            2, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 4), new DescriptorPoolSize(DescriptorType.StorageImage, 1));
-        _sets = (context.AllocateSet(_pool, _layouts.Filter), context.AllocateSet(_pool, _layouts.Composite));
-
-        var filterLayout = context.CreatePipelineLayout(
-            [frameSetLayout, _layouts.Filter, exposureLayout], new PushConstantRange(ShaderStageFlags.ComputeBit, 0, PaintConstants.Size));
-        _filter = (filterLayout, PipelineFactory.CreateCompute(context, "paint_filter.comp", filterLayout));
-        _composite = new FullscreenPass(
-            context, "paint_composite.frag", [GBuffer.HdrFormat], [frameSetLayout, _layouts.Composite], PaintConstants.Size, blend: true);
+        _gpu = gpu;
+        _filter = new PaintFilter(context, samplers, frameSetLayout, exposureLayout);
+        _composite = new FullscreenPass(gpu, "paint_composite.frag", [GpuFormat.Rgba16Float], blend: true, borrowed: [frameSetLayout, default]);
+        _compositeGroup = new ImageGroup(gpu, gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear)));
+        _point = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Nearest));
+        _target = new AdoptedTarget(gpu);
     }
 
     /// <summary>Whether this frame paints, once <see cref="Take"/> has run.</summary>
@@ -149,7 +136,7 @@ internal sealed unsafe class PaintPass : IDisposable
     /// Paints <paramref name="target"/>, the picture <see cref="SetSource"/> was given, in place, when <see cref="Take"/>
     /// said to. It must be ready to sample, and is left ready to sample again.
     /// </summary>
-    public void Record(CommandBuffer cmd, (DescriptorSet Frame, DescriptorSet Exposure) tables, (Image Image, ImageView View, Extent2D Extent) target)
+    public void Record(CommandBuffer cmd, (DescriptorSet Frame, DescriptorSet Exposure) tables, (RenderTarget Target, Extent2D Extent) target)
     {
         if (_constants is not { } constants)
         {
@@ -164,68 +151,30 @@ internal sealed unsafe class PaintPass : IDisposable
             WriteSets();
         }
 
-        var api = _context.Api;
-        var painted = _painted;
+        _filter.Record(cmd, tables, (_painted.Image, _half), constants);
 
-        // The filter reads depth from compute, which no earlier pass may have.
-        api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit, AccessFlags2.DepthStencilAttachmentWriteBit),
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit));
-
-        // Last frame's composite read it; its contents are all replaced.
-        api.Transition(cmd, new ImageTransition(painted.Image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General),
-            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.None),
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
-
-        var sets = stackalloc DescriptorSet[] { tables.Frame, _sets.Filter, tables.Exposure };
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _filter.Pipeline);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _filter.Layout, 0, 3, sets, 0, null);
-        api.CmdPushConstants(cmd, _filter.Layout, ShaderStageFlags.ComputeBit, 0, PaintConstants.Size, &constants);
-        api.CmdDispatch(cmd, (_half.Width + GroupSize - 1) / GroupSize, (_half.Height + GroupSize - 1) / GroupSize, 1);
-
-        api.Transition(cmd, new ImageTransition(painted.Image, ImageAspectFlags.ColorBit, ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal),
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
-            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
-
-        RecordComposite(cmd, tables.Frame, target, constants);
-    }
-
-    // The composite blends over the picture the filter just read, so it keeps what's there. The meter, a compute pass,
-    // and the tonemap read it after.
-    private void RecordComposite(CommandBuffer cmd, DescriptorSet frame, (Image Image, ImageView View, Extent2D Extent) target, PaintConstants constants)
-    {
-        _context.Api.BeginBlendOnto(cmd, target.Image);
+        // The composite blends over the picture the filter just read, so it loads what's there. The meter, a compute
+        // pass, and the tonemap read it after.
         var bytes = new ReadOnlySpan<byte>(&constants, (int)PaintConstants.Size);
-        _composite.Record(cmd, [target.View], target.Extent, [frame, _sets.Composite], bytes);
-        _context.Api.EndBlendOnto(cmd, target.Image);
+        _commands.Reset();
+        _composite.Record(_commands, [new ColorTarget(_target.For(target.Target, target.Extent), LoadOp.Load, default)],
+            [_gpu.Adopt(tables.Frame), _compositeGroup.Id], bytes);
+        _gpu.Play(_commands, cmd);
     }
 
     public void Dispose()
     {
+        _compositeGroup.Dispose();
+        _target.Dispose();
         _painted?.Dispose();
         _composite.Dispose();
-        _filter.Pipeline.Destroy();
-        _context.Api.DestroyPipelineLayout(_context.Device, _filter.Layout, null);
-        _context.Api.DestroyDescriptorPool(_context.Device, _pool, null);
-        _context.Api.DestroyDescriptorSetLayout(_context.Device, _layouts.Filter, null);
-        _context.Api.DestroyDescriptorSetLayout(_context.Device, _layouts.Composite, null);
+        _filter.Dispose();
     }
 
     private void WriteSets()
     {
-        var (nearest, linear) = _samplers;
-        var source = new DescriptorImageInfo(linear, _reads.Source, ImageLayout.ShaderReadOnlyOptimal);
-        var depth = new DescriptorImageInfo(nearest, _reads.Depth, ImageLayout.DepthReadOnlyOptimal);
-        var output = new DescriptorImageInfo(default, _painted!.View, ImageLayout.General);
-        var painted = new DescriptorImageInfo(linear, _painted.View, ImageLayout.ShaderReadOnlyOptimal);
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            Descriptors.ImageWrite(_sets.Filter, 0, DescriptorType.CombinedImageSampler, &source),
-            Descriptors.ImageWrite(_sets.Filter, 1, DescriptorType.CombinedImageSampler, &depth),
-            Descriptors.ImageWrite(_sets.Filter, 2, DescriptorType.StorageImage, &output),
-            Descriptors.ImageWrite(_sets.Composite, 0, DescriptorType.CombinedImageSampler, &painted),
-            Descriptors.ImageWrite(_sets.Composite, 1, DescriptorType.CombinedImageSampler, &depth),
-        };
-        _context.Api.UpdateDescriptorSets(_context.Device, 5, writes, 0, null);
+        _filter.Write(_reads.Source, _reads.Depth, _painted!.View);
+        _compositeGroup.Make(_composite.Pipeline, 1,
+            [("paintedTexture", _painted.View), new GroupImage("depthTexture", _reads.Depth, _point, ReadOnlyDepth: true)]);
     }
 }

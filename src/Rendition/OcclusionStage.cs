@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 using Silk.NET.Vulkan;
@@ -8,40 +10,49 @@ namespace Rendition;
 
 /// <summary>
 /// The ambient occlusion and the light bounced from the screen: the trace, the average over the last frames and the
-/// blur, with their passes and sets. See "Ambient occlusion" in docs/design.md.
+/// blur, drawn through the GPU layer. See "Ambient occlusion" in docs/design.md.
 /// </summary>
 internal sealed unsafe class OcclusionStage : IDisposable
 {
-    private readonly VulkanContext _context;
     private readonly Vk _api;
-    private readonly DescriptorKit _kit;
+    private readonly VulkanGpu _gpu;
     private readonly HistoryCopier _copier;
     private readonly FullscreenPass _aoPass;
     private readonly FullscreenPass _aoSteadyPass;
     private readonly FullscreenPass _aoBlurPass;
-    private readonly DescriptorSet _aoSet;
-    private readonly DescriptorSet _aoAcrossSet;
-    private readonly DescriptorSet _aoSteadySet;
-    private readonly DescriptorSet _aoSteadyAcrossSet;
-    private readonly DescriptorSet _aoDownSet;
+    private readonly CommandList _commands = new();
+    private readonly AdoptedTargets _targets;
+    private readonly SamplerId _linear;
 
-    public OcclusionStage(VulkanContext context, DescriptorKit kit, HistoryCopier copier)
+    // The trace's images, the average's, and the blur's: across from the trace or the average, then down.
+    private readonly ImageGroup[] _groups;
+
+    public OcclusionStage((VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, HistoryCopier copier)
     {
-        _context = context;
+        var (context, gpu) = device;
         _api = context.Api;
-        _kit = kit;
+        _gpu = gpu;
         _copier = copier;
-        _aoSet = kit.NewSet(kit.FourTextureLayout);
-        _aoAcrossSet = kit.NewSet(kit.FourTextureLayout);
-        _aoSteadySet = kit.NewSet(kit.SixTextureLayout);
-        _aoSteadyAcrossSet = kit.NewSet(kit.FourTextureLayout);
-        _aoDownSet = kit.NewSet(kit.FourTextureLayout);
-        _aoPass = new FullscreenPass(
-            context, "ao.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [kit.FrameSetLayout, kit.FourTextureLayout], 2 * sizeof(int));
-        _aoBlurPass = new FullscreenPass(
-            context, "ao_blur.frag", [GBuffer.AoFormat, GBuffer.BounceFormat], [kit.FrameSetLayout, kit.FourTextureLayout], 3 * sizeof(int));
-        _aoSteadyPass = new FullscreenPass(
-            context, "ao_temporal.frag", [GBuffer.AoSteadyFormat, GBuffer.AoSteadyFormat], [kit.FrameSetLayout, kit.SixTextureLayout], 2 * sizeof(int));
+        _targets = new AdoptedTargets(gpu);
+        _linear = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear));
+        var nearest = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Nearest));
+        _groups = [.. Enumerable.Range(0, (int)Group.Count).Select(_ => new ImageGroup(gpu, nearest))];
+
+        // Group 1 is each pass's own, laid out from its shader; the frame's set is lent.
+        ReadOnlySpan<DescriptorSetLayout> borrowed = [kit.FrameSetLayout, default];
+        _aoPass = new FullscreenPass(gpu, "ao.frag", [Format(GBuffer.AoFormat), Format(GBuffer.BounceFormat)], borrowed: borrowed);
+        _aoBlurPass = new FullscreenPass(gpu, "ao_blur.frag", [Format(GBuffer.AoFormat), Format(GBuffer.BounceFormat)], borrowed: borrowed);
+        _aoSteadyPass = new FullscreenPass(gpu, "ao_temporal.frag", [Format(GBuffer.AoSteadyFormat), Format(GBuffer.AoSteadyFormat)], borrowed: borrowed);
+    }
+
+    private enum Group
+    {
+        Trace,
+        Steady,
+        Across,
+        SteadyAcross,
+        Down,
+        Count,
     }
 
     /// <summary>
@@ -51,43 +62,42 @@ internal sealed unsafe class OcclusionStage : IDisposable
     /// </summary>
     public void Record(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, RenderEffects off, GpuTimer timer)
     {
+        var occlusion = targets.Occlusion;
         if (off.HasFlag(RenderEffects.AmbientOcclusion))
         {
-            targets.Occlusion.HistoryReady = false;
-            _api.Transition(cmd, new ImageTransition(targets.Occlusion.AoBlurred.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (SampledStage, SampledAccess), (SampledStage, SampledAccess));
-            _api.Transition(cmd, new ImageTransition(targets.Occlusion.BounceBlurred.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (SampledStage, SampledAccess), (SampledStage, SampledAccess));
+            occlusion.HistoryReady = false;
+            MakeReadable(cmd, occlusion.AoBlurred.Image, occlusion.BounceBlurred.Image);
             timer.Mark(cmd);
             timer.Mark(cmd);
             return;
         }
 
-        var extent = targets.Occlusion.Extent;
-        int scale = targets.Occlusion.Resolution == OcclusionResolution.Full ? 1 : 2;
+        var extent = occlusion.Extent;
+        int scale = occlusion.Resolution == OcclusionResolution.Full ? 1 : 2;
+        var frame = _gpu.Adopt(frameSet);
 
         // Averaged with the frames before, where there are any to keep, and that average kept for the next frame.
         bool averaged = !off.HasFlag(RenderEffects.OcclusionHistory);
         var constants = new AoConstants(scale, AoSlices(scale, averaged));
-        ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
-        _api.BeginColorTarget(cmd, targets.Occlusion.Ao.Image);
-        _api.BeginColorTarget(cmd, targets.Occlusion.Bounce.Image);
-        _aoPass.Record(cmd, [targets.Occlusion.Ao.View, targets.Occlusion.Bounce.View], extent, aoSets, new ReadOnlySpan<byte>(&constants, sizeof(AoConstants)));
-        _api.EndColorTarget(cmd, targets.Occlusion.Ao.Image);
-        _api.EndColorTarget(cmd, targets.Occlusion.Bounce.Image);
+        _commands.Reset();
+        _aoPass.Record(_commands, [_targets.For(occlusion.Ao, extent), _targets.For(occlusion.Bounce, extent)],
+            [frame, _groups[(int)Group.Trace].Id], new ReadOnlySpan<byte>(&constants, sizeof(AoConstants)));
+        _gpu.Play(_commands, cmd);
         timer.Mark(cmd);
 
         if (averaged)
         {
-            RecordAverage(cmd, targets, frameSet, scale);
+            RecordAverage(cmd, occlusion, frame, scale);
         }
 
-        targets.Occlusion.HistoryReady = averaged;
+        occlusion.HistoryReady = averaged;
 
         // Blurred across into a second pair of images, then down into the pair the lighting reads.
-        var across = averaged ? _aoSteadyAcrossSet : _aoAcrossSet;
-        RecordBlur(cmd, [targets.Occlusion.AoAcross, targets.Occlusion.BounceAcross], [frameSet, across], new AoBlurStep(1, 0, scale), extent);
-        RecordBlur(cmd, [targets.Occlusion.AoBlurred, targets.Occlusion.BounceBlurred], [frameSet, _aoDownSet], new AoBlurStep(0, 1, scale), extent);
+        var across = _groups[(int)(averaged ? Group.SteadyAcross : Group.Across)];
+        _commands.Reset();
+        RecordBlur([occlusion.AoAcross, occlusion.BounceAcross], [frame, across.Id], new AoBlurStep(1, 0, scale), extent);
+        RecordBlur([occlusion.AoBlurred, occlusion.BounceBlurred], [frame, _groups[(int)Group.Down].Id], new AoBlurStep(0, 1, scale), extent);
+        _gpu.Play(_commands, cmd);
         timer.Mark(cmd);
     }
 
@@ -96,86 +106,96 @@ internal sealed unsafe class OcclusionStage : IDisposable
     /// surface, and copies the average to the history for the next frame. <paramref name="scale"/> is screen pixels
     /// per pixel of occlusion.
     /// </summary>
-    private void RecordAverage(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, int scale)
+    private void RecordAverage(CommandBuffer cmd, OcclusionTargets occlusion, BindGroupId frame, int scale)
     {
-        if (!targets.Occlusion.HistoryReady)
+        if (!occlusion.HistoryReady)
         {
             // The pass binds the history even before there is any.
-            _api.Transition(cmd, new ImageTransition(targets.Occlusion.AoHistory.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (SampledStage, SampledAccess), (SampledStage, SampledAccess));
-            _api.Transition(cmd, new ImageTransition(targets.Occlusion.BounceHistory.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (SampledStage, SampledAccess), (SampledStage, SampledAccess));
+            MakeReadable(cmd, occlusion.AoHistory.Image, occlusion.BounceHistory.Image);
         }
 
-        var extent = targets.Occlusion.Extent;
-        var steady = new AoSteadyConstants(scale, targets.Occlusion.HistoryReady ? 1 : 0);
-        _api.BeginColorTarget(cmd, targets.Occlusion.AoSteady.Image);
-        _api.BeginColorTarget(cmd, targets.Occlusion.BounceSteady.Image);
-        _aoSteadyPass.Record(cmd, [targets.Occlusion.AoSteady.View, targets.Occlusion.BounceSteady.View], extent, [frameSet, _aoSteadySet],
-            new ReadOnlySpan<byte>(&steady, sizeof(AoSteadyConstants)));
-        _copier.RecordCopy(cmd, targets.Occlusion.AoSteady.Image, targets.Occlusion.AoHistory.Image, extent, drawnJustNow: true);
-        _copier.RecordCopy(cmd, targets.Occlusion.BounceSteady.Image, targets.Occlusion.BounceHistory.Image, extent, drawnJustNow: true);
+        var extent = occlusion.Extent;
+        var steady = new AoSteadyConstants(scale, occlusion.HistoryReady ? 1 : 0);
+        _commands.Reset();
+        _aoSteadyPass.Record(_commands, [_targets.For(occlusion.AoSteady, extent), _targets.For(occlusion.BounceSteady, extent)],
+            [frame, _groups[(int)Group.Steady].Id], new ReadOnlySpan<byte>(&steady, sizeof(AoSteadyConstants)));
+        _gpu.Play(_commands, cmd);
+
+        // The layer leaves the average ready to sample.
+        _copier.RecordCopy(cmd, occlusion.AoSteady.Image, occlusion.AoHistory.Image, extent);
+        _copier.RecordCopy(cmd, occlusion.BounceSteady.Image, occlusion.BounceHistory.Image, extent);
+    }
+
+    /// <summary>Lets a pass sample an occlusion and a bounce image nothing has drawn, whatever they held.</summary>
+    private void MakeReadable(CommandBuffer cmd, Image occlusion, Image bounce)
+    {
+        foreach (var image in (ReadOnlySpan<Image>)[occlusion, bounce])
+        {
+            _api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal), (SampledStage, SampledAccess), (SampledStage, SampledAccess));
+        }
     }
 
     /// <summary>
     /// One direction of the occlusion and bounce blur: <paramref name="step"/> is one pixel along it, and
-    /// <paramref name="sets"/> the frame's set and then the one with the occlusion and bounce to blur.
+    /// <paramref name="groups"/> the frame's set and then the group with the occlusion and bounce to blur.
     /// </summary>
-    private void RecordBlur(
-        CommandBuffer cmd, ReadOnlySpan<RenderTarget> occlusionAndBounce, ReadOnlySpan<DescriptorSet> sets, AoBlurStep step,
-        Extent2D extent)
+    private void RecordBlur(ReadOnlySpan<RenderTarget> occlusionAndBounce, ReadOnlySpan<BindGroupId> groups, AoBlurStep step, Extent2D extent) =>
+        _aoBlurPass.Record(_commands, [_targets.For(occlusionAndBounce[0], extent), _targets.For(occlusionAndBounce[1], extent)],
+            groups, new ReadOnlySpan<byte>(&step, sizeof(AoBlurStep)));
+
+    /// <summary>
+    /// Points the trace, the average and the blur's two steps at the targets. Makes the bind groups again, so it must
+    /// only be called while the GPU is idle.
+    /// </summary>
+    public void WriteSets(GBuffer targets, ImageView depth, ImageView normal, ImageView shadowDepth)
     {
-        var (occlusion, bounce) = (occlusionAndBounce[0], occlusionAndBounce[1]);
-        _api.BeginColorTarget(cmd, occlusion.Image);
-        _api.BeginColorTarget(cmd, bounce.Image);
-        _aoBlurPass.Record(cmd, [occlusion.View, bounce.View], extent, sets, new ReadOnlySpan<byte>(&step, sizeof(AoBlurStep)));
-        _api.EndColorTarget(cmd, occlusion.Image);
-        _api.EndColorTarget(cmd, bounce.Image);
+        var occlusion = targets.Occlusion;
+        _targets.Clear();
+        _groups[(int)Group.Trace].Make(_aoPass.Pipeline, 1,
+        [
+            ("depthTexture", depth),
+            ("normalRoughnessAoTexture", normal),
+            ("shadowDepthTexture", shadowDepth),
+            new GroupImage("historyTexture", targets.Picture.History.View, _linear),
+        ]);
+        _groups[(int)Group.Steady].Make(_aoSteadyPass.Pipeline, 1,
+        [
+            ("occlusionTexture", occlusion.Ao.View),
+            ("bounceTexture", occlusion.Bounce.View),
+            ("occlusionHistory", occlusion.AoHistory.View),
+            ("bounceHistory", occlusion.BounceHistory.View),
+            ("depthTexture", depth),
+            ("motionTexture", targets.Motion.View),
+        ]);
+        MakeBlur(Group.Across, (occlusion.Ao, occlusion.Bounce), depth, normal);
+        MakeBlur(Group.SteadyAcross, (occlusion.AoSteady, occlusion.BounceSteady), depth, normal);
+        MakeBlur(Group.Down, (occlusion.AoAcross, occlusion.BounceAcross), depth, normal);
     }
 
-    /// <summary>Points the trace, the average and the blur's two steps at the targets.</summary>
-    public void WriteSets(GBuffer targets, DescriptorImageInfo depth, DescriptorImageInfo normal, DescriptorImageInfo shadowDepth)
-    {
-        var sampler = _kit.NearestSampler;
-        ImageSets.Write(_context,_aoSet, [depth, normal, shadowDepth, new(_kit.LinearSampler, targets.Picture.History.View, ImageLayout.ShaderReadOnlyOptimal)]);
-        ImageSets.Write(_context,_aoAcrossSet,
+    private void MakeBlur(Group group, (RenderTarget Occlusion, RenderTarget Bounce) blurred, ImageView depth, ImageView normal) =>
+        _groups[(int)group].Make(_aoBlurPass.Pipeline, 1,
         [
-            new(sampler, targets.Occlusion.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(sampler, targets.Occlusion.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
-            depth,
-            normal,
+            ("occlusionTexture", blurred.Occlusion.View),
+            ("bounceTexture", blurred.Bounce.View),
+            ("depthTexture", depth),
+            ("normalRoughnessAoTexture", normal),
         ]);
-        ImageSets.Write(_context,_aoSteadySet,
-        [
-            new(sampler, targets.Occlusion.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(sampler, targets.Occlusion.Bounce.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(sampler, targets.Occlusion.AoHistory.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(sampler, targets.Occlusion.BounceHistory.View, ImageLayout.ShaderReadOnlyOptimal),
-            depth,
-            new(sampler, targets.Motion.View, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
-        ImageSets.Write(_context,_aoSteadyAcrossSet,
-        [
-            new(sampler, targets.Occlusion.AoSteady.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(sampler, targets.Occlusion.BounceSteady.View, ImageLayout.ShaderReadOnlyOptimal),
-            depth,
-            normal,
-        ]);
-        ImageSets.Write(_context,_aoDownSet,
-        [
-            new(sampler, targets.Occlusion.AoAcross.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(sampler, targets.Occlusion.BounceAcross.View, ImageLayout.ShaderReadOnlyOptimal),
-            depth,
-            normal,
-        ]);
-    }
 
     public void Dispose()
     {
+        foreach (var group in _groups)
+        {
+            group.Dispose();
+        }
+
+        _targets.Dispose();
         _aoBlurPass.Dispose();
         _aoSteadyPass.Dispose();
         _aoPass.Dispose();
     }
+
+    private static GpuFormat Format(Format format) => VulkanFormats.ToGpu(format);
 
     /// <summary>ao_blur.frag's constants: one pixel along the way a pass blurs, and screen pixels per pixel of occlusion.</summary>
     [StructLayout(LayoutKind.Sequential)]

@@ -1,3 +1,5 @@
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 using Silk.NET.Vulkan;
 
@@ -36,83 +38,45 @@ internal sealed class DepthOfFieldLayers : IDisposable
 }
 
 /// <summary>
-/// The three descriptor sets depth of field's passes read, three images each: the circle pass reads the picture and
-/// depth, the blur reads the circles, and the combine reads the near and far layers.
+/// The bind groups depth of field's passes read: the circle pass reads the picture and depth, the blur reads the
+/// circles, and the combine reads the near and far layers and depth. Colour is read through a linear sampler, and depth
+/// and the circles through a nearest one.
 /// </summary>
-internal sealed unsafe class DepthOfFieldSets : IDisposable
+internal sealed class DepthOfFieldSets : IDisposable
 {
-    private readonly VulkanContext _context;
-    private readonly (Sampler Point, Sampler Linear) _samplers;
-    private readonly DescriptorPool _pool;
+    private readonly SamplerId _point;
 
-    public DepthOfFieldSets(VulkanContext context, (Sampler Point, Sampler Linear) samplers)
+    public DepthOfFieldSets(VulkanGpu gpu)
     {
-        _context = context;
-        _samplers = samplers;
-        Layout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-            new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-            new(2, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-        ]);
-
-        const int setCount = 3;
-        _pool = context.CreateDescriptorPool(setCount, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, setCount * 3));
-        Coc = context.AllocateSet(_pool, Layout);
-        Blur = context.AllocateSet(_pool, Layout);
-        Combine = context.AllocateSet(_pool, Layout);
+        _point = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Nearest));
+        var linear = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear));
+        Coc = new ImageGroup(gpu, linear);
+        Blur = new ImageGroup(gpu, linear);
+        Combine = new ImageGroup(gpu, linear);
     }
 
-    public DescriptorSetLayout Layout { get; }
+    public ImageGroup Coc { get; }
 
-    public DescriptorSet Coc { get; }
+    public ImageGroup Blur { get; }
 
-    public DescriptorSet Blur { get; }
+    public ImageGroup Combine { get; }
 
-    public DescriptorSet Combine { get; }
-
-    /// <summary>Points the sets at the picture blurred, at depth, which glass leaves read-only, and at the layers.</summary>
-    public void Write(ImageView source, ImageView depth, DepthOfFieldLayers layers)
+    /// <summary>
+    /// Points the groups for <paramref name="pipelines"/> at the picture blurred, at depth, which glass leaves
+    /// read-only, and at the layers. Frames still in flight must have finished.
+    /// </summary>
+    public void Write(ImageView source, ImageView depth, DepthOfFieldLayers layers, (PipelineId Coc, PipelineId Blur, PipelineId Combine) pipelines)
     {
-        var (point, linear) = _samplers;
-        var depthInfo = new DescriptorImageInfo(point, depth, ImageLayout.DepthReadOnlyOptimal);
-        Write(Coc,
-        [
-            new(linear, source, ImageLayout.ShaderReadOnlyOptimal),
-            depthInfo,
-            new(linear, source, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
-        Write(Blur,
-        [
-            new(point, layers.Coc.View, ImageLayout.ShaderReadOnlyOptimal),
-            depthInfo,
-            new(linear, layers.Coc.View, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
-        Write(Combine,
-        [
-            new(linear, layers.Near.View, ImageLayout.ShaderReadOnlyOptimal),
-            depthInfo,
-            new(linear, layers.Far.View, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
+        var depthImage = new GroupImage("depthTexture", depth, _point, ReadOnlyDepth: true);
+        Coc.Make(pipelines.Coc, 1, [("sourceTexture", source), depthImage]);
+        Blur.Make(pipelines.Blur, 1, [new GroupImage("circleTexture", layers.Coc.View, _point)]);
+        Combine.Make(pipelines.Combine, 1, [("nearTexture", layers.Near.View), depthImage, ("farTexture", layers.Far.View)]);
     }
 
     public void Dispose()
     {
-        _context.Api.DestroyDescriptorPool(_context.Device, _pool, null);
-        _context.Api.DestroyDescriptorSetLayout(_context.Device, Layout, null);
-    }
-
-    private void Write(DescriptorSet set, ReadOnlySpan<DescriptorImageInfo> images)
-    {
-        var writes = stackalloc WriteDescriptorSet[images.Length];
-        fixed (DescriptorImageInfo* imagesPtr = images)
-        {
-            for (int i = 0; i < images.Length; i++)
-            {
-                writes[i] = Descriptors.ImageWrite(set, (uint)i, DescriptorType.CombinedImageSampler, &imagesPtr[i]);
-            }
-
-            _context.Api.UpdateDescriptorSets(_context.Device, (uint)images.Length, writes, 0, null);
-        }
+        Coc.Dispose();
+        Blur.Dispose();
+        Combine.Dispose();
     }
 }

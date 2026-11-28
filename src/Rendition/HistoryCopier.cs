@@ -8,24 +8,14 @@ namespace Rendition;
 internal sealed unsafe class HistoryCopier(Vk api)
 {
     /// <summary>
-    /// Copies <paramref name="frame"/> into <paramref name="history"/>, an image of the same size and format that is
-    /// only ever sampled, and leaves both ready to sample. The frame is still a target when it was
-    /// <paramref name="drawnJustNow"/>, and already ready to sample when not.
+    /// Copies <paramref name="frame"/>, which rests ready to sample, into <paramref name="history"/>, an image of the
+    /// same size and format that is only ever sampled, and leaves both ready to sample.
     /// </summary>
-    public void RecordCopy(CommandBuffer cmd, Image frame, Image history, Extent2D extent, bool drawnJustNow)
+    public void RecordCopy(CommandBuffer cmd, Image frame, Image history, Extent2D extent)
     {
-        if (drawnJustNow)
-        {
-            api.Transition(cmd, new ImageTransition(frame, ImageAspectFlags.ColorBit,
-                ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal), (ColorStage, ColorWrite),
-                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
-        }
-        else
-        {
-            api.Transition(cmd, new ImageTransition(frame, ImageAspectFlags.ColorBit,
-                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal), (SampledStage, SampledAccess),
-                (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
-        }
+        api.Transition(cmd, new ImageTransition(frame, ImageAspectFlags.ColorBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal), (SampledStage, SampledAccess),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
 
         api.Transition(cmd, new ImageTransition(history, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.TransferDstOptimal), (SampledStage, SampledAccess),

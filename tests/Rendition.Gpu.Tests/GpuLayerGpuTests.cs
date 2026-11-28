@@ -45,26 +45,10 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     [Fact]
-    public void A_fullscreen_pass_draws_the_same_through_the_layer_as_before()
-    {
-        using var device = new VulkanGpu(gpu.Context);
-        using var kit = new DescriptorKit(gpu.Context);
-        using var source = Target(Size * 2);
-        Upload(source, Size * 2, Pattern(Size * 2));
-
-        byte[] before = DownsampleTheOldWay(kit, source);
-        byte[] after = DownsampleThroughTheLayer(device, source);
-
-        Assert.True(after.Distinct().Count() > 8, "The pattern should reach the picture, not one flat colour.");
-        Assert.Equal(before, after);
-    }
-
-    [Fact]
     public void A_group_made_again_with_new_images_draws_the_new_ones_without_validation_errors()
     {
         int errors = gpu.ValidationErrors;
         using var device = new VulkanGpu(gpu.Context);
-        using var kit = new DescriptorKit(gpu.Context);
         using var first = Target(Size * 2);
         using var second = Target(Size * 2);
         Upload(first, Size * 2, Pattern(Size * 2));
@@ -87,8 +71,9 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         pass.Record(commands, [new ColorTarget(view, LoadOp.DontCare, default)], [group], []);
         gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
 
-        Assert.Equal(DownsampleTheOldWay(kit, second), Read(target));
-        Assert.NotEqual(DownsampleTheOldWay(kit, first), Read(target));
+        // A group made once, fresh, for each source is what the remade group must match.
+        Assert.Equal(DownsampleThroughTheLayer(device, second), Read(target));
+        Assert.NotEqual(DownsampleThroughTheLayer(device, first), Read(target));
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
@@ -109,6 +94,100 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
 
         Assert.Equal(Pattern(Size), Read(target));
         Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void An_adopted_target_follows_a_new_image_of_the_same_size()
+    {
+        using var device = new VulkanGpu(gpu.Context);
+        using var first = Target();
+        using var second = Target();
+        using var adopted = new AdoptedTarget(device);
+        using var pass = new FullscreenPass(device, "solid_color.frag", [GpuFormat.Rgba8Unorm]);
+        var extent = new Extent2D(Size, Size);
+
+        Fill(device, pass, adopted.For(first, extent), new Vector4(1f, 0f, 0f, 1f));
+        Assert.Equal(adopted.For(first, extent), adopted.For(first, extent));
+        Fill(device, pass, adopted.For(second, extent), new Vector4(0f, 1f, 0f, 1f));
+
+        Assert.Equal([255, 0, 0, 255], Read(first).Take(4));
+        Assert.Equal([0, 255, 0, 255], Read(second).Take(4));
+    }
+
+    [Fact]
+    public void A_surface_target_is_drawn_in_the_layout_its_caller_left_it_in()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var target = Target();
+        using var adopted = new AdoptedTarget(device);
+        using var pass = new FullscreenPass(device, "solid_color.frag", [GpuFormat.Rgba8Unorm]);
+        var color = new Vector4(0f, 0f, 1f, 1f);
+        var commands = new CommandList();
+        pass.Record(commands, [new ColorTarget(adopted.ForSurface(target.View, target.Image, new Extent2D(Size, Size)), LoadOp.DontCare, default)],
+            [], MemoryMarshal.AsBytes(new ReadOnlySpan<Vector4>(in color)));
+        var api = gpu.Context.Api;
+        var image = target.Image;
+
+        // As the finish pass does with the window's image: moved in before, and out after, by the caller.
+        gpu.Context.SubmitAndWait(cmd =>
+        {
+            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal),
+                (PipelineStageFlags2.None, AccessFlags2.None), (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit));
+            device.Play(commands, cmd);
+            api.EndColorTarget(cmd, image);
+        });
+
+        Assert.Equal([0, 0, 255, 255], Read(target).Take(4));
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_pass_with_two_targets_writes_both()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var first = Target();
+        using var second = Target();
+        using var firstTarget = new AdoptedTarget(device);
+        using var secondTarget = new AdoptedTarget(device);
+        using var pass = new FullscreenPass(device, "solid_colors.frag", [GpuFormat.Rgba8Unorm, GpuFormat.Rgba8Unorm]);
+        var extent = new Extent2D(Size, Size);
+        ReadOnlySpan<Vector4> colors = [new(1f, 0f, 0f, 1f), new(0f, 0f, 1f, 1f)];
+        var commands = new CommandList();
+        pass.Record(commands,
+            [new ColorTarget(firstTarget.For(first, extent), LoadOp.DontCare, default), new ColorTarget(secondTarget.For(second, extent), LoadOp.DontCare, default)],
+            [], MemoryMarshal.AsBytes(colors));
+
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+
+        Assert.Equal([255, 0, 0, 255], Read(first).Take(4));
+        Assert.Equal([0, 0, 255, 255], Read(second).Take(4));
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_blended_pass_adds_onto_what_the_target_held()
+    {
+        using var device = new VulkanGpu(gpu.Context);
+        using var target = Target();
+        Upload(target, Size, Pattern(Size));
+        var view = device.Adopt(target.View, target.Image, new Extent2D(Size, Size));
+        using var pass = new FullscreenPass(device, "solid_color.frag", [GpuFormat.Rgba8Unorm], blend: true);
+        var color = new Vector4(0.25f, 0f, 0f, 0f);
+        var commands = new CommandList();
+        pass.Record(commands, [new ColorTarget(view, LoadOp.Load, default)], [], MemoryMarshal.AsBytes(new ReadOnlySpan<Vector4>(in color)));
+
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+
+        byte[] pattern = Pattern(Size);
+        byte[] pixels = Read(target);
+        for (int i = 0; i < Size * Size; i++)
+        {
+            // Premultiplied over: the colour plus what was there times one minus its alpha of 0.
+            Assert.InRange(pixels[i * 4], Math.Min(255, pattern[i * 4] + 63), Math.Min(255, pattern[i * 4] + 65));
+            Assert.Equal(pattern[i * 4 + 1], pixels[i * 4 + 1]);
+        }
     }
 
     [Fact]
@@ -204,6 +283,13 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         return Read(target);
     }
 
+    private void Fill(VulkanGpu device, FullscreenPass pass, ViewId view, Vector4 color)
+    {
+        var commands = new CommandList();
+        pass.Record(commands, [new ColorTarget(view, LoadOp.DontCare, default)], [], MemoryMarshal.AsBytes(new ReadOnlySpan<Vector4>(in color)));
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+    }
+
     private ArgumentException BindToTonemap(int group, string name)
     {
         using var device = new VulkanGpu(gpu.Context);
@@ -218,22 +304,6 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
         });
 
         return Assert.Throws<ArgumentException>(() => device.CreateBindGroup(pipeline, group, [Bind.Image(name, view, sampler)]));
-    }
-
-    private byte[] DownsampleTheOldWay(DescriptorKit kit, RenderTarget source)
-    {
-        using var target = Target();
-        using var pass = new FullscreenPass(gpu.Context, "bloom_down.frag", Format.R8G8B8A8Unorm, [kit.OneTextureLayout]);
-        var set = kit.NewSet(kit.OneTextureLayout);
-        ImageSets.Write(gpu.Context, set, [new(kit.LinearSampler, source.View, ImageLayout.ShaderReadOnlyOptimal)]);
-        var api = gpu.Context.Api;
-        gpu.Context.SubmitAndWait(cmd =>
-        {
-            api.BeginColorTarget(cmd, target.Image);
-            pass.Record(cmd, target.View, new Extent2D(Size, Size), [set]);
-            api.EndColorTarget(cmd, target.Image);
-        });
-        return Read(target);
     }
 
     private byte[] DownsampleThroughTheLayer(VulkanGpu device, RenderTarget source)

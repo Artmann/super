@@ -22,15 +22,15 @@ internal sealed class PostStage
     {
         var context = device.Context;
         _timer = timer;
-        _bloom = new BloomPass(context, kit.LinearSampler, targets.Picture.Resolved.View, targets.Picture.Display);
+        _bloom = new BloomPass(device, targets.Picture.Resolved.View, targets.Picture.Display);
         Flare = new LensFlarePass(context, kit.NearestSampler, targets.Picture.Display);
         Flare.SetDepth(targets.Depth.View);
         Meter = new ExposureMeter(context, kit.NearestSampler);
-        _depthOfField = new DepthOfFieldPass(context, kit.NearestSampler, kit.LinearSampler, kit.FrameSetLayout);
+        _depthOfField = new DepthOfFieldPass(device, kit.FrameSetLayout);
         _depthOfField.SetTargets(source, targets.Depth.View, targets.Extent);
         Grade = new GradeLut(context, kit);
         _tonemap = new TonemapPass(device.Gpu, kit, Meter.SetLayout);
-        Paint = new PaintPass(context, (kit.NearestSampler, kit.LinearSampler), kit.FrameSetLayout, Meter.SetLayout);
+        Paint = new PaintPass(device, (kit.NearestSampler, kit.LinearSampler), kit.FrameSetLayout, Meter.SetLayout);
         Paint.SetTargets(source, targets.Depth.View, targets.Picture.Display);
     }
 
@@ -73,7 +73,7 @@ internal sealed class PostStage
         // and the meter read the blurred picture. Probe captures never come here, so they stay sharp.
         if (_taken.Lens is { } lens)
         {
-            _depthOfField.Record(cmd, frameSet, (source.Image, source.View, extent), lens);
+            _depthOfField.Record(cmd, frameSet, (source, extent), lens);
         }
 
         _timer.Mark(cmd);
@@ -86,7 +86,7 @@ internal sealed class PostStage
         // Painted after bloom, which keeps the unpainted picture's glow, and before the meter and the tonemap.
         if (Paint.Painting)
         {
-            Paint.Record(cmd, (frameSet, Meter.Set), (source.Image, source.View, extent));
+            Paint.Record(cmd, (frameSet, Meter.Set), (source, extent));
         }
 
         _timer.Mark(cmd);

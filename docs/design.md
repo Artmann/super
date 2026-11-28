@@ -4664,8 +4664,8 @@ a half-size target in the HDR format, adding onto black. `lens_flare.vert` reads
 visibility from the buffer and folds a quad with none to a point. A frame that skips the flare
 clears the target once, and later skipped frames leave it alone. The tonemap reads the target at
 set 1, binding 2, and adds it to the scene and bloom before exposure, outside the speed blur and
-the fringes, since it is light in the lens and shouldn't move with the scene. That set now uses
-`FourTextureLayout`, and binding 3 is left empty because `tonemap.frag` never reads it. The flare
+the fringes, since it is light in the lens and shouldn't move with the scene. That set is laid
+out from `tonemap.frag` through the GPU layer (see "GPU layer"). The flare
 is recorded inside bloom's `GpuTimer` span, so the stats panel counts it as bloom. `PostStage`
 reads the exposure step from `ExposureClock.Step` instead of keeping a copy of its own.
 
@@ -4682,7 +4682,7 @@ weights, written from Kyprianidis, Kang and Döllner (2009) and Kyprianidis, Sem
 exposure meter and the tonemap, in HDR on the picture the tonemap reads: the resolved image under
 anti-aliasing, or the HDR target without it. It paints that picture in place, in two steps.
 
-`paint_filter.comp` paints a half-size picture in `GBuffer.HdrFormat`, made the first time a frame
+`paint_filter.comp`, which `Passes/PaintFilter.cs` dispatches, paints a half-size picture in `GBuffer.HdrFormat`, made the first time a frame
 paints, so a game that never paints never holds it. Each 16 x 16 group first asks whether any of
 its pixels will be painted, taking the farthest of the four scene pixels each covers, since paint
 only grows with distance. A group with none writes the picture as it is, unfiltered, and skips the
@@ -4893,7 +4893,7 @@ through P/Invoke on the four calls of the FidelityFX API (`ffxCreateContext`,
 written out by hand. The library is looked for once; when it can't be loaded,
 `Upscale.Choose` falls back to TAA and says so once on the error stream, and when the
 context can't be made, `FrameTargets.Rebuild` does the same. The library reports the provider it
-picked, FSR 3.1.4 here, and `Renderer.Stats.UpscalerVersion` returns it.
+picked, version 3.1.4 here, and `Renderer.Stats.UpscalerVersion` returns it as "3.1.4".
 
 FSR draws only while anti-aliasing is on and the render scale is 1 or less. It then owns
 both TAA's job and the finish pass's stretch: the G-buffer, HDR and depth stay at the scene
@@ -5043,8 +5043,9 @@ of its own sized to it, so destroying a group frees it at once.
 `VulkanPlayer` plays a list into the frame's command buffer. Images rest in
 `ShaderReadOnlyOptimal` between passes, as the renderer's other passes leave them, so a render
 pass moves its targets to `ColorAttachmentOptimal` as it begins (from `Undefined` unless it
-loads them, when it waits for both fragment and compute shaders that read them) and back as
-it ends, and every image in a bind group is already readable. The
+loads them) and back as it ends, and every image in a bind group is already readable. Both
+moves wait for, and make the image ready for, compute shaders as well as fragment shaders,
+since the exposure meter and paint's filter read the picture from compute. The
 viewport and render area are the first target's size. Bind groups are bound at the next draw,
 so they can be set before or after the pipeline, as in WebGPU. Depth targets, buffers, compute
 and labels aren't played yet; each stage adds what its passes need.
@@ -5064,6 +5065,46 @@ again whenever `PostStage.WriteSets` runs, which only happens while the GPU is i
 Ldr again when its view, image or size changes; the image is checked too because a driver can
 give a remade view the old handle. Recording and playing it allocates nothing, and the
 `GpuLayerGpuTests` check that.
+
+Passes that have moved share two helpers in `Rendition.Gpu.Vulkan`. `AdoptedTarget` is a
+target a pass draws to but doesn't own, adopted again only when the target is remade.
+`ImageGroup` is a bind group of images made outside the layer, each named as its shader names
+it, read through the group's sampler or one given per image, and made again whenever its
+images change. Depth that glass leaves in `DepthReadOnlyOptimal` is adopted with
+`VulkanGpu.AdoptDepth`, so a group samples it in that layout. Bloom, depth of field and
+paint's composite draw this way: a pass drawn several times a frame, such as bloom's nine
+steps or depth of field's three, records every draw into one `CommandList` and plays it once.
+Paint's filter is compute, so it stays on Vulkan until stage 1c.
+
+TAA, FSR's two input passes (motion and exposure) and the finish draw this way too. The
+anti-aliased image now rests ready to sample after TAA, so the history copy reads it from
+`ShaderReadOnlyOptimal` as it does the lit image. The finish draws into the window's image,
+which the layer must not move, because the marks and the overlay draw into it after and
+`FinishStage` then moves it to present or copies it out. So `FinishPass` adopts each
+swapchain image with `VulkanGpu.AdoptSurface`, one `AdoptedTarget` per image, and the player
+leaves a surface's layout to its caller: `FinishStage` moves it to `ColorAttachmentOptimal`
+before the pass and on after the overlay. Its format comes from `VulkanFormats.ToGpu`, and a
+test in `Super.Tests` checks every format the swapchain can pick has a layer format.
+
+Ambient occlusion, reflections, lighting and the spread of skin and wax draw this way as
+well. A stage that draws to many targets keeps them in `AdoptedTargets`, one `AdoptedTarget`
+for each target, found by the target and let go of together when `WriteSets` makes the
+targets again. The occlusion trace, average and blur, the reflections and the two spread
+blurs each read a group of their own made by name. The lighting pass is lent the lighting
+set's layout, because the probe debug view's spheres read that set too, and the material
+table's, and adopts both sets. The lighting pass writes Hdr and the scatter in one pass with
+two targets, and the downward spread blends back onto Hdr with `LoadOp.Load`. Hdr now rests
+ready to sample after lighting, so `BlendStage` moves it to `ColorAttachmentOptimal` from
+`ShaderReadOnlyOptimal`. The occlusion average rests ready to sample too, so
+`HistoryCopier.RecordCopy` always reads its frame from `ShaderReadOnlyOptimal`.
+
+Every fullscreen pass now draws through the layer, so `FullscreenPass` has only its layer
+constructor, and the descriptor kit keeps only the layouts something still borrows: the
+frame's, the lighting set's and the one-texture layout. What waits is the rest of the frame.
+Compute passes, among them paint's filter, the exposure meter and the probe updates, move in
+stage 1c. Passes with vertex input or scene geometry, such as the G-buffer, shadows, glass,
+the lens flare's quads and the overlay, move in stage 1d with the draw-data buffer and
+material binding. FSR itself is AMD's code and stays outside the layer.
 
 ## Resource lifetime
 
