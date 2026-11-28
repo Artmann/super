@@ -27,7 +27,7 @@ internal sealed class FrameStages
         GpuTimer = new GpuTimer(context, FrameRing.Count, counter: GpuWork);
         ResolveStage = new ResolveStage(context, kit, copier);
         // Bloom and tonemapping start out reading the anti-aliased image.
-        PostStage = new PostStage(context, kit, GpuTimer, targets, targets.Picture.Resolved.View);
+        PostStage = new PostStage((context, stores.Gpu), kit, GpuTimer, targets, targets.Picture.Resolved.View);
         HeldPicture = new HeldPicture(context.Api);
         FinishStage = new FinishStage(context, kit, ring, GpuTimer, (windowFormat, resources));
         BlendStage = new BlendStage(context, kit, (ring, GpuTimer, meshes), (resources, map, lights.ReflectionProbes), stores.Switches);

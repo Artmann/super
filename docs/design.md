@@ -1302,6 +1302,10 @@ succeeded, so a broken shader leaves the old one in place. All of this is on the
 thread. The game's thread calls `TakeChanged` before each frame, which returns the names
 compiled since the last call, and is one lock and a count when there are none.
 
+Live reload compiles only the `.spv` that runs, not the `<name>.layout.spv` beside it
+that the GPU layer reads binding names from. A saved shader that adds, renames or moves a
+binding needs a build before a pass on the GPU layer can bind it.
+
 `RendererOptions.LiveShaders` makes the renderer able to rebuild pipelines. Every pipeline
 is a `LivePipeline`, which holds the handle and converts to it, so passes bind it as they
 did. With the option on, `PipelineFactory.Create` also copies the description and keeps a
@@ -5016,6 +5020,51 @@ the far higher update-after-bind limits, so the device needs
 A hidden window asks GLFW for no Retina framebuffer, so a picture has the pixels asked for, and in
 a shown one `Game` multiplies the interface scale by `GameWindow.PixelsPerPoint`.
 
+## GPU layer
+
+The renderer is moving onto a small GPU layer in `src/Rendition/Gpu`, shaped like WebGPU, so
+a browser backend can stand in for Vulkan. The plan is
+`docs/superpowers/plans/2026-11-27-browser-target.md`. Passes move one at a time, and a pass
+that has moved shares the frame with passes that haven't.
+
+Everything the layer makes is an id, a small struct around an int where 0 means none, so the
+browser backend can hand ids to JavaScript as they are. `GpuDevice` makes samplers, shaders,
+render pipelines and bind groups. Drawing is recorded into a `CommandList`, an int array kept
+between frames, and a backend plays it. Push constants are `SetConstants`, which Vulkan plays as
+push constants and WebGPU will play through a uniform ring.
+
+A bind group is filled by name. `CreateShader` reads the shader's `<name>.layout.spv`, which
+keeps the names the optimized `.spv` loses, and `ShaderLayout` finds each binding's group,
+number and kind in it. A name the shaders lack, or one in another group, throws with the
+shader's name in the message. `VulkanGpu` lays out each group's descriptor set from what the
+shaders declare, with the stages that declare each binding, and gives each bind group a pool
+of its own sized to it, so destroying a group frees it at once.
+
+`VulkanPlayer` plays a list into the frame's command buffer. Images rest in
+`ShaderReadOnlyOptimal` between passes, as the renderer's other passes leave them, so a render
+pass moves its targets to `ColorAttachmentOptimal` as it begins (from `Undefined` unless it
+loads them, when it waits for both fragment and compute shaders that read them) and back as
+it ends, and every image in a bind group is already readable. The
+viewport and render area are the first target's size. Bind groups are bound at the next draw,
+so they can be set before or after the pipeline, as in WebGPU. Depth targets, buffers, compute
+and labels aren't played yet; each stage adds what its passes need.
+
+Two bridges last until every pass has moved. `VulkanGpu.Adopt` takes an image view or a
+descriptor set made outside the layer and gives it an id, and `CreateRenderPipeline` can be
+lent the set layouts of groups whose sets an old pass makes, since a layout built from the
+shader wouldn't match theirs. `VulkanGpu.Play` records into a command buffer the old passes
+also record into. A view only shaders read can be adopted without its image, and drawing to
+one throws. `Release` lets go of an adopted view. Adopting the same descriptor set again gives
+the same id, so a pass can adopt the frame's sets every frame without the table growing.
+
+The tonemap was the first pass to move. `TonemapPass` draws through `FullscreenPass`'s layer
+constructor: its own group, the picture, bloom and the flare, is a bind group made by name,
+and the frame's, the meter's and the grade's sets are adopted beside it. It makes that group
+again whenever `PostStage.WriteSets` runs, which only happens while the GPU is idle, and adopts
+Ldr again when its view, image or size changes; the image is checked too because a driver can
+give a remade view the old handle. Recording and playing it allocates nothing, and the
+`GpuLayerGpuTests` check that.
+
 ## Resource lifetime
 
 Meshes and textures are made during play, so neither creating nor destroying one
@@ -6302,7 +6351,8 @@ but the package reference:
   `PackagePath` by itself, so the packaging names only `tools/super-cook/`; naming the folder
   too packed every one of them twice over in 1.0.0, and no model could be cooked.
 - `shaders/*.spv`, Rendition's compiled shaders, which the targets copy to the game's
-  `shaders` output folder. The shader includes are in `buildTransitive/Rendition/Shaders`,
+  `shaders` output folder. The `*.layout.spv` files among them are the same shaders
+  compiled without optimizing, for the binding names the GPU layer reads. The shader includes are in `buildTransitive/Rendition/Shaders`,
   where `Shaders.targets` looks for them beside itself, as it does in `src`.
 - `runtimes/win-x64/native/amd_fidelityfx_vk.dll`, which .NET finds there through the game's
   `deps.json`.
