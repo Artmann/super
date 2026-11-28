@@ -13,7 +13,9 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     private readonly VulkanContext _context;
     // What was adopted from outside the layer, which bind groups and the player look up by id.
     private readonly (IdTable<AdoptedView> Views, IdTable<AdoptedBuffer> Buffers) _adopted = (new(), new());
-    private readonly IdTable<Sampler> _samplers = new();
+    // The samplers, and the one made for each description. The layer has no way to destroy a sampler, so each
+    // description is made once and handed out again.
+    private readonly (IdTable<Sampler> Made, Dictionary<SamplerDescription, SamplerId> Ids) _samplers = (new(), []);
     private readonly IdTable<VulkanShader> _shaders = new();
     private readonly IdTable<VulkanPipeline> _pipelines = new();
     private readonly VulkanBindGroups _groups;
@@ -22,7 +24,7 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     public VulkanGpu(VulkanContext context)
     {
         _context = context;
-        _groups = new VulkanBindGroups(context, _adopted, _samplers);
+        _groups = new VulkanBindGroups(context, _adopted, _samplers.Made);
         _player = new VulkanPlayer(context.Api, _adopted, _pipelines, _groups);
     }
 
@@ -52,8 +54,14 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     /// <inheritdoc cref="VulkanBindGroups.Adopt"/>
     public BindGroupId Adopt(DescriptorSet set) => _groups.Adopt(set);
 
+    /// <summary>A sampler as <paramref name="description"/> says: the same one for the same description, which lives as long as the device.</summary>
     public override SamplerId CreateSampler(in SamplerDescription description)
     {
+        if (_samplers.Ids.TryGetValue(description, out var made))
+        {
+            return made;
+        }
+
         var filter = description.Filter == SamplerFilter.Linear ? Filter.Linear : Filter.Nearest;
         var address = description.Address == SamplerAddress.Repeat ? SamplerAddressMode.Repeat : SamplerAddressMode.ClampToEdge;
         var info = new SamplerCreateInfo
@@ -68,7 +76,9 @@ internal sealed unsafe class VulkanGpu : GpuDevice
             MaxLod = description.Mipmapped ? Vk.LodClampNone : 0f,
         };
         _context.Api.CreateSampler(_context.Device, &info, null, out var sampler).Check();
-        return new SamplerId(_samplers.Add(sampler));
+        var id = new SamplerId(_samplers.Made.Add(sampler));
+        _samplers.Ids[description] = id;
+        return id;
     }
 
     public override ShaderId CreateShader(string name) => new(_shaders.Add(VulkanShader.Load(name)));
@@ -191,7 +201,7 @@ internal sealed unsafe class VulkanGpu : GpuDevice
             pipeline.Destroy(_context);
         }
 
-        foreach (var sampler in _samplers.Items)
+        foreach (var sampler in _samplers.Made.Items)
         {
             _context.Api.DestroySampler(_context.Device, sampler, null);
         }

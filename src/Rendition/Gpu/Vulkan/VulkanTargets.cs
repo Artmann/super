@@ -16,9 +16,10 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
     private const PipelineStageFlags2 Readers = PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit;
     private const PipelineStageFlags2 DepthTests = PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit;
 
-    private readonly Image[] _colors = new Image[MaxTargets];
+    // What each target covers, or nothing for a held one, so End moves back only what Begin moved.
+    private readonly AdoptedView[] _colors = new AdoptedView[MaxTargets];
     private int _count;
-    private Image _depth;
+    private AdoptedView _depth;
     private bool _depthReadOnly;
 
     /// <summary>Forgets the targets of a list that threw part way.</summary>
@@ -74,15 +75,16 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
         api.CmdEndRendering(cmd);
         for (int i = 0; i < _count; i++)
         {
-            if (_colors[i].Handle != 0)
+            if (_colors[i].Image.Handle != 0)
             {
-                api.EndBlendOnto(cmd, _colors[i]);
+                api.Transition(cmd, Covering(_colors[i], ImageAspectFlags.ColorBit, ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal),
+                    (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit), (Readers, AccessFlags2.ShaderSampledReadBit));
             }
         }
 
-        if (_depth.Handle != 0)
+        if (_depth.Image.Handle != 0)
         {
-            api.Transition(cmd, new ImageTransition(_depth, ImageAspectFlags.DepthBit, DepthLayout(_depthReadOnly), ImageLayout.ShaderReadOnlyOptimal),
+            api.Transition(cmd, Covering(_depth, ImageAspectFlags.DepthBit, DepthLayout(_depthReadOnly), ImageLayout.ShaderReadOnlyOptimal),
                 (DepthTests, DepthAccess(_depthReadOnly)), (Readers, AccessFlags2.ShaderSampledReadBit));
         }
 
@@ -112,10 +114,10 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
         else
         {
             // What the target held is only kept when the pass loads it; otherwise it is thrown away, which is cheaper.
-            api.Transition(cmd, new ImageTransition(view.Image, ImageAspectFlags.ColorBit, Resting(load), ImageLayout.ColorAttachmentOptimal),
+            api.Transition(cmd, Covering(view, ImageAspectFlags.ColorBit, Resting(load), ImageLayout.ColorAttachmentOptimal),
                 (Readers, AccessFlags2.ShaderSampledReadBit),
                 (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentReadBit | AccessFlags2.ColorAttachmentWriteBit));
-            _colors[index] = view.Image;
+            _colors[index] = view;
         }
 
         return new RenderingAttachmentInfo
@@ -156,10 +158,10 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
         if (!view.Held)
         {
             // A held view's caller moves it in and out, so End skips it.
-            api.Transition(cmd, new ImageTransition(view.Image, ImageAspectFlags.DepthBit, Resting(load), layout),
+            api.Transition(cmd, Covering(view, ImageAspectFlags.DepthBit, Resting(load), layout),
                 (Readers, AccessFlags2.ShaderSampledReadBit),
                 (DepthTests, DepthAccess(_depthReadOnly)));
-            _depth = view.Image;
+            _depth = view;
         }
 
         return new RenderingAttachmentInfo
@@ -191,6 +193,10 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
         var depth = words.Slice(2 + count * 6, 4);
         return depth[0] != 0 && (LoadOp)depth[1] == LoadOp.Load && views[depth[0]].Held;
     }
+
+    // A pass moves only the mip and layer its view covers, so it can draw one mip while sampling the one above it.
+    private static ImageTransition Covering(in AdoptedView view, ImageAspectFlags aspect, ImageLayout from, ImageLayout to) =>
+        new(view.Image, aspect, from, to) { BaseMip = view.Mip, BaseLayer = view.Layer };
 
     private static ImageLayout DepthLayout(bool readOnly) =>
         readOnly ? ImageLayout.DepthReadOnlyOptimal : ImageLayout.DepthAttachmentOptimal;

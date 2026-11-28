@@ -86,7 +86,7 @@ internal sealed unsafe class TransparentPass : IDisposable
         var culled = PipelineFactory.Create(context, description);
         description.TwoSided = true;
         _pipelines.Add(_list.Adopt(culled, PipelineFactory.Create(context, description)));
-        _runs = new TransparentRuns((device.Gpu, context.Api), _list, new ScenePipelines(_pipelines, resources), _environmentSet);
+        _runs = new TransparentRuns((device.Gpu, context), _list, new ScenePipelines(_pipelines, resources), _environmentSet);
     }
 
     /// <summary>

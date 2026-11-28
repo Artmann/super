@@ -107,7 +107,7 @@ internal sealed class GBuffer : IDisposable
         // Up to SceneColorMips levels, stopping before a level would be smaller than one pixel.
         uint mips = Math.Min(SceneColorMips, (uint)Math.Floor(Math.Log2(Math.Max(1u, Math.Min(extent.Width, extent.Height)))) + 1);
         SceneColor = new RenderTarget(
-            context, HdrFormat, extent, ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit, mips: mips);
+            context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit, mips: mips);
     }
 
     public void Dispose()

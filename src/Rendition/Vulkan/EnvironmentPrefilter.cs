@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 using Rendition.Gpu;
 using Rendition.Gpu.Vulkan;
+using Rendition.Passes;
 
 namespace Rendition.Vulkan;
 
@@ -73,6 +74,9 @@ internal sealed class EnvironmentPrefilter : IDisposable
     private readonly (CubeShader<FilterConstants> Shader, ImageGroup[] Reflections, ImageGroup Irradiance) _filter;
     private readonly RoughSlices _slices = new();
 
+    // What halves the source cube and the sky into their mips after they are drawn.
+    private readonly (MipDraws Source, MipDraws Sky) _mips;
+
     /// <param name="uniforms">The Environment block and the physical sky's sky-view table, which environment.comp reads.</param>
     /// <param name="weather">The clouds' weather map and the repeating sampler it is read with, for the clouds the captures draw.</param>
     public EnvironmentPrefilter((VulkanContext Context, VulkanGpu Gpu) device, EnvironmentUniforms uniforms,
@@ -82,6 +86,9 @@ internal sealed class EnvironmentPrefilter : IDisposable
         _gpu = gpu;
         _targets = targets;
         _source = new EnvironmentCube(context, SourceSize, SourceMips);
+        MipDraws Halving(EnvironmentCube cube) =>
+            new(gpu, context, new MipImage(cube.Image, GpuFormat.Rgba16Float, new Extent2D(cube.Size, cube.Size), cube.MipCount, 6));
+        _mips = (Halving(_source), Halving(_targets.Sky));
 
         // The photographed sky and the filters' sources are read between mips.
         var sampler = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear, Mipmapped: true));
@@ -178,13 +185,16 @@ internal sealed class EnvironmentPrefilter : IDisposable
     private void RecordSharp(CommandBuffer cmd)
     {
         _draw.Shader.Record(cmd, _draw.Groups[0].Id, _source.Level(0), new DrawConstants { Panels = 1 });
-        _source.BuildMips(cmd);
+        // The sharpest level goes to resting, as the GPU layer expects, so the draws can halve it.
+        _source.Ready(cmd, 0);
+        _mips.Source.Play(cmd);
 
         _draw.Shader.Record(cmd, _draw.Groups[1].Id, _targets.Reflections.Level(0), new DrawConstants { Panels = 1, Disc = 1, Clouds = 1 });
         _targets.Reflections.Ready(cmd, 0);
 
         _draw.Shader.Record(cmd, _draw.Groups[2].Id, _targets.Sky.Level(0), new DrawConstants { Clouds = 1 });
-        _targets.Sky.BuildMips(cmd);
+        _targets.Sky.Ready(cmd, 0);
+        _mips.Sky.Play(cmd);
         _filter.Shader.Record(cmd, _filter.Irradiance.Id, _targets.Irradiance.Level(0), new FilterConstants
         {
             Irradiance = 1,
@@ -214,6 +224,8 @@ internal sealed class EnvironmentPrefilter : IDisposable
 
     public void Dispose()
     {
+        _mips.Source.Dispose();
+        _mips.Sky.Dispose();
         foreach (var group in _draw.Groups)
         {
             group.Dispose();

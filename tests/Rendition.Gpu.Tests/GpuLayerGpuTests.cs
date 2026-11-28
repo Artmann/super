@@ -359,6 +359,16 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void A_sampler_asked_for_twice_is_made_once_and_a_different_one_is_made_apart()
+    {
+        using var device = new VulkanGpu(gpu.Context);
+        var linear = device.CreateSampler(new SamplerDescription(SamplerFilter.Linear));
+
+        Assert.Equal(linear, device.CreateSampler(new SamplerDescription(SamplerFilter.Linear)));
+        Assert.NotEqual(linear, device.CreateSampler(new SamplerDescription(SamplerFilter.Nearest)));
+    }
+
+    [Fact]
     public void Recording_and_playing_a_pass_again_allocates_nothing()
     {
         using var device = new VulkanGpu(gpu.Context);

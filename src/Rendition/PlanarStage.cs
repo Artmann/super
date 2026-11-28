@@ -15,7 +15,7 @@ namespace Rendition;
 /// </summary>
 internal sealed class PlanarStage : IDisposable
 {
-    private readonly VulkanContext _context;
+    private readonly (VulkanContext Context, VulkanGpu Gpu) _device;
     private readonly FrameSwitches _switches;
     private readonly (List<Mesh?> Meshes, List<PartDetail> Details) _scene;
     private readonly MirrorPipeline _pipeline;
@@ -31,12 +31,11 @@ internal sealed class PlanarStage : IDisposable
     public PlanarStage((VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, ResourceTable resources, FrameSwitches switches,
         (List<Mesh?> Meshes, List<PartDetail> Details) scene)
     {
-        var context = device.Context;
-        _context = context;
+        _device = device;
         _switches = switches;
         _scene = scene;
         _pipeline = new MirrorPipeline(device, kit, resources);
-        _targets = new MirrorTargets(context, new Extent2D(1, 1));
+        _targets = new MirrorTargets(device, new Extent2D(1, 1));
     }
 
     /// <summary>The mirror picture's two layers, colour and height over the plane, with their mips.</summary>
@@ -77,9 +76,9 @@ internal sealed class PlanarStage : IDisposable
         }
 
         // Frames in flight still read them.
-        _context.WaitIdle();
+        _device.Context.WaitIdle();
         _targets.Dispose();
-        _targets = new MirrorTargets(_context, extent);
+        _targets = new MirrorTargets(_device, extent);
         return true;
     }
 
