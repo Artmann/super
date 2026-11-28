@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 using Silk.NET.Vulkan;
 
@@ -19,10 +20,10 @@ internal sealed class LensFlarePass : IDisposable
     private int _slot;
     private float _aspect = 1f;
 
-    public LensFlarePass(VulkanContext context, Sampler depthSampler, Extent2D display)
+    public LensFlarePass((VulkanContext Context, VulkanGpu Gpu) device, Sampler depthSampler, Extent2D display)
     {
-        _visibility = new LensFlareVisibility(context, depthSampler);
-        _draw = new LensFlareDraw(context, _visibility.SetLayout, display);
+        _visibility = new LensFlareVisibility(device, depthSampler);
+        _draw = new LensFlareDraw(device.Context, _visibility.SetLayout, display);
     }
 
     /// <summary>The flare, half the picture's size, ready to sample once <see cref="Record"/> has run.</summary>

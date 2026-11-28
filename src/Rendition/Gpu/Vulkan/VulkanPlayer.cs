@@ -80,7 +80,9 @@ internal sealed unsafe class VulkanPlayer(
         switch (command)
         {
             case Command.BeginComputePass:
-                // Vulkan has no compute pass to begin; Dispatch keeps each dispatch's writes in order.
+                // Vulkan has no compute pass to begin. What drew before is done and seen before the pass reads or
+                // writes, and Dispatch keeps each dispatch's writes in order, as WebGPU promises.
+                api.MemoryBarrier(cmd, Before, Within);
                 _computing = true;
                 return 1;
             case Command.Dispatch:
@@ -253,6 +255,19 @@ internal sealed unsafe class VulkanPlayer(
         PipelineStageFlags2.DrawIndirectBit | PipelineStageFlags2.TransferBit,
         AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit | AccessFlags2.ShaderSampledReadBit |
         AccessFlags2.IndirectCommandReadBit | AccessFlags2.TransferReadBit | AccessFlags2.TransferWriteBit);
+
+    /// <summary>Everything a compute pass may have to wait for: draws, earlier dispatches and copies, and what they wrote.</summary>
+    private static readonly (PipelineStageFlags2 Stage, AccessFlags2 Access) Before = (
+        Users.Stage | PipelineStageFlags2.ColorAttachmentOutputBit | PipelineStageFlags2.EarlyFragmentTestsBit |
+        PipelineStageFlags2.LateFragmentTestsBit,
+        AccessFlags2.ColorAttachmentWriteBit | AccessFlags2.DepthStencilAttachmentWriteBit | AccessFlags2.ShaderStorageWriteBit |
+        AccessFlags2.TransferWriteBit);
+
+    /// <summary>What a compute pass does with what it binds.</summary>
+    private static readonly (PipelineStageFlags2 Stage, AccessFlags2 Access) Within = (
+        PipelineStageFlags2.ComputeShaderBit,
+        AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit |
+        AccessFlags2.UniformReadBit);
 
     private void Dispatch(CommandBuffer cmd, ReadOnlySpan<int> words)
     {

@@ -1,5 +1,7 @@
 using System.Numerics;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 using static Rendition.PassStages;
@@ -12,21 +14,20 @@ namespace Rendition;
 /// </summary>
 internal sealed unsafe class LocalLightShadows
 {
-    private readonly VulkanContext _context;
+    private readonly VulkanGpu _gpu;
     private readonly FrameSwitches _switches;
     private readonly LocalLights _lights = new();
-    private readonly PipelineLayout _clusterLayout;
-    private readonly LivePipeline _clusterPipeline;
+    private readonly ComputePass _clusters;
+    private readonly CommandList _commands = new();
 
     public LocalLightShadows(
-        VulkanContext context, DescriptorSetLayout frameSetLayout, ShadowPass pass, FrameSwitches switches,
+        (VulkanContext Context, VulkanGpu Gpu) device, DescriptorSetLayout frameSetLayout, ShadowPass pass, FrameSwitches switches,
         (MeshStore Meshes, ShadowWorld World, MaterialTable Materials) casters)
     {
-        _context = context;
+        _gpu = device.Gpu;
         _switches = switches;
-        Tiles = new LightShadowTiles(context.Api, pass, switches, casters);
-        _clusterLayout = context.CreatePipelineLayout([frameSetLayout]);
-        _clusterPipeline = PipelineFactory.CreateCompute(context, "cluster.comp", _clusterLayout);
+        Tiles = new LightShadowTiles(device.Context.Api, pass, switches, casters);
+        _clusters = new ComputePass(device.Gpu, "cluster.comp", [frameSetLayout]);
     }
 
     /// <summary>The lights' shadow tiles: what each draws, which a frame draws again, and how many it kept.</summary>
@@ -81,35 +82,15 @@ internal sealed unsafe class LocalLightShadows
     /// <summary>
     /// Sorts the point and spot lights into the view's clusters on the GPU, before anything
     /// that lights reads the lists. The last frame to use this slot's lists has finished,
-    /// as its fence was waited on, so only this frame's readers need to wait.
+    /// as its fence was waited on, and the layer's barrier after the dispatch makes the lists visible to this frame's
+    /// readers.
     /// </summary>
     public void RecordClusters(CommandBuffer cmd, DescriptorSet frameSet)
     {
-        var api = _context.Api;
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _clusterPipeline);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _clusterLayout, 0, 1, &frameSet, 0, null);
-        api.CmdDispatch(cmd, (LocalLights.ClusterCount + 63) / 64, 1, 1);
-
-        var barrier = new MemoryBarrier2
-        {
-            SType = StructureType.MemoryBarrier2,
-            SrcStageMask = PipelineStageFlags2.ComputeShaderBit,
-            SrcAccessMask = AccessFlags2.ShaderStorageWriteBit,
-            DstStageMask = PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit,
-            DstAccessMask = AccessFlags2.ShaderStorageReadBit,
-        };
-        var dependency = new DependencyInfo
-        {
-            SType = StructureType.DependencyInfo,
-            MemoryBarrierCount = 1,
-            PMemoryBarriers = &barrier,
-        };
-        api.CmdPipelineBarrier2(cmd, &dependency);
+        _commands.Reset();
+        _clusters.Record(_commands, [_gpu.Adopt(frameSet)], [], ((LocalLights.ClusterCount + 63) / 64, 1, 1));
+        _gpu.Play(_commands, cmd);
     }
 
-    public void Dispose()
-    {
-        _clusterPipeline.Destroy();
-        _context.Api.DestroyPipelineLayout(_context.Device, _clusterLayout, null);
-    }
+    public void Dispose() => _clusters.Dispose();
 }

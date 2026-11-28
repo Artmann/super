@@ -1,5 +1,7 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 using Silk.NET.Vulkan;
 
@@ -15,16 +17,6 @@ internal sealed unsafe class LensFlareVisibility : IDisposable
 {
     /// <summary>The floats each light has in the buffer: four frames, the visibility drawn with, and pads.</summary>
     private const int SourceFloats = 8;
-
-    /// <summary>The frames whose visibility is kept. Must match the ring in lens_flare_visibility.comp.</summary>
-    private const int HeldFrames = 4;
-
-    /// <summary>How far a light may move on screen in a frame, as a fraction of it, before its kept visibility is dropped, as on a cut.</summary>
-    private const float JumpDistance = 0.1f;
-
-    private const int HoldFlag = 1;
-    private const int ResetFlag = 2;
-    private const int CloudsFlag = 4;
 
     private const ulong BufferSize = LensFlareSettings.MaxSources * SourceFloats * sizeof(float);
 
@@ -43,38 +35,35 @@ internal sealed unsafe class LensFlareVisibility : IDisposable
     }
 
     private readonly VulkanContext _context;
+    private readonly VulkanGpu _gpu;
     private readonly GpuBuffer _buffer;
+    private readonly BufferId _bufferId;
     private readonly DescriptorPool _pool;
-    private readonly PipelineLayout _layout;
-    private readonly LivePipeline _pipeline;
+    private readonly ComputePass _pass;
+    private readonly CommandList _commands = new();
     private readonly Sampler _depthSampler;
-    private readonly Vector2[] _lastUvs = new Vector2[LensFlareSettings.MaxSources];
+    private readonly LensFlareHistory _history = new();
 
-    // How many lights the last recorded frame looked at, 0 when it drew no flare.
-    private int _lastCount;
-    private uint _frame;
-    private int _flags;
-
-    public LensFlareVisibility(VulkanContext context, Sampler depthSampler)
+    /// <summary>
+    /// Taps reading depth through <paramref name="depthSampler"/>. Their set is made outside the GPU layer, as the
+    /// flare's draw, which hasn't moved yet, reads the buffer too; the taps borrow its layout.
+    /// </summary>
+    public LensFlareVisibility((VulkanContext Context, VulkanGpu Gpu) device, Sampler depthSampler)
     {
+        var (context, gpu) = device;
         _context = context;
+        _gpu = gpu;
         _depthSampler = depthSampler;
-        var api = context.Api;
         _buffer = new GpuBuffer(
             context, BufferSize, BufferUsageFlags.StorageBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
+        _bufferId = gpu.Adopt(_buffer.Handle, (long)BufferSize);
 
         (SetLayout, _pool, Set) = context.CreateStateSet(ShaderStageFlags.VertexBit, new DescriptorBufferInfo(_buffer.Handle, 0, BufferSize), images: 2);
-        _layout = context.CreatePipelineLayout([SetLayout], new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(Constants)));
-        _pipeline = PipelineFactory.CreateCompute(context, "lens_flare_visibility.comp", _layout);
+        _pass = new ComputePass(gpu, "lens_flare_visibility.comp", [SetLayout]);
 
         // Nothing seen until the first frame looks, which starts the frames afresh anyway.
-        var buffer = _buffer.Handle;
-        context.SubmitAndWait(cmd =>
-        {
-            api.CmdFillBuffer(cmd, buffer, 0, BufferSize, 0);
-            api.MemoryBarrier(cmd, (PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit),
-                (PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.VertexShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit));
-        });
+        _commands.ClearBuffer(_bufferId, 0, (int)BufferSize);
+        context.SubmitAndWait(cmd => _gpu.Play(_commands, cmd));
     }
 
     /// <summary>The buffer, which the compute and vertex shaders read, and the scene's depth, which the compute shader reads.</summary>
@@ -102,36 +91,14 @@ internal sealed unsafe class LensFlareVisibility : IDisposable
         _context.Api.UpdateDescriptorSets(_context.Device, 1, &write, 0, null);
     }
 
-    /// <summary>
-    /// Takes this frame's lights. <paramref name="hold"/> keeps the most of the last four frames, for anti-aliasing.
-    /// The frames start afresh without a last picture, after a frame with no flare, when the number of lights changes
-    /// or when one jumps across the screen. <paramref name="clouds"/> says whether the frame draws clouds, which the sun
-    /// is then seen through.
-    /// </summary>
-    public void Take(ReadOnlySpan<FlareSource> sources, bool hold, bool historyReady, bool clouds)
-    {
-        bool reset = !historyReady || sources.Length != _lastCount;
-        for (int i = 0; i < sources.Length && !reset; i++)
-        {
-            reset = Vector2.Distance(sources[i].Uv, _lastUvs[i]) > JumpDistance;
-        }
-
-        _flags = (hold ? HoldFlag : 0) | (reset ? ResetFlag : 0) | (clouds ? CloudsFlag : 0);
-    }
+    /// <inheritdoc cref="LensFlareHistory.Take"/>
+    public void Take(ReadOnlySpan<FlareSource> sources, bool hold, bool historyReady, bool clouds) =>
+        _history.Take(sources, hold, historyReady, clouds);
 
     /// <summary>Records the taps for the lights <see cref="Take"/> was given, after the scene's depth is drawn.</summary>
     public void Record(CommandBuffer cmd, ReadOnlySpan<FlareSource> sources, float aspect)
     {
-        var api = _context.Api;
-
-        // Depth was drawn and then sampled, by fragment or, under FSR, compute shaders, and last frame's flare read the buffer.
-        api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit | PipelineStageFlags2.FragmentShaderBit
-                | PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.VertexShaderBit,
-                AccessFlags2.DepthStencilAttachmentWriteBit | AccessFlags2.ShaderStorageWriteBit),
-            (PipelineStageFlags2.ComputeShaderBit,
-                AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit));
-
+        var (slot, flags) = _history.Record(sources);
         var constants = new Constants
         {
             Source0 = Pack(sources, 0),
@@ -140,34 +107,23 @@ internal sealed unsafe class LensFlareVisibility : IDisposable
             Source3 = Pack(sources, 3),
             Aspect = aspect,
             Count = sources.Length,
-            Slot = (int)(_frame++ % HeldFrames),
-            Flags = _flags,
+            Slot = slot,
+            Flags = flags,
         };
-        var set = Set;
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipeline);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _layout, 0, 1, &set, 0, null);
-        api.CmdPushConstants(cmd, _layout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(Constants), &constants);
-        api.CmdDispatch(cmd, (uint)sources.Length, 1, 1);
-
-        api.MemoryBarrier(cmd,
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
-            (PipelineStageFlags2.VertexShaderBit, AccessFlags2.ShaderStorageReadBit));
-
-        _lastCount = sources.Length;
-        for (int i = 0; i < sources.Length; i++)
-        {
-            _lastUvs[i] = sources[i].Uv;
-        }
+        // A compute pass sees the depth drawn and the buffer read before it, and the flare's draw after it sees the buffer.
+        _commands.Reset();
+        _pass.Record(_commands, [_gpu.Adopt(Set)], new ReadOnlySpan<byte>(&constants, sizeof(Constants)), (sources.Length, 1, 1));
+        _gpu.Play(_commands, cmd);
     }
 
-    /// <summary>Notes a frame that drew no flare, so the next one starts its frames afresh.</summary>
-    public void Skip() => _lastCount = 0;
+    /// <inheritdoc cref="LensFlareHistory.Skip"/>
+    public void Skip() => _history.Skip();
 
     public void Dispose()
     {
         var api = _context.Api;
-        _pipeline.Destroy();
-        api.DestroyPipelineLayout(_context.Device, _layout, null);
+        _pass.Dispose();
+        _gpu.Release(_bufferId);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, SetLayout, null);
         _buffer.Dispose();

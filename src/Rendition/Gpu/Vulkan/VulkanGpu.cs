@@ -11,8 +11,8 @@ namespace Rendition.Gpu.Vulkan;
 internal sealed unsafe class VulkanGpu : GpuDevice
 {
     private readonly VulkanContext _context;
-    private readonly IdTable<AdoptedView> _views = new();
-    private readonly IdTable<AdoptedBuffer> _buffers = new();
+    // What was adopted from outside the layer, which bind groups and the player look up by id.
+    private readonly (IdTable<AdoptedView> Views, IdTable<AdoptedBuffer> Buffers) _adopted = (new(), new());
     private readonly IdTable<Sampler> _samplers = new();
     private readonly IdTable<VulkanShader> _shaders = new();
     private readonly IdTable<VulkanPipeline> _pipelines = new();
@@ -22,8 +22,8 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     public VulkanGpu(VulkanContext context)
     {
         _context = context;
-        _groups = new VulkanBindGroups(context, (_views, _buffers), _samplers);
-        _player = new VulkanPlayer(context.Api, (_views, _buffers), _pipelines, _groups);
+        _groups = new VulkanBindGroups(context, _adopted, _samplers);
+        _player = new VulkanPlayer(context.Api, _adopted, _pipelines, _groups);
     }
 
     /// <summary>
@@ -32,22 +32,22 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     /// can leave out its image and size; drawing to it throws.
     /// </summary>
     public ViewId Adopt(ImageView view, Image image = default, Extent2D extent = default) =>
-        new(_views.Add(new AdoptedView(view, image, extent)));
+        new(_adopted.Views.Add(new AdoptedView(view, image, extent)));
 
     /// <summary>
     /// A view that rests somewhere else, as its flags say: read-only depth, the window's image, or a storage image;
     /// see <see cref="AdoptedView"/>.
     /// </summary>
-    public ViewId Adopt(in AdoptedView view) => new(_views.Add(view));
+    public ViewId Adopt(in AdoptedView view) => new(_adopted.Views.Add(view));
 
     /// <summary>Lets go of an adopted view, whose image stays its maker's to destroy.</summary>
-    public void Release(ViewId view) => _views.Remove(view.Value);
+    public void Release(ViewId view) => _adopted.Views.Remove(view.Value);
 
     /// <summary>A buffer made outside the layer, <paramref name="size"/> bytes long, for bind groups and <see cref="CommandList.ClearBuffer"/>.</summary>
-    public BufferId Adopt(Silk.NET.Vulkan.Buffer buffer, long size) => new(_buffers.Add(new AdoptedBuffer(buffer, size)));
+    public BufferId Adopt(Silk.NET.Vulkan.Buffer buffer, long size) => new(_adopted.Buffers.Add(new AdoptedBuffer(buffer, size)));
 
     /// <summary>Lets go of an adopted buffer, which stays its maker's to destroy.</summary>
-    public void Release(BufferId buffer) => _buffers.Remove(buffer.Value);
+    public void Release(BufferId buffer) => _adopted.Buffers.Remove(buffer.Value);
 
     /// <inheritdoc cref="VulkanBindGroups.Adopt"/>
     public BindGroupId Adopt(DescriptorSet set) => _groups.Adopt(set);
@@ -140,6 +140,12 @@ internal sealed unsafe class VulkanGpu : GpuDevice
         PushConstantRange? range = constantsSize > 0 ? new PushConstantRange(constantStages, 0, (uint)constantsSize) : null;
         return (_context.CreatePipelineLayout(setLayouts, range), setLayouts, owned, constantStages);
     }
+
+    /// <summary>
+    /// The Vulkan pipeline <paramref name="pipeline"/> is now, which changes when its shaders are reloaded live, for a
+    /// pass that bakes only when what it bakes with changes.
+    /// </summary>
+    public Pipeline Current(PipelineId pipeline) => _pipelines[pipeline.Value].Pipeline.Handle;
 
     public override BindGroupId CreateBindGroup(PipelineId pipeline, int group, ReadOnlySpan<Bind> binds) =>
         _groups.Create(_pipelines[pipeline.Value], group, binds);

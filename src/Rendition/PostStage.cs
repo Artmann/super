@@ -23,14 +23,14 @@ internal sealed class PostStage
         var context = device.Context;
         _timer = timer;
         _bloom = new BloomPass(device, targets.Picture.Resolved.View, targets.Picture.Display);
-        Flare = new LensFlarePass(context, kit.NearestSampler, targets.Picture.Display);
+        Flare = new LensFlarePass(device, kit.NearestSampler, targets.Picture.Display);
         Flare.SetDepth(targets.Depth.View);
-        Meter = new ExposureMeter(context, kit.NearestSampler);
+        Meter = new ExposureMeter(device, kit.NearestSampler);
         _depthOfField = new DepthOfFieldPass(device, kit.FrameSetLayout);
         _depthOfField.SetTargets(source, targets.Depth.View, targets.Extent);
-        Grade = new GradeLut(context, kit);
+        Grade = new GradeLut(device, kit);
         _tonemap = new TonemapPass(device.Gpu, kit, Meter.SetLayout);
-        Paint = new PaintPass(device, (kit.NearestSampler, kit.LinearSampler), kit.FrameSetLayout, Meter.SetLayout);
+        Paint = new PaintPass(device, kit.FrameSetLayout, Meter.SetLayout);
         Paint.SetTargets(source, targets.Depth.View, targets.Picture.Display);
     }
 

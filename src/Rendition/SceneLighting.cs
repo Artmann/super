@@ -19,7 +19,7 @@ internal sealed class SceneLighting
         ShadowPass = new ShadowPass(context, kit.FrameSetLayout, stores.Resources, stores.Settings.ShadowResolution);
         stores.Frames.WriteAtlas(ShadowPass.Atlas.View);
         SunShadows = new SunShadows(context.Api, ShadowPass, meshes, stores.Switches);
-        LocalLightShadows = new LocalLightShadows(context, kit.FrameSetLayout, ShadowPass, stores.Switches,
+        LocalLightShadows = new LocalLightShadows((context, stores.Gpu), kit.FrameSetLayout, ShadowPass, stores.Switches,
             (meshes, stores.ShadowWorld, stores.Resources.Materials));
         // The weather map is made first, since the sky captures read it from their first draw.
         var cloudNoise = new CloudNoise(context);

@@ -2,12 +2,27 @@ using Silk.NET.Vulkan;
 
 namespace Rendition.Gpu.Vulkan;
 
+/// <summary>How an <see cref="ImageGroup"/> binds an image, and so the layout the image rests in between passes.</summary>
+internal enum GroupImageUse
+{
+    /// <summary>Read through a sampler, resting in <see cref="ImageLayout.ShaderReadOnlyOptimal"/>.</summary>
+    Sampled,
+
+    /// <summary>Depth read through a sampler, resting in <see cref="ImageLayout.DepthReadOnlyOptimal"/>, as glass leaves it.</summary>
+    Depth,
+
+    /// <summary>An image a compute pass writes, read through a sampler while it rests in <see cref="ImageLayout.General"/>.</summary>
+    Stored,
+
+    /// <summary>Bound for a compute shader to write, resting in <see cref="ImageLayout.General"/>.</summary>
+    Written,
+}
+
 /// <summary>
-/// An image for an <see cref="ImageGroup"/>: the binding name its shader gives it, the view, and the sampler to read
-/// it through, or the group's own when left out. A <see cref="ReadOnlyDepth"/> image is depth, sampled while it rests
-/// in <see cref="ImageLayout.DepthReadOnlyOptimal"/>.
+/// An image for an <see cref="ImageGroup"/>: the binding name its shader gives it, the view, the sampler to read it
+/// through, or the group's own when left out, and how the group binds it.
 /// </summary>
-internal readonly record struct GroupImage(string Name, ImageView View, SamplerId Sampler = default, bool ReadOnlyDepth = false)
+internal readonly record struct GroupImage(string Name, ImageView View, SamplerId Sampler = default, GroupImageUse Use = GroupImageUse.Sampled)
 {
     public static implicit operator GroupImage((string Name, ImageView View) image) => new(image.Name, image.View);
 }
@@ -36,8 +51,12 @@ internal sealed class ImageGroup(VulkanGpu gpu, SamplerId sampler) : IDisposable
         for (int i = 0; i < images.Length; i++)
         {
             var image = images[i];
-            _views[i] = gpu.Adopt(new AdoptedView(image.View, default, default, ReadOnlyDepth: image.ReadOnlyDepth));
-            binds[i] = Bind.Image(image.Name, _views[i], image.Sampler.Value == 0 ? sampler : image.Sampler);
+            var use = image.Use;
+            _views[i] = gpu.Adopt(new AdoptedView(
+                image.View, default, default, ReadOnlyDepth: use == GroupImageUse.Depth, Storage: use >= GroupImageUse.Stored));
+            binds[i] = use == GroupImageUse.Written
+                ? Bind.StorageImage(image.Name, _views[i])
+                : Bind.Image(image.Name, _views[i], image.Sampler.Value == 0 ? sampler : image.Sampler);
         }
 
         Id = gpu.CreateBindGroup(pipeline, group, binds);

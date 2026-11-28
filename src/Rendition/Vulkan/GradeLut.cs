@@ -1,5 +1,7 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Silk.NET.Vulkan;
 
@@ -17,7 +19,7 @@ internal sealed unsafe class GradeLut : IDisposable
     public const int Size = 64;
 
     // Must match local_size in grade_lut.comp.
-    private const uint GroupSize = 4;
+    private const int GroupSize = 4;
 
     /// <summary>The artists' tables <see cref="RendererLuts.Create"/> made, and the neutral one.</summary>
     public readonly ColorLuts Luts;
@@ -26,52 +28,43 @@ internal sealed unsafe class GradeLut : IDisposable
     public readonly DescriptorSet ReadSet;
 
     private readonly VulkanContext _context;
-    private readonly Sampler _sampler;
+    private readonly VulkanGpu _gpu;
     private readonly CellVolume _table;
-    private readonly DescriptorSetLayout _bakeLayout;
     private readonly DescriptorPool _pool;
-    private readonly PipelineLayout _pipelineLayout;
-    private readonly LivePipeline _bake;
-    private readonly DescriptorSet[] _bakeSets = new DescriptorSet[FrameRing.Count];
+    private readonly ComputePass _bake;
+    private readonly CommandList _commands = new();
+
+    // One group a frame slot, as the artist's table the bake reads can change between bakes.
+    private readonly ImageGroup[] _bakeGroups = new ImageGroup[FrameRing.Count];
 
     // Nothing is baked to begin with, and its pipeline of 0 matches no wanted bake.
     private BakeKey _baked;
     private BakeKey _wanted;
     private int _slot;
 
-    public GradeLut(VulkanContext context, DescriptorKit kit)
+    /// <summary>
+    /// The table and its bake. The tonemap, which hasn't moved to the GPU layer, reads it through <see cref="ReadSet"/>,
+    /// made outside the layer; the bake borrows the frame's set layout.
+    /// </summary>
+    public GradeLut((VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit)
     {
+        var (context, gpu) = device;
         _context = context;
-        _sampler = kit.LinearSampler;
+        _gpu = gpu;
         Luts = new ColorLuts(context);
         _table = new CellVolume(context, (Size, Size, Size), new ClearColorValue(0f, 0f, 0f, 1f));
 
-        _bakeLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-            new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-        ]);
-        _pool = context.CreateDescriptorPool(
-            FrameRing.Count + 1,
-            new DescriptorPoolSize(DescriptorType.StorageImage, FrameRing.Count),
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, FrameRing.Count + 1));
-        context.AllocateSets(_pool, _bakeLayout, _bakeSets);
+        _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 1));
         ReadSet = context.AllocateSet(_pool, kit.OneTextureLayout);
-        _pipelineLayout = context.CreatePipelineLayout([kit.FrameSetLayout, _bakeLayout]);
-        _bake = PipelineFactory.CreateCompute(context, "grade_lut.comp", _pipelineLayout);
+        var readInfo = new DescriptorImageInfo(kit.LinearSampler, _table.View, ImageLayout.General);
+        var write = Descriptors.ImageWrite(ReadSet, 0, DescriptorType.CombinedImageSampler, &readInfo);
+        context.Api.UpdateDescriptorSets(context.Device, 1, &write, 0, null);
 
-        var tableInfo = new DescriptorImageInfo(default, _table.View, ImageLayout.General);
-        var readInfo = new DescriptorImageInfo(_sampler, _table.View, ImageLayout.General);
-        Span<WriteDescriptorSet> writes = stackalloc WriteDescriptorSet[FrameRing.Count + 1];
+        _bake = new ComputePass(gpu, "grade_lut.comp", [kit.FrameSetLayout, default]);
+        var linear = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear));
         for (int slot = 0; slot < FrameRing.Count; slot++)
         {
-            writes[slot] = Descriptors.ImageWrite(_bakeSets[slot], 0, DescriptorType.StorageImage, &tableInfo);
-        }
-
-        writes[FrameRing.Count] = Descriptors.ImageWrite(ReadSet, 0, DescriptorType.CombinedImageSampler, &readInfo);
-        fixed (WriteDescriptorSet* first = writes)
-        {
-            context.Api.UpdateDescriptorSets(context.Device, (uint)writes.Length, first, 0, null);
+            _bakeGroups[slot] = new ImageGroup(gpu, linear);
         }
     }
 
@@ -94,7 +87,7 @@ internal sealed unsafe class GradeLut : IDisposable
             Lift = lift with { W = 0f },
             Gain = gain,
             Lut = lut.Handle,
-            Pipeline = (ulong)_bake.Handle.Handle,
+            Pipeline = (ulong)_gpu.Current(_bake.Pipeline).Handle,
         };
         _slot = slot;
     }
@@ -111,48 +104,41 @@ internal sealed unsafe class GradeLut : IDisposable
 
     /// <summary>
     /// Bakes the table again when what <see cref="Take"/> took differs from the last bake, before the tonemap reads it.
-    /// It waits on the GPU for nothing: the last frame's reads come first by the barrier, on the same queue.
+    /// It waits on the GPU for nothing: the bake is a compute pass, which comes after the last frame's reads.
     /// </summary>
     public void Record(CommandBuffer cmd, DescriptorSet frameSet)
     {
-        _wanted.Pipeline = (ulong)_bake.Handle.Handle;
+        _wanted.Pipeline = (ulong)_gpu.Current(_bake.Pipeline).Handle;
         if (BakeKey.Same(_wanted, _baked))
         {
             return;
         }
 
-        // The slot's last frame is done by now, so its set is free to change.
-        var info = new DescriptorImageInfo(_sampler, new ImageView(_wanted.Lut), ImageLayout.General);
-        var write = Descriptors.ImageWrite(_bakeSets[_slot], 1, DescriptorType.CombinedImageSampler, &info);
-        var api = _context.Api;
-        api.UpdateDescriptorSets(_context.Device, 1, &write, 0, null);
+        // The slot's last frame is done by now, so its group is free to be made again.
+        var group = _bakeGroups[_slot];
+        group.Make(_bake.Pipeline, 1,
+        [
+            new GroupImage("grade", _table.View, Use: GroupImageUse.Written),
+            new GroupImage("artistLut", new ImageView(_wanted.Lut), Use: GroupImageUse.Stored),
+        ]);
 
-        api.MemoryBarrier(cmd, (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit),
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit));
-
-        ReadOnlySpan<DescriptorSet> sets = [frameSet, _bakeSets[_slot]];
-        fixed (DescriptorSet* first = sets)
-        {
-            api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, (uint)sets.Length, first, 0, null);
-        }
-
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _bake);
-        const uint groups = (Size + GroupSize - 1) / GroupSize;
-        api.CmdDispatch(cmd, groups, groups, groups);
-
-        api.MemoryBarrier(cmd, (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
-            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
+        const int groups = (Size + GroupSize - 1) / GroupSize;
+        _commands.Reset();
+        _bake.Record(_commands, [_gpu.Adopt(frameSet), group.Id], [], (groups, groups, groups));
+        _gpu.Play(_commands, cmd);
         _baked = _wanted;
         Bakes++;
     }
 
     public void Dispose()
     {
-        _bake.Destroy();
-        var api = _context.Api;
-        api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
-        api.DestroyDescriptorPool(_context.Device, _pool, null);
-        api.DestroyDescriptorSetLayout(_context.Device, _bakeLayout, null);
+        foreach (var group in _bakeGroups)
+        {
+            group.Dispose();
+        }
+
+        _bake.Dispose();
+        _context.Api.DestroyDescriptorPool(_context.Device, _pool, null);
         _table.Dispose();
         Luts.Dispose();
     }

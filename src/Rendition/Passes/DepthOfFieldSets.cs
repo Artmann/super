@@ -67,7 +67,7 @@ internal sealed class DepthOfFieldSets : IDisposable
     /// </summary>
     public void Write(ImageView source, ImageView depth, DepthOfFieldLayers layers, (PipelineId Coc, PipelineId Blur, PipelineId Combine) pipelines)
     {
-        var depthImage = new GroupImage("depthTexture", depth, _point, ReadOnlyDepth: true);
+        var depthImage = new GroupImage("depthTexture", depth, _point, Use: GroupImageUse.Depth);
         Coc.Make(pipelines.Coc, 1, [("sourceTexture", source), depthImage]);
         Blur.Make(pipelines.Blur, 1, [new GroupImage("circleTexture", layers.Coc.View, _point)]);
         Combine.Make(pipelines.Combine, 1, [("nearTexture", layers.Near.View), depthImage, ("farTexture", layers.Far.View)]);

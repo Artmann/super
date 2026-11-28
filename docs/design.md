@@ -4544,9 +4544,11 @@ with the artist table's image view and the pipeline's handle so a shader reload 
 leaves out exposure, the vignette, grain, sharpening and bloom, which are worked out a pixel at a
 time. `Record` compares the key's bytes with the last bake's and returns when they match, so a
 frame with an unchanged grade records nothing; `Bakes` counts the bakes for the GPU tests.
-There is one table, not one per frame in flight. The bake waits on the GPU for nothing: a
-barrier from the fragment shader's reads to the compute shader's writes puts the last frame's
-tonemap before it on the same queue, and another puts it before this frame's.
+There is one table, not one per frame in flight. The bake waits on the GPU for nothing: it runs
+through the GPU layer, whose compute pass begins after everything recorded before it on the
+queue, the last frame's tonemap among them, and whose barrier after the dispatch puts it before
+this frame's. The key holds the pipeline as `VulkanGpu.Current` gives it, the Vulkan pipeline
+the layer's pipeline id stands for now, which a live reload changes.
 
 The tones and split toning work on display colour put through a 2.2 power, where the eye
 splits the picture into shadows, mid-tones and highlights: the shadows fade out between luma
@@ -4743,9 +4745,9 @@ the first bin and anything past the top, such as a sun disc of 30000, to the las
 nothing overflows or falls outside. `exposure_adapt.comp` then runs as one group of 64.
 It reads and empties the bins, takes the mean bin centre of the 40th to 95th percentile,
 clamps it to `MeteringSettings.Darkest` and `Brightest`, and moves the stored EV towards it by
-at most the rise or fall it is pushed. Both passes share one pipeline layout and one push constant
-block (`Metering` in `exposure.glsl`, `MeteringConstants` in `ExposureMeter`), pushed once before
-the histogram, since push constants stay bound across a pipeline change with the same layout. The tonemap reads the EV
+at most the rise or fall it is pushed. Both passes read one push constant block (`Metering` in
+`exposure.glsl`, `MeteringConstants` in `ExposureMeter`), which each pass sets as it runs, since
+they are two compute passes on the GPU layer. The tonemap reads the EV
 from the same buffer as a third descriptor set (`ExposureMeter.Set`) and multiplies by
 `0.18 * 2^-EV`, which puts the metered brightness at middle grey, on top of
 `PostSettings.Exposure`, which then works as compensation. The buffer is
@@ -5074,7 +5076,7 @@ images change. Depth that glass leaves in `DepthReadOnlyOptimal` is adopted with
 `ReadOnlyDepth` set on its `AdoptedView`, so a group samples it in that layout. Bloom, depth of field and
 paint's composite draw this way: a pass drawn several times a frame, such as bloom's nine
 steps or depth of field's three, records every draw into one `CommandList` and plays it once.
-Paint's filter is compute, so it stays on Vulkan until stage 1c.
+Paint's filter is compute and moved in stage 1c (see below).
 
 TAA, FSR's two input passes (motion and exposure) and the finish draw this way too. The
 anti-aliased image now rests ready to sample after TAA, so the history copy reads it from
@@ -5101,8 +5103,7 @@ ready to sample after lighting, so `BlendStage` moves it to `ColorAttachmentOpti
 Every fullscreen pass now draws through the layer, so `FullscreenPass` has only its layer
 constructor, and the descriptor kit keeps only the layouts something still borrows: the
 frame's, the lighting set's and the one-texture layout. What waits is the rest of the frame.
-Compute passes, among them paint's filter, the exposure meter and the probe updates, move in
-stage 1c. Passes with vertex input or scene geometry, such as the G-buffer, shadows, glass,
+Compute passes move in stage 1c, below. Passes with vertex input or scene geometry, such as the G-buffer, shadows, glass,
 the lens flare's quads and the overlay, move in stage 1d with the draw-data buffer and
 material binding. FSR itself is AMD's code and stays outside the layer.
 
@@ -5120,6 +5121,20 @@ draw to it. Buffers made outside the layer are adopted with `VulkanGpu.Adopt(buf
 and bound with `Bind.Buffer`, and storage images with `Bind.StorageImage`.
 `CommandList.ClearBuffer` zeroes part of a buffer, only between passes, as WebGPU allows, and
 waits for and is waited on by the same stages as a dispatch.
+
+A compute pass also begins with a barrier, from everything an older pass on the queue may have
+done, drawn targets, depth, storage and transfer writes and shader reads, to the compute
+shader's reads and writes. So a pass that moves needs no barriers of its own: the exposure
+meter's histogram and adapt, paint's filter, the grade's bake, the lens flare's visibility
+taps and the light clusters run this way, and the barriers they placed are gone. The clusters
+gained a barrier before them they didn't have, which costs little at one dispatch a frame.
+`GroupImage` says how a group uses each image with a `GroupImageUse`: `Sampled`, `Depth` for
+read-only depth, `Stored` for an image that rests in `General` and is sampled there, and
+`Written` for a storage image the shader writes. Paint's half-size picture rests in `General`
+from the moment it is made, so the filter writes it and the composite samples it without a
+move. The exposure meter's buffer and the flare's are adopted, and their sets still come from
+`CreateStateSet` and are adopted too, since the tonemap, FSR and the flare's draw, which
+haven't moved, read them.
 
 ## Resource lifetime
 

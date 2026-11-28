@@ -65,7 +65,7 @@ internal sealed unsafe class FsrPass : IDisposable
 
         // Glass has just used depth for testing, and it stays in that layout until FSR needs it.
         _motionInputs.Make(_motionPass.Pipeline, 1,
-            [new GroupImage("depthTexture", depth, ReadOnlyDepth: true), ("motionTexture", motion)]);
+            [new GroupImage("depthTexture", depth, Use: GroupImageUse.Depth), ("motionTexture", motion)]);
     }
 
     /// <summary>Frees the context and its targets, while FSR isn't used. Frames still in flight must have finished.</summary>
