@@ -4664,8 +4664,8 @@ a half-size target in the HDR format, adding onto black. `lens_flare.vert` reads
 visibility from the buffer and folds a quad with none to a point. A frame that skips the flare
 clears the target once, and later skipped frames leave it alone. The tonemap reads the target at
 set 1, binding 2, and adds it to the scene and bloom before exposure, outside the speed blur and
-the fringes, since it is light in the lens and shouldn't move with the scene. That set now uses
-`FourTextureLayout`, and binding 3 is left empty because `tonemap.frag` never reads it. The flare
+the fringes, since it is light in the lens and shouldn't move with the scene. That set is laid
+out from `tonemap.frag` through the GPU layer (see "GPU layer"). The flare
 is recorded inside bloom's `GpuTimer` span, so the stats panel counts it as bloom. `PostStage`
 reads the exposure step from `ExposureClock.Step` instead of keeping a copy of its own.
 
@@ -5075,6 +5075,16 @@ images change. Depth that glass leaves in `DepthReadOnlyOptimal` is adopted with
 paint's composite draw this way: a pass drawn several times a frame, such as bloom's nine
 steps or depth of field's three, records every draw into one `CommandList` and plays it once.
 Paint's filter is compute, so it stays on Vulkan until stage 1c.
+
+TAA, FSR's two input passes (motion and exposure) and the finish draw this way too. The
+anti-aliased image now rests ready to sample after TAA, so the history copy reads it from
+`ShaderReadOnlyOptimal` as it does the lit image. The finish draws into the window's image,
+which the layer must not move, because the marks and the overlay draw into it after and
+`FinishStage` then moves it to present or copies it out. So `FinishPass` adopts each
+swapchain image with `VulkanGpu.AdoptSurface`, one `AdoptedTarget` per image, and the player
+leaves a surface's layout to its caller: `FinishStage` moves it to `ColorAttachmentOptimal`
+before the pass and on after the overlay. Its format comes from `VulkanFormats.ToGpu`, and a
+test in `Super.Tests` checks every format the swapchain can pick has a layer format.
 
 ## Resource lifetime
 

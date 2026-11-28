@@ -1,4 +1,6 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
@@ -14,10 +16,11 @@ internal sealed unsafe class FsrPass : IDisposable
     private const Format ExposureFormat = Format.R32Sfloat;
 
     private readonly VulkanContext _context;
-    private readonly Sampler _pointSampler;
-    private readonly DescriptorSetLayout _setLayout;
-    private readonly DescriptorPool _pool;
-    private readonly DescriptorSet _motionSet;
+    private readonly VulkanGpu _gpu;
+    private readonly CommandList _commands = new();
+    private readonly ImageGroup _motionInputs;
+    private readonly AdoptedTarget _motionTarget;
+    private readonly AdoptedTarget _exposureTarget;
     private readonly FullscreenPass _motionPass;
     private readonly FullscreenPass _exposurePass;
 
@@ -25,21 +28,21 @@ internal sealed unsafe class FsrPass : IDisposable
     private RenderTarget? _motion;
     private RenderTarget? _exposure;
 
-    public FsrPass(VulkanContext context, Sampler pointSampler, DescriptorSetLayout frameSetLayout, DescriptorSetLayout exposureSetLayout)
+    /// <summary>
+    /// The two passes that ready FSR's inputs draw through the GPU layer, lent the frame's set layout and the exposure
+    /// meter's.
+    /// </summary>
+    public FsrPass((VulkanContext Context, VulkanGpu Gpu) device, DescriptorSetLayout frameSetLayout, DescriptorSetLayout exposureSetLayout)
     {
+        var (context, gpu) = device;
         _context = context;
-        _pointSampler = pointSampler;
-
-        _setLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-            new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-        ]);
-        _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 2));
-        _motionSet = context.AllocateSet(_pool, _setLayout);
-
-        _motionPass = new FullscreenPass(context, "fsr_motion.frag", MotionFormat, [frameSetLayout, _setLayout]);
-        _exposurePass = new FullscreenPass(context, "fsr_exposure.frag", ExposureFormat, [frameSetLayout, exposureSetLayout]);
+        _gpu = gpu;
+        _motionTarget = new AdoptedTarget(gpu);
+        _exposureTarget = new AdoptedTarget(gpu);
+        _motionInputs = new ImageGroup(gpu, gpu.CreateSampler(new SamplerDescription(SamplerFilter.Nearest)));
+        _motionPass = new FullscreenPass(gpu, "fsr_motion.frag", [VulkanFormats.ToGpu(MotionFormat)], borrowed: [frameSetLayout, default]);
+        _exposurePass = new FullscreenPass(gpu, "fsr_exposure.frag", [VulkanFormats.ToGpu(ExposureFormat)],
+            borrowed: [frameSetLayout, exposureSetLayout]);
     }
 
     /// <summary>Whether FSR has a context, from <see cref="SetTargets"/> until <see cref="Release"/>.</summary>
@@ -61,18 +64,8 @@ internal sealed unsafe class FsrPass : IDisposable
         _fsr = new Fsr(_context, render, display, debugChecking: _context.Validation is not null);
 
         // Glass has just used depth for testing, and it stays in that layout until FSR needs it.
-        var images = stackalloc DescriptorImageInfo[]
-        {
-            new(_pointSampler, depth, ImageLayout.DepthReadOnlyOptimal),
-            new(_pointSampler, motion, ImageLayout.ShaderReadOnlyOptimal),
-        };
-        var writes = stackalloc WriteDescriptorSet[2];
-        for (int i = 0; i < 2; i++)
-        {
-            writes[i] = Descriptors.ImageWrite(_motionSet, (uint)i, DescriptorType.CombinedImageSampler, &images[i]);
-        }
-
-        _context.Api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
+        _motionInputs.Make(_motionPass.Pipeline, 1,
+            [new GroupImage("depthTexture", depth, ReadOnlyDepth: true), ("motionTexture", motion)]);
     }
 
     /// <summary>Frees the context and its targets, while FSR isn't used. Frames still in flight must have finished.</summary>
@@ -138,23 +131,23 @@ internal sealed unsafe class FsrPass : IDisposable
     private void RecordInputs(
         CommandBuffer cmd, (DescriptorSet Frame, DescriptorSet Exposure) sets, Fsr fsr, (RenderTarget Motion, RenderTarget Exposure) inputs)
     {
-        var api = _context.Api;
-        api.BeginColorTarget(cmd, inputs.Motion.Image);
-        _motionPass.Record(cmd, inputs.Motion.View, fsr.RenderSize, [sets.Frame, _motionSet]);
-        api.EndColorTarget(cmd, inputs.Motion.Image);
-
-        api.BeginColorTarget(cmd, inputs.Exposure.Image);
-        _exposurePass.Record(cmd, inputs.Exposure.View, new Extent2D(1, 1), [sets.Frame, sets.Exposure]);
-        api.EndColorTarget(cmd, inputs.Exposure.Image);
+        var frameSet = _gpu.Adopt(sets.Frame);
+        _commands.Reset();
+        _motionPass.Record(_commands, [new ColorTarget(_motionTarget.For(inputs.Motion, fsr.RenderSize), LoadOp.DontCare, default)],
+            [frameSet, _motionInputs.Id], []);
+        _exposurePass.Record(_commands, [new ColorTarget(_exposureTarget.For(inputs.Exposure, new Extent2D(1, 1)), LoadOp.DontCare, default)],
+            [frameSet, _gpu.Adopt(sets.Exposure)], []);
+        _gpu.Play(_commands, cmd);
     }
 
     public void Dispose()
     {
         Release();
+        _motionInputs.Dispose();
+        _motionTarget.Dispose();
+        _exposureTarget.Dispose();
         _exposurePass.Dispose();
         _motionPass.Dispose();
-        _context.Api.DestroyDescriptorPool(_context.Device, _pool, null);
-        _context.Api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
     }
 
     private void MemoryBarrier(CommandBuffer cmd)

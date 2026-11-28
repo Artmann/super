@@ -39,6 +39,13 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     /// </summary>
     public ViewId AdoptDepth(ImageView view) => new(_views.Add(new AdoptedView(view, default, default, ReadOnlyDepth: true)));
 
+    /// <summary>
+    /// An image the layer draws to but never moves between layouts, such as the window's: the caller moves it to
+    /// <see cref="ImageLayout.ColorAttachmentOptimal"/> before the pass, and on once it and its own drawing are done.
+    /// </summary>
+    public ViewId AdoptSurface(ImageView view, Image image, Extent2D extent) =>
+        new(_views.Add(new AdoptedView(view, image, extent, Surface: true)));
+
     /// <summary>Lets go of an adopted view, whose image stays its maker's to destroy.</summary>
     public void Release(ViewId view) => _views.Remove(view.Value);
 
@@ -160,5 +167,11 @@ internal static class VulkanFormats
         [GpuFormat.Bc7RgbaUnormSrgb] = Format.BC7SrgbBlock,
     };
 
+    private static readonly Dictionary<Format, GpuFormat> Back = Formats.ToDictionary(pair => pair.Value, pair => pair.Key);
+
     public static Format Of(GpuFormat format) => Formats[format];
+
+    /// <summary>The layer's format for a Vulkan one, such as the window's, made outside the layer.</summary>
+    public static GpuFormat ToGpu(Format format) =>
+        Back.TryGetValue(format, out var gpu) ? gpu : throw new NotSupportedException($"The GPU layer has no format for {format}.");
 }

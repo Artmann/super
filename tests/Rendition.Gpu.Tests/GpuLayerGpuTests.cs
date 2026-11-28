@@ -130,6 +130,34 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void A_surface_target_is_drawn_in_the_layout_its_caller_left_it_in()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var target = Target();
+        using var adopted = new AdoptedTarget(device);
+        using var pass = new FullscreenPass(device, "solid_color.frag", [GpuFormat.Rgba8Unorm]);
+        var color = new Vector4(0f, 0f, 1f, 1f);
+        var commands = new CommandList();
+        pass.Record(commands, [new ColorTarget(adopted.ForSurface(target.View, target.Image, new Extent2D(Size, Size)), LoadOp.DontCare, default)],
+            [], MemoryMarshal.AsBytes(new ReadOnlySpan<Vector4>(in color)));
+        var api = gpu.Context.Api;
+        var image = target.Image;
+
+        // As the finish pass does with the window's image: moved in before, and out after, by the caller.
+        gpu.Context.SubmitAndWait(cmd =>
+        {
+            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal),
+                (PipelineStageFlags2.None, AccessFlags2.None), (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit));
+            device.Play(commands, cmd);
+            api.EndColorTarget(cmd, image);
+        });
+
+        Assert.Equal([0, 0, 255, 255], Read(target).Take(4));
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void A_blended_pass_adds_onto_what_the_target_held()
     {
         using var device = new VulkanGpu(gpu.Context);

@@ -117,8 +117,16 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
         }
 
         var load = (LoadOp)target[1];
-        MoveToTarget(cmd, view.Image, load);
-        _targets[index] = view.Image;
+        if (view.Surface)
+        {
+            // Its caller moves it in and out, so EndPass skips it.
+            _targets[index] = default;
+        }
+        else
+        {
+            MoveToTarget(cmd, view.Image, load);
+            _targets[index] = view.Image;
+        }
         return new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
@@ -158,7 +166,10 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
         api.CmdEndRendering(cmd);
         for (int i = 0; i < _targetCount; i++)
         {
-            api.EndBlendOnto(cmd, _targets[i]);
+            if (_targets[i].Handle != 0)
+            {
+                api.EndBlendOnto(cmd, _targets[i]);
+            }
         }
 
         _targetCount = 0;

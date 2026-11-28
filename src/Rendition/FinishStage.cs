@@ -1,5 +1,6 @@
 using System.Numerics;
 using Silk.NET.Vulkan;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 using static Rendition.PassStages;
@@ -16,22 +17,21 @@ internal sealed unsafe class FinishStage
     private readonly DescriptorKit _kit;
     private readonly FrameRing _ring;
     private readonly GpuTimer _timer;
-    private readonly FullscreenPass _finishPass;
-    private readonly DescriptorSet _finishSet;
+    private readonly FinishPass _finishPass;
     private readonly ResourceTable _resources;
     private readonly OverlayPass _overlayPass;
     private readonly SceneMarks _marks;
 
-    public FinishStage(VulkanContext context, DescriptorKit kit, FrameRing ring, GpuTimer timer, (Format Format, ResourceTable Resources) window)
+    public FinishStage(
+        (VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, FrameRing ring, GpuTimer timer, (Format Format, ResourceTable Resources) window)
     {
+        var context = device.Context;
         _context = context;
         _kit = kit;
         _ring = ring;
         _timer = timer;
-        _finishSet = kit.NewSet(kit.TwoTextureLayout);
         _resources = window.Resources;
-        _finishPass = new FullscreenPass(
-            context, "finish.frag", window.Format, [kit.FrameSetLayout, kit.TwoTextureLayout, window.Resources.Layout], TransitionConstants.Size);
+        _finishPass = new FinishPass(device.Gpu, kit, (window.Format, window.Resources.Layout));
         _overlayPass = new OverlayPass(context, kit, window.Format, window.Resources, FrameRing.Count);
         _marks = new SceneMarks(context, kit, window.Format, FrameRing.Count);
     }
@@ -60,11 +60,7 @@ internal sealed unsafe class FinishStage
     /// <summary>Points the finish pass at the targets' finished picture and the held one.</summary>
     public void WriteSet(GBuffer targets)
     {
-        ImageSets.Write(_context, _finishSet,
-        [
-            new(_kit.LinearSampler, targets.Picture.Ldr.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, targets.Picture.Held.View, ImageLayout.ShaderReadOnlyOptimal),
-        ]);
+        _finishPass.SetSources(targets.Picture.Ldr.View, targets.Picture.Held.View);
         _marks.WriteSet(_kit.NearestSampler, targets.Depth.View);
     }
 
@@ -86,12 +82,10 @@ internal sealed unsafe class FinishStage
 
         // From here on the picture is the window's size, which the scene may not be.
         var size = swapchain.Extent;
-        // The resources' textures are there for the screen effects' paper.
-        ReadOnlySpan<DescriptorSet> finishSets = [frameSet, _finishSet, _resources.Set];
         var transition = picture.Transition;
         transition.Style.Z = extent.Width != size.Width || extent.Height != size.Height ? 1f : 0f;
-        _finishPass.Record(cmd, swapchain.Views[imageIndex], size, finishSets,
-            new ReadOnlySpan<byte>(&transition, (int)TransitionConstants.Size));
+        // The resources' textures are there for the screen effects' paper.
+        _finishPass.Record(cmd, window, (frameSet, _resources.Set), new ReadOnlySpan<byte>(&transition, (int)TransitionConstants.Size));
         picture.Targets.Picture.LdrReady = true;
         _timer.Mark(cmd);
 

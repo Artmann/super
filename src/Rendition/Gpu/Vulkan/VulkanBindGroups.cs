@@ -49,8 +49,9 @@ internal sealed record VulkanPipeline(
 /// <summary>
 /// An image view made outside the layer, with what the layer needs to move its image between layouts. A
 /// <see cref="ReadOnlyDepth"/> view is depth that rests in <see cref="ImageLayout.DepthReadOnlyOptimal"/> and is only sampled.
+/// A <see cref="Surface"/> is drawn to in the layout its caller leaves it in, as the window's image is.
 /// </summary>
-internal readonly record struct AdoptedView(ImageView View, Image Image, Extent2D Extent, bool ReadOnlyDepth = false);
+internal readonly record struct AdoptedView(ImageView View, Image Image, Extent2D Extent, bool ReadOnlyDepth = false, bool Surface = false);
 
 /// <summary>A descriptor set, and the pool it came from when the layer made it. An adopted set has no pool.</summary>
 internal readonly record struct VulkanBindGroup(DescriptorSet Set, DescriptorPool Pool);

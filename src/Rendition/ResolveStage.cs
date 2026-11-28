@@ -1,27 +1,33 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 
 namespace Rendition;
 
 /// <summary>
-/// Anti-aliases or upscales the lit image, and keeps the frame for the next one.
+/// Anti-aliases or upscales the lit image, and keeps the frame for the next one. TAA draws through the GPU layer.
 /// </summary>
 internal sealed class ResolveStage
 {
-    private readonly VulkanContext _context;
-    private readonly DescriptorKit _kit;
+    private readonly VulkanGpu _gpu;
     private readonly HistoryCopier _copier;
     private readonly FullscreenPass _taaPass;
-    private readonly DescriptorSet _taaSet;
+    private readonly CommandList _commands = new();
+    private readonly ImageGroup _sources;
+    private readonly SamplerId _linear;
+    private readonly AdoptedTarget _resolved;
 
-    public ResolveStage(VulkanContext context, DescriptorKit kit, HistoryCopier copier)
+    public ResolveStage(VulkanGpu gpu, DescriptorKit kit, HistoryCopier copier)
     {
-        _context = context;
-        _kit = kit;
+        _gpu = gpu;
         _copier = copier;
-        _taaSet = kit.NewSet(kit.FourTextureLayout);
-        _taaPass = new FullscreenPass(context, "taa.frag", GBuffer.HdrFormat, [kit.FrameSetLayout, kit.FourTextureLayout]);
+        _resolved = new AdoptedTarget(gpu);
+        _sources = new ImageGroup(gpu, gpu.CreateSampler(new SamplerDescription(SamplerFilter.Nearest)));
+        _linear = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear));
+        // Group 1 is the pass's own, laid out from taa.frag; the frame's set is lent.
+        _taaPass = new FullscreenPass(gpu, "taa.frag", [VulkanFormats.ToGpu(GBuffer.HdrFormat)], borrowed: [kit.FrameSetLayout, default]);
     }
 
     /// <summary>
@@ -37,20 +43,22 @@ internal sealed class ResolveStage
         // so the last frame's camera and motion stay known to FSR whether reflections are on or not.
         if (fsr is { } upscaler)
         {
-            RecordHistoryCopy(cmd, targets, targets.Hdr.Image, drawnJustNow: false);
+            RecordHistoryCopy(cmd, targets, targets.Hdr.Image);
             upscaler.Pass.Record(cmd, (frameSet, upscaler.MeterSet), (targets.Hdr.Image, targets.Depth.Image, targets.Picture.Resolved.Image), upscaler.Frame);
         }
         else if (display.ReadsAntiAliased)
         {
-            ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
-            _context.Api.BeginColorTarget(cmd, targets.Picture.Resolved.Image);
-            _taaPass.Record(cmd, targets.Picture.Resolved.View, targets.Extent, taaSets);
-            RecordHistoryCopy(cmd, targets, targets.Picture.Resolved.Image, drawnJustNow: true);
+            _commands.Reset();
+            _taaPass.Record(_commands, [new ColorTarget(_resolved.For(targets.Picture.Resolved, targets.Extent), LoadOp.DontCare, default)],
+                [_gpu.Adopt(frameSet), _sources.Id], []);
+            _gpu.Play(_commands, cmd);
+            // The layer leaves the anti-aliased image ready to sample, as the lit one is.
+            RecordHistoryCopy(cmd, targets, targets.Picture.Resolved.Image);
         }
         else if (!display.Off.HasFlag(RenderEffects.Reflections)
             || (display.Off & (RenderEffects.AmbientOcclusion | RenderEffects.ScreenBounce)) == 0)
         {
-            RecordHistoryCopy(cmd, targets, targets.Hdr.Image, drawnJustNow: false);
+            RecordHistoryCopy(cmd, targets, targets.Hdr.Image);
         }
         else
         {
@@ -58,27 +66,30 @@ internal sealed class ResolveStage
         }
     }
 
-    /// <summary>Points anti-aliasing at the lit image, the history, depth and motion. Glass has just used depth for testing, and it stays in that layout.</summary>
-    public void WriteSet(GBuffer targets)
-    {
-        ImageSets.Write(_context, _taaSet,
+    /// <summary>
+    /// Points anti-aliasing at the lit image, the history, depth and motion. Glass has just used depth for testing, and
+    /// it stays in that layout. Makes the bind group again, so it must only be called while the GPU is idle.
+    /// </summary>
+    public void WriteSet(GBuffer targets) =>
+        _sources.Make(_taaPass.Pipeline, 1,
         [
-            new(_kit.NearestSampler, targets.Hdr.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.LinearSampler, targets.Picture.History.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_kit.NearestSampler, targets.Depth.View, ImageLayout.DepthReadOnlyOptimal),
-            new(_kit.NearestSampler, targets.Motion.View, ImageLayout.ShaderReadOnlyOptimal),
+            ("currentTexture", targets.Hdr.View),
+            new GroupImage("historyTexture", targets.Picture.History.View, _linear),
+            new GroupImage("depthTexture", targets.Depth.View, ReadOnlyDepth: true),
+            ("motionTexture", targets.Motion.View),
         ]);
+
+    public void Dispose()
+    {
+        _sources.Dispose();
+        _resolved.Dispose();
+        _taaPass.Dispose();
     }
 
-    public void Dispose() => _taaPass.Dispose();
-
-    /// <summary>
-    /// Keeps this frame for the next one, and leaves it ready to sample. The frame is still
-    /// a target when it was <paramref name="drawnJustNow"/>, and already ready to sample when not.
-    /// </summary>
-    private void RecordHistoryCopy(CommandBuffer cmd, GBuffer targets, Image frame, bool drawnJustNow)
+    /// <summary>Keeps this frame, which rests ready to sample, for the next one, and leaves it ready to sample.</summary>
+    private void RecordHistoryCopy(CommandBuffer cmd, GBuffer targets, Image frame)
     {
-        _copier.RecordCopy(cmd, frame, targets.Picture.History.Image, targets.Extent, drawnJustNow);
+        _copier.RecordCopy(cmd, frame, targets.Picture.History.Image, targets.Extent, drawnJustNow: false);
         targets.Picture.HistoryReady = true;
     }
 }
