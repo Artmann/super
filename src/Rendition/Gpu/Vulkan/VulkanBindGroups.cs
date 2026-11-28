@@ -65,9 +65,10 @@ internal sealed record VulkanPipeline(
 /// one, and so is a G-buffer target while the passes that move it are outside the layer.
 /// A <see cref="Storage"/> image is one compute shaders write; it rests in <see cref="ImageLayout.General"/> between passes
 /// so it can be written and read without moving, and render passes can't draw to it.
+/// A view drawn to covers one <see cref="Mip"/> of one <see cref="Layer"/> of its image, which is all a pass moves.
 /// </summary>
 internal readonly record struct AdoptedView(
-    ImageView View, Image Image, Extent2D Extent, bool ReadOnlyDepth = false, bool Held = false, bool Storage = false);
+    ImageView View, Image Image, Extent2D Extent, bool ReadOnlyDepth = false, bool Held = false, bool Storage = false, uint Mip = 0, uint Layer = 0);
 
 /// <summary>A buffer made outside the layer, and how many bytes of it bind groups and clears see.</summary>
 internal readonly record struct AdoptedBuffer(Silk.NET.Vulkan.Buffer Buffer, long Size);

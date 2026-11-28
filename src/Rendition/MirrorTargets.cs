@@ -1,4 +1,6 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 using static Rendition.PassStages;
@@ -20,19 +22,24 @@ internal sealed unsafe class MirrorTargets : IDisposable
     private readonly RenderTarget _color;
     private readonly RenderTarget _depth;
 
+    // What halves both layers into their mips.
+    private readonly MipDraws _mips;
+
     // Whether the picture has been laid out for sampling since it was made.
     private bool _laidOut;
 
     /// <summary>Makes both layers with their mips, and the depth, at this extent, not laid out yet.</summary>
-    public MirrorTargets(VulkanContext context, Extent2D extent)
+    public MirrorTargets((VulkanContext Context, VulkanGpu Gpu) device, Extent2D extent)
     {
+        var context = device.Context;
         _context = context;
         Extent = extent;
         uint mips = Math.Min(MaxMips, (uint)Math.Log2(Math.Max(extent.Width, extent.Height)) + 1);
         _color = new RenderTarget(context, GBuffer.HdrFormat, extent,
-            ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit,
+            ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit,
             layers: Layers, mips: mips);
         _depth = new RenderTarget(context, GBuffer.DepthFormat, extent, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
+        _mips = new MipDraws(device.Gpu, context, new MipImage(_color.Image, GpuFormat.Rgba16Float, extent, mips, Layers));
     }
 
     public Extent2D Extent { get; }
@@ -79,22 +86,16 @@ internal sealed unsafe class MirrorTargets : IDisposable
     /// <summary>Halves both layers down their mips once drawing has ended, leaving the picture ready to sample.</summary>
     public void Finish(CommandBuffer cmd)
     {
-        var api = _context.Api;
-        api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit, ImageLayout.ColorAttachmentOptimal,
-            ImageLayout.TransferDstOptimal) { LayerCount = Layers }, (ColorStage, ColorWrite), (PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit));
-        if (_color.Mips > 1)
-        {
-            api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit, ImageLayout.Undefined,
-                ImageLayout.TransferDstOptimal) { BaseMip = 1, MipCount = _color.Mips - 1, LayerCount = Layers },
-                (SampledStage, SampledAccess), (PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit));
-        }
-
-        MipBlits.Fill(api, cmd, _color, Extent, Layers);
+        // The first mip goes to resting, as the GPU layer expects, so the draws can halve it.
+        _context.Api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit, ImageLayout.ColorAttachmentOptimal,
+            ImageLayout.ShaderReadOnlyOptimal) { LayerCount = Layers }, (ColorStage, ColorWrite), (SampledStage, SampledAccess));
+        _mips.Play(cmd);
         _laidOut = true;
     }
 
     public void Dispose()
     {
+        _mips.Dispose();
         _color.Dispose();
         _depth.Dispose();
     }

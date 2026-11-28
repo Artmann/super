@@ -2,18 +2,20 @@ using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 using Rendition.Gpu;
 using Rendition.Gpu.Vulkan;
+using Rendition.Vulkan;
 
 namespace Rendition.Passes;
 
 /// <summary>
 /// Records <see cref="TransparentPass"/>'s plan through the GPU layer, as runs between the copies of the scene. Each
-/// run is one list played into a pass over Hdr and read-only depth; the copies are made by hand between plays. Glass
+/// run is one list played into a pass over Hdr and read-only depth; between plays, each copy is drawn
+/// through the layer by <see cref="MipDraws"/>, with only Hdr's moves around it made by hand. Glass
 /// and particles have different layouts, so each sets every group it reads whenever the kind of draw changes.
 /// </summary>
-internal sealed class TransparentRuns((VulkanGpu Gpu, Vk Api) device, SceneList list, ScenePipelines pipelines, DescriptorSet environment)
+internal sealed class TransparentRuns((VulkanGpu Gpu, VulkanContext Context) device, SceneList list, ScenePipelines pipelines, DescriptorSet environment)
     : IDisposable
 {
-    private readonly TransparentTargets _targets = new(device.Gpu);
+    private readonly TransparentTargets _targets = new(device.Gpu, device.Context);
     private readonly BindGroupId _environment = device.Gpu.Adopt(environment);
 
     // What the last glass bound, forgotten whenever particles draw between.
@@ -38,7 +40,7 @@ internal sealed class TransparentRuns((VulkanGpu Gpu, Vk Api) device, SceneList 
             if (step.Kind == TransparentStepKind.Copy)
             {
                 EndRun(cmd, run);
-                TransparentTargets.CopyScene(device.Api, cmd, into.Targets);
+                _targets.CopyScene(cmd, into.Targets);
                 run = BeginRun(into.Targets);
                 bound = Binding.None;
             }

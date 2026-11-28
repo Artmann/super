@@ -34,51 +34,60 @@ internal static class LayerImages
     }
 
     // Leaves the target ready to be read by shaders, as the layer expects.
-    public static unsafe void Upload(VulkanContext context, RenderTarget target, int size, byte[] pixels)
+    public static void Upload(VulkanContext context, RenderTarget target, int size, byte[] pixels) =>
+        Upload(context, target.Image, new Extent2D((uint)size, (uint)size), pixels);
+
+    /// <summary>Fills one mip of one layer, <paramref name="extent"/> across, and leaves it ready to be read by shaders.</summary>
+    public static unsafe void Upload(VulkanContext context, Image image, Extent2D extent, byte[] pixels, uint mip = 0, uint layer = 0)
     {
         using var buffer = GpuBuffer.CreateHostVisible(context, (ulong)pixels.Length, BufferUsageFlags.TransferSrcBit);
         pixels.CopyTo(new Span<byte>(buffer.Mapped, pixels.Length));
         var api = context.Api;
         var handle = buffer.Handle;
-        var image = target.Image;
         context.SubmitAndWait(cmd =>
         {
-            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.TransferDstOptimal),
+            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.TransferDstOptimal)
+                { BaseMip = mip, BaseLayer = layer },
                 (PipelineStageFlags2.None, AccessFlags2.None), (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit));
             var region = new BufferImageCopy
             {
-                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-                ImageExtent = new Extent3D((uint)size, (uint)size, 1),
+                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, mip, layer, 1),
+                ImageExtent = new Extent3D(extent.Width, extent.Height, 1),
             };
             api.CmdCopyBufferToImage(cmd, handle, image, ImageLayout.TransferDstOptimal, 1, &region);
-            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal),
+            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal)
+                { BaseMip = mip, BaseLayer = layer },
                 (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit), (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
         });
     }
 
     // The layer leaves a target it drew to ready to be read by shaders, and so does this.
-    public static unsafe byte[] Read(VulkanContext context, RenderTarget target, int size, ImageLayout resting = ImageLayout.ShaderReadOnlyOptimal)
+    public static byte[] Read(VulkanContext context, RenderTarget target, int size, ImageLayout resting = ImageLayout.ShaderReadOnlyOptimal) =>
+        Read(context, target.Image, new Extent2D((uint)size, (uint)size), resting: resting);
+
+    /// <summary>The four bytes a pixel of one mip of one layer, <paramref name="extent"/> across, which must be resting as <paramref name="resting"/> says.</summary>
+    public static unsafe byte[] Read(
+        VulkanContext context, Image image, Extent2D extent, uint mip = 0, uint layer = 0, ImageLayout resting = ImageLayout.ShaderReadOnlyOptimal)
     {
-        int length = size * size * 4;
+        int length = (int)(extent.Width * extent.Height * 4);
         using var buffer = GpuBuffer.CreateHostVisible(context, (ulong)length, BufferUsageFlags.TransferDstBit);
         var api = context.Api;
         var handle = buffer.Handle;
-        var image = target.Image;
         context.SubmitAndWait(cmd =>
         {
             api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
-                resting, ImageLayout.TransferSrcOptimal),
+                resting, ImageLayout.TransferSrcOptimal) { BaseMip = mip, BaseLayer = layer },
                 (PipelineStageFlags2.AllCommandsBit, AccessFlags2.MemoryWriteBit),
                 (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit));
             var region = new BufferImageCopy
             {
-                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-                ImageExtent = new Extent3D((uint)size, (uint)size, 1),
+                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, mip, layer, 1),
+                ImageExtent = new Extent3D(extent.Width, extent.Height, 1),
             };
             api.CmdCopyImageToBuffer(cmd, image, ImageLayout.TransferSrcOptimal, handle, 1, &region);
             // Back to resting, so the layer can draw to it or read it again.
             api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferSrcOptimal, resting),
+                ImageLayout.TransferSrcOptimal, resting) { BaseMip = mip, BaseLayer = layer },
                 (PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit),
                 (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
         });

@@ -628,6 +628,44 @@ Three decisions, taken here against the design above:
 - [ ] **Step 3: Run the GPU suite and the shots,** adding the grass example. Expected: as in 1d1 Task 2.
 - [ ] **Step 4: Commit and open the pull request** as 1d1 Task 3 describes. The commit is `refactor: draw grass through the GPU layer`.
 
+## Stage 1e: targets, uploads, mips, present, capture, timers
+
+Today the layer makes only samplers, shaders, pipelines and bind groups. Every image and buffer is made outside it and adopted. Stage 1e is five pull requests, simplest first, each stacked on the one before. The first is on `feat/gpu-layer-grass`.
+
+| Part | Branch | What moves |
+|---|---|---|
+| 1e1 | `feat/gpu-layer-mips` | The three `CmdBlitImage` mip chains become downsample draws, and glass's scene copy becomes a draw |
+| 1e2 | `feat/gpu-layer-timers` | `GpuTimer` and `GpuWorkCounter` mark passes through the layer, as WebGPU's `timestampWrites` do |
+| 1e3 | `feat/gpu-layer-present` | Acquire, present and capture go behind a `GpuSurface`; capture becomes a readback request that completes on a later frame; `RendererOptions` loses `InstanceExtensions` and `CreateSurface` for a surface source with no Vulkan types |
+| 1e4 | `feat/gpu-layer-images` | The layer makes images and views (`CreateImage`, `CreateView`, `WriteImage`): `RenderTarget`, `GpuTexture`, the cubes and arrays, and resize waits for the frames that use a target, not for the whole device |
+| 1e5 | `feat/gpu-layer-buffers` | The layer makes buffers (`CreateBuffer`, `WriteBuffer`, mapped ring slots): `GpuBuffer`, `InstanceBuffer`, `UploadQueue` and the frame slots |
+
+1e2 to 1e5 each get their task list when the part before them is done, as the plan's header says of the stages.
+
+### Stage 1e1, Task 1: Mips by drawing
+
+**Files:**
+- Create: `src/Rendition/Shaders/mip_down.frag`, `src/Rendition/Passes/MipDraws.cs`
+- Modify: `src/Rendition/Gpu/Vulkan/VulkanBindGroups.cs` (`AdoptedView`), `VulkanTargets.cs`, `Passes/TransparentTargets.cs`, `MirrorTargets.cs`, `Vulkan/EnvironmentCube.cs`, `Passes/ReflectionCaptureCube.cs`; delete `Passes/MipBlits.cs`
+- Test: `tests/Rendition.Gpu.Tests/GpuLayerGpuTests.cs` or a new `MipDrawsGpuTests.cs`
+
+**Interfaces:**
+- `AdoptedView` gains `uint Mip = 0, uint Layer = 0`: the one mip and layer a view drawn to covers. Render passes move only that subresource in and out.
+- `MipDraws(VulkanGpu gpu, VulkanContext context, MipImage image, ImageView copyFrom = default)` with `readonly record struct MipImage(Image Image, GpuFormat Format, Extent2D Extent, uint Mips, uint Layers)`. It makes a 2D view for each mip and layer and adopts them.
+  - `Record(CommandList commands)` draws each mip of each layer from the one above with `mip_down.frag`, one pass each, so every mip ends up resting ready to sample. Mip 0 of every layer must be resting ready to sample when it starts.
+  - `Play(CommandBuffer cmd)` records the same into a list of its own and plays it, for the callers that still record by hand.
+  - With `copyFrom`, `Record` first draws that view into mip 0 of layer 0, at the same size, with a nearest sampler. Glass makes its chain again when the picture is resized, so the source is fixed for a chain's life.
+- `mip_down.frag` samples `source` at the pixel's centre with a linear sampler, which is the 2×2 box `CmdBlitImage` with a linear filter gives, even for odd sizes.
+
+- [ ] **Step 1: Write the failing tests.**
+  - `Each_mip_is_the_average_of_the_four_texels_above_it`: a 4×4, 3-mip, 2-layer image whose mip 0 holds known values per layer. Mip 1 and mip 2 read back as the hand-worked averages, per layer.
+  - `A_view_drawn_to_moves_only_its_own_mip`: draw into mip 1 while a bind group samples mip 0 of the same image. 0 validation messages.
+  - `Copying_into_mip_0_keeps_every_texel`: a 5×3 source copied in reads back identical.
+- [ ] **Step 2: Run them.** Expected: they fail to compile.
+- [ ] **Step 3: Write it,** then move the four users. Each keeps its hand barriers only where it hands mip 0 over to rest ready to sample. `EnvironmentCube` images gain `ColorAttachmentBit`. `MipBlits` and every `CmdBlitImage` outside baking go.
+- [ ] **Step 4: Run the GPU suite and the shots,** adding Gallery (reflection captures), a scene with glass (Courtyard) and the planar mirror (Courtyard). Expected: as in 1d1 Task 2, within the noise of the blit. Prove the tests can fail: average two texels instead of four, or move the whole image in `VulkanTargets`.
+- [ ] **Step 5: Commit and open the pull request** as 1d1 Task 3 describes. The commit is `refactor: fill mips by drawing through the GPU layer`.
+
 ---
 
 ## Stage 0 findings

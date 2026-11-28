@@ -4,7 +4,8 @@ namespace Rendition.Vulkan;
 
 /// <summary>
 /// An Rgba16f cube map for the environment: a view that samples all its mips, one storage view per mip for compute
-/// shaders to write, and the layout changes between writing a level and sampling it.
+/// shaders to write, and the layout change between writing a level and sampling it. Its lower mips can be drawn too,
+/// halved from the ones above by <see cref="Passes.MipDraws"/>.
 /// </summary>
 internal sealed unsafe class EnvironmentCube : IDisposable
 {
@@ -38,8 +39,8 @@ internal sealed unsafe class EnvironmentCube : IDisposable
             ArrayLayers = 6,
             Samples = SampleCountFlags.Count1Bit,
             Tiling = ImageTiling.Optimal,
-            Usage = ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit
-                | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit,
+            Usage = ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit | ImageUsageFlags.ColorAttachmentBit
+                | ImageUsageFlags.TransferSrcBit,
             SharingMode = SharingMode.Exclusive,
             InitialLayout = ImageLayout.Undefined,
         };
@@ -72,52 +73,6 @@ internal sealed unsafe class EnvironmentCube : IDisposable
             new ImageTransition(Image, ImageAspectFlags.ColorBit, ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal) { BaseMip = (uint)mip, LayerCount = 6 },
             (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
             (PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit));
-
-    /// <summary>
-    /// Fills every mip below the sharpest by halving the one above with linear blits, then leaves them all ready to
-    /// sample. The sharpest level arrives in General, as a compute shader left it.
-    /// </summary>
-    public void BuildMips(CommandBuffer cmd)
-    {
-        var api = _context.Api;
-        api.Transition(cmd,
-            new ImageTransition(Image, ImageAspectFlags.ColorBit, ImageLayout.General, ImageLayout.TransferSrcOptimal) { LayerCount = 6 },
-            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit),
-            (PipelineStageFlags2.BlitBit, AccessFlags2.TransferReadBit));
-        api.Transition(cmd,
-            new ImageTransition(Image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.TransferDstOptimal)
-            {
-                BaseMip = 1,
-                MipCount = MipCount - 1,
-                LayerCount = 6,
-            },
-            (PipelineStageFlags2.AllCommandsBit, AccessFlags2.None),
-            (PipelineStageFlags2.BlitBit, AccessFlags2.TransferWriteBit));
-
-        int width = (int)Size;
-        for (uint mip = 1; mip < MipCount; mip++)
-        {
-            int next = Math.Max(1, width / 2);
-            var blit = new ImageBlit
-            {
-                SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, mip - 1, 0, 6),
-                DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, mip, 0, 6),
-            };
-            blit.SrcOffsets[1] = new Offset3D(width, width, 1);
-            blit.DstOffsets[1] = new Offset3D(next, next, 1);
-            api.CmdBlitImage(cmd, Image, ImageLayout.TransferSrcOptimal, Image, ImageLayout.TransferDstOptimal, 1, &blit, Filter.Linear);
-            api.Transition(cmd,
-                new ImageTransition(Image, ImageAspectFlags.ColorBit, ImageLayout.TransferDstOptimal, ImageLayout.TransferSrcOptimal) { BaseMip = mip, LayerCount = 6 },
-                (PipelineStageFlags2.BlitBit, AccessFlags2.TransferWriteBit),
-                (PipelineStageFlags2.BlitBit, AccessFlags2.TransferReadBit));
-            width = next;
-        }
-
-        api.Transition(cmd,
-            new ImageTransition(Image, ImageAspectFlags.ColorBit, ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal) { MipCount = MipCount, LayerCount = 6 },
-            (PipelineStageFlags2.BlitBit, AccessFlags2.TransferWriteBit),
-            (PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit));
-    }
 
     public void Dispose()
     {

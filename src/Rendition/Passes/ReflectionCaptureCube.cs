@@ -9,8 +9,8 @@ namespace Rendition.Passes;
 
 /// <summary>
 /// The cube a reflection probe's capture is drawn into, <see cref="ProbeCubes.FaceSize"/> across with its depth, and
-/// what finishes it: reflection_sky.comp fills what nothing covered with the sky, through the GPU layer, and blits halve it into a full chain
-/// of mips for the blur to read. See <see cref="ReflectionCapturePass"/>.
+/// what finishes it: reflection_sky.comp fills what nothing covered with the sky, through the GPU layer, and draws halve
+/// it into a full chain of mips for the blur to read, through the layer too. See <see cref="ReflectionCapturePass"/>.
 /// </summary>
 internal sealed unsafe class ReflectionCaptureCube : IDisposable
 {
@@ -18,7 +18,6 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
     public static readonly uint Mips = (uint)BitOperations.Log2(ProbeCubes.FaceSize) + 1;
 
     private const PipelineStageFlags2 ComputeStage = PipelineStageFlags2.ComputeShaderBit;
-    private const PipelineStageFlags2 CopyStage = PipelineStageFlags2.BlitBit;
     private const PipelineStageFlags2 ColorStage = PipelineStageFlags2.ColorAttachmentOutputBit;
     private const PipelineStageFlags2 DepthStages = PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit;
 
@@ -36,6 +35,7 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
     private readonly ComputePass _fill;
     private readonly ImageGroup _group;
     private readonly CommandList _commands = new();
+    private readonly MipDraws _mips;
 
     /// <summary>
     /// Makes the cube and the sky fill, which reads <paramref name="sky"/>, the environment's sharp cube. That stays the
@@ -48,7 +48,7 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
         _gpu = gpu;
         var size = new Extent2D(ProbeCubes.FaceSize, ProbeCubes.FaceSize);
         _color = new RenderTarget(context, GBuffer.HdrFormat, size,
-            ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit,
+            ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.StorageBit,
             ImageAspectFlags.ColorBit, layers: 6, mips: Mips, flags: ImageCreateFlags.CreateCubeCompatibleBit);
         _depth = new RenderTarget(context, GBuffer.DepthFormat, size, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit, layers: 6);
         Faces = CreateView(ImageViewType.Type2DArray, 1);
@@ -58,6 +58,7 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
         _fill = new ComputePass(gpu, "reflection_sky.comp");
         _group = new ImageGroup(gpu, gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear)));
         _group.Make(_fill.Pipeline, 0, [("sky", sky), new GroupImage("capture", Faces, Use: GroupImageUse.Written)]);
+        _mips = new MipDraws(gpu, context, new MipImage(_color.Image, GpuFormat.Rgba16Float, size, Mips, 6));
     }
 
     /// <summary>The sharpest level's six faces as layers, which the capture draws into.</summary>
@@ -100,40 +101,11 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
         _fill.Record(_commands, [_group.Id], MemoryMarshal.AsBytes(new ReadOnlySpan<SkyConstants>(in constants)), (groups, groups, 6));
         _gpu.Play(_commands, cmd);
 
+        // The sharpest level goes back to resting, as the layer expects, so the draws below halve it.
         api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.General, ImageLayout.TransferSrcOptimal) { LayerCount = 6 }, (ComputeStage, AccessFlags2.ShaderStorageWriteBit),
-            (CopyStage, AccessFlags2.TransferReadBit));
-        RecordMips(cmd);
-    }
-
-    // Halves each level into the next, then leaves them all ready for the blur to sample.
-    private void RecordMips(CommandBuffer cmd)
-    {
-        var api = _context.Api;
-        int size = (int)ProbeCubes.FaceSize;
-        for (uint mip = 1; mip < Mips; mip++)
-        {
-            api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.TransferDstOptimal) { BaseMip = mip, LayerCount = 6 },
-                (ComputeStage, AccessFlags2.ShaderSampledReadBit), (CopyStage, AccessFlags2.TransferWriteBit));
-            int next = Math.Max(size / 2, 1);
-            var blit = new ImageBlit
-            {
-                SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, mip - 1, 0, 6),
-                DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, mip, 0, 6),
-            };
-            blit.SrcOffsets[1] = new Offset3D(size, size, 1);
-            blit.DstOffsets[1] = new Offset3D(next, next, 1);
-            api.CmdBlitImage(cmd, _color.Image, ImageLayout.TransferSrcOptimal, _color.Image, ImageLayout.TransferDstOptimal, 1, &blit, Filter.Linear);
-            api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferDstOptimal, ImageLayout.TransferSrcOptimal) { BaseMip = mip, LayerCount = 6 },
-                (CopyStage, AccessFlags2.TransferWriteBit), (CopyStage, AccessFlags2.TransferReadBit));
-            size = next;
-        }
-
-        api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal) { MipCount = Mips, LayerCount = 6 },
-            (CopyStage, AccessFlags2.TransferReadBit), (ComputeStage, AccessFlags2.ShaderSampledReadBit));
+            ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal) { LayerCount = 6 }, (ComputeStage, AccessFlags2.ShaderStorageWriteBit),
+            (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
+        _mips.Play(cmd);
     }
 
     private ImageView CreateView(ImageViewType type, uint mips)
@@ -152,6 +124,7 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
 
     public void Dispose()
     {
+        _mips.Dispose();
         _group.Dispose();
         _fill.Dispose();
         _context.Api.DestroyImageView(_context.Device, Faces, null);

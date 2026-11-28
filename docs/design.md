@@ -1965,7 +1965,8 @@ three levels analytically: a private 256² source cube (bands or clear sky, with
 without the sun's disc or the clouds), mip 0 of the reflection cube (with the disc and the
 clouds), and the 64² `Sky` cube (no panels, no disc, with the clouds, so the soft light
 greys under them). The rough reflections are filtered from the source cube, so they leave
-the clouds out (see "Clouds" below). The source and sky cubes get their mips by linear blits.
+the clouds out (see "Clouds" below). The source and sky cubes get their mips by `MipDraws`, which halves each
+from the one above (see "Mips by drawing" under the GPU layer).
 `environment_filter.comp` then filters the rest from those mip chains by filtered
 importance sampling (Colbert and Křivánek): each sample reads its source at
 `lod = max(0.5 · log2(Ωs / Ωp), 0)`, where `Ωs = 1 / (N · pdf)` is the sample's share of the
@@ -2486,7 +2487,7 @@ light through `localShadowInAir`) over pi, plus `softLight` from `soft_light.gls
 lighting pass uses too: the bake's probes, the live light probes, then the sky. A metal takes
 its colour times the soft light. Texels nothing covered keep alpha 0, and
 `reflection_sky.comp` fills them with the sky behind them, as the lighting pass draws it
-without the sun's disc. Blits then halve the capture into a full chain of eight mips.
+without the sun's disc. `MipDraws` then halves the capture into a full chain of eight mips.
 `ReflectionProbes.RecordFilter` blurs it into the probe's six mips with `ReflectionFilter`, which runs `reflection_probe.comp`:
 64 GGX samples a texel, each read from the capture's mip whose texels cover about as much of
 the sphere as the sample stands for (filtered importance sampling, Křivánek and Colbert,
@@ -2569,7 +2570,7 @@ capture does: `probe_light.glsl` for the suns, through the frame's own cascades 
 comparison, and the local lights, then `soft_light.glsl`. The light leaves each point towards
 the mirrored eye, which is where the real camera sees it from through the plane. Layer 0 takes
 the colour with a coverage of 1, and layer 1 how high the surface stands over the plane; both
-are cleared to 0. `MipBlits.Fill`, which the glass pass's copy of the picture shares, then
+are cleared to 0. `MipDraws`, which the glass pass's copy of the picture shares, then
 halves both layers down the chain, so each mip holds the coverage-weighted average of what was
 drawn. `FrameDrawPicker.SelectMirror` picks the draws with the mirrored view's frustum and
 level of detail, and the mirror's set (set 2) holds the light probes' atlases, the sun's
@@ -3539,7 +3540,8 @@ but turns the test off (`PipelineDescription.IgnoreDepth`), and depth stays in
 `DepthReadOnlyOptimal` throughout, both attached and sampled.
 
 Glass sees what's behind it through `GBuffer.SceneColor`, a copy of HDR with up to 7
-mips, each blitted from the one before. Frosted glass reads a blurrier mip, about 8
+mips, each drawn from the one before. `MipDraws` copies HDR into the first mip with a draw
+and halves it down the rest, and is made again when the targets are. Frosted glass reads a blurrier mip, about 8
 mips per unit of roughness. The rendering pauses for a copy before the first glass
 that can use one, and again before glass whose screen rectangle overlaps anything
 drawn since the last copy, so a pane sees the panes and dust behind it. Rectangles come
@@ -5174,10 +5176,10 @@ with a barrier from drawn colour and depth to the attachments' reads and writes,
 target gets no moves that would order it after the pass that drew it, and WebGPU orders them.
 The mirror begins its pass through the layer
 too, with its two layers and its depth adopted held: `MirrorTargets` moves them to drawing
-first and on to the mip blits after, since two views of one image are drawn at once. Glass
-and particles begin their pass through the layer over Hdr and read-only depth, both held,
-with one list for each run between the copies of the scene, which are still made by hand
-between plays. Their layouts differ, so each sets every group it reads through the layer
+first and back to resting after, since two views of one image are drawn at once, and then
+`MipDraws` halves them. Glass and particles begin their pass through the layer over Hdr and
+read-only depth, both held, with one list for each run between the copies of the scene, which
+`MipDraws` draws between plays. Their layouts differ, so each sets every group it reads through the layer
 whenever the kind of draw changes, and glass forgets the pipeline, mesh and materials it had
 bound. The G-buffer begins its pass through the layer, its targets adopted held by
 `GBufferTargets` since the opaque stage moves them, and the blades begin theirs over the same
@@ -5240,8 +5242,8 @@ level, so they use a plain linear sampler. Their own barriers are gone, but thre
 `ProbeVolume.BeginTraces` before `ProbeTracePass`, which still records outside the layer and
 writes the staging slots, the barrier before `RecordBlend` updates the ids with
 `CmdUpdateBuffer`, and the one before the baker copies the staging slots back. The reflection
-capture's layout moves and the blits that make its mips stay hand-recorded until the layer can
-copy (stage 1e), and so do the environment cubes' mip blits. `probe_sample.comp` and the
+capture's layout moves stay hand-recorded: it is drawn into as six layers at once and filled
+in `General` by compute, then handed to `MipDraws` resting. `probe_sample.comp` and the
 probe test hooks stay on Vulkan, as only tests run them.
 
 That leaves `PipelineFactory.CreateCompute` with the compute passes that stay on Vulkan, each
@@ -5250,6 +5252,24 @@ passes (`BakeComputePass`, `BakeFilter`, `TileResolve`) read acceleration struct
 WebGPU doesn't have, so the browser lights from baked data and the raster probes. The grass
 scatter moved with the blades' draws, as they share one set and layout. `VulkanGpu.CreateComputePipeline` calls `CreateCompute` too, so the
 layer and the passes that stay make their pipelines the same way.
+
+### Mips by drawing
+
+WebGPU has no blits, so every mip chain outside baking is drawn instead, by `MipDraws`. It
+adopts one 2D view of each mip of each layer, and each pass draws a mip with `mip_down.frag`,
+which samples the mip above it linearly at the pixel's centre. That weighs the texels exactly
+as a linear blit does: at even sizes the sample lands between four texels and averages them,
+and at odd sizes it leans the same way the blit does (a 5×3 chain matches the blit within one
+step of 8 bits).
+An `AdoptedView` carries the `Mip` and `Layer` it covers, and a pass moves only those, so one
+pass draws a mip while the mip above rests ready to be sampled. Given a view to copy from,
+`MipDraws` first draws that into the first mip with a nearest sampler, which keeps every texel,
+as the glass copy of HDR does. The sharpest mip must rest ready to sample before `Play`, so
+each user moves it there by hand from where it was drawn: the mirror from drawing, and the
+reflection capture and the environment cubes from compute's `General`.
+
+`CreateSampler` hands back the sampler it made before for the same description. The layer has
+no way to destroy a sampler, and the glass copy's `MipDraws` is made again each resize.
 
 ## Resource lifetime
 
