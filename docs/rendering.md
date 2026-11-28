@@ -3620,7 +3620,10 @@ tools.
 A game that captures while it plays, such as a photo mode, asks with `RequestCapture()` instead.
 It returns a `FrameCapture` at once and copies the next frame drawn. That copy is read once a
 later frame has waited for it, a couple of frames on, so check `IsReady` each frame. Until
-then, `Pixels` throws. Asking again before the next frame gives the same capture.
+then, `Pixels` throws. Asking again before the next frame gives the same capture, and so does
+a `Capture` call in that time, which completes it too. A frame that isn't drawn, such as while
+the window is minimized, leaves the capture waiting for the next one that is. Disposing the
+renderer drops captures that aren't ready.
 
 ```csharp
 var photo = renderer.RequestCapture();

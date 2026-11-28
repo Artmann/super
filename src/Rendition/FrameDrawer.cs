@@ -61,6 +61,8 @@ internal sealed class FrameDrawer
             targets.Resize((uint)view.Width, (uint)view.Height);
         }
 
+        // A capture the game asked for is shared: this frame completes it too, and a frame that isn't drawn leaves it.
+        bool ours = surface.Requested is null;
         var capture = surface.RequestCapture();
         try
         {
@@ -69,7 +71,10 @@ internal sealed class FrameDrawer
         finally
         {
             // A frame that throws, such as for a draw it can't make, must not leave the next frame copying it.
-            surface.Cancel(capture);
+            if (ours)
+            {
+                surface.Cancel(capture);
+            }
         }
 
         if (capture.Frame < 0)

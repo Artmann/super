@@ -40,10 +40,7 @@ public sealed class FrameCaptureGpuTests(GpuFixture gpu)
         }
 
         var capture = gpu.Renderer.RequestCapture();
-        while (!capture.IsReady)
-        {
-            gpu.Renderer.Render(view, []);
-        }
+        RenderUntilReady(capture, view);
 
         byte[] waited = gpu.Renderer.Capture(view, [], out _, out _);
 
@@ -66,13 +63,36 @@ public sealed class FrameCaptureGpuTests(GpuFixture gpu)
         Assert.Same(first, second);
 
         var view = gpu.View(DebugView.None);
-        while (!first.IsReady)
+        RenderUntilReady(first, view);
+
+        Assert.NotSame(first, gpu.Renderer.RequestCapture());
+        // Takes that new request, so the next test on this renderer doesn't start with one.
+        gpu.Renderer.Capture(view, [], out _, out _);
+    }
+
+    [Fact]
+    public void A_waited_capture_that_throws_keeps_a_capture_the_game_asked_for()
+    {
+        var view = gpu.View(DebugView.None);
+        var asked = gpu.Renderer.RequestCapture();
+        // A static draw can't swim, so the frame throws before it is drawn.
+        var swimming = new DrawItem { BakeId = BakeIds.Of(1, 0), Swim = new SwimMotion(0.1f, 1f, 0f) };
+
+        Assert.Throws<ArgumentException>(() => gpu.Renderer.Capture(gpu.View(DebugView.None), [swimming], out _, out _));
+
+        RenderUntilReady(asked, view);
+        Assert.Equal((view.Width, view.Height), (asked.Width, asked.Height));
+    }
+
+    // A capture is ready a frame slot's turn after the frame that copied it; a few more frames than that and it never will be.
+    private void RenderUntilReady(FrameCapture capture, in FrameView view)
+    {
+        for (int i = 0; i < FrameRing.Count + 2 && !capture.IsReady; i++)
         {
             gpu.Renderer.Render(view, []);
         }
 
-        Assert.NotSame(first, gpu.Renderer.RequestCapture());
-        gpu.Renderer.Capture(view, [], out _, out _);
+        Assert.True(capture.IsReady, "The capture wasn't ready after its frame slot came round again.");
     }
 
     private static (float R, float G, float B, float A) Means(byte[] rgba)

@@ -16,7 +16,7 @@ internal abstract class GpuSurface : IDisposable
     public abstract int Height { get; }
 
     /// <summary>The capture the next frame copies, or null when none is asked for.</summary>
-    protected FrameCapture? Requested => _requested;
+    public FrameCapture? Requested => _requested;
 
     /// <summary>Makes the surface again for the window's size and vsync, once no frame in flight still uses it.</summary>
     public abstract void Configure(int width, int height, bool vsync);
