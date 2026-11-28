@@ -44,8 +44,7 @@ public sealed class GpuFixture : IDisposable
         {
             Renderer = new Renderer(new RendererOptions
             {
-                InstanceExtensions = _surface.InstanceExtensions,
-                CreateSurface = _surface.CreateSurface,
+                Surface = _surface.Surface,
                 Width = _width,
                 Height = _height,
                 EnableValidation = true,

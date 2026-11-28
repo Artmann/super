@@ -23,7 +23,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     [Fact]
     public void Missing_space_bake_is_baked_in_the_background()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         BakeDone? done = null;
@@ -57,7 +57,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     [Fact]
     public void Light_changed_mid_bake_restarts_it_from_the_new_inputs()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         var dones = new List<BakeDone>();
@@ -105,7 +105,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     [Fact]
     public void Material_turned_see_through_mid_bake_stops_the_bake_and_bakes_it_again()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         var wall = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f), Roughness = 0.8f });
@@ -156,7 +156,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     [Fact]
     public void Texture_destroyed_mid_bake_stops_the_bake()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         var texture = gpu.Renderer.Assets.CreateTexture(TextureData.FromPixels(1, 1, TextureKind.Color, [128, 128, 128, 255]));
@@ -198,7 +198,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     [Fact]
     public void Background_bake_never_waits_for_the_gpu()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         BakeDone? done = null;
@@ -228,7 +228,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     [Fact]
     public void Background_bake_keeps_every_slice_within_budget()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         BakeDone? done = null;
@@ -280,7 +280,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     [Fact]
     public void Background_bake_turns_its_readbacks_into_arrays_off_the_render_thread()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         BakeDone? done = null;
@@ -327,7 +327,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     [Fact]
     public void Background_bake_matches_a_whole_bake()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         BakeDone? done = null;
@@ -357,7 +357,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     [Fact]
     public void Background_bake_waits_until_lights_settle()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad(gpu);
         BakeDone? done = null;
@@ -410,7 +410,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     private static byte[] DrawWithoutTracing(bool autoBake)
     {
         using var fresh = new GpuFixture(disableRayTracing: true);
-        Assert.False(fresh.Renderer.CanTrace);
+        Assert.False(fresh.Renderer.Gpu.CanTrace);
         var quad = CreateQuad(fresh);
         var room = Room(fresh, quad);
         var view = RoomView(fresh, room);

@@ -643,7 +643,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
             return new ProbeRenderer(new GpuFixture(disableRayTracing: true), owned: true);
         }
 
-        Assert.True(shared.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(shared.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         shared.Renderer.FrameDrawer.ProbeTests.Reset();
         return new ProbeRenderer(shared, owned: false);
     }

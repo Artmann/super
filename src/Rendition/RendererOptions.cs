@@ -1,12 +1,10 @@
 namespace Rendition;
 
-/// <summary>Connects the renderer to a window without depending on a windowing library.</summary>
+/// <summary>What the renderer draws into, how large, and how it starts out.</summary>
 public sealed class RendererOptions
 {
-    public required IReadOnlyList<string> InstanceExtensions { get; init; }
-
-    /// <summary>Receives the VkInstance handle and returns a VkSurfaceKHR handle.</summary>
-    public required Func<nint, ulong> CreateSurface { get; init; }
+    /// <summary>The window drawn into, or <see cref="RendererSurface.Headless"/>.</summary>
+    public required RendererSurface Surface { get; init; }
 
     public required int Width { get; init; }
     public required int Height { get; init; }
@@ -19,7 +17,7 @@ public sealed class RendererOptions
     public bool DisableVsync { get; init; }
 
     /// <summary>
-    /// Makes the device without ray queries even where the GPU has them, so <see cref="Renderer.CanTrace"/> is false.
+    /// Makes the device without ray queries even where the GPU has them, so <see cref="GpuInfo.CanTrace"/> is false.
     /// For seeing what a player whose GPU can't trace gets.
     /// </summary>
     public bool DisableRayTracing { get; init; }
@@ -114,5 +112,9 @@ public enum GpuKind
 /// <param name="MemoryBytes">
 /// The size of its largest memory heap of its own. On an integrated GPU this is a share of the computer's memory.
 /// </param>
-/// <param name="CanTrace">Whether it traces rays. See <see cref="Renderer.CanTrace"/>.</param>
+/// <param name="CanTrace">
+/// Whether it traces rays, with ray queries turned on for the device. Nothing requires it: a GPU that can't, or
+/// <see cref="RendererOptions.DisableRayTracing"/>, just draws without tracing. <see cref="Renderer.NoTraceReason"/>
+/// says why not.
+/// </param>
 public readonly record struct GpuInfo(string Name, GpuKind Kind, long MemoryBytes, bool CanTrace);

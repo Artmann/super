@@ -12,7 +12,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     [Fact]
     public void Builds_once_and_reuses_it()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var tracing = gpu.Renderer.FrameParts.SceneStores.Tracing!;
         int before = tracing.BottomLevelCount;
@@ -35,7 +35,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     [Fact]
     public void A_different_part_list_gets_its_own_structure()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var tracing = gpu.Renderer.FrameParts.SceneStores.Tracing!;
         int before = tracing.BottomLevelCount;
@@ -60,7 +60,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     [Fact]
     public void Destroying_the_mesh_frees_its_structure()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var tracing = gpu.Renderer.FrameParts.SceneStores.Tracing!;
         int before = tracing.BottomLevelCount;
@@ -84,7 +84,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     [Fact]
     public void Building_before_the_mesh_is_uploaded_throws_and_caches_nothing()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var tracing = gpu.Renderer.FrameParts.SceneStores.Tracing!;
         int before = tracing.BottomLevelCount;
@@ -112,7 +112,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     [Fact]
     public void Making_a_material_see_through_rebuilds_the_structures_that_use_it()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var tracing = gpu.Renderer.FrameParts.SceneStores.Tracing!;
         int before = tracing.BottomLevelCount;
@@ -161,7 +161,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
     [Fact]
     public void Destroying_a_material_forgets_the_structures_that_use_it()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var tracing = gpu.Renderer.FrameParts.SceneStores.Tracing!;
         int before = tracing.BottomLevelCount;
@@ -197,7 +197,7 @@ public sealed class BottomLevelTests(GpuFixture gpu)
         fresh.Renderer.Assets.CreateMesh(vertices, indices);
         fresh.RenderOneFrame();
 
-        Assert.False(fresh.Renderer.CanTrace);
+        Assert.False(fresh.Renderer.Gpu.CanTrace);
         Assert.Null(fresh.Renderer.FrameParts.SceneStores.Tracing);
         Assert.Equal(0, fresh.ValidationErrors);
     }

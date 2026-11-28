@@ -204,7 +204,7 @@ public struct PictureSettings
 
     /// <summary>
     /// Shows something other than the lit scene, to look inside the renderer. <see cref="DebugView.Trace"/> needs a
-    /// GPU that can trace (<see cref="Renderer.CanTrace"/>), and <see cref="Renderer.Render"/> throws without one.
+    /// GPU that can trace (<see cref="GpuInfo.CanTrace"/>), and <see cref="Renderer.Render"/> throws without one.
     /// <see cref="DebugView.Probes"/> works on any GPU.
     /// </summary>
     public DebugView DebugView;

@@ -172,9 +172,6 @@ internal sealed unsafe class FrameSlots
         };
         api.CreateFence(_context.Device, &fenceInfo, null, out frame.InFlight).Check();
 
-        var semaphoreInfo = new SemaphoreCreateInfo { SType = StructureType.SemaphoreCreateInfo };
-        api.CreateSemaphore(_context.Device, &semaphoreInfo, null, out frame.ImageAvailable).Check();
-
         CreateFrameBuffers(ref frame);
         frame.Set = _kit.NewSet(_kit.FrameSetLayout);
         WriteFrameDescriptors(frame);

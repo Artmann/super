@@ -169,7 +169,7 @@ public class GrassTests
     [InlineData(2.5f)]
     public void Renderer_grass_detail_out_of_range_is_explained_with_invariant_numbers_under_swedish_culture(float detail)
     {
-        var settings = new RenderSettings(new RendererOptions { InstanceExtensions = [], CreateSurface = _ => 0, Width = 64, Height = 64 });
+        var settings = new RenderSettings(new RendererOptions { Surface = RendererSurface.Headless, Width = 64, Height = 64 });
 
         var error = InSwedish(() => Assert.Throws<ArgumentOutOfRangeException>(() => settings.GrassDetail = detail));
 

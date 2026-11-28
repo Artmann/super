@@ -692,6 +692,30 @@ WebGPU writes timestamps only at the start or end of a pass (`timestampWrites`),
 - [ ] **Step 4: Run the GPU suite, the stats panel (`--stats`) on Hamlet and a shot.** Expected: pass times show as before. Prove the tests can fail: skip the per-query reset, or read ticks without the period.
 - [ ] **Step 5: Commit and open the pull request** as 1d1 Task 3 describes. The commit is `refactor: time passes through the GPU layer`.
 
+### Stage 1e3, Task 1: The surface, present and capture
+
+A WebGPU canvas has no swapchain, no acquire semaphore and no present call: the page takes the canvas's current texture each frame and the browser shows it. Reading it back is `copyTextureToBuffer` and `mapAsync`, which finishes on a later turn of the browser's loop, so a capture can't wait in place.
+
+**Files:**
+- Create: `src/Rendition/RendererSurface.cs`, `src/Rendition/FrameCapture.cs`, `src/Rendition/Gpu/GpuSurface.cs`, `src/Rendition/Gpu/Vulkan/VulkanSurface.cs`, `src/Rendition/Vulkan/WindowSurfaces.cs`
+- Modify: `RendererOptions.cs`, `Renderer.cs`, `Vulkan/VulkanContext.cs`, `Vulkan/VulkanStartup.cs`, `FrameTargets.cs`, `FramePresenter.cs`, `FrameDrawer.cs`, `FrameRecorder.cs`, `FrameSlot.cs`, `FrameSlots.cs`, `FinishStage.cs`, `Passes/FinishPass.cs`, `Rendition.csproj` (Silk.NET.GLFW), Super's `GameWindow.cs` and `OsWindow.cs`, `Rendition.Sample/Program.cs`, the GPU tests' `TestSurface.cs` and `GpuFixture.cs`, `tests/Super.Tests/GrassTests.cs`
+- Test: `tests/Rendition.Gpu.Tests/FrameCaptureGpuTests.cs`
+
+**Interfaces:**
+- `public sealed class RendererSurface` names what the renderer draws into without a Vulkan type: `RendererSurface.Window(nint glfwWindow)` and `RendererSurface.Headless` (draws to nothing a window shows, for tests and machines without a display). The browser adds a canvas later. `RendererOptions.Surface` replaces `InstanceExtensions` and `CreateSurface`. `WindowSurfaces` makes the Vulkan surface for one.
+- `GpuSurface`: `GpuFormat Format`, `int Width`, `int Height`, `Configure(int width, int height, bool vsync)`, `bool Acquire(int frame, out ViewId image)` (false when the surface is out of date), `bool Present()` (false when it must be configured again), `FrameCapture RequestCapture()` and `Collect(int frame)`, which completes the captures that frame slot recorded once its fence has been waited on.
+- `VulkanSurface : GpuSurface` keeps the swapchain, the acquire semaphores per frame slot, the adopted image views, and the Vulkan-only `Begin(CommandBuffer)` and `End(CommandBuffer)`, which move the image in and out and copy it for a capture, plus the semaphores the frame's submit waits on and signals.
+- `public sealed class FrameCapture`: `IsReady`, `Width`, `Height`, `Pixels` (RGBA, opaque; throws until ready). `Renderer.RequestCapture()` captures the next frame drawn, and it is ready once a later frame has waited for it. `Renderer.Capture` stays, as a request it waits for.
+
+- [ ] **Step 1: Write the failing tests.**
+  - `A_requested_capture_is_ready_once_a_later_frame_has_waited_for_it`: not ready after its own frame or the next, ready after `FrameRing.Count` more, at the view's size.
+  - `A_requested_capture_holds_what_a_waited_capture_does`: a still view's colour means agree within 2 of 255 per channel.
+  - `Requesting_twice_before_a_frame_gives_one_capture`.
+- [ ] **Step 2: Run them.** Expected: they fail to compile.
+- [ ] **Step 3: Write it,** then move Super's window, the sample and the tests onto `RendererSurface`.
+- [ ] **Step 4: Run the GPU suite and the shots.** Expected: shots as before with 0 validation messages, and resizing the sample's window still works. Prove the tests can fail: complete a capture at its own frame, or skip the BGRA swap.
+- [ ] **Step 5: Commit and open the pull request** as 1d1 Task 3 describes. The commit is `feat!: draw to a renderer surface instead of a Vulkan one`, as the options change.
+
 ---
 
 ## Stage 0 findings

@@ -46,7 +46,7 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
     [Fact]
     public void A_probe_under_a_uniform_sky_reads_its_radiance()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -78,7 +78,7 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
     [Fact]
     public void A_probe_inside_a_closed_box_reads_black()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -134,7 +134,7 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
     [Fact]
     public void Probe_tiles_are_laid_out_like_the_live_ones_in_pages_64_tiles_across()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -202,7 +202,7 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
     [Fact]
     public void A_baked_light_reaches_a_probe_and_a_mixed_one_does_not()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         var black = gpu.Renderer.Assets.CreateMaterial(new Material { BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 0.8f });

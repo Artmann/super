@@ -11,6 +11,8 @@
     -->
     <PackageReference Include="Silk.NET.MoltenVK.Native" Version="2.23.0" ExcludeAssets="all" PrivateAssets="all" GeneratePathProperty="true" />
     <PackageReference Include="System.IO.Hashing" Version="10.0.8" />
+    <!-- For the Vulkan surface of a GLFW window; see WindowSurfaces. Super makes its window with GLFW too. -->
+    <PackageReference Include="Silk.NET.GLFW" Version="2.23.0" />
   </ItemGroup>
 
   <ItemGroup>

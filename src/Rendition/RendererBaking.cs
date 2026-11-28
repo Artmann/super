@@ -69,7 +69,7 @@ public sealed class RendererBaking
     /// <summary>
     /// What the renderer bakes by itself, in the background, a slice a frame: each area a frame names whose bake is
     /// missing or stale, once its lights have settled. Null, the default, bakes nothing. Ignored where
-    /// <see cref="Renderer.CanTrace"/> is false. Setting it stops the running bake and forgets what was baked, and
+    /// <see cref="GpuInfo.CanTrace"/> is false. Setting it stops the running bake and forgets what was baked, and
     /// prepares baking, which waits for the GPU the first time, so set it outside a frame. Where the GPU can trace rays
     /// but can't bake, that is reported once and nothing is baked. See "Baking in the background" in docs/rendering.md.
     /// </summary>

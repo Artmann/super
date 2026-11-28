@@ -27,7 +27,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     [Fact]
     public void Arriving_bake_fades_in_over_half_a_second()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         float fadeBefore = gpu.Renderer.Baking.FadeSeconds;
@@ -67,7 +67,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     [Fact]
     public void Bake_fresh_on_the_first_frame_shows_at_once()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         float fadeBefore = gpu.Renderer.Baking.FadeSeconds;
@@ -107,7 +107,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     [Fact]
     public void Arriving_bake_never_dims_a_pixel_lit_by_a_baked_light()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         float fadeBefore = gpu.Renderer.Baking.FadeSeconds;
@@ -154,7 +154,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     [Fact]
     public void Reflections_are_captured_again_when_a_fade_ends_as_on_a_fresh_load()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         float fadeBefore = gpu.Renderer.Baking.FadeSeconds;
@@ -203,7 +203,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     [Fact]
     public void Zero_fade_shows_at_once()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         float fadeBefore = gpu.Renderer.Baking.FadeSeconds;

@@ -464,7 +464,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
     // Bakes the first count chunks of the view, by name, after a frame without lights so none counts as moving.
     private Dictionary<string, LightBakeFile> BakeChunks(FrameView view, DrawItem[] draws, int count)
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         var dark = view;
         dark.LocalLights = [];
         gpu.Renderer.Render(dark, draws);
@@ -554,7 +554,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
 
     private LightBakeFile Bake(DrawItem[] draws, LocalLight[] lights, DirectionalLight[] suns)
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
 
         // The renderer is shared, so a light another test drew differently under the same key would count as moving,
         // and the bake would leave it out of the mask. A frame without lights forgets them all.

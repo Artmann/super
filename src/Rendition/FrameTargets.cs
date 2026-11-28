@@ -1,11 +1,12 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 
 namespace Rendition;
 
 /// <summary>
-/// The window's swapchain and the scene's targets at the render scale, made again when the window, the render scale,
+/// The window's surface and the scene's targets at the render scale, made again when the window, the render scale,
 /// the upscaler or a resolution changes, and what tonemapping and bloom read.
 /// </summary>
 internal sealed class FrameTargets
@@ -14,15 +15,15 @@ internal sealed class FrameTargets
     private readonly SceneLighting _lights;
     private readonly FrameStages _stages;
 
-    public FrameTargets(SceneStores stores, (SceneLighting Lights, FrameStages Stages) passes, (Swapchain Window, GBuffer Scene) first)
+    public FrameTargets(SceneStores stores, (SceneLighting Lights, FrameStages Stages) passes, (VulkanSurface Window, GBuffer Scene) first)
     {
         _stores = stores;
         (_lights, _stages) = passes;
-        (Swapchain, GBuffer) = first;
+        (Surface, GBuffer) = first;
     }
 
-    /// <summary>The window's swapchain.</summary>
-    public Swapchain Swapchain { get; private set; }
+    /// <summary>The window's surface: what the frame draws into and shows.</summary>
+    public VulkanSurface Surface { get; }
 
     /// <summary>The scene's targets.</summary>
     public GBuffer GBuffer { get; private set; }
@@ -42,16 +43,16 @@ internal sealed class FrameTargets
     /// <summary>The FSR version in use, such as "3.1.4", or null while FSR isn't drawing the picture.</summary>
     public string? UpscalerVersion => Upscaling ? _stages.FsrPass.Version : null;
 
-    /// <summary>The first swapchain, for the window's size and vsync, and the first scene targets.</summary>
-    public static (Swapchain Window, GBuffer Scene) Start(SceneStores stores, RendererOptions options)
+    /// <summary>The window's surface, for its size and vsync, and the first scene targets.</summary>
+    public static (VulkanSurface Window, GBuffer Scene) Start(SceneStores stores, RendererOptions options)
     {
-        var swapchain = new Swapchain(stores.Context, (uint)options.Width, (uint)options.Height, !stores.Settings.Vsync);
-        return (swapchain, new GBuffer(stores.Context, SceneExtent(stores, swapchain.Extent)));
+        var surface = new VulkanSurface(stores.Context, stores.Gpu, FrameRing.Count, (options.Width, options.Height, stores.Settings.Vsync));
+        return (surface, new GBuffer(stores.Context, SceneExtent(stores, surface.Extent)));
     }
 
     /// <summary>
-    /// Makes the swapchain, the targets and the shadow maps again when the window, the render scale, the upscaler or a
-    /// resolution changed since the last frame.
+    /// Configures the surface, and makes the targets and the shadow maps again, when the window, the render scale, the
+    /// upscaler or a resolution changed since the last frame.
     /// </summary>
     public void Keep(in FrameView view, RenderEffects viewOff)
     {
@@ -61,12 +62,12 @@ internal sealed class FrameTargets
         bool upscalingChanged = upscaling != Upscaling;
         Upscaling = upscaling;
         bool rebuilt = false;
-        if (settings.VsyncChanged || (uint)view.Width != Swapchain.Extent.Width || (uint)view.Height != Swapchain.Extent.Height)
+        if (settings.VsyncChanged || (uint)view.Width != Surface.Extent.Width || (uint)view.Height != Surface.Extent.Height)
         {
             rebuilt = Resize((uint)view.Width, (uint)view.Height);
         }
 
-        // A new swapchain of the same size keeps the targets, so the upscaler starting or stopping still asks for them.
+        // A surface configured at the same size keeps the targets, so the upscaler starting or stopping still asks for them.
         if (!rebuilt && (upscalingChanged || TargetsChanged()))
         {
             // Frames in flight still read the targets being replaced. Changing the scale, the upscaler or the
@@ -99,18 +100,16 @@ internal sealed class FrameTargets
     }
 
     /// <summary>
-    /// Makes a new swapchain for the window's size and vsync. The scene's targets are only made again when
+    /// Configures the surface for the window's size and vsync. The scene's targets are only made again when
     /// the size changed, so switching vsync keeps the anti-aliasing history and the next picture is the
     /// same as it would have been. Returns whether the scene's targets were made again.
     /// </summary>
     public bool Resize(uint width, uint height)
     {
-        _stores.Context.WaitIdle();
-        var extent = Swapchain.Extent;
-        Swapchain.Dispose();
-        Swapchain = new Swapchain(_stores.Context, width, height, !_stores.Settings.Vsync);
+        var extent = Surface.Extent;
+        Surface.Configure((int)width, (int)height, _stores.Settings.Vsync);
         _stores.Settings.VsyncChanged = false;
-        if (Swapchain.Extent.Width == extent.Width && Swapchain.Extent.Height == extent.Height)
+        if (Surface.Extent.Width == extent.Width && Surface.Extent.Height == extent.Height)
         {
             return false;
         }
@@ -122,38 +121,38 @@ internal sealed class FrameTargets
     /// <summary>Points the fullscreen passes at the current render targets.</summary>
     public void WriteDescriptors() => TargetDescriptors.Write(_stores, (_lights, _stages), this);
 
-    /// <summary>Frees the scene's targets and the swapchain.</summary>
+    /// <summary>Frees the scene's targets and the surface.</summary>
     public void Dispose()
     {
         GBuffer.Dispose();
-        Swapchain.Dispose();
+        Surface.Dispose();
     }
 
     // Whether the scene's size, or the resolution of the reflections or the occlusion, is no longer the targets'.
     private bool TargetsChanged()
     {
         var settings = _stores.Settings;
-        var scene = SceneExtent(_stores, Swapchain.Extent);
+        var scene = SceneExtent(_stores, Surface.Extent);
         return settings.ReflectionResolution != GBuffer.Reflections || settings.OcclusionResolution != GBuffer.Occlusion.Resolution
             || scene.Width != GBuffer.Extent.Width || scene.Height != GBuffer.Extent.Height;
     }
 
     /// <summary>
     /// Replaces the scene's targets with ones at the window's size times the render scale, keeping the window's
-    /// swapchain, with everything that follows their size: bloom's chain, the exposure meter's dispatch and the
+    /// surface, with everything that follows their size: bloom's chain, the exposure meter's dispatch and the
     /// anti-aliasing history, which starts again.
     /// </summary>
     private void Rebuild()
     {
         GBuffer.Dispose();
         var settings = _stores.Settings;
-        var scene = SceneExtent(_stores, Swapchain.Extent);
-        GBuffer = new GBuffer(_stores.Context, scene, Upscaling ? Swapchain.Extent : scene, settings.ReflectionResolution, settings.OcclusionResolution);
+        var scene = SceneExtent(_stores, Surface.Extent);
+        GBuffer = new GBuffer(_stores.Context, scene, Upscaling ? Surface.Extent : scene, settings.ReflectionResolution, settings.OcclusionResolution);
         if (Upscaling)
         {
             try
             {
-                _stages.FsrPass.SetTargets(scene, Swapchain.Extent, GBuffer.Depth.View, GBuffer.Motion.View);
+                _stages.FsrPass.SetTargets(scene, Surface.Extent, GBuffer.Depth.View, GBuffer.Motion.View);
             }
             catch (InvalidOperationException e)
             {

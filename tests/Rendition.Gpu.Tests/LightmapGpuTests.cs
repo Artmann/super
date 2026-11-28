@@ -502,7 +502,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
     // Bakes the plane under the sky at full strength.
     private LightBakeFile Bake(DrawItem plane)
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         var view = View(sky: 1f, TestEffects.OnlyBaked);
         return LightBakeFile.Read(gpu.Renderer.Baking.Bake(view, [plane], new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
     }

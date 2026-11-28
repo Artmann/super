@@ -19,7 +19,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
     [Fact]
     public void Filtering_keeps_a_flat_lightmap_flat()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -65,7 +65,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
     [Fact]
     public void Filtering_lowers_noise()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -111,7 +111,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
     [Fact]
     public void Filtering_smooths_blotches_several_texels_wide()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -162,7 +162,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
     [Fact]
     public void Filtering_does_not_blend_across_a_crease()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var tangent = new Vector4(1f, 0f, 0f, 1f);
 
@@ -248,7 +248,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
     [InlineData(true)]
     public void Filtering_does_not_blend_across_charts(bool forceMultisample)
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -300,7 +300,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
     [Fact]
     public void Dilation_does_not_fill_across_charts()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         var (boxVertices, boxIndices) = TestMeshes.Cube();
@@ -369,7 +369,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
     [InlineData(true)]
     public void Dilation_fills_the_gutter(bool smooth)
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -422,7 +422,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
     [InlineData(true)]
     public void Values_that_are_not_finite_are_cleared(bool smooth)
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try
@@ -489,7 +489,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
     [Fact]
     public void Filtering_keeps_the_mask_sharp()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();
         try

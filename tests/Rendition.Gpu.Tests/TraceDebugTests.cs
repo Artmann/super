@@ -15,7 +15,7 @@ public sealed class TraceDebugTests(GpuFixture gpu)
     [Fact]
     public void Shows_the_albedo_of_what_the_camera_sees()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var (vertices, indices) = TestMeshes.Quad();
         var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
@@ -34,7 +34,7 @@ public sealed class TraceDebugTests(GpuFixture gpu)
     [Fact]
     public void Sees_through_the_holes_a_texture_cuts()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
         var (vertices, indices) = TestMeshes.Quad();
         var mesh = gpu.Renderer.Assets.CreateMesh(vertices, indices);
@@ -81,7 +81,7 @@ public sealed class TraceDebugTests(GpuFixture gpu)
     [Fact]
     public void Finds_the_part_and_triangle_a_ray_hits_in_a_mesh_of_many_parts()
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
 
         // Two side-by-side quads in one mesh. The left one is the first part (indices 0-5) and the right one the

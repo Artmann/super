@@ -1,21 +1,21 @@
 using System.Diagnostics;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
 using Rendition.Vulkan;
-using Semaphore = Silk.NET.Vulkan.Semaphore;
 
 namespace Rendition;
 
 /// <summary>
-/// Takes a frame slot and a swapchain image for a frame, submits what it recorded, and shows the image, making a new
-/// swapchain when the window has changed.
+/// Takes a frame slot and the surface's image for a frame, submits what it recorded, and shows the image, configuring
+/// the surface again when the window has changed.
 /// </summary>
 internal sealed unsafe class FramePresenter(FrameParts parts, BackgroundBakes background, RendererStats stats)
 {
     /// <summary>
-    /// Waits until the GPU is done with the frame slot, frees what waited on it, and takes the next swapchain image.
-    /// False when the swapchain is out of date, after making a new one: then the frame isn't drawn.
+    /// Waits until the GPU is done with the frame slot, frees what waited on it and reads back its captures, and takes
+    /// the surface's next image. False when the surface no longer fits, after configuring it: then the frame isn't drawn.
     /// </summary>
-    public bool Acquire(in FrameSlot frame, in FrameView view, out uint imageIndex)
+    public bool Acquire(in FrameSlot frame, in FrameView view, out ViewId image)
     {
         var (stores, targets) = (parts.SceneStores, parts.FrameTargets);
         var context = stores.Context;
@@ -23,21 +23,13 @@ internal sealed unsafe class FramePresenter(FrameParts parts, BackgroundBakes ba
         long waitStart = Stopwatch.GetTimestamp();
         context.Api.WaitForFences(context.Device, 1, &fence, true, ulong.MaxValue).Check();
         stores.Retired.Release(stores.Ring.Index);
+        targets.Surface.Collect(stores.Ring.Index);
         background.Slicer.Timer.Measure(stores.Ring.Index, background.AutoBake);
 
-        uint acquiredIndex = 0;
-        var acquired = context.SwapchainApi.AcquireNextImage(
-            context.Device, targets.Swapchain.Handle, ulong.MaxValue, frame.ImageAvailable, default, &acquiredIndex);
-        imageIndex = acquiredIndex;
-        if (acquired == Result.ErrorOutOfDateKhr)
+        if (!targets.Surface.Acquire(stores.Ring.Index, out image))
         {
             targets.Resize((uint)view.Width, (uint)view.Height);
             return false;
-        }
-
-        if (acquired != Result.SuboptimalKhr)
-        {
-            acquired.Check();
         }
 
         if (stores.Settings.MeasureGpu)
@@ -67,15 +59,16 @@ internal sealed unsafe class FramePresenter(FrameParts parts, BackgroundBakes ba
     }
 
     /// <summary>
-    /// Submits the frame's commands, once the swapchain image is there, signalling <paramref name="renderFinished"/>
-    /// and the frame's fence.
+    /// Submits the frame's commands, once the surface's image is there, signalling the surface's render-finished
+    /// semaphore and the frame's fence.
     /// </summary>
-    public void Submit(in FrameSlot frame, CommandBuffer cmd, Semaphore renderFinished)
+    public void Submit(in FrameSlot frame, CommandBuffer cmd)
     {
+        var surface = parts.FrameTargets.Surface;
         var waitInfo = new SemaphoreSubmitInfo
         {
             SType = StructureType.SemaphoreSubmitInfo,
-            Semaphore = frame.ImageAvailable,
+            Semaphore = surface.ImageAvailable,
             StageMask = PipelineStageFlags2.ColorAttachmentOutputBit,
         };
         // Presenting waits for every command, so it comes after the last change of the image's layout
@@ -83,7 +76,7 @@ internal sealed unsafe class FramePresenter(FrameParts parts, BackgroundBakes ba
         var signalInfo = new SemaphoreSubmitInfo
         {
             SType = StructureType.SemaphoreSubmitInfo,
-            Semaphore = renderFinished,
+            Semaphore = surface.RenderFinished,
             StageMask = PipelineStageFlags2.AllCommandsBit,
         };
         var commandInfo = new CommandBufferSubmitInfo
@@ -106,28 +99,13 @@ internal sealed unsafe class FramePresenter(FrameParts parts, BackgroundBakes ba
         stores.Ring.Submitted();
     }
 
-    /// <summary>Shows the image once the frame is drawn, and makes a new swapchain when the window has changed.</summary>
-    public void Present(in FrameView view, uint imageIndex, Semaphore renderFinished)
+    /// <summary>Shows the image once the frame is drawn, and configures the surface again when the window has changed.</summary>
+    public void Present(in FrameView view)
     {
-        var (context, targets) = (parts.SceneStores.Context, parts.FrameTargets);
-        var swapchainHandle = targets.Swapchain.Handle;
-        var present = new PresentInfoKHR
-        {
-            SType = StructureType.PresentInfoKhr,
-            WaitSemaphoreCount = 1,
-            PWaitSemaphores = &renderFinished,
-            SwapchainCount = 1,
-            PSwapchains = &swapchainHandle,
-            PImageIndices = &imageIndex,
-        };
-        var presented = context.SwapchainApi.QueuePresent(context.Queue, &present);
-        if (presented is Result.ErrorOutOfDateKhr or Result.SuboptimalKhr)
+        var targets = parts.FrameTargets;
+        if (!targets.Surface.Present())
         {
             targets.Resize((uint)view.Width, (uint)view.Height);
-        }
-        else
-        {
-            presented.Check();
         }
     }
 }

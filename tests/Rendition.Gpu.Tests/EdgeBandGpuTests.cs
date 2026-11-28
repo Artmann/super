@@ -156,7 +156,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
                 BakeId = BakeIds.Of(1ul << 12, 0),
             };
             DirectionalLight[] sun = [new() { Mode = LightMode.Baked, Direction = -Vector3.UnitZ, Radiance = new Vector3(1f) }];
-            Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+            Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
             gpu.Renderer.Render(SideView(Vector3.UnitZ * 3f, room, [], sky: 0f), [wall]);
             var bake = LightBakeFile.Read(gpu.Renderer.Baking.Bake(
                 SideView(Vector3.UnitZ * 3f, room, sun, sky: 0f), [wall], new BakeSettings(4, BakeQuality.Preview)));

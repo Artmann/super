@@ -51,7 +51,7 @@ internal sealed unsafe class VulkanContext : IDisposable
             throw new InvalidOperationException("VK_KHR_surface is not available.");
         }
 
-        Surface = new SurfaceKHR(options.CreateSurface(Instance.Handle));
+        Surface = WindowSurfaces.Create(Api, Instance, options.Surface);
         (PhysicalDevice, QueueFamily) = VulkanStartup.PickPhysicalDevice(Api, Instance, SurfaceApi, Surface);
         Device = new VulkanDevice(Api, PhysicalDevice).Create(QueueFamily, options.DisableRayTracing, out var abilities);
         Abilities = abilities;

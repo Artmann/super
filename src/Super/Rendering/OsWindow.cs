@@ -1,6 +1,4 @@
-using System.Runtime.InteropServices;
 using Rendition;
-using Silk.NET.Core.Native;
 using Silk.NET.GLFW;
 
 namespace Super;
@@ -121,28 +119,8 @@ internal sealed unsafe class OsWindow : IDisposable
         GlfwApi.SetWindowPos(NativeWindow, x, y);
     }
 
-    /// <summary>Makes the Vulkan surface the renderer draws into, for the renderer's <paramref name="instance"/>.</summary>
-    public ulong CreateSurface(nint instance)
-    {
-        VkNonDispatchableHandle surface;
-        int result = GlfwApi.CreateWindowSurface(new VkHandle(instance), NativeWindow, null, &surface);
-        return result == 0
-            ? surface.Handle
-            : throw new InvalidOperationException($"Could not create a window surface: {result}");
-    }
-
-    /// <summary>The Vulkan instance extensions GLFW needs to make a surface.</summary>
-    public string[] InstanceExtensions()
-    {
-        byte** names = GlfwApi.GetRequiredInstanceExtensions(out uint count);
-        var extensions = new string[count];
-        for (int i = 0; i < count; i++)
-        {
-            extensions[i] = Marshal.PtrToStringUTF8((nint)names[i])!;
-        }
-
-        return extensions;
-    }
+    /// <summary>The GLFW window, for the renderer to make its surface from.</summary>
+    public nint Handle => (nint)NativeWindow;
 
     public void Dispose()
     {

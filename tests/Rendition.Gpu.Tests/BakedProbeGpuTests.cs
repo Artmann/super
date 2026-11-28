@@ -267,7 +267,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
     // Bakes the wall under its sun, with no sky.
     private LightBakeFile Bake(DrawItem wall)
     {
-        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        Assert.True(gpu.Renderer.Gpu.CanTrace, "This test needs a GPU that can trace rays.");
 
         // The renderer is shared, so a sun another test drew differently at the same index would count as moving, and
         // the bake would leave it live. A frame without lights forgets them all.

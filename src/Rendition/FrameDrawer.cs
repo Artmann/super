@@ -48,54 +48,39 @@ internal sealed class FrameDrawer
     public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws) =>
         RenderTinted(SkyModel.Tinted(view, ref _tintedLights), draws);
 
+    /// <summary>Asks for the next frame drawn to be read back. See <see cref="Renderer.RequestCapture"/>.</summary>
+    public FrameCapture RequestCapture() => _parts.FrameTargets.Surface.RequestCapture();
+
     /// <summary>Draws the frame at the view's size and reads its picture back as RGBA bytes, waiting for the GPU.</summary>
-    public unsafe byte[] Capture(in FrameView view, ReadOnlySpan<DrawItem> draws, out int width, out int height)
+    public byte[] Capture(in FrameView view, ReadOnlySpan<DrawItem> draws, out int width, out int height)
     {
-        var (context, targets, finish) = (_parts.SceneStores.Context, _parts.FrameTargets, _parts.FrameStages.FinishStage);
-        if ((uint)view.Width != targets.Swapchain.Extent.Width || (uint)view.Height != targets.Swapchain.Extent.Height)
+        var (context, targets) = (_parts.SceneStores.Context, _parts.FrameTargets);
+        var surface = targets.Surface;
+        if (view.Width != surface.Width || view.Height != surface.Height)
         {
             targets.Resize((uint)view.Width, (uint)view.Height);
         }
 
-        width = (int)targets.Swapchain.Extent.Width;
-        height = (int)targets.Swapchain.Extent.Height;
-        int size = width * height * 4;
-        using var capture = GpuBuffer.CreateHostVisible(context, (ulong)size, BufferUsageFlags.TransferDstBit);
-
-        finish.Capture = capture;
-        finish.CaptureRecorded = false;
+        var capture = surface.RequestCapture();
         try
         {
             Render(view, draws);
         }
         finally
         {
-            // A frame that throws, such as for a draw it can't make, must not leave the next frame copying into the
-            // buffer the using frees.
-            finish.Capture = null;
+            // A frame that throws, such as for a draw it can't make, must not leave the next frame copying it.
+            surface.Cancel(capture);
         }
 
-        context.WaitIdle();
-
-        if (!finish.CaptureRecorded)
+        if (capture.Frame < 0)
         {
             throw new InvalidOperationException("The window changed while capturing, so no frame was rendered.");
         }
 
-        return ToRgba(new ReadOnlySpan<byte>(capture.Mapped, size));
-    }
-
-    // The swapchain stores BGRA. The picture is read back as RGBA, opaque.
-    private static byte[] ToRgba(ReadOnlySpan<byte> bgra)
-    {
-        var pixels = bgra.ToArray();
-        for (int i = 0; i < pixels.Length; i += 4)
-        {
-            (pixels[i], pixels[i + 2]) = (pixels[i + 2], pixels[i]);
-            pixels[i + 3] = 255;
-        }
-
-        return pixels;
+        context.WaitIdle();
+        surface.Collect(capture.Frame);
+        (width, height) = (capture.Width, capture.Height);
+        return capture.Pixels;
     }
 
     private void RenderTinted(in FrameView view, ReadOnlySpan<DrawItem> draws)
@@ -124,7 +109,7 @@ internal sealed class FrameDrawer
         }
 
         ref FrameSlot frame = ref stores.Frames[stores.Ring.Index];
-        if (!_presenter.Acquire(frame, view, out uint imageIndex))
+        if (!_presenter.Acquire(frame, view, out var image))
         {
             return;
         }
@@ -132,10 +117,9 @@ internal sealed class FrameDrawer
         bool timed = _presenter.Reset(frame);
         var camera = FrameCameras.Of(view, antiAliased);
         int cameraCount = WriteFrameData(frame, view, draws, camera);
-        var cmd = _recorder.Record(frame, view, imageIndex, new FrameDraws(_picker.CameraDraws(cameraCount), draws), timed);
-        var renderFinished = targets.Swapchain.RenderFinished[imageIndex];
-        _presenter.Submit(frame, cmd, renderFinished);
-        _presenter.Present(view, imageIndex, renderFinished);
+        var cmd = _recorder.Record(frame, view, image, new FrameDraws(_picker.CameraDraws(cameraCount), draws), timed);
+        _presenter.Submit(frame, cmd);
+        _presenter.Present(view);
         stores.Ring.MoveToNextSlot();
     }
 

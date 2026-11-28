@@ -4989,8 +4989,8 @@ library beside AMD's, while FSR runs on every GPU.
 `--check`, `--screenshot` and `--record` create the GLFW window hidden, so they never
 take focus.
 Vulkan still renders and presents to it. `Renderer.Capture` copies the finished
-frame into a CPU-readable buffer that exists only for that call, so `Render` pays
-nothing but a null check for the feature.
+frame into a CPU-readable buffer made for that frame, so `Render` pays nothing but a
+null check for the feature; see "Presenting" under "GPU layer".
 
 Videos are built from those same frames. `GameCapture` pipes them as raw RGBA to an
 ffmpeg process, and the game steps a fixed `1 / fps` per frame while recording, so
@@ -5004,8 +5004,9 @@ normals before their change of layout had landed, and presenting before the swap
 change to the present layout, since the frame signalled it was done after colour output only.
 
 On a Mac the GPU tests make no window: macOS only lets the main thread open one, and xunit makes
-fixtures on a pool thread, where GLFW waits forever. `ITestSurface` gives them a surface from
-`VK_EXT_headless_surface` instead, whose swapchain takes the size asked for and shows nothing.
+fixtures on a pool thread, where GLFW waits forever. `ITestSurface` gives them `RendererSurface.Headless`
+instead, a surface from `VK_EXT_headless_surface` whose swapchain takes the size asked for and
+shows nothing.
 
 ## macOS
 
@@ -5102,10 +5103,10 @@ TAA, FSR's two input passes (motion and exposure) and the finish draw this way t
 anti-aliased image now rests ready to sample after TAA, so the history copy reads it from
 `ShaderReadOnlyOptimal` as it does the lit image. The finish draws into the window's image,
 which the layer must not move, because the marks and the overlay draw into it after and
-`FinishStage` then moves it to present or copies it out. So `FinishPass` adopts each
+the surface then moves it to present or copies it out. So `VulkanSurface` adopts each
 swapchain image as a `Held` `AdoptedView` (`AdoptedTarget.ForHeld`), one `AdoptedTarget` per
 image, and the player leaves a held target's layout to its caller, colour or depth:
-`FinishStage` moves it to `ColorAttachmentOptimal` before the pass and on after the overlay. Its format comes from `VulkanFormats.ToGpu`, and a
+`VulkanSurface.Begin` moves it to `ColorAttachmentOptimal` before the pass and `End` on after the overlay. Its format comes from `VulkanFormats.ToGpu`, and a
 test in `Super.Tests` checks every format the swapchain can pick has a layer format.
 
 Ambient occlusion, reflections, lighting and the spread of skin and wax draw this way as
@@ -5293,6 +5294,29 @@ GPU can't time both drawing and compute, which is what `GpuTimer.IsSupported` re
 WebGPU has no pipeline statistics, so `GpuWorkCounter` stays on Vulkan: the timer still
 begins and ends its queries on the raw command buffer at the same marks, and the browser will
 have pass times but no shader counts.
+
+### Presenting
+
+What the frame is drawn into is a `GpuSurface`: its format and size, `Configure` to make it
+again at a new size or vsync, `Acquire`, which gives this frame's image as a view or false when
+the surface is out of date, and `Present`, false when it must be configured again. A game names
+the surface with the public `RendererSurface`, a GLFW window or `Headless`, and
+`WindowSurfaces` makes the Vulkan surface for it, so `RendererOptions` has no Vulkan types.
+Rendition takes Silk.NET.GLFW for that, since GLFW makes a window's surface.
+
+`VulkanSurface` is the Vulkan one. It keeps the swapchain, one acquire semaphore per frame
+slot and the adopted images, and adds what only Vulkan needs: the semaphores the frame's submit
+waits on and signals, and `Begin` and `End`, which move the image into drawing and on to
+present. A browser canvas has no swapchain, no acquire semaphore and no present call: the
+page takes the canvas's texture each frame and the browser shows it.
+
+A capture is a request the surface completes later, because the browser reads a texture back
+with `mapAsync`, which finishes on a later turn of its loop. `RequestCapture` gives a
+`FrameCapture`; the next frame's `End` copies its image into a buffer the CPU can read and tags
+the capture with that frame slot. When a later frame waits on that slot's fence,
+`FramePresenter` calls `Collect`, which turns the BGRA bytes to RGBA, opaque, and makes the
+capture ready. `Renderer.Capture` is the same request, then `WaitIdle` and `Collect`. If the
+window changed size during that frame, so nothing was drawn, it throws.
 
 ## Resource lifetime
 
@@ -6362,7 +6386,7 @@ its floor brightens over the last few tenths of a metre on top of the band.
 ## Ray tracing
 
 Device setup is in `VulkanDevice.Create` (see above): ray queries are on only where nothing is
-missing, `Renderer.CanTrace` says so, and `Renderer.NoTraceReason` says what was missing. Super
+missing, `Renderer.Gpu.CanTrace` says so, and `Renderer.NoTraceReason` says what was missing. Super
 prints nothing at start about it: the reason is only shown when something that needs tracing is
 asked for, which today is `--debug-view trace`, whose start-up error carries it. Nothing else
 needs it, so a GPU that can't trace plays as before.
