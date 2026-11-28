@@ -92,33 +92,6 @@ internal static unsafe class VulkanExtensions
         api.CmdSetScissor(cmd, 0, 1, &scissor);
     }
 
-    /// <summary>
-    /// Begins drawing over a picture already in the colour attachment layout, keeping what's there, with the viewport
-    /// covering it all. End it with CmdEndRendering.
-    /// </summary>
-    public static void BeginOver(this Vk api, CommandBuffer cmd, (ImageView View, Extent2D Extent) target)
-    {
-        var attachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = target.View,
-            ImageLayout = ImageLayout.ColorAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Load,
-            StoreOp = AttachmentStoreOp.Store,
-        };
-        var rendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, target.Extent),
-            LayerCount = 1,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &attachment,
-        };
-
-        api.CmdBeginRendering(cmd, &rendering);
-        api.SetFullViewport(cmd, target.Extent);
-    }
-
     /// <summary>An attachment cleared to <paramref name="clear"/> when drawing begins and kept after it.</summary>
     public static RenderingAttachmentInfo ClearedAttachment(ImageView view, ImageLayout layout, ClearValue clear) => new()
     {
