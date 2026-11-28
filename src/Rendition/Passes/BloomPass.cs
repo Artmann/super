@@ -1,4 +1,6 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
@@ -52,67 +54,57 @@ internal sealed class BloomLevels : IDisposable
 /// The soft glow around bright things. It shrinks the image step by step and adds the
 /// steps back together, which gives a wide blur for little work.
 /// </summary>
-internal sealed unsafe class BloomPass : IDisposable
+internal sealed class BloomPass : IDisposable
 {
     private const int Levels = 5;
 
     private readonly VulkanContext _context;
-    private readonly Sampler _sampler;
-    private readonly DescriptorSetLayout _setLayout;
-    private readonly DescriptorPool _pool;
+    private readonly VulkanGpu _gpu;
     private readonly FullscreenPass _downPass;
     private readonly FullscreenPass _upPass;
-    private readonly DescriptorSet[] _downSets = new DescriptorSet[Levels];
-    private readonly DescriptorSet[] _upSets = new DescriptorSet[Levels - 1];
+    private readonly CommandList _commands = new();
+    private readonly ImageGroup[] _downGroups = new ImageGroup[Levels];
+    private readonly ImageGroup[] _upGroups = new ImageGroup[Levels - 1];
+    private readonly AdoptedTarget[] _downTargets = new AdoptedTarget[Levels];
+    private readonly AdoptedTarget[] _upTargets = new AdoptedTarget[Levels - 1];
     private BloomLevels _levels;
 
     public ImageView Result => _levels.Up[0].View;
 
-    public BloomPass(VulkanContext context, Sampler sampler, ImageView hdr, Extent2D extent)
+    public BloomPass((VulkanContext Context, VulkanGpu Gpu) device, ImageView hdr, Extent2D extent)
     {
+        var (context, gpu) = device;
         _context = context;
-        _sampler = sampler;
-
-        _setLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-            new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-        ]);
-
-        int setCount = Levels + Levels - 1;
-        _pool = context.CreateDescriptorPool(
-            (uint)setCount, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, (uint)(setCount * 2)));
-
-        for (int i = 0; i < setCount; i++)
+        _gpu = gpu;
+        var sampler = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear));
+        for (int i = 0; i < Levels; i++)
         {
-            var set = context.AllocateSet(_pool, _setLayout);
-            if (i < Levels)
+            _downGroups[i] = new ImageGroup(gpu, sampler);
+            _downTargets[i] = new AdoptedTarget(gpu);
+            if (i < Levels - 1)
             {
-                _downSets[i] = set;
-            }
-            else
-            {
-                _upSets[i - Levels] = set;
+                _upGroups[i] = new ImageGroup(gpu, sampler);
+                _upTargets[i] = new AdoptedTarget(gpu);
             }
         }
 
-        _downPass = new FullscreenPass(context, "bloom_down.frag", GBuffer.HdrFormat, [_setLayout]);
-        _upPass = new FullscreenPass(context, "bloom_up.frag", GBuffer.HdrFormat, [_setLayout]);
+        _downPass = new FullscreenPass(gpu, "bloom_down.frag", [GpuFormat.Rgba16Float]);
+        _upPass = new FullscreenPass(gpu, "bloom_up.frag", [GpuFormat.Rgba16Float]);
 
         _levels = new BloomLevels(context, extent, Levels);
-        WriteSets(hdr);
+        MakeGroups(hdr);
     }
 
-    /// <summary>Remakes the targets for a new window size.</summary>
+    /// <summary>Remakes the targets for a new window size. Frames still in flight must have finished.</summary>
     public void Resize(ImageView hdr, Extent2D extent)
     {
         _levels.Dispose();
         _levels = new BloomLevels(_context, extent, Levels);
-        WriteSets(hdr);
+        MakeGroups(hdr);
     }
 
     /// <summary>Reads a different HDR image from the next frame on. Frames still in flight must have finished.</summary>
-    public void SetSource(ImageView hdr) => WriteSet(_downSets[0], hdr, hdr);
+    public void SetSource(ImageView hdr) => _downGroups[0].Make(_downPass.Pipeline, 0, [("sourceTexture", hdr)]);
 
     /// <summary>
     /// Records bloom, or leaves it out of this frame when <paramref name="off"/> holds <see cref="RenderEffects.Bloom"/>.
@@ -135,63 +127,49 @@ internal sealed unsafe class BloomPass : IDisposable
 
     private void RecordLevels(CommandBuffer cmd)
     {
-        var api = _context.Api;
         var (down, up, extents) = (_levels.Down, _levels.Up, _levels.Extents);
-
+        _commands.Reset();
         for (int i = 0; i < Levels; i++)
         {
-            api.BeginColorTarget(cmd, down[i].Image);
-            _downPass.Record(cmd, down[i].View, extents[i], _downSets.AsSpan(i, 1));
-            api.EndColorTarget(cmd, down[i].Image);
+            _downPass.Record(_commands, [new ColorTarget(_downTargets[i].For(down[i], extents[i]), LoadOp.DontCare, default)],
+                [_downGroups[i].Id], []);
         }
 
         for (int i = Levels - 2; i >= 0; i--)
         {
-            api.BeginColorTarget(cmd, up[i].Image);
-            _upPass.Record(cmd, up[i].View, extents[i], _upSets.AsSpan(i, 1));
-            api.EndColorTarget(cmd, up[i].Image);
+            _upPass.Record(_commands, [new ColorTarget(_upTargets[i].For(up[i], extents[i]), LoadOp.DontCare, default)],
+                [_upGroups[i].Id], []);
         }
+
+        _gpu.Play(_commands, cmd);
     }
 
     public void Dispose()
     {
+        foreach (var part in _downGroups.Concat<IDisposable>(_upGroups).Concat(_downTargets).Concat(_upTargets))
+        {
+            part.Dispose();
+        }
+
         _levels.Dispose();
         _upPass.Dispose();
         _downPass.Dispose();
-        _context.Api.DestroyDescriptorPool(_context.Device, _pool, null);
-        _context.Api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
     }
 
     // Points each step down at the one before it, the first at the HDR image, and each step up at its own level and
     // the one below.
-    private void WriteSets(ImageView hdr)
+    private void MakeGroups(ImageView hdr)
     {
         var (down, up) = (_levels.Down, _levels.Up);
         for (int i = 0; i < Levels; i++)
         {
-            var source = i == 0 ? hdr : down[i - 1].View;
-            WriteSet(_downSets[i], source, source);
+            _downGroups[i].Make(_downPass.Pipeline, 0, [("sourceTexture", i == 0 ? hdr : down[i - 1].View)]);
         }
 
         for (int i = 0; i < Levels - 1; i++)
         {
-            WriteSet(_upSets[i], down[i].View, i == Levels - 2 ? down[i + 1].View : up[i + 1].View);
+            var wide = i == Levels - 2 ? down[i + 1].View : up[i + 1].View;
+            _upGroups[i].Make(_upPass.Pipeline, 0, [("sharpTexture", down[i].View), ("wideTexture", wide)]);
         }
-    }
-
-    private void WriteSet(DescriptorSet set, ImageView first, ImageView second)
-    {
-        var images = stackalloc DescriptorImageInfo[]
-        {
-            new(_sampler, first, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, second, ImageLayout.ShaderReadOnlyOptimal),
-        };
-        var writes = stackalloc WriteDescriptorSet[2];
-        for (int i = 0; i < 2; i++)
-        {
-            writes[i] = Descriptors.ImageWrite(set, (uint)i, DescriptorType.CombinedImageSampler, &images[i]);
-        }
-
-        _context.Api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
     }
 }

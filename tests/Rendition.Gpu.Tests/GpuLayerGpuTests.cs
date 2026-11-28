@@ -112,6 +112,48 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void An_adopted_target_follows_a_new_image_of_the_same_size()
+    {
+        using var device = new VulkanGpu(gpu.Context);
+        using var first = Target();
+        using var second = Target();
+        using var adopted = new AdoptedTarget(device);
+        using var pass = new FullscreenPass(device, "solid_color.frag", [GpuFormat.Rgba8Unorm]);
+        var extent = new Extent2D(Size, Size);
+
+        Fill(device, pass, adopted.For(first, extent), new Vector4(1f, 0f, 0f, 1f));
+        Assert.Equal(adopted.For(first, extent), adopted.For(first, extent));
+        Fill(device, pass, adopted.For(second, extent), new Vector4(0f, 1f, 0f, 1f));
+
+        Assert.Equal([255, 0, 0, 255], Read(first).Take(4));
+        Assert.Equal([0, 255, 0, 255], Read(second).Take(4));
+    }
+
+    [Fact]
+    public void A_blended_pass_adds_onto_what_the_target_held()
+    {
+        using var device = new VulkanGpu(gpu.Context);
+        using var target = Target();
+        Upload(target, Size, Pattern(Size));
+        var view = device.Adopt(target.View, target.Image, new Extent2D(Size, Size));
+        using var pass = new FullscreenPass(device, "solid_color.frag", [GpuFormat.Rgba8Unorm], blend: true);
+        var color = new Vector4(0.25f, 0f, 0f, 0f);
+        var commands = new CommandList();
+        pass.Record(commands, [new ColorTarget(view, LoadOp.Load, default)], [], MemoryMarshal.AsBytes(new ReadOnlySpan<Vector4>(in color)));
+
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+
+        byte[] pattern = Pattern(Size);
+        byte[] pixels = Read(target);
+        for (int i = 0; i < Size * Size; i++)
+        {
+            // Premultiplied over: the colour plus what was there times one minus its alpha of 0.
+            Assert.InRange(pixels[i * 4], Math.Min(255, pattern[i * 4] + 63), Math.Min(255, pattern[i * 4] + 65));
+            Assert.Equal(pattern[i * 4 + 1], pixels[i * 4 + 1]);
+        }
+    }
+
+    [Fact]
     public void Drawing_to_a_view_adopted_without_its_image_throws()
     {
         using var device = new VulkanGpu(gpu.Context);
@@ -202,6 +244,13 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
 
         gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
         return Read(target);
+    }
+
+    private void Fill(VulkanGpu device, FullscreenPass pass, ViewId view, Vector4 color)
+    {
+        var commands = new CommandList();
+        pass.Record(commands, [new ColorTarget(view, LoadOp.DontCare, default)], [], MemoryMarshal.AsBytes(new ReadOnlySpan<Vector4>(in color)));
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
     }
 
     private ArgumentException BindToTonemap(int group, string name)

@@ -33,6 +33,12 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     public ViewId Adopt(ImageView view, Image image = default, Extent2D extent = default) =>
         new(_views.Add(new AdoptedView(view, image, extent)));
 
+    /// <summary>
+    /// A depth view made outside the layer that shaders only read, whose image rests in
+    /// <see cref="ImageLayout.DepthReadOnlyOptimal"/>, as depth does once glass has drawn.
+    /// </summary>
+    public ViewId AdoptDepth(ImageView view) => new(_views.Add(new AdoptedView(view, default, default, ReadOnlyDepth: true)));
+
     /// <summary>Lets go of an adopted view, whose image stays its maker's to destroy.</summary>
     public void Release(ViewId view) => _views.Remove(view.Value);
 

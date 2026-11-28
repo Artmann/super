@@ -143,22 +143,22 @@ internal sealed unsafe class VulkanPlayer(Vk api, IdTable<AdoptedView> views, Id
     /// </summary>
     private void MoveToTarget(CommandBuffer cmd, Image image, LoadOp load)
     {
-        if (load != LoadOp.Load)
-        {
-            api.BeginColorTarget(cmd, image);
-            return;
-        }
-
-        // Compute shaders read resting images too, so the wait covers them as well as fragment shaders.
-        api.BeginBlendOnto(cmd, image);
+        // Compute shaders read resting images too, such as the exposure meter reading the picture, so the waits on
+        // both sides of a pass cover them as well as fragment shaders.
+        var from = load == LoadOp.Load ? ImageLayout.ShaderReadOnlyOptimal : ImageLayout.Undefined;
+        api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.ColorBit, from, ImageLayout.ColorAttachmentOptimal),
+            (Readers, AccessFlags2.ShaderSampledReadBit),
+            (PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentReadBit | AccessFlags2.ColorAttachmentWriteBit));
     }
+
+    private const PipelineStageFlags2 Readers = PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit;
 
     private void EndPass(CommandBuffer cmd)
     {
         api.CmdEndRendering(cmd);
         for (int i = 0; i < _targetCount; i++)
         {
-            api.EndColorTarget(cmd, _targets[i]);
+            api.EndBlendOnto(cmd, _targets[i]);
         }
 
         _targetCount = 0;

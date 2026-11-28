@@ -4682,7 +4682,7 @@ weights, written from Kyprianidis, Kang and Döllner (2009) and Kyprianidis, Sem
 exposure meter and the tonemap, in HDR on the picture the tonemap reads: the resolved image under
 anti-aliasing, or the HDR target without it. It paints that picture in place, in two steps.
 
-`paint_filter.comp` paints a half-size picture in `GBuffer.HdrFormat`, made the first time a frame
+`paint_filter.comp`, which `Passes/PaintFilter.cs` dispatches, paints a half-size picture in `GBuffer.HdrFormat`, made the first time a frame
 paints, so a game that never paints never holds it. Each 16 x 16 group first asks whether any of
 its pixels will be painted, taking the farthest of the four scene pixels each covers, since paint
 only grows with distance. A group with none writes the picture as it is, unfiltered, and skips the
@@ -5043,8 +5043,9 @@ of its own sized to it, so destroying a group frees it at once.
 `VulkanPlayer` plays a list into the frame's command buffer. Images rest in
 `ShaderReadOnlyOptimal` between passes, as the renderer's other passes leave them, so a render
 pass moves its targets to `ColorAttachmentOptimal` as it begins (from `Undefined` unless it
-loads them, when it waits for both fragment and compute shaders that read them) and back as
-it ends, and every image in a bind group is already readable. The
+loads them) and back as it ends, and every image in a bind group is already readable. Both
+moves wait for, and make the image ready for, compute shaders as well as fragment shaders,
+since the exposure meter and paint's filter read the picture from compute. The
 viewport and render area are the first target's size. Bind groups are bound at the next draw,
 so they can be set before or after the pipeline, as in WebGPU. Depth targets, buffers, compute
 and labels aren't played yet; each stage adds what its passes need.
@@ -5064,6 +5065,16 @@ again whenever `PostStage.WriteSets` runs, which only happens while the GPU is i
 Ldr again when its view, image or size changes; the image is checked too because a driver can
 give a remade view the old handle. Recording and playing it allocates nothing, and the
 `GpuLayerGpuTests` check that.
+
+Passes that have moved share two helpers in `Rendition.Gpu.Vulkan`. `AdoptedTarget` is a
+target a pass draws to but doesn't own, adopted again only when the target is remade.
+`ImageGroup` is a bind group of images made outside the layer, each named as its shader names
+it, read through the group's sampler or one given per image, and made again whenever its
+images change. Depth that glass leaves in `DepthReadOnlyOptimal` is adopted with
+`VulkanGpu.AdoptDepth`, so a group samples it in that layout. Bloom, depth of field and
+paint's composite draw this way: a pass drawn several times a frame, such as bloom's nine
+steps or depth of field's three, records every draw into one `CommandList` and plays it once.
+Paint's filter is compute, so it stays on Vulkan until stage 1c.
 
 ## Resource lifetime
 

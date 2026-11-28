@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
@@ -67,26 +69,33 @@ internal struct DepthOfFieldConstants
 internal sealed unsafe class DepthOfFieldPass : IDisposable
 {
     private readonly VulkanContext _context;
+    private readonly VulkanGpu _gpu;
     private readonly DepthOfFieldSets _sets;
     private readonly FullscreenPass _cocPass;
     private readonly FullscreenPass _blurPass;
     private readonly FullscreenPass _combinePass;
+    private readonly CommandList _commands = new();
+    private readonly AdoptedTarget[] _targets;
 
     // The half-size layers, made the first time a frame draws depth of field, so a game that never
     // opens a lens never spends the memory on them. Null until then, and again after a resize.
     private DepthOfFieldLayers? _layers;
     private Extent2D _half;
-    private ImageView _source;
-    private ImageView _depth;
+    private (ImageView Source, ImageView Depth) _reads;
 
-    public DepthOfFieldPass(VulkanContext context, Sampler pointSampler, Sampler linearSampler, DescriptorSetLayout frameSetLayout)
+    public DepthOfFieldPass((VulkanContext Context, VulkanGpu Gpu) device, DescriptorSetLayout frameSetLayout)
     {
+        var (context, gpu) = device;
         _context = context;
-        _sets = new DepthOfFieldSets(context, (pointSampler, linearSampler));
-        ReadOnlySpan<DescriptorSetLayout> layouts = [frameSetLayout, _sets.Layout];
-        _cocPass = new FullscreenPass(context, "dof_coc.frag", [GBuffer.HdrFormat], layouts, DepthOfFieldConstants.Size);
-        _blurPass = new FullscreenPass(context, "dof_blur.frag", [GBuffer.HdrFormat, GBuffer.HdrFormat], layouts, DepthOfFieldConstants.Size);
-        _combinePass = new FullscreenPass(context, "dof_combine.frag", [GBuffer.HdrFormat], layouts, DepthOfFieldConstants.Size, blend: true);
+        _gpu = gpu;
+        _sets = new DepthOfFieldSets(gpu);
+        _targets = [new(gpu), new(gpu), new(gpu), new(gpu)];
+        // Group 0 is the frame's set, lent by the pass that fills it; group 1 is laid out from each shader.
+        ReadOnlySpan<DescriptorSetLayout> borrowed = [frameSetLayout, default];
+        ReadOnlySpan<GpuFormat> hdr = [GpuFormat.Rgba16Float];
+        _cocPass = new FullscreenPass(gpu, "dof_coc.frag", hdr, borrowed: borrowed);
+        _blurPass = new FullscreenPass(gpu, "dof_blur.frag", [GpuFormat.Rgba16Float, GpuFormat.Rgba16Float], borrowed: borrowed);
+        _combinePass = new FullscreenPass(gpu, "dof_combine.frag", hdr, blend: true, borrowed: borrowed);
     }
 
     /// <summary>
@@ -99,8 +108,7 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
     {
         DestroyLayers();
         _half = new Extent2D(Math.Max((extent.Width + 1) / 2, 1), Math.Max((extent.Height + 1) / 2, 1));
-        _source = source;
-        _depth = depth;
+        _reads = (source, depth);
     }
 
     /// <summary>Whether the half-size layers exist yet: only once a frame has drawn depth of field.</summary>
@@ -109,11 +117,10 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
     /// <summary>Reads a different picture from the next frame on. Frames still in flight must have finished.</summary>
     public void SetSource(ImageView source, ImageView depth)
     {
-        _source = source;
-        _depth = depth;
+        _reads = (source, depth);
         if (_layers is not null)
         {
-            _sets.Write(_source, _depth, _layers);
+            WriteSets(_layers);
         }
     }
 
@@ -122,45 +129,49 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
     /// ready to sample, and is left ready to sample again.
     /// </summary>
     public void Record(
-        CommandBuffer cmd, DescriptorSet frameSet, (Image Image, ImageView View, Extent2D Extent) target, in DepthOfFieldConstants constants)
+        CommandBuffer cmd, DescriptorSet frameSet, (RenderTarget Target, Extent2D Extent) target, in DepthOfFieldConstants constants)
     {
         if (_layers is null)
         {
             // The first frame to draw depth of field since start or a resize. Nothing has used the
-            // sets yet, so they can be written while recording.
+            // groups yet, so they can be made while recording.
             _layers = new DepthOfFieldLayers(_context, _half);
-            _sets.Write(_source, _depth, _layers);
+            WriteSets(_layers);
         }
 
-        var api = _context.Api;
         var layers = _layers;
         var lens = constants;
         var bytes = new ReadOnlySpan<byte>(&lens, (int)DepthOfFieldConstants.Size);
+        var frame = _gpu.Adopt(frameSet);
 
-        api.BeginColorTarget(cmd, layers.Coc.Image);
-        _cocPass.Record(cmd, [layers.Coc.View], _half, [frameSet, _sets.Coc], bytes);
-        api.EndColorTarget(cmd, layers.Coc.Image);
-
-        api.BeginColorTarget(cmd, layers.Near.Image);
-        api.BeginColorTarget(cmd, layers.Far.Image);
-        _blurPass.Record(cmd, [layers.Near.View, layers.Far.View], _half, [frameSet, _sets.Blur], bytes);
-        api.EndColorTarget(cmd, layers.Near.Image);
-        api.EndColorTarget(cmd, layers.Far.Image);
-
-        // The combine blends over the picture, so it keeps what's there. The meter, a compute pass, reads it after.
-        api.BeginBlendOnto(cmd, target.Image);
-        _combinePass.Record(cmd, [target.View], target.Extent, [frameSet, _sets.Combine], bytes);
-        api.EndBlendOnto(cmd, target.Image);
+        _commands.Reset();
+        _cocPass.Record(_commands, [Draw(0, layers.Coc, _half, LoadOp.DontCare)], [frame, _sets.Coc.Id], bytes);
+        _blurPass.Record(_commands, [Draw(1, layers.Near, _half, LoadOp.DontCare), Draw(2, layers.Far, _half, LoadOp.DontCare)],
+            [frame, _sets.Blur.Id], bytes);
+        // The combine blends over the picture, so it keeps what's there.
+        _combinePass.Record(_commands, [Draw(3, target.Target, target.Extent, LoadOp.Load)], [frame, _sets.Combine.Id], bytes);
+        _gpu.Play(_commands, cmd);
     }
 
     public void Dispose()
     {
         DestroyLayers();
+        foreach (var target in _targets)
+        {
+            target.Dispose();
+        }
+
         _combinePass.Dispose();
         _blurPass.Dispose();
         _cocPass.Dispose();
         _sets.Dispose();
     }
+
+    private ColorTarget Draw(int slot, RenderTarget target, Extent2D extent, LoadOp load) =>
+        new(_targets[slot].For(target, extent), load, default);
+
+    private void WriteSets(DepthOfFieldLayers layers) =>
+        _sets.Write(_reads.Source, _reads.Depth, layers, (_cocPass.Pipeline, _blurPass.Pipeline, _combinePass.Pipeline));
 
     private void DestroyLayers()
     {
