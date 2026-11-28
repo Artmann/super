@@ -34,13 +34,9 @@ internal sealed unsafe class CloudNoise : IDisposable
     {
         _context = context;
         _gpu = gpu;
-        Repeat = CreateRepeatSampler(context);
         RepeatId = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear, SamplerAddress.Repeat));
         _weather = Make((NoiseKind.Weather, (WeatherSize, WeatherSize, 1)))[0];
     }
-
-    /// <summary>The sampler the sky captures, which haven't moved to the GPU layer yet, read the weather map with, which repeats it.</summary>
-    public Sampler Repeat { get; }
 
     /// <summary>The layer's sampler every noise texture is read with, which repeats them.</summary>
     public SamplerId RepeatId { get; }
@@ -76,24 +72,6 @@ internal sealed unsafe class CloudNoise : IDisposable
     {
         ReleaseVolumes();
         _weather.Dispose();
-        _context.Api.DestroySampler(_context.Device, Repeat, null);
-    }
-
-    private static Sampler CreateRepeatSampler(VulkanContext context)
-    {
-        var info = new SamplerCreateInfo
-        {
-            SType = StructureType.SamplerCreateInfo,
-            MagFilter = Filter.Linear,
-            MinFilter = Filter.Linear,
-            MipmapMode = SamplerMipmapMode.Nearest,
-            AddressModeU = SamplerAddressMode.Repeat,
-            AddressModeV = SamplerAddressMode.Repeat,
-            AddressModeW = SamplerAddressMode.Repeat,
-            MaxLod = 0f,
-        };
-        context.Api.CreateSampler(context.Device, &info, null, out var sampler).Check();
-        return sampler;
     }
 
     // Makes noise textures of these kinds and sizes and fills them, waiting for each.

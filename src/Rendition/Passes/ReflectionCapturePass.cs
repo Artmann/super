@@ -1,5 +1,6 @@
 using System.Numerics;
 using Silk.NET.Vulkan;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
@@ -44,12 +45,14 @@ internal sealed unsafe class ReflectionCapturePass : IDisposable
 
     /// <summary>Makes the pass, its capture cube and its sun shadow map. See <see cref="ReflectionCaptureCube"/> for <paramref name="sky"/>.</summary>
     public ReflectionCapturePass(
-        VulkanContext context, DescriptorSetLayout frameSetLayout, ResourceTable resources, CaptureScene scene, DescriptorImageInfo sky)
+        (VulkanContext Context, VulkanGpu Gpu) device, DescriptorSetLayout frameSetLayout, ResourceTable resources, CaptureScene scene,
+        ImageView sky)
     {
+        var context = device.Context;
         _context = context;
         _resources = resources;
         _scene = scene;
-        Cube = new ReflectionCaptureCube(context, sky);
+        Cube = new ReflectionCaptureCube(device, sky);
         var materials = resources.Materials;
         _sun = new ProbeSunShadow(context, material => materials[material].Flags, SunShadowResolution);
 

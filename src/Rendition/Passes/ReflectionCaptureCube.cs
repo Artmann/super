@@ -1,13 +1,15 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
 
 /// <summary>
 /// The cube a reflection probe's capture is drawn into, <see cref="ProbeCubes.FaceSize"/> across with its depth, and
-/// what finishes it: reflection_sky.comp fills what nothing covered with the sky, and blits halve it into a full chain
+/// what finishes it: reflection_sky.comp fills what nothing covered with the sky, through the GPU layer, and blits halve it into a full chain
 /// of mips for the blur to read. See <see cref="ReflectionCapturePass"/>.
 /// </summary>
 internal sealed unsafe class ReflectionCaptureCube : IDisposable
@@ -30,19 +32,20 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
     private readonly VulkanContext _context;
     private readonly RenderTarget _color;
     private readonly RenderTarget _depth;
-    private readonly DescriptorSetLayout _setLayout;
-    private readonly DescriptorPool _pool;
-    private readonly DescriptorSet _set;
-    private readonly PipelineLayout _layout;
-    private readonly LivePipeline _pipeline;
+    private readonly VulkanGpu _gpu;
+    private readonly ComputePass _fill;
+    private readonly ImageGroup _group;
+    private readonly CommandList _commands = new();
 
     /// <summary>
     /// Makes the cube and the sky fill, which reads <paramref name="sky"/>, the environment's sharp cube. That stays the
     /// same image for as long as the renderer lives.
     /// </summary>
-    public ReflectionCaptureCube(VulkanContext context, DescriptorImageInfo sky)
+    public ReflectionCaptureCube((VulkanContext Context, VulkanGpu Gpu) device, ImageView sky)
     {
+        var (context, gpu) = device;
         _context = context;
+        _gpu = gpu;
         var size = new Extent2D(ProbeCubes.FaceSize, ProbeCubes.FaceSize);
         _color = new RenderTarget(context, GBuffer.HdrFormat, size,
             ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit,
@@ -51,24 +54,10 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
         Faces = CreateView(ImageViewType.Type2DArray, 1);
         CubeView = CreateView(ImageViewType.TypeCube, Mips);
 
-        _setLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-            new(1, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-        ]);
-        _pool = context.CreateDescriptorPool(
-            1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 1), new DescriptorPoolSize(DescriptorType.StorageImage, 1));
-        _set = context.AllocateSet(_pool, _setLayout);
-        var faces = new DescriptorImageInfo(default, Faces, ImageLayout.General);
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            Descriptors.ImageWrite(_set, 0, DescriptorType.CombinedImageSampler, &sky),
-            Descriptors.ImageWrite(_set, 1, DescriptorType.StorageImage, &faces),
-        };
-        context.Api.UpdateDescriptorSets(context.Device, 2, writes, 0, null);
-
-        _layout = context.CreatePipelineLayout([_setLayout], new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(SkyConstants)));
-        _pipeline = PipelineFactory.CreateCompute(context, "reflection_sky.comp", _layout);
+        // The fill reads only the sky's sharpest level.
+        _fill = new ComputePass(gpu, "reflection_sky.comp");
+        _group = new ImageGroup(gpu, gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear)));
+        _group.Make(_fill.Pipeline, 0, [("sky", sky), new GroupImage("capture", Faces, Use: GroupImageUse.Written)]);
     }
 
     /// <summary>The sharpest level's six faces as layers, which the capture draws into.</summary>
@@ -105,13 +94,11 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
             ImageLayout.ColorAttachmentOptimal, ImageLayout.General) { LayerCount = 6 }, (ColorStage, AccessFlags2.ColorAttachmentWriteBit),
             (ComputeStage, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit));
 
-        var set = _set;
         var constants = new SkyConstants { EnvironmentIntensity = environmentIntensity };
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipeline);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _layout, 0, 1, &set, 0, null);
-        api.CmdPushConstants(cmd, _layout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(SkyConstants), &constants);
-        uint groups = (ProbeCubes.FaceSize + 7) / 8;
-        api.CmdDispatch(cmd, groups, groups, 6);
+        int groups = (int)(ProbeCubes.FaceSize + 7) / 8;
+        _commands.Reset();
+        _fill.Record(_commands, [_group.Id], MemoryMarshal.AsBytes(new ReadOnlySpan<SkyConstants>(in constants)), (groups, groups, 6));
+        _gpu.Play(_commands, cmd);
 
         api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit,
             ImageLayout.General, ImageLayout.TransferSrcOptimal) { LayerCount = 6 }, (ComputeStage, AccessFlags2.ShaderStorageWriteBit),
@@ -165,8 +152,8 @@ internal sealed unsafe class ReflectionCaptureCube : IDisposable
 
     public void Dispose()
     {
-        _pipeline.Destroy();
-        _context.DestroyLayouts(_layout, _pool, _setLayout);
+        _group.Dispose();
+        _fill.Dispose();
         _context.Api.DestroyImageView(_context.Device, Faces, null);
         _context.Api.DestroyImageView(_context.Device, CubeView, null);
         _color.Dispose();

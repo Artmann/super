@@ -1,3 +1,7 @@
+using System.Runtime.InteropServices;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
+using Rendition.Passes;
 using Silk.NET.Vulkan;
 
 namespace Rendition.Vulkan;
@@ -10,15 +14,13 @@ namespace Rendition.Vulkan;
 internal readonly record struct ProbeInvalidation(int Layer, Int3 Origin, Int3 Counts, Int3 SlabStart, Int3 SlabCount);
 
 /// <summary>
-/// The light probes' three compute passes and the descriptor set they share: probe_fold.comp folds a probe's six faces
-/// into a staging slot, probe_blend.comp blends staging slots into the atlases, and probe_invalidate.comp makes a slab
-/// of cells uncaptured. Without <c>supported</c> there are no pipelines, and nothing may be recorded.
+/// The light probes' three compute passes, run through the GPU layer: probe_fold.comp folds a probe's six faces into a
+/// staging slot, probe_blend.comp blends staging slots into the atlases, and probe_invalidate.comp makes a slab of
+/// cells uncaptured. The layer's barriers order them against each other and against the draws that read the atlases.
+/// Without <c>supported</c> there are no pipelines, and nothing may be recorded.
 /// </summary>
-internal sealed unsafe class ProbeVolumePasses : IDisposable
+internal sealed class ProbeVolumePasses : IDisposable
 {
-    // The largest of the three compute shaders' constants.
-    private const uint PushBytes = 64;
-
     /// <summary>Must match the Fold block in Shaders/probe_fold.comp.</summary>
     private struct FoldConstants
     {
@@ -35,95 +37,64 @@ internal sealed unsafe class ProbeVolumePasses : IDisposable
         public float Snap;
     }
 
-    /// <summary>Must match the Invalidate block in Shaders/probe_invalidate.comp.</summary>
+    /// <summary>Must match the Invalidate block in Shaders/probe_invalidate.comp, whose four ivec4s each end in a w.</summary>
     private struct InvalidateConstants
     {
         public int OriginX, OriginY, OriginZ, Layer;
         public int CountX, CountY, CountZ, Total;
-        public int StartX, StartY, StartZ, Unused0;
-        public int SlabX, SlabY, SlabZ, Unused1;
+        public int StartX, StartY, StartZ, StartW;
+        public int SlabX, SlabY, SlabZ, SlabW;
     }
 
-    private readonly VulkanContext _context;
-    private readonly Sampler _facesSampler;
-    private readonly (Sampler Sampler, ImageView View) _sky;
-    private readonly DescriptorSetLayout _setLayout;
-    private readonly DescriptorPool _pool;
-    private readonly DescriptorSet _set;
-    private readonly PipelineLayout _pipelineLayout;
-    private readonly LivePipeline? _foldPipeline;
-    private readonly LivePipeline? _blendPipeline;
-    private readonly LivePipeline? _invalidatePipeline;
+    private readonly VulkanGpu _gpu;
+    private readonly (SamplerId Sampler, ImageView View) _sky;
+    private readonly (ComputePass Fold, ComputePass Blend, ComputePass Invalidate)? _passes;
+    private readonly (ImageGroup Fold, ImageGroup Blend, ImageGroup Invalidate) _groups;
+    private readonly CommandList _commands = new();
+    private (BufferId Staging, BufferId Ids)? _buffers;
 
-    /// <summary>The passes, reading <paramref name="sky"/> where a probe saw nothing.</summary>
-    public ProbeVolumePasses(VulkanContext context, (Sampler Sampler, ImageView View) sky, bool supported)
+    /// <summary>The passes, reading <paramref name="sky"/>'s sharpest level where a probe saw nothing.</summary>
+    public ProbeVolumePasses(VulkanGpu gpu, ImageView sky, bool supported)
     {
-        _context = context;
-        _sky = sky;
-        var samplerInfo = new SamplerCreateInfo
-        {
-            SType = StructureType.SamplerCreateInfo,
-            MagFilter = Filter.Nearest,
-            MinFilter = Filter.Nearest,
-            MipmapMode = SamplerMipmapMode.Nearest,
-            AddressModeU = SamplerAddressMode.ClampToEdge,
-            AddressModeV = SamplerAddressMode.ClampToEdge,
-            AddressModeW = SamplerAddressMode.ClampToEdge,
-            MaxLod = 0f,
-        };
-        context.Api.CreateSampler(context.Device, &samplerInfo, null, out _facesSampler).Check();
+        _gpu = gpu;
+        _sky = (gpu.CreateSampler(new SamplerDescription(SamplerFilter.Linear)), sky);
 
-        _setLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-            new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
-            new(2, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
-            new(3, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-            new(4, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-            new(5, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-        ]);
-        _pool = context.CreateDescriptorPool(
-            1,
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 2),
-            new DescriptorPoolSize(DescriptorType.StorageBuffer, 2),
-            new DescriptorPoolSize(DescriptorType.StorageImage, 2));
-        _set = context.AllocateSet(_pool, _setLayout);
-        _pipelineLayout = context.CreatePipelineLayout([_setLayout], new PushConstantRange(ShaderStageFlags.ComputeBit, 0, PushBytes));
-
+        // The fold reads the faces texel by texel.
+        var faces = gpu.CreateSampler(new SamplerDescription(SamplerFilter.Nearest));
+        _groups = (new ImageGroup(gpu, faces), new ImageGroup(gpu, faces), new ImageGroup(gpu, faces));
         if (supported)
         {
-            _foldPipeline = PipelineFactory.CreateCompute(context, "probe_fold.comp", _pipelineLayout);
-            _blendPipeline = PipelineFactory.CreateCompute(context, "probe_blend.comp", _pipelineLayout);
-            _invalidatePipeline = PipelineFactory.CreateCompute(context, "probe_invalidate.comp", _pipelineLayout);
+            _passes = (new ComputePass(gpu, "probe_fold.comp"), new ComputePass(gpu, "probe_blend.comp"),
+                new ComputePass(gpu, "probe_invalidate.comp"));
         }
     }
 
-    /// <summary>Points the set at the faces the fold reads and the atlases, staging slots and ids the passes use.</summary>
+    /// <summary>
+    /// Points the passes at the faces the fold reads and the atlases, staging slots and ids they use. The GPU must have
+    /// finished every pass recorded before.
+    /// </summary>
     public void PointAt(ProbeVolumeAtlases atlases, ImageView faces)
     {
-        var facesInfo = new DescriptorImageInfo(_facesSampler, faces, ImageLayout.ShaderReadOnlyOptimal);
-        var stagingInfo = new DescriptorBufferInfo(atlases.Staging.Handle, 0, Vk.WholeSize);
-        var idsInfo = new DescriptorBufferInfo(atlases.Ids.Handle, 0, Vk.WholeSize);
-        var irradianceInfo = new DescriptorImageInfo(default, atlases.IrradianceView, ImageLayout.General);
-        var depthInfo = new DescriptorImageInfo(default, atlases.DepthView, ImageLayout.General);
-        var skyInfo = new DescriptorImageInfo(_sky.Sampler, _sky.View, ImageLayout.ShaderReadOnlyOptimal);
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            Descriptors.ImageWrite(_set, 0, DescriptorType.CombinedImageSampler, &facesInfo),
-            Descriptors.BufferWrite(_set, 1, &stagingInfo),
-            Descriptors.BufferWrite(_set, 2, &idsInfo),
-            Descriptors.ImageWrite(_set, 3, DescriptorType.StorageImage, &irradianceInfo),
-            Descriptors.ImageWrite(_set, 4, DescriptorType.StorageImage, &depthInfo),
-            Descriptors.ImageWrite(_set, 5, DescriptorType.CombinedImageSampler, &skyInfo),
-        };
-        _context.Api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
+        var passes = _passes ?? throw new InvalidOperationException("This GPU can't update the probes.");
+        ReleaseBuffers();
+        var staging = _gpu.Adopt(atlases.Staging.Handle, (long)atlases.Staging.Size);
+        var ids = _gpu.Adopt(atlases.Ids.Handle, (long)atlases.Ids.Size);
+        _buffers = (staging, ids);
+
+        var irradiance = new GroupImage("irradianceAtlas", atlases.IrradianceView, Use: GroupImageUse.Written);
+        _groups.Fold.Make(passes.Fold.Pipeline, 0, [("faces", faces), new GroupImage("sky", _sky.View, _sky.Sampler)],
+            [("StagingTiles", staging)]);
+        _groups.Blend.Make(passes.Blend.Pipeline, 0,
+            [irradiance, new GroupImage("depthAtlas", atlases.DepthView, Use: GroupImageUse.Written)],
+            [("StagingTiles", staging), ("BatchIds", ids)]);
+        _groups.Invalidate.Make(passes.Invalidate.Pipeline, 0, [irradiance]);
     }
 
     /// <summary>Folds the six faces of one slot into the same staging slot, with distances stopping at <paramref name="maxDistance"/>.</summary>
     public void RecordFold(CommandBuffer cmd, int slot, float maxDistance, float environmentIntensity)
     {
         var constants = new FoldConstants { Slot = slot, MaxDistance = maxDistance, EnvironmentIntensity = environmentIntensity };
-        Dispatch(cmd, _foldPipeline!, &constants, (uint)sizeof(FoldConstants), 1);
+        Dispatch(cmd, (_passes!.Value.Fold, _groups.Fold), MemoryMarshal.AsBytes(new ReadOnlySpan<FoldConstants>(in constants)), 1);
     }
 
     /// <summary>Makes uncaptured the cells of a slab of one layer, <paramref name="total"/> cells in the layer's box.</summary>
@@ -133,38 +104,48 @@ internal sealed unsafe class ProbeVolumePasses : IDisposable
         {
             OriginX = cells.Origin.X, OriginY = cells.Origin.Y, OriginZ = cells.Origin.Z, Layer = cells.Layer,
             CountX = cells.Counts.X, CountY = cells.Counts.Y, CountZ = cells.Counts.Z, Total = total,
-            StartX = cells.SlabStart.X, StartY = cells.SlabStart.Y, StartZ = cells.SlabStart.Z,
-            SlabX = cells.SlabCount.X, SlabY = cells.SlabCount.Y, SlabZ = cells.SlabCount.Z,
+            StartX = cells.SlabStart.X, StartY = cells.SlabStart.Y, StartZ = cells.SlabStart.Z, StartW = 0,
+            SlabX = cells.SlabCount.X, SlabY = cells.SlabCount.Y, SlabZ = cells.SlabCount.Z, SlabW = 0,
         };
-        Dispatch(cmd, _invalidatePipeline!, &constants, (uint)sizeof(InvalidateConstants), (uint)((total + 63) / 64));
+        Dispatch(cmd, (_passes!.Value.Invalidate, _groups.Invalidate),
+            MemoryMarshal.AsBytes(new ReadOnlySpan<InvalidateConstants>(in constants)), (total + 63) / 64);
     }
 
     /// <summary>Blends the first <paramref name="count"/> staging slots into the probes the ids name.</summary>
     public void RecordBlend(CommandBuffer cmd, int count, float alpha, float snap)
     {
         var constants = new BlendConstants { Alpha = alpha, Count = count, Snap = snap };
-        Dispatch(cmd, _blendPipeline!, &constants, (uint)sizeof(BlendConstants), (uint)count);
+        Dispatch(cmd, (_passes!.Value.Blend, _groups.Blend), MemoryMarshal.AsBytes(new ReadOnlySpan<BlendConstants>(in constants)), count);
     }
 
     public void Dispose()
     {
-        var api = _context.Api;
-        _foldPipeline?.Destroy();
-        _blendPipeline?.Destroy();
-        _invalidatePipeline?.Destroy();
-        api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
-        api.DestroyDescriptorPool(_context.Device, _pool, null);
-        api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
-        api.DestroySampler(_context.Device, _facesSampler, null);
+        _groups.Fold.Dispose();
+        _groups.Blend.Dispose();
+        _groups.Invalidate.Dispose();
+        ReleaseBuffers();
+        if (_passes is { } passes)
+        {
+            passes.Fold.Dispose();
+            passes.Blend.Dispose();
+            passes.Invalidate.Dispose();
+        }
     }
 
-    private void Dispatch(CommandBuffer cmd, LivePipeline pipeline, void* constants, uint size, uint groups)
+    private void ReleaseBuffers()
     {
-        var api = _context.Api;
-        var set = _set;
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, pipeline);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
-        api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, size, constants);
-        api.CmdDispatch(cmd, groups, 1, 1);
+        if (_buffers is { } buffers)
+        {
+            _gpu.Release(buffers.Staging);
+            _gpu.Release(buffers.Ids);
+            _buffers = null;
+        }
+    }
+
+    private void Dispatch(CommandBuffer cmd, (ComputePass Pass, ImageGroup Group) pass, ReadOnlySpan<byte> constants, int groups)
+    {
+        _commands.Reset();
+        pass.Pass.Record(_commands, [pass.Group.Id], constants, (groups, 1, 1));
+        _gpu.Play(_commands, cmd);
     }
 }

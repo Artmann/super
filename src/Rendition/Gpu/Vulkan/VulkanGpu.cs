@@ -61,10 +61,11 @@ internal sealed unsafe class VulkanGpu : GpuDevice
             SType = StructureType.SamplerCreateInfo,
             MagFilter = filter,
             MinFilter = filter,
-            MipmapMode = SamplerMipmapMode.Nearest,
+            MipmapMode = description.Mipmapped && description.Filter == SamplerFilter.Linear ? SamplerMipmapMode.Linear : SamplerMipmapMode.Nearest,
             AddressModeU = address,
             AddressModeV = address,
             AddressModeW = address,
+            MaxLod = description.Mipmapped ? Vk.LodClampNone : 0f,
         };
         _context.Api.CreateSampler(_context.Device, &info, null, out var sampler).Check();
         return new SamplerId(_samplers.Add(sampler));

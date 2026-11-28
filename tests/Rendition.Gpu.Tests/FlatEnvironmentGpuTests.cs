@@ -20,7 +20,7 @@ public sealed class FlatEnvironmentGpuTests(GpuFixture gpu)
         var colour = new Vector3(0.25f, 0.5f, 0.125f);
         using var layer = new VulkanGpu(gpu.Context);
         using var noise = new CloudNoise(gpu.Context, layer);
-        using var environment = new EnvironmentMap(gpu.Context, layer, (noise.Repeat, noise.Weather));
+        using var environment = new EnvironmentMap(gpu.Context, layer, (noise.RepeatId, noise.Weather));
 
         // The same colour every way, so every face's middle, at any blur, is that colour. A panel overhead shows only in
         // the reflections: the irradiance leaves panels to the direct lights.
@@ -49,7 +49,7 @@ public sealed class FlatEnvironmentGpuTests(GpuFixture gpu)
         var second = new Vector3(0.125f, 0.375f, 1f);
         using var layer = new VulkanGpu(gpu.Context);
         using var noise = new CloudNoise(gpu.Context, layer);
-        using var environment = new EnvironmentMap(gpu.Context, layer, (noise.Repeat, noise.Weather));
+        using var environment = new EnvironmentMap(gpu.Context, layer, (noise.RepeatId, noise.Weather));
 
         environment.Bake(gpu.Context, new EnvironmentDescription { Ceiling = first, Horizon = first, Floor = first }, Bands);
         var (firstIrradiance, firstReflection) = environment.Flat;

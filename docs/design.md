@@ -2492,10 +2492,11 @@ without the sun's disc. Blits then halve the capture into a full chain of eight 
 `ReflectionProbes.RecordFilter` blurs it into the probe's six mips with `ReflectionFilter`, which runs `reflection_probe.comp`:
 64 GGX samples a texel, each read from the capture's mip whose texels cover about as much of
 the sphere as the sample stands for (filtered importance sampling, Křivánek and Colbert,
-2008), so the rough levels are smooth without hundreds of reads. Each frame in flight has one
-descriptor set per mip, written as it records, since its last use has finished by then. The
-barriers wait for earlier frames' fragment reads of the cube before the blur writes it, and the
-frame's own lighting waits for the blur, so the frame shows the new picture. The probe's
+2008), so the rough levels are smooth without hundreds of reads. The blur runs through the GPU
+layer, with a bind group for each mip of each probe's cube, made the first time it is filtered
+and again only when the cubes grow. The layer's barriers wait for earlier frames' reads of the
+cube before the blur writes it, and the frame's own lighting waits for the blur, so the frame
+shows the new picture. The probe's
 placement is stored then, so a probe shows from the frame of its first capture. A frame that
 throws between planning and recording puts the probe back at the front (`PutBack`).
 `Reflections.CapturesDrawn` and `GpuWaits.WaitIdleCount` (`VulkanContext.Waits`) let tests and `--profile` check
@@ -5151,6 +5152,19 @@ inject and integrate run as two `ComputePass`es, but their own set still comes f
 a comparing sampler and the sky through one with mips, and the layer can make neither yet.
 Losing `BeginHistoryCompute`'s barrier costs nothing: a compute pass's opening barrier waits
 for last frame's fragment reads of the history and the sum as that one did.
+
+The environment's filters, the reflection probes' blur and sky fill, and the light probes' fold,
+blend and invalidate moved after them. A sampler can read between mips now, with
+`SamplerDescription.Mipmapped`, which the environment filter and the reflection blur need, and
+`ImageGroup.Make` takes buffers too, by their block's name, so the probe passes bind the staging
+slots and ids `ProbeVolumeAtlases` makes. The sky fill and the fold read only the sky's sharpest
+level, so they use a plain linear sampler. Their own barriers are gone, but three stay:
+`ProbeVolume.BeginTraces` before `ProbeTracePass`, which still records outside the layer and
+writes the staging slots, the barrier before `RecordBlend` updates the ids with
+`CmdUpdateBuffer`, and the one before the baker copies the staging slots back. The reflection
+capture's layout moves and the blits that make its mips stay hand-recorded until the layer can
+copy (stage 1e), and so do the environment cubes' mip blits. `probe_sample.comp` and the
+probe test hooks stay on Vulkan, as only tests run them.
 
 ## Resource lifetime
 

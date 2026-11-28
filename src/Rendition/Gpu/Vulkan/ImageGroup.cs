@@ -38,8 +38,11 @@ internal sealed class ImageGroup(VulkanGpu gpu, SamplerId sampler) : IDisposable
     /// <summary>The group to set, or 0 before the first <see cref="Make"/>.</summary>
     public BindGroupId Id { get; private set; }
 
-    /// <summary>Lets go of the group and its images, then makes it again for <paramref name="pipeline"/>'s group <paramref name="group"/>.</summary>
-    public void Make(PipelineId pipeline, int group, ReadOnlySpan<GroupImage> images)
+    /// <summary>
+    /// Lets go of the group and its images, then makes it again for <paramref name="pipeline"/>'s group
+    /// <paramref name="group"/>, also binding <paramref name="buffers"/>, which the caller adopted and keeps.
+    /// </summary>
+    public void Make(PipelineId pipeline, int group, ReadOnlySpan<GroupImage> images, ReadOnlySpan<(string Name, BufferId Buffer)> buffers = default)
     {
         Dispose();
         if (_views.Length != images.Length)
@@ -47,7 +50,12 @@ internal sealed class ImageGroup(VulkanGpu gpu, SamplerId sampler) : IDisposable
             _views = new ViewId[images.Length];
         }
 
-        var binds = new Bind[images.Length];
+        var binds = new Bind[images.Length + buffers.Length];
+        for (int i = 0; i < buffers.Length; i++)
+        {
+            binds[images.Length + i] = Bind.Buffer(buffers[i].Name, buffers[i].Buffer);
+        }
+
         for (int i = 0; i < images.Length; i++)
         {
             var image = images[i];

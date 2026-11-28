@@ -94,7 +94,6 @@ internal sealed unsafe class BakeProbeSteps
         int slots = Math.Min(volume.Faces?.Slots ?? 0, volume.Atlases.StagingSlots);
         _inGroup = Math.Min(slots, InBatch() - _row);
         _kit.Baker.Probes.RecordCopyFaces(cmd, targets.Faces, _row, _inGroup);
-        volume.BeginFolds(cmd);
         for (int slot = 0; slot < _inGroup; slot++)
         {
             volume.RecordFold(cmd, slot, _kit.Area.Probes!.Value.Spacing, _kit.Area.SkyIntensity);

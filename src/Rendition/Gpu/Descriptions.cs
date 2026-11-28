@@ -33,8 +33,12 @@ internal enum SamplerAddress
     Repeat,
 }
 
-/// <summary>A sampler that reads the first mip, clamping at the edges unless <see cref="Address"/> says otherwise.</summary>
-internal readonly record struct SamplerDescription(SamplerFilter Filter, SamplerAddress Address = SamplerAddress.Clamp);
+/// <summary>
+/// A sampler that clamps at the edges unless <see cref="Address"/> says otherwise. It reads only the first mip unless
+/// <see cref="Mipmapped"/>, when it blends between mips the way <see cref="Filter"/> blends texels, as far down as the
+/// view goes.
+/// </summary>
+internal readonly record struct SamplerDescription(SamplerFilter Filter, SamplerAddress Address = SamplerAddress.Clamp, bool Mipmapped = false);
 
 /// <summary>
 /// A pipeline that draws triangles into colour targets of <see cref="ColorFormats"/>, with no depth. With

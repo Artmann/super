@@ -1,5 +1,6 @@
 using System.Numerics;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
 using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
@@ -28,7 +29,7 @@ internal sealed class EnvironmentSky
     private bool _pending;
 
     /// <param name="weather">The clouds' weather map and its repeating sampler, for the clouds the captures draw.</param>
-    public EnvironmentSky((VulkanContext Context, VulkanGpu Gpu) device, FrameRing ring, (Sampler Repeat, ImageView View) weather)
+    public EnvironmentSky((VulkanContext Context, VulkanGpu Gpu) device, FrameRing ring, (SamplerId Repeat, ImageView View) weather)
     {
         var context = device.Context;
         _context = context;
