@@ -24,8 +24,9 @@ internal sealed class GpuTimer : IDisposable
 
     private readonly string[] _passNames;
     private readonly VulkanGpu _gpu;
-    // One query set per frame slot, and whether that slot was timed since it was last read.
-    private readonly (QuerySetId[] Sets, bool[] Written) _slots;
+    // One query set per frame slot, and how many marks that slot got since it was last read. A frame that left a
+    // mark out isn't read, since that query still holds an older frame's time.
+    private readonly (QuerySetId[] Sets, int[] Marks) _slots;
     private readonly ulong[] _stamps;
     private readonly GpuPassTime[] _times;
     private readonly GpuWorkCounter? _counter;
@@ -48,7 +49,7 @@ internal sealed class GpuTimer : IDisposable
         _counter = counter;
         _stamps = new ulong[passNames.Length + 1];
         _times = new GpuPassTime[passNames.Length];
-        _slots = (new QuerySetId[framesInFlight], new bool[framesInFlight]);
+        _slots = (new QuerySetId[framesInFlight], new int[framesInFlight]);
         for (int i = 0; i < framesInFlight; i++)
         {
             _slots.Sets[i] = gpu.CreateQuerySet(_stamps.Length);
@@ -69,7 +70,6 @@ internal sealed class GpuTimer : IDisposable
         }
 
         _frame = frame;
-        _slots.Written[frame] = true;
         _counter?.Begin(cmd, frame);
         _nextMark = 0;
         Mark(cmd);
@@ -87,6 +87,7 @@ internal sealed class GpuTimer : IDisposable
             _mark.Reset();
             _mark.WriteTimestamp(_slots.Sets[_frame], _nextMark++);
             _gpu.Play(_mark, cmd);
+            _slots.Marks[_frame] = _nextMark;
         }
     }
 
@@ -102,18 +103,14 @@ internal sealed class GpuTimer : IDisposable
     }
 
     /// <summary>
-    /// Reads a frame's results, once. Its fence must have been waited on. False when nothing was timed in that slot
-    /// since it was last read.
+    /// Reads a frame's results, once. Its fence must have been waited on. False when that slot wasn't timed since it
+    /// was last read, or its frame left a mark out.
     /// </summary>
     public bool Collect(int frame)
     {
-        if (!_slots.Written[frame])
-        {
-            return false;
-        }
-
-        _slots.Written[frame] = false;
-        if (!_gpu.ReadQuerySet(_slots.Sets[frame], _stamps))
+        bool whole = _slots.Marks[frame] == _stamps.Length;
+        _slots.Marks[frame] = 0;
+        if (!whole || !_gpu.ReadQuerySet(_slots.Sets[frame], _stamps))
         {
             return false;
         }

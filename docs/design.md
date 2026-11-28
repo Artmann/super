@@ -5276,7 +5276,10 @@ no way to destroy a sampler, and the glass copy's `MipDraws` is made again each 
 `GpuTimer` marks the passes with `CommandList.WriteTimestamp` into a query set from
 `CreateQuerySet`, one set per frame slot, and reads them with `ReadQuerySet` in nanoseconds
 once that frame's fence is done. A mark is a list of its own, played into the frame's command
-buffer between passes, and a mark inside a pass throws. WebGPU writes timestamps only at the
+buffer between passes; a `WriteTimestamp` recorded inside a layer pass throws, and one played
+inside a raw Vulkan render pass is a validation error, since resetting a query isn't allowed
+there. A frame that left a mark out isn't read, since that query still holds an older frame's
+time. WebGPU writes timestamps only at the
 beginning or end of a pass, through `timestampWrites`, so the browser backend will write a mark
 as the next pass's beginning, or the last pass's end when none follows, and several marks with
 no pass between them read the same time. That is the time the old marks gave too, since a

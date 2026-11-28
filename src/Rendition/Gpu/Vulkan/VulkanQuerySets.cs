@@ -77,14 +77,19 @@ internal sealed unsafe class VulkanQuerySets(VulkanContext context) : IDisposabl
         }
 
         result.Check();
-        // In decimal, since ticks since the GPU started don't fit a double's 53 bits exactly.
         for (int i = 0; i < count; i++)
         {
-            nanoseconds[i] = (ulong)(set.Ticks[i] * _stamps.Period);
+            nanoseconds[i] = Nanoseconds(set.Ticks[i], _stamps.Period);
         }
 
         return true;
     }
+
+    /// <summary>
+    /// <paramref name="ticks"/> of a clock that ticks every <paramref name="period"/> nanoseconds. In decimal, since
+    /// ticks since the GPU started don't fit a double's 53 bits exactly.
+    /// </summary>
+    internal static ulong Nanoseconds(ulong ticks, decimal period) => (ulong)(ticks * period);
 
     public void Destroy(QuerySetId id)
     {
