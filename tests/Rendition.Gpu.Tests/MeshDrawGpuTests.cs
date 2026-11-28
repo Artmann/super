@@ -174,6 +174,36 @@ public sealed class MeshDrawGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void An_indirect_draw_reads_its_arguments_from_its_offset()
+    {
+        using var bench = new Bench(gpu, depth: false);
+        var pipeline = bench.Pipeline();
+        var vertices = bench.Buffer<Vector3>(
+            [new(-1f, -1f, 0.5f), new(-1f, 0f, 0.5f), new(0f, -1f, 0.5f), new(0f, -1f, 0.5f), new(-1f, 0f, 0.5f), new(0f, 0f, 0.5f)],
+            BufferUsageFlags.VertexBufferBit);
+        var instances = bench.Buffer<Instance>(
+            [new(Vector2.Zero, Red), new(new Vector2(1f, 0f), Green), new(new Vector2(0f, 1f), Blue), new(Vector2.One, Red)],
+            BufferUsageFlags.VertexBufferBit);
+
+        // Two draws' arguments: all four quarters, then the top right one alone.
+        var args = bench.Buffer<uint>([6, 4, 0, 0, 6, 1, 0, 1], BufferUsageFlags.IndirectBufferBit);
+
+        var pixels = bench.Draw(commands =>
+        {
+            commands.SetPipeline(pipeline);
+            commands.SetVertexBuffer(0, vertices, 0);
+            commands.SetVertexBuffer(1, instances, 0);
+            commands.DrawIndirect(args, 16);
+        });
+
+        Assert.Equal(Black, Pixel(pixels, 16, 16));
+        Assert.Equal(Green, Pixel(pixels, 48, 16));
+        Assert.Equal(Black, Pixel(pixels, 16, 48));
+        Assert.Equal(Black, Pixel(pixels, 48, 48));
+        bench.AssertNoValidationErrors();
+    }
+
+    [Fact]
     public void A_scissor_keeps_the_draw_inside_its_rectangle()
     {
         using var bench = new Bench(gpu, depth: false);

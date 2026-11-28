@@ -106,9 +106,8 @@ frame's blades, "Grass shadows" drawing them into the sun's two nearest cascades
 blades" drawing them into the G-buffer, after its own draws and before "Decals". Lighting their
 pixels shows in "Lighting". In the Terrain example at 1920 by 1080 from low over the valley, they
 take about 0.11, 0.04 and 0.18 ms. Lower `Graphics.Drawing.GrassDetail` to draw fewer, or turn
-`Graphics.Surfaces.Grass` off. The marks either side of "Grass blades" fall inside the
-G-buffer's render pass, where a shader count can't begin or end, so the shaders "Grass blades"
-and "Decals" run are counted under "G-buffer" and they count none of their own.
+`Graphics.Surfaces.Grass` off. The blades draw in a pass of their own after the G-buffer's,
+so "G-buffer", "Grass blades" and "Decals" each count their own shaders.
 
 ## Hitches
 
