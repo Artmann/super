@@ -1,7 +1,5 @@
 using System.Numerics;
-using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
-using Rendition.Gpu;
 using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
@@ -41,6 +39,7 @@ internal sealed unsafe class TransparentPass : IDisposable
     private readonly SceneList _list;
     private readonly List<PipelineVariants> _pipelines = [];
     private readonly List<TransparentStep> _steps = [];
+    private readonly TransparentRuns _runs;
     private GlassItem[] _glass = new GlassItem[64];
 
     public TransparentPass(
@@ -53,7 +52,6 @@ internal sealed unsafe class TransparentPass : IDisposable
         var context = device.Context;
         _context = context;
         _resources = resources;
-        var api = context.Api;
 
         // The studio's reflections and light, the copy of the scene, depth, the reflection probes and the background.
         const int bindingCount = 6;
@@ -88,6 +86,7 @@ internal sealed unsafe class TransparentPass : IDisposable
         var culled = PipelineFactory.Create(context, description);
         description.TwoSided = true;
         _pipelines.Add(_list.Adopt(culled, PipelineFactory.Create(context, description)));
+        _runs = new TransparentRuns((device.Gpu, context.Api), _list, new ScenePipelines(_pipelines, resources), _environmentSet);
     }
 
     /// <summary>
@@ -143,73 +142,7 @@ internal sealed unsafe class TransparentPass : IDisposable
                 (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
         }
 
-        TransparentTargets.Begin(_context.Api, cmd, targets);
-        RecordSteps(cmd, targets, frameSet, scene, particles);
-        _context.Api.CmdEndRendering(cmd);
-    }
-
-    private enum Binding
-    {
-        None,
-        Particles,
-        Glass,
-    }
-
-    // Records the plan's steps in order, inside rendering begun on the targets, binding each kind's state as it changes.
-    private void RecordSteps(
-        CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, in SceneGeometry glass, in ParticleDraws particles)
-    {
-        var bound = Binding.None;
-        foreach (var step in _steps)
-        {
-            switch (step.Kind)
-            {
-                case TransparentStepKind.Particles:
-                    if (bound != Binding.Particles)
-                    {
-                        particles.Pass.Bind(cmd, frameSet, particles.FrameIndex, particles.Camera);
-                        bound = Binding.Particles;
-                    }
-
-                    particles.Pass.Draw(cmd, step.First, step.Count);
-                    break;
-
-                case TransparentStepKind.Copy:
-                    _context.Api.CmdEndRendering(cmd);
-                    TransparentTargets.CopyScene(_context.Api, cmd, targets);
-                    TransparentTargets.Begin(_context.Api, cmd, targets);
-                    bound = Binding.None;
-                    break;
-
-                case TransparentStepKind.Glass:
-                    if (bound != Binding.Glass)
-                    {
-                        BindGlass(cmd, frameSet);
-                        bound = Binding.Glass;
-                    }
-
-                    DrawGlass(cmd, step, glass);
-                    break;
-            }
-        }
-    }
-
-    private void BindGlass(CommandBuffer cmd, DescriptorSet frameSet)
-    {
-        var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _environmentSet };
-        _context.Api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _list.Layout, 0, 3, sets, 0, null);
-    }
-
-    private void DrawGlass(CommandBuffer cmd, TransparentStep step, in SceneGeometry glass)
-    {
-        int index = step.First;
-        var constants = SceneDraws.Constants(glass.Draws[index], cascade: 0, _resources.Materials.SwayOf, glass.Details);
-        constants.Tint.W = step.Refracts ? 1f : 0f;
-        var copies = new SceneCopies(glass.Draws, MemoryMarshal.CreateReadOnlySpan(ref index, 1), glass.Meshes, glass.Instances);
-        // One list per glass draw for now, played into the rendering begun by hand, which binds the frame and environment.
-        var drawn = new SceneDraws.Bound();
-        SceneDraws.Draw(_list.Begin(), new ScenePipelines(_pipelines, _resources), copies, constants, ref drawn);
-        _list.Play(cmd);
+        _runs.Record(cmd, (targets, frameSet), _steps, scene, particles);
     }
 
     /// <summary>Finds the glass among the draws, with how far each is and where it lands on screen.</summary>
@@ -265,6 +198,7 @@ internal sealed unsafe class TransparentPass : IDisposable
     public void Dispose()
     {
         var api = _context.Api;
+        _runs.Dispose();
         _list.Dispose();
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _environmentLayout, null);

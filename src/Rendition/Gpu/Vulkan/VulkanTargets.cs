@@ -19,6 +19,7 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
     private readonly Image[] _colors = new Image[MaxTargets];
     private int _count;
     private Image _depth;
+    private bool _depthReadOnly;
 
     /// <summary>Forgets the targets of a list that threw part way.</summary>
     public void Clear()
@@ -75,8 +76,8 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
 
         if (_depth.Handle != 0)
         {
-            api.Transition(cmd, new ImageTransition(_depth, ImageAspectFlags.DepthBit, ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal),
-                (DepthTests, AccessFlags2.DepthStencilAttachmentWriteBit), (Readers, AccessFlags2.ShaderSampledReadBit));
+            api.Transition(cmd, new ImageTransition(_depth, ImageAspectFlags.DepthBit, DepthLayout(_depthReadOnly), ImageLayout.ShaderReadOnlyOptimal),
+                (DepthTests, DepthAccess(_depthReadOnly)), (Readers, AccessFlags2.ShaderSampledReadBit));
         }
 
         Clear();
@@ -136,19 +137,22 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
             return default;
         }
 
-        if (target[3] != 0)
-        {
-            throw new NotSupportedException("The Vulkan backend of the GPU layer can't test against read-only depth yet.");
-        }
-
         var view = views[target[0]];
         var load = (LoadOp)target[1];
+        _depthReadOnly = target[3] != 0;
+        if (_depthReadOnly && load != LoadOp.Load)
+        {
+            throw new InvalidOperationException("A read-only depth target can't be cleared or thrown away, since nothing is written to it; load it.");
+        }
+
+        // Read-only depth is tested in its own layout, which shaders may sample in the same pass, and nothing is stored.
+        var layout = DepthLayout(_depthReadOnly);
         if (!view.Held)
         {
             // A held view's caller moves it in and out, so End skips it.
-            api.Transition(cmd, new ImageTransition(view.Image, ImageAspectFlags.DepthBit, Resting(load), ImageLayout.DepthAttachmentOptimal),
+            api.Transition(cmd, new ImageTransition(view.Image, ImageAspectFlags.DepthBit, Resting(load), layout),
                 (Readers, AccessFlags2.ShaderSampledReadBit),
-                (DepthTests, AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.DepthStencilAttachmentWriteBit));
+                (DepthTests, DepthAccess(_depthReadOnly)));
             _depth = view.Image;
         }
 
@@ -156,12 +160,19 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
         {
             SType = StructureType.RenderingAttachmentInfo,
             ImageView = view.View,
-            ImageLayout = ImageLayout.DepthAttachmentOptimal,
+            ImageLayout = layout,
             LoadOp = Of(load),
-            StoreOp = AttachmentStoreOp.Store,
+            StoreOp = _depthReadOnly ? AttachmentStoreOp.None : AttachmentStoreOp.Store,
             ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(BitConverter.Int32BitsToSingle(target[2]), 0)),
         };
     }
+
+    private static ImageLayout DepthLayout(bool readOnly) =>
+        readOnly ? ImageLayout.DepthReadOnlyOptimal : ImageLayout.DepthAttachmentOptimal;
+
+    private static AccessFlags2 DepthAccess(bool readOnly) => readOnly
+        ? AccessFlags2.DepthStencilAttachmentReadBit
+        : AccessFlags2.DepthStencilAttachmentReadBit | AccessFlags2.DepthStencilAttachmentWriteBit;
 
     /// <summary>The layout a target is moved from: resting when the pass keeps what it held, or nothing in particular.</summary>
     private static ImageLayout Resting(LoadOp load) => load == LoadOp.Load ? ImageLayout.ShaderReadOnlyOptimal : ImageLayout.Undefined;

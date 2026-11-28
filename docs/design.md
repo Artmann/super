@@ -5055,7 +5055,9 @@ draws depth alone, as a shadow map does. Bind groups are bound at the next draw,
 so they can be set before or after the pipeline, as in WebGPU. A writable depth target moves
 to `DepthAttachmentOptimal` as the pass begins (from `Undefined` unless it loads) and back to
 `ShaderReadOnlyOptimal` as it ends, waiting for and readying the depth tests as well as the
-shaders. Testing against read-only depth throws for now; the passes that need it bring it.
+shaders. A read-only depth target must load, moves to `DepthReadOnlyOptimal` instead, so shaders
+may sample it in the same pass, and stores nothing. A held one is left in that layout by its
+caller, as glass's depth is.
 Labels aren't played yet.
 
 Two bridges last until every pass has moved. `VulkanGpu.Adopt` takes an image view or a
@@ -5159,11 +5161,14 @@ fullscreen triangle at the far plane with compare `Always`, since WebGPU has no 
 part of a target. The grass's blades still begin over a cascade by hand
 (`ShadowPass.BeginOver`) until the grass moves. The mirror begins its pass through the layer
 too, with its two layers and its depth adopted held: `MirrorTargets` moves them to drawing
-first and on to the mip blits after, since two views of one image are drawn at once. The
-G-buffer, glass, and the light
-and reflection probes' captures each still begin their rendering and bind their own sets by
-hand, then play the list into it; the cube captures keep their multiview rendering and their
-probe constants, pushed after the draw constants. Glass plays one list per draw for now.
+first and on to the mip blits after, since two views of one image are drawn at once. Glass
+and particles begin their pass through the layer over Hdr and read-only depth, both held,
+with one list for each run between the copies of the scene, which are still made by hand
+between plays. Their layouts differ, so each sets every group it reads through the layer
+whenever the kind of draw changes, and glass forgets the pipeline, mesh and materials it had
+bound. The G-buffer and the light and reflection probes' captures each still begin their
+rendering and bind their own sets by hand, then play the list into it; the cube captures
+keep their multiview rendering and their probe constants, pushed after the draw constants.
 
 Compute runs through `ComputePass`, which makes a compute pipeline from one shader and can
 be lent set layouts as `FullscreenPass` can. Each `Record` is a compute pass of its own with
