@@ -1,4 +1,6 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 
@@ -25,29 +27,34 @@ internal sealed unsafe class MirrorPipeline : IDisposable
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _set;
-    private readonly PipelineLayout _layout;
+    private readonly SceneList _list;
     private readonly List<PipelineVariants> _pipelines = [];
 
-    public MirrorPipeline(VulkanContext context, DescriptorKit kit, ResourceTable resources)
+    // The mirror's two layers and its depth, adopted into the layer; see Draw.
+    private readonly AdoptedTarget[] _held;
+
+    public MirrorPipeline((VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, ResourceTable resources)
     {
+        _held = [new(device.Gpu), new(device.Gpu), new(device.Gpu)];
+        var context = device.Context;
         _context = context;
         _resources = resources;
         _setLayout = context.CreateSetLayout(LitCaptureSet.Bindings);
         _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 4));
         _set = context.AllocateSet(_pool, _setLayout);
-        _layout = context.CreatePipelineLayout([kit.FrameSetLayout, resources.Layout, _setLayout], SceneDraws.PushRange);
+        _list = new SceneList(device, resources, [kit.FrameSetLayout, resources.Layout, _setLayout], SceneDraws.PushRange);
 
         var description = new PipelineDescription
         {
             VertexShader = "mirror.vert",
             FragmentShader = "mirror.frag",
-            Layout = _layout,
+            Layout = _list.Layout,
             ColorFormats = [GBuffer.HdrFormat, GBuffer.HdrFormat],
             DepthFormat = GBuffer.DepthFormat,
             VertexBindings = SceneDraws.VertexBindings,
             VertexAttributes = MirrorAttributes,
         };
-        _pipelines.Add(new PipelineVariants(PipelineFactory.Create(context, description),
+        _pipelines.Add(_list.Adopt(PipelineFactory.Create(context, description),
             PipelineFactory.Create(context, description with { TwoSided = true })));
     }
 
@@ -60,23 +67,35 @@ internal sealed unsafe class MirrorPipeline : IDisposable
         LitCaptureSet.Write(_context, _set, new LitCaptureTextures(irradiance, depth, sunShadow, environment));
     }
 
-    /// <summary>Draws the scene's solid surfaces into the mirror's targets, which drawing has begun on.</summary>
-    public void Draw(CommandBuffer cmd, DescriptorSet frameSet, in SceneGeometry geometry)
+    /// <summary>
+    /// Draws the scene's solid surfaces into the mirror's targets, both layers cleared to nothing drawn and the depth to
+    /// the far plane. <see cref="MirrorTargets"/> moves them to drawing first and on after, so they are adopted held.
+    /// </summary>
+    public void Draw(CommandBuffer cmd, DescriptorSet frameSet, in SceneGeometry geometry, MirrorTargets targets)
     {
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _set };
-        _context.Api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 3, sets, 0, null);
-        SceneDraws.Record(new SceneTarget(_context.Api, cmd, _layout), new ScenePipelines(_pipelines, _resources),
-            geometry, new SceneDrawOptions(ScenePass.Opaque));
+        _context.Api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _list.Layout, 0, 3, sets, 0, null);
+        var into = _list.Begin();
+        var (color, depth, extent) = (targets.Color, targets.Depth, targets.Extent);
+        ReadOnlySpan<ColorTarget> layers =
+        [
+            new(_held[0].ForHeld(color.LayerViews[0], color.Image, extent), LoadOp.Clear, default),
+            new(_held[1].ForHeld(color.LayerViews[1], color.Image, extent), LoadOp.Clear, default),
+        ];
+        into.Commands.BeginRenderPass(layers, new DepthTarget(_held[2].ForHeld(depth.View, depth.Image, extent), LoadOp.Clear, 0f, ReadOnly: false));
+        SceneDraws.Record(into, new ScenePipelines(_pipelines, _resources), geometry, new SceneDrawOptions(ScenePass.Opaque));
+        into.Commands.EndPass();
+        _list.Play(cmd);
     }
 
     public void Dispose()
     {
-        foreach (var pipelines in _pipelines)
+        foreach (var held in _held)
         {
-            pipelines.Culled.Destroy();
-            pipelines.TwoSided.Destroy();
+            held.Dispose();
         }
 
-        _context.DestroyLayouts(_layout, _pool, _setLayout);
+        _list.Dispose();
+        _context.DestroySets(_pool, _setLayout);
     }
 }

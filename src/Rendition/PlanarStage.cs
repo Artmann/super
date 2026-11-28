@@ -1,4 +1,5 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
 
@@ -27,13 +28,14 @@ internal sealed class PlanarStage : IDisposable
     private DrawItem[] _draws = [];
     private int _drawn;
 
-    public PlanarStage(VulkanContext context, DescriptorKit kit, ResourceTable resources, FrameSwitches switches,
+    public PlanarStage((VulkanContext Context, VulkanGpu Gpu) device, DescriptorKit kit, ResourceTable resources, FrameSwitches switches,
         (List<Mesh?> Meshes, List<PartDetail> Details) scene)
     {
+        var context = device.Context;
         _context = context;
         _switches = switches;
         _scene = scene;
-        _pipeline = new MirrorPipeline(context, kit, resources);
+        _pipeline = new MirrorPipeline(device, kit, resources);
         _targets = new MirrorTargets(context, new Extent2D(1, 1));
     }
 
@@ -157,9 +159,9 @@ internal sealed class PlanarStage : IDisposable
             return;
         }
 
-        _targets.Begin(cmd);
-        _pipeline.Draw(cmd, frameSet, new SceneGeometry(_draws.AsSpan(0, _drawn), _scene.Meshes, _scene.Details, instances));
-        _targets.End(cmd);
+        _targets.Ready(cmd);
+        _pipeline.Draw(cmd, frameSet, new SceneGeometry(_draws.AsSpan(0, _drawn), _scene.Meshes, _scene.Details, instances), _targets);
+        _targets.Finish(cmd);
     }
 
     public void Dispose()

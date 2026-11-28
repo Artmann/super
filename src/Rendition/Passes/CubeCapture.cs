@@ -1,5 +1,7 @@
 using System.Numerics;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
@@ -7,10 +9,10 @@ namespace Rendition.Passes;
 /// <summary>
 /// What drawing the scene round one spot into the six faces of a cube at once takes, shared by the light probes'
 /// <see cref="ProbeCapturePass"/> and <see cref="ReflectionCapturePass"/>: picking the draws a spot sees, starting the
-/// multiview pass, and drawing them at rest in batches with the pass's own pipelines and layout.
+/// multiview pass, and drawing them at rest in batches with the pass's own pipelines, through the GPU layer.
 /// </summary>
 internal sealed unsafe class CubeCapture(
-    VulkanContext context, ResourceTable resources, PipelineLayout layout, List<PipelineVariants> pipelines, Extent2D extent)
+    VulkanContext context, SceneList list, ResourceTable resources, List<PipelineVariants> pipelines, Extent2D extent)
 {
     private readonly List<DrawBatch> _batches = [];
 
@@ -88,10 +90,10 @@ internal sealed unsafe class CubeCapture(
     /// </summary>
     public void Draw(CommandBuffer cmd, ReadOnlySpan<DrawItem> draws, Span<int> kept, List<Mesh?> meshes, InstanceBuffer instances)
     {
-        var target = new SceneTarget(context.Api, cmd, layout);
         var scene = new ScenePipelines(pipelines, resources);
         SceneDraws.Batch(draws, kept, keepOrder: false, _batches);
         var bound = new SceneDraws.Bound();
+        var target = list.Begin();
         foreach (var batch in _batches)
         {
             // No wind: a probe sees things at rest.
@@ -99,5 +101,8 @@ internal sealed unsafe class CubeCapture(
             var copies = new SceneCopies(draws, kept.Slice(batch.First, batch.Count), meshes, instances);
             SceneDraws.Draw(target, scene, copies, constants, ref bound);
         }
+
+        // Played into the multiview rendering begun by hand, which the layer's render passes can't begin yet.
+        list.Play(cmd);
     }
 }

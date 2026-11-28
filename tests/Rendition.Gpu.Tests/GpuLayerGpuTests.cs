@@ -188,6 +188,104 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void A_depth_only_pass_clears_the_part_of_its_target_inside_the_viewport_to_the_far_plane()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var target = Target();
+        using var depth = LayerImages.Depth(gpu.Context, Size);
+        using var adopted = new AdoptedTarget(device);
+        var extent = new Extent2D(Size, Size);
+        var depthView = device.Adopt(depth.View, depth.Image, extent);
+        var halve = HalfFarDepth(device, depthView);
+        var cover = CoverAtFarPlane(device, adopted.For(target, extent), new DepthTarget(depthView, LoadOp.Load, 0f, ReadOnly: false));
+
+        gpu.Context.SubmitAndWait(cmd =>
+        {
+            device.Play(halve, cmd);
+            device.Play(cover, cmd);
+        });
+
+        AssertLeftHalfGreen(target);
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_read_only_depth_target_is_tested_and_left_resting_for_the_next_pass()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var target = Target();
+        using var depth = LayerImages.Depth(gpu.Context, Size);
+        using var adopted = new AdoptedTarget(device);
+        var extent = new Extent2D(Size, Size);
+        var depthView = device.Adopt(depth.View, depth.Image, extent);
+        var halve = HalfFarDepth(device, depthView);
+        var cover = CoverAtFarPlane(device, adopted.For(target, extent), new DepthTarget(depthView, LoadOp.Load, 0f, ReadOnly: true));
+
+        // Played twice, so the second begins from where the first left the depth.
+        gpu.Context.SubmitAndWait(cmd =>
+        {
+            device.Play(halve, cmd);
+            device.Play(cover, cmd);
+            device.Play(cover, cmd);
+        });
+
+        AssertLeftHalfGreen(target);
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_held_read_only_depth_target_is_tested_in_the_read_only_layout_its_caller_left_it_in()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var target = Target();
+        using var depth = LayerImages.Depth(gpu.Context, Size);
+        using var adopted = new AdoptedTarget(device);
+        using var adoptedDepth = new AdoptedTarget(device);
+        var extent = new Extent2D(Size, Size);
+        var depthView = adoptedDepth.ForHeld(depth.View, depth.Image, extent);
+        var halve = HalfFarDepth(device, depthView);
+        var cover = CoverAtFarPlane(device, adopted.For(target, extent), new DepthTarget(depthView, LoadOp.Load, 0f, ReadOnly: true));
+        var api = gpu.Context.Api;
+        var image = depth.Image;
+
+        // As the transparent pass does with the scene's depth: drawn, then moved to read-only for glass, by the caller.
+        gpu.Context.SubmitAndWait(cmd =>
+        {
+            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.DepthBit, ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal),
+                (PipelineStageFlags2.None, AccessFlags2.None),
+                (PipelineStageFlags2.EarlyFragmentTestsBit, AccessFlags2.DepthStencilAttachmentWriteBit));
+            device.Play(halve, cmd);
+            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.DepthBit, ImageLayout.DepthAttachmentOptimal, ImageLayout.DepthReadOnlyOptimal),
+                (PipelineStageFlags2.LateFragmentTestsBit, AccessFlags2.DepthStencilAttachmentWriteBit),
+                (PipelineStageFlags2.EarlyFragmentTestsBit, AccessFlags2.DepthStencilAttachmentReadBit));
+            device.Play(cover, cmd);
+            api.Transition(cmd, new ImageTransition(image, ImageAspectFlags.DepthBit, ImageLayout.DepthReadOnlyOptimal, ImageLayout.ShaderReadOnlyOptimal),
+                (PipelineStageFlags2.LateFragmentTestsBit, AccessFlags2.DepthStencilAttachmentReadBit),
+                (PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit));
+        });
+
+        AssertLeftHalfGreen(target);
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_read_only_depth_target_that_does_not_load_throws()
+    {
+        using var device = new VulkanGpu(gpu.Context);
+        using var depth = LayerImages.Depth(gpu.Context, Size);
+        var depthView = device.Adopt(depth.View, depth.Image, new Extent2D(Size, Size));
+        var commands = new CommandList();
+        commands.BeginRenderPass([], new DepthTarget(depthView, LoadOp.Clear, 0f, ReadOnly: true));
+        commands.EndPass();
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd)));
+        Assert.Equal("A read-only depth target can't be cleared or thrown away, since nothing is written to it; load it.", thrown.Message);
+    }
+
+    [Fact]
     public void A_pass_with_two_targets_writes_both()
     {
         int errors = gpu.ValidationErrors;
@@ -463,6 +561,58 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
 
         gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
         return Read(target);
+    }
+
+    // Clears the depth to the nearest, then its left half back to the far plane, as a shadow tile is cleared.
+    private static CommandList HalfFarDepth(VulkanGpu device, ViewId depth)
+    {
+        var clear = device.CreateRenderPipeline(new RenderPipelineDescription
+        {
+            VertexShader = device.CreateShader("depth_clear.vert"),
+            Targets = [],
+            Depth = new DepthState(GpuFormat.Depth32Float, CompareFunction.Always, Write: true),
+        });
+        var commands = new CommandList();
+        commands.BeginRenderPass([], new DepthTarget(depth, LoadOp.Clear, 1f, ReadOnly: false));
+        commands.SetViewport(0, 0, Size / 2, Size);
+        commands.SetScissor(0, 0, Size / 2, Size);
+        commands.SetPipeline(clear);
+        commands.Draw(3, 1, 0, 0);
+        commands.EndPass();
+        return commands;
+    }
+
+    // Clears the target to black and covers it in green at the far plane, which passes only where the depth is there too.
+    private static CommandList CoverAtFarPlane(VulkanGpu device, ViewId target, in DepthTarget depth)
+    {
+        var cover = device.CreateRenderPipeline(new RenderPipelineDescription
+        {
+            VertexShader = device.CreateShader("fullscreen.vert"),
+            FragmentShader = device.CreateShader("solid_color.frag"),
+            Targets = [new ColorTargetState(GpuFormat.Rgba8Unorm)],
+            Depth = new DepthState(GpuFormat.Depth32Float, CompareFunction.GreaterEqual, Write: false),
+        });
+        var color = new Vector4(0f, 1f, 0f, 1f);
+        var commands = new CommandList();
+        commands.BeginRenderPass([new ColorTarget(target, LoadOp.Clear, new Vector4(0f, 0f, 0f, 1f))], depth);
+        commands.SetPipeline(cover);
+        commands.SetConstants(MemoryMarshal.AsBytes(new ReadOnlySpan<Vector4>(in color)));
+        commands.Draw(3, 1, 0, 0);
+        commands.EndPass();
+        return commands;
+    }
+
+    private void AssertLeftHalfGreen(RenderTarget target)
+    {
+        byte[] pixels = Read(target);
+        for (int y = 0; y < Size; y++)
+        {
+            for (int x = 0; x < Size; x++)
+            {
+                byte[] expected = x < Size / 2 ? [0, 255, 0, 255] : [0, 0, 0, 255];
+                Assert.Equal(expected, pixels.AsSpan((y * Size + x) * 4, 4).ToArray());
+            }
+        }
     }
 
     private void Fill(VulkanGpu device, FullscreenPass pass, ViewId view, Vector4 color)

@@ -1,50 +1,31 @@
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
 
 /// <summary>
-/// What the transparent pass records on the targets themselves: rendering into Hdr over read-only depth, and
-/// the copy of the scene glass looks through.
+/// What the transparent pass draws over: Hdr, with depth attached read-only, both adopted into the GPU layer as held,
+/// since <see cref="BlendStage"/> moves them in and out, and the copy of the scene glass looks through, made by hand.
 /// </summary>
-internal static unsafe class TransparentTargets
+internal sealed unsafe class TransparentTargets(VulkanGpu gpu) : IDisposable
 {
     private const PipelineStageFlags2 ColorStage = PipelineStageFlags2.ColorAttachmentOutputBit;
     private const AccessFlags2 ColorWrite = AccessFlags2.ColorAttachmentWriteBit;
     private const PipelineStageFlags2 CopyStage = PipelineStageFlags2.AllTransferBit;
     private const PipelineStageFlags2 SampledStage = PipelineStageFlags2.FragmentShaderBit;
 
-    /// <summary>Begins rendering into Hdr, with depth attached read-only.</summary>
-    public static void Begin(Vk api, CommandBuffer cmd, GBuffer targets)
-    {
-        var colorAttachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = targets.Hdr.View,
-            ImageLayout = ImageLayout.ColorAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Load,
-            StoreOp = AttachmentStoreOp.Store,
-        };
-        var depthAttachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = targets.Depth.View,
-            ImageLayout = ImageLayout.DepthReadOnlyOptimal,
-            LoadOp = AttachmentLoadOp.Load,
-            StoreOp = AttachmentStoreOp.None,
-        };
-        var rendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, targets.Extent),
-            LayerCount = 1,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &colorAttachment,
-            PDepthAttachment = &depthAttachment,
-        };
+    private readonly AdoptedTarget _hdr = new(gpu);
+    private readonly AdoptedTarget _depth = new(gpu);
 
-        api.CmdBeginRendering(cmd, &rendering);
-        api.SetFullViewport(cmd, targets.Extent);
+    /// <summary>Begins a pass over what Hdr holds, with depth loaded read-only, for glass to test against and read.</summary>
+    public void Begin(CommandList commands, GBuffer targets)
+    {
+        var extent = targets.Extent;
+        commands.BeginRenderPass(
+            [new ColorTarget(_hdr.ForHeld(targets.Hdr.View, targets.Hdr.Image, extent), LoadOp.Load, default)],
+            new DepthTarget(_depth.ForHeld(targets.Depth.View, targets.Depth.Image, extent), LoadOp.Load, 0f, ReadOnly: true));
     }
 
     /// <summary>Copies Hdr into the scene copy, then halves it down the mips, each blurrier than the last.</summary>
@@ -72,5 +53,11 @@ internal static unsafe class TransparentTargets
         api.Transition(cmd, new ImageTransition(targets.Hdr.Image, ImageAspectFlags.ColorBit,
             ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal), (CopyStage, AccessFlags2.TransferReadBit),
             (ColorStage, ColorWrite | AccessFlags2.ColorAttachmentReadBit));
+    }
+
+    public void Dispose()
+    {
+        _hdr.Dispose();
+        _depth.Dispose();
     }
 }

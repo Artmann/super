@@ -1,6 +1,8 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
@@ -20,16 +22,18 @@ internal sealed unsafe class ParticlePass : IDisposable
     private const int ImageCount = 5;
 
     private readonly VulkanContext _context;
+    private readonly VulkanGpu _gpu;
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _set;
     private readonly PipelineLayout _layout;
-    private readonly LivePipeline _pipeline;
+
+    // The pipeline, the set and each frame's buffer, adopted into the GPU layer; see Bind.
+    private readonly PipelineId _pipeline;
+    private readonly BindGroupId _group;
     private readonly GpuBuffer[] _buffers;
-    private readonly float[] _keys = new float[MaxParticles];
-    private readonly int[] _order = new int[MaxParticles];
-    private readonly Particle[] _sorted = new Particle[MaxParticles];
-    private int _count;
+    private readonly BufferId[] _vertices;
+    private readonly ParticleOrder _order = new();
 
     /// <summary>Must match the Camera block in particle.vert and particle.frag.</summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -40,15 +44,18 @@ internal sealed unsafe class ParticlePass : IDisposable
         public Vector4 Forward;
     }
 
-    public ParticlePass(VulkanContext context, DescriptorSetLayout frameSetLayout, int framesInFlight)
+    public ParticlePass((VulkanContext Context, VulkanGpu Gpu) device, DescriptorSetLayout frameSetLayout, int framesInFlight)
     {
+        var context = device.Context;
         _context = context;
-        var api = context.Api;
+        _gpu = device.Gpu;
         _buffers = new GpuBuffer[framesInFlight];
+        _vertices = new BufferId[framesInFlight];
         for (int i = 0; i < framesInFlight; i++)
         {
             _buffers[i] = GpuBuffer.CreateHostVisible(
                 context, (ulong)(MaxParticles * sizeof(Particle)), BufferUsageFlags.VertexBufferBit);
+            _vertices[i] = _gpu.Adopt(_buffers[i].Handle, (long)_buffers[i].Size);
         }
 
         const ShaderStageFlags stages = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit;
@@ -63,7 +70,8 @@ internal sealed unsafe class ParticlePass : IDisposable
         _set = context.AllocateSet(_pool, _setLayout);
         _layout = context.CreatePipelineLayout(
             [frameSetLayout, _setLayout], new PushConstantRange(stages, 0, (uint)sizeof(CameraConstants)));
-        _pipeline = CreatePipeline(context, _layout);
+        _pipeline = _gpu.Adopt(CreatePipeline(context, _layout), _layout, [frameSetLayout, _setLayout], stages);
+        _group = _gpu.Adopt(_set);
     }
 
     // Each particle is one instance of the vertex buffer, blended over the lit picture without a depth test.
@@ -110,73 +118,43 @@ internal sealed unsafe class ParticlePass : IDisposable
     }
 
     /// <summary>This frame's particles as uploaded, furthest first.</summary>
-    public ReadOnlySpan<Particle> Sorted => _sorted.AsSpan(0, _count);
+    public ReadOnlySpan<Particle> Sorted => _order.Sorted;
 
     /// <summary>Copies this frame's particles to the GPU, furthest first, and returns how many fit.</summary>
     public int Upload(int frameIndex, ReadOnlySpan<Particle> particles, Vector3 camera, Vector3 forward)
     {
-        var fitting = particles[..Math.Min(particles.Length, MaxParticles)];
-        SortBackToFront(fitting, (camera, forward), _keys, _order, _sorted);
-        _sorted.AsSpan(0, fitting.Length).CopyTo(new Span<Particle>(_buffers[frameIndex].Mapped, MaxParticles));
-        _count = fitting.Length;
-        return fitting.Length;
+        var sorted = _order.Sort(particles, camera, forward);
+        sorted.CopyTo(new Span<Particle>(_buffers[frameIndex].Mapped, MaxParticles));
+        return sorted.Length;
     }
 
     /// <summary>
-    /// Writes particles into a buffer furthest from the camera first, so each blends over
-    /// the ones behind it. Distance is measured along the view, which suits both kinds of
-    /// camera. Keys and order are scratch space at least as long as the particles.
+    /// Readies drawing particles inside a render pass another list began, with the frame's set as group 0. It sets
+    /// every group the particles read, since what was drawn before may have used another layout.
     /// </summary>
-    internal static void SortBackToFront(
-        ReadOnlySpan<Particle> particles, (Vector3 Camera, Vector3 Forward) view, Span<float> keys, Span<int> order, Span<Particle> into)
+    public void Bind(CommandList commands, BindGroupId frame, int frameIndex, in CameraConstants camera)
     {
-        var (camera, forward) = view;
-        int count = particles.Length;
-        var sortKeys = keys[..count];
-        var sortOrder = order[..count];
-        for (int i = 0; i < count; i++)
-        {
-            // Negated, so the furthest has the smallest key and comes first.
-            sortKeys[i] = -Vector3.Dot(particles[i].Position - camera, forward);
-            sortOrder[i] = i;
-        }
-
-        sortKeys.Sort(sortOrder);
-        for (int i = 0; i < count; i++)
-        {
-            into[i] = particles[sortOrder[i]];
-        }
-    }
-
-    /// <summary>Readies drawing particles inside rendering that another pass began.</summary>
-    public void Bind(CommandBuffer cmd, DescriptorSet frameSet, int frameIndex, in CameraConstants camera)
-    {
-        var api = _context.Api;
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
-        var sets = stackalloc DescriptorSet[] { frameSet, _set };
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        var constants = camera;
-        api.CmdPushConstants(
-            cmd, _layout, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit, 0, (uint)sizeof(CameraConstants), &constants);
-
-        var buffer = _buffers[frameIndex].Handle;
-        ulong offset = 0;
-        api.CmdBindVertexBuffers(cmd, 0, 1, &buffer, &offset);
+        commands.SetPipeline(_pipeline);
+        commands.SetBindGroup(0, frame);
+        commands.SetBindGroup(1, _group);
+        commands.SetConstants(MemoryMarshal.AsBytes(new ReadOnlySpan<CameraConstants>(in camera)));
+        commands.SetVertexBuffer(0, _vertices[frameIndex], 0);
     }
 
     /// <summary>Draws <paramref name="count"/> particles of the sorted list from <paramref name="first"/>, after <see cref="Bind"/>.</summary>
-    public void Draw(CommandBuffer cmd, int first, int count) =>
-        _context.Api.CmdDraw(cmd, 6, (uint)count, 0, (uint)first);
+    public static void Draw(CommandList commands, int first, int count) => commands.Draw(6, count, 0, first);
 
     public void Dispose()
     {
-        foreach (var buffer in _buffers)
+        for (int i = 0; i < _buffers.Length; i++)
         {
-            buffer.Dispose();
+            _gpu.Release(_vertices[i]);
+            _buffers[i].Dispose();
         }
 
         var api = _context.Api;
-        _pipeline.Destroy();
+        _gpu.Destroy(_pipeline);
+        _gpu.Destroy(_group);
         api.DestroyPipelineLayout(_context.Device, _layout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);

@@ -623,6 +623,8 @@ Three decisions, taken here against the design above:
 
 - [ ] **Step 1: Write the failing test** `An_indirect_draw_draws_as_many_instances_as_a_dispatch_wrote`: a compute pass writes `(6, 2, 0, 0)` into a buffer, and an instanced quad draw of `test_mesh` reads it. Two quadrants show and the other two stay clear.
 - [ ] **Step 2: Move the scatter, the ground draws, the blade draws and the grass shadow.** The grass set's per-ring-slot copies become bind groups, one for each ring slot.
+  - With the blades in the layer, the G-buffer and the cascades begin their passes through it, and `ShadowPass.BeginOver` goes. Until then their lists hold draws with no begin-pass word, played into rendering begun by hand, which a WebGPU encoder would reject.
+  - The light and reflection probes' cube captures do the same, for multiview. They need a pass per face, or a layer pass with view masks, before 1f; decide which here.
 - [ ] **Step 3: Run the GPU suite and the shots,** adding the grass example. Expected: as in 1d1 Task 2.
 - [ ] **Step 4: Commit and open the pull request** as 1d1 Task 3 describes. The commit is `refactor: draw grass through the GPU layer`.
 

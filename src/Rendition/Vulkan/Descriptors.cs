@@ -187,6 +187,12 @@ internal static unsafe class Descriptors
     public static void DestroyLayouts(this VulkanContext context, PipelineLayout layout, DescriptorPool pool, DescriptorSetLayout setLayout)
     {
         context.Api.DestroyPipelineLayout(context.Device, layout, null);
+        context.DestroySets(pool, setLayout);
+    }
+
+    /// <summary>Destroys a pool and the set layout its sets were made with.</summary>
+    public static void DestroySets(this VulkanContext context, DescriptorPool pool, DescriptorSetLayout setLayout)
+    {
         context.Api.DestroyDescriptorPool(context.Device, pool, null);
         context.Api.DestroyDescriptorSetLayout(context.Device, setLayout, null);
     }

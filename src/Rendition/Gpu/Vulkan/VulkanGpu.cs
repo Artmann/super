@@ -154,6 +154,15 @@ internal sealed unsafe class VulkanGpu : GpuDevice
     }
 
     /// <summary>
+    /// A graphics pipeline the renderer built itself, such as a scene pass's from a surface shader's code or a
+    /// multiview capture's, for command lists to draw with. The layer takes the pipeline and destroys it with
+    /// <see cref="Destroy(PipelineId)"/>; <paramref name="layout"/> and <paramref name="setLayouts"/> stay lent. Constants
+    /// go to <paramref name="constantStages"/> from offset 0, and live reload still swaps the pipeline under the id.
+    /// </summary>
+    public PipelineId Adopt(LivePipeline pipeline, PipelineLayout layout, DescriptorSetLayout[] setLayouts, ShaderStageFlags constantStages) =>
+        new(_pipelines.Add(new VulkanPipeline(pipeline, layout, setLayouts, new bool[setLayouts.Length], [], constantStages) { LayoutLent = true }));
+
+    /// <summary>
     /// The Vulkan pipeline <paramref name="pipeline"/> is now, which changes when its shaders are reloaded live, for a
     /// pass that bakes only when what it bakes with changes.
     /// </summary>

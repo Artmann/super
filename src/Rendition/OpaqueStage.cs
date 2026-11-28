@@ -33,7 +33,7 @@ internal sealed unsafe class OpaqueStage
         _resources = parts.Resources;
         _switches = parts.Switches;
         _decalPass = new DecalPass(device, kit.FrameSetLayout, parts.Resources, FrameRing.Count);
-        Pass = new GBufferPass(context, kit.FrameSetLayout, parts.Resources);
+        Pass = new GBufferPass(device, kit.FrameSetLayout, parts.Resources);
     }
 
     /// <summary>The G-buffer pass, which also keeps the surface shaders.</summary>

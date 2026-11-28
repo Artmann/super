@@ -1,10 +1,10 @@
+using Rendition.Gpu;
 using Rendition.Vulkan;
-using Silk.NET.Vulkan;
 
 namespace Rendition.Passes;
 
-/// <summary>Where scene draws are recorded: the command buffer, and the pipeline layout their push constants go through.</summary>
-internal readonly record struct SceneTarget(Vk Api, CommandBuffer Cmd, PipelineLayout Layout);
+/// <summary>Where scene draws are recorded: the command list, and the bind group each draw's material reads through.</summary>
+internal readonly record struct SceneTarget(CommandList Commands, MaterialBinding Materials);
 
 /// <summary>
 /// A pass's pipelines for scene draws and the resource table whose materials pick between them. With one entry in

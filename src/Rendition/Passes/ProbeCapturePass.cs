@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition.Passes;
@@ -54,8 +55,8 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _set;
-    private readonly PipelineLayout _layout;
-    private readonly LivePipeline? _pipeline;
+    private readonly SceneList _list;
+    private readonly List<PipelineVariants> _pipelines = [];
     private readonly CubeCapture _faces;
 
     // The draws kept for each probe of the batch: _kept[_starts[p] .. _starts[p + 1]).
@@ -63,8 +64,9 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
     private readonly List<int> _starts = [];
     private readonly List<Vector3> _positions = [];
 
-    public ProbeCapturePass(VulkanContext context, DescriptorSetLayout frameSetLayout, ResourceTable resources)
+    public ProbeCapturePass((VulkanContext Context, VulkanGpu Gpu) device, DescriptorSetLayout frameSetLayout, ResourceTable resources)
     {
+        var context = device.Context;
         _context = context;
         _resources = resources;
         var api = context.Api;
@@ -72,11 +74,9 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
         _setLayout = context.CreateSetLayout(AtlasBindings);
         _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 3));
         _set = context.AllocateSet(_pool, _setLayout);
-        _layout = context.CreatePipelineLayout(
-            [frameSetLayout, resources.Layout, _setLayout],
+        _list = new SceneList(device, resources, [frameSetLayout, resources.Layout, _setLayout],
             new PushConstantRange(SceneDraws.PushStages, 0, (uint)(sizeof(SceneDraws.DrawConstants) + sizeof(ProbeConstants))));
-        List<PipelineVariants> pipelines = [];
-        _faces = new CubeCapture(context, resources, _layout, pipelines, new Extent2D(ProbeVolume.FaceSize, ProbeVolume.FaceSize));
+        _faces = new CubeCapture(context, _list, resources, _pipelines, new Extent2D(ProbeVolume.FaceSize, ProbeVolume.FaceSize));
 
         if (!context.Abilities.Multiview)
         {
@@ -87,7 +87,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
         {
             VertexShader = "probe_capture.vert",
             FragmentShader = "probe_capture.frag",
-            Layout = _layout,
+            Layout = _list.Layout,
             ColorFormats = [ProbeVolume.FacesFormat],
             DepthFormat = GBuffer.DepthFormat,
             VertexBindings = SceneDraws.VertexBindings,
@@ -95,8 +95,8 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
             TwoSided = true,
             ViewMask = 0x3F,
         };
-        _pipeline = PipelineFactory.Create(context, description);
-        pipelines.Add(new PipelineVariants(_pipeline, _pipeline));
+        var pipeline = PipelineFactory.Create(context, description);
+        _pipelines.Add(_list.Adopt(pipeline, pipeline));
     }
 
     /// <summary>
@@ -190,9 +190,9 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
         for (int p = 0; p < probes; p++)
         {
             _faces.Begin(cmd, volume.Faces!.ColorView(p), volume.Faces.DepthView(p), new Vector4(0f, 0f, 0f, ProbeVolume.SkyMark));
-            api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 3, sets, 0, null);
+            api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _list.Layout, 0, 3, sets, 0, null);
             var probe = new ProbeConstants { Probe = new Vector4(_positions[p], 1f) };
-            api.CmdPushConstants(cmd, _layout, SceneDraws.PushStages, (uint)sizeof(SceneDraws.DrawConstants), (uint)sizeof(ProbeConstants), &probe);
+            api.CmdPushConstants(cmd, _list.Layout, SceneDraws.PushStages, (uint)sizeof(SceneDraws.DrawConstants), (uint)sizeof(ProbeConstants), &probe);
 
             int start = _starts[p];
             int count = _starts[p + 1] - start;
@@ -231,11 +231,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
 
     public void Dispose()
     {
-        var api = _context.Api;
-        _pipeline?.Destroy();
-
-        api.DestroyPipelineLayout(_context.Device, _layout, null);
-        api.DestroyDescriptorPool(_context.Device, _pool, null);
-        api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
+        _list.Dispose();
+        _context.DestroySets(_pool, _setLayout);
     }
 }

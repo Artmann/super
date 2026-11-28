@@ -57,42 +57,29 @@ internal sealed unsafe class MirrorTargets : IDisposable
         _laidOut = true;
     }
 
+    /// <summary>The picture, whose two layers <see cref="MirrorPipeline"/> draws into through their own views.</summary>
+    public RenderTarget Color => _color;
+
+    /// <summary>The depth the mirror tests against while it draws.</summary>
+    public RenderTarget Depth => _depth;
+
     /// <summary>
-    /// Begins drawing into both layers' first mip, cleared to nothing drawn, and the depth, cleared to the far plane.
+    /// Moves both layers' first mip and the depth to drawing. They stay with this class rather than the GPU layer,
+    /// because two views of one image are drawn at once and the picture goes on to be halved into its mips.
     /// </summary>
-    public void Begin(CommandBuffer cmd)
+    public void Ready(CommandBuffer cmd)
     {
         var api = _context.Api;
         api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit, ImageLayout.Undefined,
             ImageLayout.ColorAttachmentOptimal) { LayerCount = Layers }, (SampledStage, SampledAccess), (ColorStage, ColorWrite));
         api.Transition(cmd, new ImageTransition(_depth.Image, ImageAspectFlags.DepthBit, ImageLayout.Undefined,
             ImageLayout.DepthAttachmentOptimal), (DepthStages, DepthWrite), (DepthStages, DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit));
-
-        var colors = stackalloc RenderingAttachmentInfo[]
-        {
-            VulkanExtensions.ClearedAttachment(_color.LayerViews[0], ImageLayout.ColorAttachmentOptimal, default),
-            VulkanExtensions.ClearedAttachment(_color.LayerViews[1], ImageLayout.ColorAttachmentOptimal, default),
-        };
-        var depth = VulkanExtensions.ClearedAttachment(_depth.View, ImageLayout.DepthAttachmentOptimal,
-            new ClearValue(depthStencil: new ClearDepthStencilValue(0f, 0)));
-        var rendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, Extent),
-            LayerCount = 1,
-            ColorAttachmentCount = Layers,
-            PColorAttachments = colors,
-            PDepthAttachment = &depth,
-        };
-        api.CmdBeginRendering(cmd, &rendering);
-        api.SetFullViewport(cmd, Extent);
     }
 
-    /// <summary>Ends drawing and halves both layers down their mips, leaving the picture ready to sample.</summary>
-    public void End(CommandBuffer cmd)
+    /// <summary>Halves both layers down their mips once drawing has ended, leaving the picture ready to sample.</summary>
+    public void Finish(CommandBuffer cmd)
     {
         var api = _context.Api;
-        api.CmdEndRendering(cmd);
         api.Transition(cmd, new ImageTransition(_color.Image, ImageAspectFlags.ColorBit, ImageLayout.ColorAttachmentOptimal,
             ImageLayout.TransferDstOptimal) { LayerCount = Layers }, (ColorStage, ColorWrite), (PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit));
         if (_color.Mips > 1)

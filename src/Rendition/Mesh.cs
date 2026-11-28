@@ -1,12 +1,36 @@
+using Rendition.Gpu;
+using Rendition.Gpu.Vulkan;
 using Rendition.Vulkan;
 
 namespace Rendition;
 
-internal sealed class Mesh(GpuBuffer vertices, GpuBuffer indices, uint indexCount) : IDisposable
+/// <summary>
+/// A mesh's vertex and index buffers. The GPU layer knows them as <see cref="VertexBuffer"/> and
+/// <see cref="IndexBuffer"/>, adopted when the mesh is made and let go of when it is disposed.
+/// </summary>
+internal sealed class Mesh : IDisposable
 {
-    public GpuBuffer Vertices { get; } = vertices;
-    public GpuBuffer Indices { get; } = indices;
-    public uint IndexCount { get; } = indexCount;
+    private readonly VulkanGpu _gpu;
+
+    public Mesh(VulkanGpu gpu, GpuBuffer vertices, GpuBuffer indices, uint indexCount)
+    {
+        _gpu = gpu;
+        Vertices = vertices;
+        Indices = indices;
+        IndexCount = indexCount;
+        VertexBuffer = gpu.Adopt(vertices.Handle, (long)vertices.Size);
+        IndexBuffer = gpu.Adopt(indices.Handle, (long)indices.Size);
+    }
+
+    public GpuBuffer Vertices { get; }
+    public GpuBuffer Indices { get; }
+    public uint IndexCount { get; }
+
+    /// <summary>The vertices as the GPU layer knows them.</summary>
+    public BufferId VertexBuffer { get; }
+
+    /// <summary>The indices as the GPU layer knows them.</summary>
+    public BufferId IndexBuffer { get; }
 
     /// <summary>The running total of the mesh's triangle areas, found when it was made. See <see cref="LightmapLayout.CumulativeAreas"/>.</summary>
     public float[] CumulativeAreas { get; set; } = [0f];
@@ -16,6 +40,8 @@ internal sealed class Mesh(GpuBuffer vertices, GpuBuffer indices, uint indexCoun
 
     public void Dispose()
     {
+        _gpu.Release(VertexBuffer);
+        _gpu.Release(IndexBuffer);
         Vertices.Dispose();
         Indices.Dispose();
     }
