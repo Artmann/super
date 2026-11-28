@@ -100,19 +100,6 @@ public class CommandListTests
     }
 
     [Fact]
-    public void A_label_records_the_index_of_its_name()
-    {
-        var commands = new CommandList();
-
-        commands.PushLabel("Bloom");
-        commands.PushLabel("Tonemap");
-        commands.PopLabel();
-
-        Assert.Equal([14, 0, 14, 1, 15], commands.Words.ToArray());
-        Assert.Equal("Tonemap", commands.Label(1));
-    }
-
-    [Fact]
     public void EndPass_without_a_begin_throws()
     {
         var commands = new CommandList();
@@ -161,14 +148,12 @@ public class CommandListTests
 
     private static void Record(CommandList commands)
     {
-        commands.PushLabel("Tonemap");
         commands.BeginRenderPass([new ColorTarget(new ViewId(2), LoadOp.Clear, Vector4.One)], null);
         commands.SetPipeline(new PipelineId(3));
         commands.SetBindGroup(0, new BindGroupId(4));
         commands.SetConstants([1, 2, 3, 4]);
         commands.Draw(3, 1, 0, 0);
         commands.EndPass();
-        commands.PopLabel();
     }
 
     private static int Bits(float value) => BitConverter.SingleToInt32Bits(value);

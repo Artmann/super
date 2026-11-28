@@ -40,6 +40,12 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
 
         // The pass covers the first target, or the depth when it has no colour, as WebGPU's default viewport does.
         var extent = views[count > 0 ? words[2] : words[length - 4]].Extent;
+        if (LoadsHeld(words, count))
+        {
+            // A held target gets no transitions, so nothing else orders this pass after the one that drew into it.
+            api.MemoryBarrier(cmd, (AttachmentStages, AttachmentWrites), (AttachmentStages, AttachmentWrites | AttachmentReads));
+        }
+
         var attachments = stackalloc RenderingAttachmentInfo[count];
         for (int i = 0; i < count; i++)
         {
@@ -165,6 +171,25 @@ internal sealed unsafe class VulkanTargets(Vk api, IdTable<AdoptedView> views)
             StoreOp = _depthReadOnly ? AttachmentStoreOp.None : AttachmentStoreOp.Store,
             ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(BitConverter.Int32BitsToSingle(target[2]), 0)),
         };
+    }
+
+    private const PipelineStageFlags2 AttachmentStages = PipelineStageFlags2.ColorAttachmentOutputBit | DepthTests;
+    private const AccessFlags2 AttachmentWrites = AccessFlags2.ColorAttachmentWriteBit | AccessFlags2.DepthStencilAttachmentWriteBit;
+    private const AccessFlags2 AttachmentReads = AccessFlags2.ColorAttachmentReadBit | AccessFlags2.DepthStencilAttachmentReadBit;
+
+    // Whether the pass keeps what a held target holds, which a pass before it may still be writing.
+    private bool LoadsHeld(ReadOnlySpan<int> words, int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            if ((LoadOp)words[3 + i * 6] == LoadOp.Load && views[words[2 + i * 6]].Held)
+            {
+                return true;
+            }
+        }
+
+        var depth = words.Slice(2 + count * 6, 4);
+        return depth[0] != 0 && (LoadOp)depth[1] == LoadOp.Load && views[depth[0]].Held;
     }
 
     private static ImageLayout DepthLayout(bool readOnly) =>

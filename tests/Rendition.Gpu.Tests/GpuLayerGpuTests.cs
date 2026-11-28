@@ -461,6 +461,43 @@ public sealed class GpuLayerGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public unsafe void A_copied_buffer_holds_the_source_bytes_only_where_they_were_copied()
+    {
+        int errors = gpu.ValidationErrors;
+        using var device = new VulkanGpu(gpu.Context);
+        using var source = GpuBuffer.CreateHostVisible(gpu.Context, 64, BufferUsageFlags.TransferSrcBit);
+        using var destination = GpuBuffer.CreateHostVisible(gpu.Context, 64, BufferUsageFlags.TransferDstBit);
+        var from = new Span<byte>(source.Mapped, 64);
+        for (int i = 0; i < 64; i++)
+        {
+            from[i] = (byte)(i + 1);
+        }
+
+        var to = new Span<byte>(destination.Mapped, 64);
+        to.Clear();
+        var commands = new CommandList();
+        commands.CopyBuffer(device.Adopt(source.Handle, 64), 8, device.Adopt(destination.Handle, 64), 16, 16);
+
+        gpu.Context.SubmitAndWait(cmd => device.Play(commands, cmd));
+
+        // Bytes 8 to 24 of the source hold 9 to 24, and land at 16 to 32.
+        Assert.All(to[..16].ToArray(), value => Assert.Equal(0, value));
+        Assert.Equal(Enumerable.Range(9, 16).Select(i => (byte)i).ToArray(), to[16..32].ToArray());
+        Assert.All(to[32..].ToArray(), value => Assert.Equal(0, value));
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void Copying_a_buffer_inside_a_pass_throws()
+    {
+        var commands = new CommandList();
+        commands.BeginComputePass();
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => commands.CopyBuffer(new BufferId(1), 0, new BufferId(2), 0, 4));
+        Assert.Equal("CopyBuffer was called inside a pass; copy a buffer between passes.", thrown.Message);
+    }
+
+    [Fact]
     public void Clearing_a_buffer_inside_a_pass_throws()
     {
         var commands = new CommandList();

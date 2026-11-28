@@ -135,7 +135,7 @@ internal sealed unsafe class FrameRecorder(
         stages.OpaqueStage.Record(cmd, gBuffer, frameSet, draws.Camera,
             new OpaqueInputs(instances, baking.Frame, lights.EnvironmentSky.Sh, steps.Cameras.Motion, steps.Picker.CameraChunks, steps.Picker.DepthFirstView));
 
-        // The G-buffer's draws and the grass's blades were timed inside it, so this ends the decals.
+        // The opaque stage marked the G-buffer's draws and the grass's blades, so this ends the decals.
         stages.GpuTimer.Mark(cmd);
 
         stages.OcclusionStage.Record(cmd, gBuffer, frameSet, stores.Switches.Off, stages.GpuTimer);

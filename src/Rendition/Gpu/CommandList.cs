@@ -16,9 +16,9 @@ internal enum Command
     DrawIndexed,
     BeginComputePass,
     Dispatch,
-    PushLabel,
-    PopLabel,
     ClearBuffer,
+    DrawIndirect,
+    CopyBuffer,
 }
 
 /// <summary>
@@ -32,9 +32,6 @@ internal sealed class CommandList
 
     /// <summary>Everything recorded since the last <see cref="Reset"/>.</summary>
     public ReadOnlySpan<int> Words => _words.All;
-
-    /// <summary>The name a <see cref="Command.PushLabel"/> word refers to.</summary>
-    public string Label(int index) => _words.Label(index);
 
     public void Reset() => _words.Clear();
 
@@ -124,7 +121,28 @@ internal sealed class CommandList
     public void DrawIndexed(int indexCount, int instanceCount, int firstIndex, int baseVertex, int firstInstance) =>
         _words.Write(Command.DrawIndexed, [indexCount, instanceCount, firstIndex, baseVertex, firstInstance]);
 
+    /// <summary>
+    /// Draws with the vertex count, instance count, first vertex and first instance that four uints of
+    /// <paramref name="buffer"/> hold from <paramref name="offset"/>, as a dispatch before the pass wrote them.
+    /// </summary>
+    public void DrawIndirect(BufferId buffer, int offset)
+    {
+        _words.Require(PassKind.Render, "DrawIndirect was called outside a render pass.");
+        _words.Write(Command.DrawIndirect, [buffer.Value, offset]);
+    }
+
     public void Dispatch(int x, int y, int z) => _words.Write(Command.Dispatch, [x, y, z]);
+
+    /// <summary>
+    /// Copies <paramref name="size"/> bytes from <paramref name="source"/> to <paramref name="destination"/>, between
+    /// passes, as WebGPU's <c>copyBufferToBuffer</c> does. WebGPU can't write a buffer from inside an encoder, so this
+    /// is how a list resets what a dispatch counts into: from a buffer that holds the starting values.
+    /// </summary>
+    public void CopyBuffer(BufferId source, int sourceOffset, BufferId destination, int destinationOffset, int size)
+    {
+        _words.Require(PassKind.None, "CopyBuffer was called inside a pass; copy a buffer between passes.");
+        _words.Write(Command.CopyBuffer, [source.Value, sourceOffset, destination.Value, destinationOffset, size]);
+    }
 
     /// <summary>Sets <paramref name="size"/> bytes of <paramref name="buffer"/> from <paramref name="offset"/> to zero, between passes, as WebGPU's <c>clearBuffer</c> does.</summary>
     public void ClearBuffer(BufferId buffer, int offset, int size)
@@ -132,11 +150,6 @@ internal sealed class CommandList
         _words.Require(PassKind.None, "ClearBuffer was called inside a pass; clear a buffer between passes.");
         _words.Write(Command.ClearBuffer, [buffer.Value, offset, size]);
     }
-
-    /// <summary>Opens a named group for GPU debuggers. The name is kept beside the words, and the word is its index.</summary>
-    public void PushLabel(string name) => _words.Write(Command.PushLabel, [_words.AddLabel(name)]);
-
-    public void PopLabel() => _words.Write(Command.PopLabel, ReadOnlySpan<int>.Empty);
 }
 
 /// <summary>Commands made of others.</summary>
